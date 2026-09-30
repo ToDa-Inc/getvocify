@@ -1,8 +1,10 @@
 """Playbooks v2 fase 2: the call-type catalog, the "when it applies" rule of a type, the CRM
-stages a rule can name, and correcting which playbook a recording was evaluated with.
+stages a rule can name, and correcting which playbook a recording was evaluated with. Also the
+qualification templates (BANT, MEDDIC, MEDDPICC) and "Vuestra empresa" (what Vocify knows about
+the company, once).
 
-Registered before app.api.playbooks so /catalog and /deal-stages are never read as a
-`/{sales_motion_key}` route.
+Registered before app.api.playbooks so /catalog, /deal-stages, /qualification-templates and
+/company are never read as a `/{sales_motion_key}` route.
 """
 
 from __future__ import annotations
@@ -18,7 +20,15 @@ from supabase import Client
 from app.api.playbooks import MANAGE_ROLES, get_playbook_store
 from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
-from app.services.playbooks.catalog import RuleError, catalog_order, catalog_types, is_catalog, validate_applies_to
+from app.services.playbooks.catalog import (
+    RuleError,
+    catalog_order,
+    catalog_types,
+    is_catalog,
+    qualification_templates,
+    validate_applies_to,
+)
+from app.services.playbooks.knowledge import StaleKnowledgeError, normalize_knowledge, sections
 from app.services.playbooks.routing import merge_pin_meta, routing_enabled
 from app.services.playbooks.versions import can_publish
 
@@ -40,6 +50,50 @@ async def get_catalog(membership: Membership = Depends(get_membership)):
     """The call types Vocify ships: role, goal, default rule, name and starter steps (es/en)."""
     del membership
     return {"types": catalog_types()}
+
+
+@router.get("/qualification-templates")
+async def get_qualification_templates(membership: Membership = Depends(get_membership)):
+    """BANT, MEDDIC and MEDDPICC as ready-made "what has to come out of the call" criteria (es/en)."""
+    del membership
+    return {"templates": qualification_templates()}
+
+
+def _company_response(row: Optional[dict]) -> dict:
+    data = normalize_knowledge((row or {}).get("data"))
+    return {"knowledge": data, "updated_at": (row or {}).get("updated_at"), "sections": sections(data)}
+
+
+@router.get("/company")
+async def get_company_knowledge(membership: Membership = Depends(get_membership)):
+    """What Vocify knows about this company (any member of it). Empty, with updated_at null,
+    when nothing was saved yet."""
+    return _company_response(get_playbook_store().get_knowledge(membership.company_id))
+
+
+class CompanyKnowledgeRequest(BaseModel):
+    knowledge: dict
+    base_updated_at: Optional[str] = None
+
+
+@router.put("/company")
+async def put_company_knowledge(
+    body: CompanyKnowledgeRequest,
+    membership: Membership = Depends(get_membership),
+):
+    """Owner/admin. Replaces the company's knowledge; it takes effect at once (no draft).
+    Unknown keys are dropped and long texts clipped. `base_updated_at` from the last read: if
+    someone saved since, 409 `stale_knowledge`."""
+    if not can_publish(membership.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden editar Vuestra empresa")
+    store = get_playbook_store()
+    try:
+        row = store.save_knowledge(
+            membership.company_id, normalize_knowledge(body.knowledge), base_updated_at=body.base_updated_at,
+        )
+    except StaleKnowledgeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
+    return _company_response(row)
 
 
 class RuleRequest(BaseModel):

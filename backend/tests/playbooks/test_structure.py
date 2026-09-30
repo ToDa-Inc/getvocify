@@ -310,7 +310,7 @@ def test_a_source_without_a_process_returns_no_steps_and_no_process():
         "al mes por usuario, con integración nativa con HubSpot y Pipedrive.",
         llm,
     )
-    assert result == {"steps": [], "objections": [], "reason": "no_process", "fallback": False}
+    assert result == {"steps": [], "objections": [], "qualification": [], "reason": "no_process", "fallback": False}
 
 
 def test_a_very_short_source_is_marked_too_short_and_still_gets_its_step():
@@ -409,7 +409,7 @@ def test_structuring_text_returns_steps_objections_and_the_saved_source(client_f
     assert response.status_code == 200
     body = response.json()
     assert body["sales_motion_key"] == "discovery"
-    assert set(body) == {"sales_motion_key", "steps", "objections", "reason", "fallback", "source"}
+    assert set(body) == {"sales_motion_key", "steps", "objections", "qualification", "reason", "fallback", "source"}
     assert body["fallback"] is False and body["reason"] is None
     assert [s["label"] for s in body["steps"]][:2] == ["Apertura con permiso", "Motivo de la llamada"]
     assert body["steps"][0]["step_id"] == "apertura_con_permiso"

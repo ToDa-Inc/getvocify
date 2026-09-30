@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { DotsThree, Plus } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
@@ -9,52 +9,36 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
-import { errorCode, playbooksApi, type EditorDoc } from "@/features/playbooks/api";
+import { playbooksApi } from "@/features/playbooks/api";
 import { PlaybookObjections } from "@/features/playbooks/components/PlaybookObjections";
+import { PlaybookQualification } from "@/features/playbooks/components/PlaybookQualification";
 import { PlaybookStart, type SourceInput } from "@/features/playbooks/components/PlaybookStart";
 import { PlaybookStepRow } from "@/features/playbooks/components/PlaybookStepRow";
+import { usePlaybookDraft, type DraftContent, type Flush } from "@/features/playbooks/hooks/usePlaybookDraft";
+import { linkButton } from "@/features/playbooks/styles";
 import { useLanguage } from "@/lib/i18n";
 import {
-  AUTOSAVE_MS,
   FOCUS_STEPS,
   editorFromStructure,
   stepRate,
   visibleObjections,
   weakestStep,
   type PlaybookInsights,
-  type PlaybookSource,
-  type SaveState,
   type StructureResult,
 } from "@/lib/playbook-doc";
-import {
-  MAX_STEPS,
-  OBJECTION_CATEGORIES,
-  draftError,
-  draftPayload,
-  isLegacyBlob,
-  moveStep,
-  newStepKey,
-  objectionsFromSnapshot,
-  parsePlaybookText,
-  stepsFromSnapshot,
-  type EditorObjection,
-  type EditorStep,
-  type ObjectionCategory,
-} from "@/lib/playbook-editor";
+import { MAX_STEPS, isLegacyBlob, newStepKey, parsePlaybookText, type EditorStep } from "@/lib/playbook-editor";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 
-type Notice = { tone: "info" | "error"; text: string } | null;
-type Replacement = { steps: EditorStep[]; objections: EditorObjection[]; source: PlaybookSource | null };
+export type { Flush } from "@/features/playbooks/hooks/usePlaybookDraft";
 
-/** Saves whatever is pending; resolves false when something could not be saved. */
-export type Flush = () => Promise<boolean>;
+type Notice = { tone: "info" | "error"; text: string } | null;
 
 /**
  * One call type's playbook as a document. Reading and editing are the same view: fields
- * look like text until focused and the changes save themselves. Turning them on for the
- * team is one action for the whole page (PlaybookList), so the document has none.
- * A rep gets the same document read-only.
+ * look like text until focused and the changes save themselves (usePlaybookDraft). Turning
+ * them on for the team is one action for the whole page (PlaybookList), so the document has
+ * none. A rep gets the same document read-only.
  */
 export function PlaybookDocument({
   motionKey,
@@ -64,6 +48,7 @@ export function PlaybookDocument({
   insights,
   onSaved,
   registerFlush,
+  onDelete,
 }: {
   motionKey: string;
   canEdit: boolean;
@@ -75,168 +60,32 @@ export function PlaybookDocument({
   onSaved?: () => void;
   /** The list calls this before turning drafts on, so nothing typed is left behind. */
   registerFlush?: (flush: Flush | null) => void;
+  /** "Eliminar playbook", owned by the list; shown in this document's "···" menu. */
+  onDelete?: () => void;
 }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
-  const [load, setLoad] = useState<"loading" | "error" | "ready">("loading");
-  const [doc, setDoc] = useState<EditorDoc | null>(null);
-  const [steps, setSteps] = useState<EditorStep[]>([]);
-  const [objections, setObjections] = useState<EditorObjection[]>([]);
-  const [added, setAdded] = useState<ObjectionCategory[]>([]);
-  const [touched, setTouched] = useState<Set<string>>(new Set());
-  const [editing, setEditing] = useState(false);
-  const [started, setStarted] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [source, setSource] = useState<PlaybookSource | null>(null);
+  const draft = usePlaybookDraft({ motionKey, canEdit, onSaved, registerFlush });
   const [notice, setNotice] = useState<Notice>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [rebuildOpen, setRebuildOpen] = useState(false);
-  const [pending, setPending] = useState<Replacement | null>(null);
+  const [pending, setPending] = useState<DraftContent | null>(null);
   const [focusKey, setFocusKey] = useState<string | null>(null);
 
-  // What an in-flight save reads without re-rendering: the latest edit and its revision.
-  const latest = useRef({ steps, objections, source, updatedAt: null as string | null });
-  const revision = useRef(0);
-  const inflight = useRef<Promise<boolean> | null>(null);
-  const savedRef = useRef(onSaved);
-  savedRef.current = onSaved;
-  latest.current.steps = steps;
-  latest.current.objections = objections;
-  latest.current.source = source;
-
-  const adopt = useCallback((data: EditorDoc) => {
-    setDoc(data);
-    setSteps(stepsFromSnapshot(data));
-    setObjections(objectionsFromSnapshot(data));
-    setSource(data.source_doc ?? null);
-    latest.current.updatedAt = data.updated_at ?? null;
-    setEditing(data.source === "draft");
-    setStarted(data.source !== "empty");
-    setDirty(false);
-    setTouched(new Set());
-    setAdded([]);
-    setSaveState("idle");
-  }, []);
-
-  const reload = useCallback(async () => {
-    setLoad("loading");
-    try {
-      adopt(await playbooksApi.editor(motionKey));
-      setLoad("ready");
-    } catch {
-      setLoad("error");
-    }
-  }, [adopt, motionKey]);
-
-  useEffect(() => {
-    setNotice(null);
-    void reload();
-  }, [reload]);
-
-  const change = (next: () => void) => {
-    next();
-    revision.current += 1;
-    setDirty(true);
-    if (saveState === "saved") setSaveState("idle");
-  };
-
-  /** Saves what can be saved: a step without a name yet stays on screen and waits. */
-  const save = useCallback(async (): Promise<boolean> => {
-    if (inflight.current) await inflight.current;
-    const { steps: all, objections: answers, source: from, updatedAt } = latest.current;
-    const savable = all.filter((step) => step.label.trim());
-    if (savable.length === 0 || draftError(savable, answers)) return false;
-    const at = revision.current;
-    setSaveState("saving");
-    const run = (async () => {
-      try {
-        const data = await playbooksApi.saveDraft(motionKey, {
-          ...draftPayload(savable, answers),
-          base_updated_at: updatedAt,
-          source_id: from?.id ?? null,
-        });
-        latest.current.updatedAt = data.updated_at ?? null;
-        setDoc(data);
-        // Keep the server's step ids so a renamed step stays the same step for coaching.
-        const ids = (data.steps ?? []).map((step) => step.step_id);
-        setSteps((current) => {
-          let i = 0;
-          return current.map((step) => {
-            if (!step.label.trim()) return step;
-            const id = ids[i++];
-            return step.step_id || !id ? step : { ...step, step_id: id };
-          });
-        });
-        if (revision.current === at) setDirty(false);
-        setSaveState("saved");
-        savedRef.current?.();
-        return true;
-      } catch (error) {
-        setSaveState(errorCode(error) === "stale_draft" ? "stale" : "error");
-        return false;
-      } finally {
-        inflight.current = null;
-      }
-    })();
-    inflight.current = run;
-    return run;
-  }, [motionKey]);
-
-  // Autosave after a quiet moment; a failed save retries once on its own.
-  useEffect(() => {
-    if (!dirty || !editing || !canEdit || saveState === "stale") return;
-    const timer = window.setTimeout(() => void save(), saveState === "error" ? 5000 : AUTOSAVE_MS);
-    return () => window.clearTimeout(timer);
-  }, [steps, objections, dirty, editing, canEdit, saveState, save]);
-
-  // Leaving the page, closing the row or turning things on never loses the last edit.
-  const flushRef = useRef<Flush>(async () => true);
-  flushRef.current = async () => (dirty && editing && canEdit ? save() : true);
-  useEffect(() => {
-    registerFlush?.(() => flushRef.current());
-    const onHide = () => void flushRef.current();
-    window.addEventListener("pagehide", onHide);
-    return () => {
-      window.removeEventListener("pagehide", onHide);
-      registerFlush?.(null);
-      void flushRef.current();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const rows = useMemo(
-    () => visibleObjections(objections, insights?.objections, added),
-    [objections, insights, added],
+    () => visibleObjections(draft.objections, insights?.objections, draft.addedCategories),
+    [draft.objections, insights, draft.addedCategories],
   );
   const weakest = weakestStep(insights);
-  const hasLive = Boolean(doc?.has_live) || doc?.source === "published";
-  const isDraft = doc?.source === "draft";
-  const editable = canEdit && editing;
+  const editable = canEdit && draft.editing;
 
-  const setAnswer = (category: ObjectionCategory, guidance: string) =>
-    change(() =>
-      setObjections((current) =>
-        [...current.filter((item) => item.category !== category), { category, guidance }].sort(
-          (a, b) => OBJECTION_CATEGORIES.indexOf(a.category) - OBJECTION_CATEGORIES.indexOf(b.category),
-        ),
-      ),
-    );
-
-  const apply = (next: Replacement) => {
-    change(() => {
-      setSteps(next.steps);
-      setObjections(next.objections);
-      setSource(next.source);
-      setAdded([]);
-      setTouched(new Set());
-    });
-    setStarted(true);
-    setEditing(true);
+  const replace = (next: DraftContent) => {
+    draft.replace(next);
     setRebuildOpen(false);
   };
 
+  /** A document or audio came back structured: say how, then replace (asking if there is content). */
   const onStructured = (result: StructureResult) => {
     const next = editorFromStructure(result, newStepKey);
     if (next.steps.length === 0) {
@@ -252,9 +101,9 @@ export function PlaybookDocument({
             ? { tone: "info", text: copy.reasonGrouped.replace("{count}", String(next.steps.length)) }
             : null,
     );
-    const replacement = { ...next, source: result.source };
-    if (steps.some((step) => step.label.trim())) setPending(replacement);
-    else apply(replacement);
+    const content = { ...next, source: result.source };
+    if (draft.steps.some((step) => step.label.trim())) setPending(content);
+    else replace(content);
   };
 
   const structure = async (input: SourceInput) =>
@@ -262,20 +111,13 @@ export function PlaybookDocument({
 
   const discard = async () => {
     setDiscarding(true);
-    try {
-      if (isDraft) adopt(await playbooksApi.discardDraft(motionKey));
-      else if (doc) adopt(doc);
-      setNotice(null);
-      savedRef.current?.();
-    } catch {
-      setNotice({ tone: "error", text: copy.saveError });
-    } finally {
-      setDiscarding(false);
-      setDiscardOpen(false);
-    }
+    const ok = await draft.discard();
+    setNotice(ok ? null : { tone: "error", text: copy.saveError });
+    setDiscarding(false);
+    setDiscardOpen(false);
   };
 
-  if (load === "loading") {
+  if (draft.load === "loading") {
     return (
       <p className="inline-flex items-center gap-2 text-sm text-muted-foreground" role="status">
         <VocifySpinner size={12} />
@@ -283,18 +125,17 @@ export function PlaybookDocument({
       </p>
     );
   }
-  if (load === "error") {
+  if (draft.load === "error") {
     return (
       <div className="flex items-center gap-3" role="alert">
         <p className="text-sm text-muted-foreground">{t.product.playbookEditorLoadFailed}</p>
-        <Button type="button" variant="outline" size="sm" onClick={() => void reload()}>
+        <Button type="button" variant="outline" size="sm" onClick={() => void draft.reload()}>
           {t.product.retry}
         </Button>
       </div>
     );
   }
-
-  if (!canEdit && steps.length === 0) {
+  if (!canEdit && draft.steps.length === 0) {
     return <p className={THEME_TOKENS.typography.body}>{t.product.playbookEditorReadOnlyEmpty}</p>;
   }
 
@@ -308,7 +149,7 @@ export function PlaybookDocument({
   ) : null;
 
   // Blank call type: the start box is all there is.
-  if (canEdit && !started && steps.length === 0) {
+  if (canEdit && !draft.started && draft.steps.length === 0) {
     return (
       <div className="space-y-4">
         {meta ? <div className="space-y-0.5">{meta}</div> : null}
@@ -317,25 +158,25 @@ export function PlaybookDocument({
           submit={structure}
           onTemplate={() => {
             setNotice(null);
-            apply({ steps: template(), objections: [], source: null });
+            replace({ steps: template(), objections: [], qualification: [], source: null });
           }}
         />
       </div>
     );
   }
 
+  const { saveState } = draft;
   const saveLabel =
     saveState === "saving"
       ? copy.saving
-      : saveState === "saved" && !dirty
+      : saveState === "saved" && !draft.dirty
         ? copy.saved
         : saveState === "error"
           ? copy.saveError
           : saveState === "stale"
             ? copy.stale
             : null;
-  const legacy = isLegacyBlob(steps);
-  const canDiscard = hasLive && (isDraft || dirty);
+  const canDiscard = draft.hasLive && (draft.isDraft || draft.dirty);
 
   return (
     <div className="space-y-6">
@@ -348,7 +189,7 @@ export function PlaybookDocument({
                 <button
                   type="button"
                   className={cn(THEME_TOKENS.typography.capsLabel, "text-warning underline-offset-4 hover:underline")}
-                  onClick={() => (saveState === "stale" ? void reload() : void save())}
+                  onClick={() => (saveState === "stale" ? void draft.reload() : void draft.save())}
                 >
                   {saveLabel}
                 </button>
@@ -359,11 +200,11 @@ export function PlaybookDocument({
               )
             ) : null}
             {!editable ? (
-              <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(true)}>
+              <Button type="button" variant="ghost" size="sm" onClick={() => draft.setEditing(true)}>
                 {copy.edit}
               </Button>
-            ) : hasLive && !canDiscard ? (
-              <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
+            ) : draft.hasLive && !canDiscard ? (
+              <Button type="button" variant="ghost" size="sm" onClick={() => draft.setEditing(false)}>
                 {copy.done}
               </Button>
             ) : null}
@@ -375,8 +216,11 @@ export function PlaybookDocument({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onSelect={() => setRebuildOpen(true)}>{copy.replaceFrom}</DropdownMenuItem>
-                {canDiscard ? (
-                  <DropdownMenuItem onSelect={() => setDiscardOpen(true)}>{copy.discard}</DropdownMenuItem>
+                {canDiscard ? <DropdownMenuItem onSelect={() => setDiscardOpen(true)}>{copy.discard}</DropdownMenuItem> : null}
+                {onDelete ? (
+                  <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
+                    {copy.deleteAction}
+                  </DropdownMenuItem>
                 ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -392,14 +236,21 @@ export function PlaybookDocument({
         </div>
       ) : null}
 
-      {legacy && editable ? (
+      {isLegacyBlob(draft.steps) && editable ? (
         <div className="flex flex-wrap items-center gap-3 rounded-lg bg-secondary/40 p-3" role="status">
           <p className="flex-1 text-sm text-foreground">{t.product.playbookEditorLegacyBlob}</p>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => apply({ steps: parsePlaybookText(steps[0]?.criterion ?? ""), objections, source })}
+            onClick={() =>
+              replace({
+                steps: parsePlaybookText(draft.steps[0]?.criterion ?? ""),
+                objections: draft.objections,
+                qualification: draft.qualification,
+                source: draft.source,
+              })
+            }
           >
             {t.product.playbookEditorSplit}
           </Button>
@@ -409,50 +260,42 @@ export function PlaybookDocument({
       <section className="space-y-1" aria-label={copy.checksHeading}>
         <h3 className={THEME_TOKENS.typography.capsLabel}>{copy.checksHeading}</h3>
         <ol>
-          {steps.map((step, index) => (
+          {draft.steps.map((step, index) => (
             <PlaybookStepRow
               key={step.key}
               step={step}
               index={index}
-              total={steps.length}
+              total={draft.steps.length}
               editable={editable}
-              touched={touched.has(step.key)}
+              touched={draft.touched.has(step.key)}
               rate={canEdit && !editable ? stepRate(insights, step.step_id) : null}
               weakest={canEdit && !editable && Boolean(step.step_id) && step.step_id === weakest}
               autoFocus={focusKey === step.key}
-              onChange={(patch) =>
-                change(() => setSteps((current) => current.map((item) => (item.key === step.key ? { ...item, ...patch } : item))))
-              }
-              onBlur={() => setTouched((current) => (current.has(step.key) ? current : new Set(current).add(step.key)))}
-              onMove={(delta) => change(() => setSteps((current) => moveStep(current, index, delta)))}
-              onRemove={() => change(() => setSteps((current) => current.filter((item) => item.key !== step.key)))}
+              onChange={(patch) => draft.updateStep(step.key, patch)}
+              onBlur={() => draft.touchStep(step.key)}
+              onMove={(delta) => draft.moveStep(index, delta)}
+              onRemove={() => draft.removeStep(step.key)}
             />
           ))}
         </ol>
-        {editable && steps.length < MAX_STEPS ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-            onClick={() => {
-              const key = newStepKey();
-              setFocusKey(key);
-              change(() => setSteps((current) => [...current, { key, label: "", criterion: "" }]));
-            }}
-          >
+        {editable && draft.steps.length < MAX_STEPS ? (
+          <button type="button" className={linkButton} onClick={() => setFocusKey(draft.addStep())}>
             <Plus size={12} weight="light" />
             {copy.addStep}
           </button>
         ) : null}
-        {editable && steps.length > FOCUS_STEPS ? (
-          <p className={THEME_TOKENS.typography.capsLabel}>{copy.focusWarning}</p>
-        ) : null}
+        {editable && draft.steps.length > FOCUS_STEPS ? <p className={THEME_TOKENS.typography.capsLabel}>{copy.focusWarning}</p> : null}
       </section>
+
+      <PlaybookQualification criteria={draft.qualification} editable={editable} onChange={draft.setCriteria} />
 
       <PlaybookObjections
         rows={rows}
         editable={editable}
-        onAnswer={setAnswer}
-        onAdd={(category) => setAdded((current) => (current.includes(category) ? current : [...current, category]))}
+        onChange={draft.patchObjection}
+        onAdd={draft.showCategory}
+        onAddCustom={draft.addCustomObjection}
+        onRemove={draft.removeObjection}
       />
 
       <ConfirmAction
@@ -466,7 +309,7 @@ export function PlaybookDocument({
         cancelLabel={t.product.cancelAction}
         tone="default"
         onConfirm={() => {
-          if (pending) apply(pending);
+          if (pending) replace(pending);
           setPending(null);
         }}
       />

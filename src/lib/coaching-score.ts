@@ -12,7 +12,27 @@ export type ScoreView = {
   improvements?: string[];
   crm_outcome?: string | null;
   met_steps?: number;
+  /** PLAYBOOK_QUALIFICATION_ENABLED: the mark split by block (plan §15). */
+  blocks?: Partial<Record<ScoreBlock, { met: number; applicable: number }>> | null;
 };
+
+export type ScoreBlock = "steps" | "qualification" | "objections";
+const BLOCK_ORDER: ScoreBlock[] = ["steps", "qualification", "objections"];
+
+/** "7/10 · Pasos 4/5 · Cualificación 2/4 · Objeciones 1/1": blocks that applied to this call
+ * only. Without blocks, just the mark; null when there is no mark. */
+export function scoreBlocksLine(
+  score: Pick<ScoreView, "value" | "blocks">,
+  copy: { scoreOf: string; blocks: Record<ScoreBlock, string> },
+): string | null {
+  if (score.value === null || score.value === undefined) return null;
+  const parts = [copy.scoreOf.replace("{value}", String(score.value))];
+  for (const block of BLOCK_ORDER) {
+    const part = score.blocks?.[block];
+    if (part && part.applicable > 0) parts.push(`${copy.blocks[block]} ${part.met}/${part.applicable}`);
+  }
+  return parts.join(" · ");
+}
 
 export type CoachingSurface =
   | { kind: "setup"; title: string; action: string | null }

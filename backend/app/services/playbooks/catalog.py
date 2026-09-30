@@ -286,3 +286,166 @@ def effective_applies_to(key: Optional[str], stored: Any) -> Optional[dict]:
         except RuleError:
             pass
     return default_applies_to(key)
+
+
+# --- qualification templates (three-layer model, section 15) --------------------------------------
+# "What has to come out of the call", pre-filled for the frameworks a Head of Sales names. They are
+# offered, never applied on their own: a playbook only holds the criteria the company chose.
+# Same shape as a stored criterion; `good` / `bad` are how a good / bad answer sounds.
+
+
+def _crit(criterion_id: str, es: tuple[str, str, str, str], en: tuple[str, str, str, str]) -> dict:
+    def side(values: tuple[str, str, str, str]) -> dict:
+        label, why, good, bad = values
+        return {"criterion_id": criterion_id, "label": label, "why": why, "good": good, "bad": bad}
+
+    return {"criterion_id": criterion_id, "es": side(es), "en": side(en)}
+
+
+_BUDGET = _crit(
+    "budget",
+    ("Presupuesto", "Sin dinero asignado, el interés no se convierte en compra.",
+     "Nombra una cifra, un rango o la partida de la que saldría.",
+     "«Aún no lo hemos hablado» o esquiva dar un número."),
+    ("Budget", "Without money set aside, interest does not turn into a purchase.",
+     "Names a figure, a range or the budget line it would come from.",
+     "\"We haven't discussed it yet\" or avoids giving a number."),
+)
+_AUTHORITY = _crit(
+    "authority",
+    ("Quién decide", "Quien habla no siempre es quien firma.",
+     "Nombra a quien decide y cómo se aprueba una compra así.",
+     "«Tendría que verlo con alguien» sin nombre ni fecha."),
+    ("Who decides", "The person on the call is not always the one who signs.",
+     "Names who decides and how a purchase like this gets approved.",
+     "\"I'd have to check with someone\" with no name or date."),
+)
+_NEED = _crit(
+    "need",
+    ("Necesidad", "Solo compra quien tiene un problema que le cuesta algo.",
+     "Cuenta el problema con sus palabras y lo que le cuesta.",
+     "«Nos vendría bien» sin un ejemplo ni un coste."),
+    ("Need", "Only someone with a problem that costs them something buys.",
+     "Describes the problem in their own words and what it costs.",
+     "\"It would be nice to have\" with no example or cost."),
+)
+_TIMELINE = _crit(
+    "timeline",
+    ("Plazo", "Sin fecha, la oportunidad se enfría.",
+     "Da una fecha o un hecho que la marca, como un cierre de trimestre o una renovación.",
+     "«Algún día» o «más adelante»."),
+    ("Timeline", "Without a date, the opportunity goes cold.",
+     "Gives a date, or an event that sets it, like a quarter close or a renewal.",
+     "\"Someday\" or \"later on\"."),
+)
+_METRICS = _crit(
+    "metrics",
+    ("Métricas", "Sin un número que mejorar no se justifica la compra.",
+     "Da el indicador que quiere mover y de cuánto a cuánto.",
+     "«Queremos mejorar» sin decir qué indicador."),
+    ("Metrics", "Without a number to improve, the purchase is hard to justify.",
+     "Gives the indicator they want to move and from what to what.",
+     "\"We want to get better\" with no indicator."),
+)
+_ECONOMIC_BUYER = _crit(
+    "economic_buyer",
+    ("Comprador económico", "Es quien libera el presupuesto y puede decir sí o no.",
+     "Nombra a quien firma y dice si el comercial ya habló con esa persona.",
+     "«Lo decide dirección» sin un nombre."),
+    ("Economic buyer", "They release the budget and can say yes or no.",
+     "Names who signs and says whether the rep has already spoken to them.",
+     "\"Management decides\" with no name."),
+)
+_DECISION_CRITERIA = _crit(
+    "decision_criteria",
+    ("Criterios de decisión", "Son las reglas con las que va a elegir.",
+     "Enumera lo que comparará y qué pesa más.",
+     "«Lo que mejor nos encaje» sin concretar."),
+    ("Decision criteria", "They are the rules the buyer will choose by.",
+     "Lists what they will compare and what weighs most.",
+     "\"Whatever fits us best\" with no detail."),
+)
+_DECISION_PROCESS = _crit(
+    "decision_process",
+    ("Proceso de decisión", "Cada paso hasta la firma es un sitio donde la compra puede pararse.",
+     "Cuenta los pasos, quién interviene en cada uno y en qué fechas.",
+     "«Ya os diremos» sin pasos ni fechas."),
+    ("Decision process", "Every step to signature is a place the deal can stall.",
+     "Walks through the steps, who is involved in each and the dates.",
+     "\"We'll let you know\" with no steps or dates."),
+)
+_PAPER_PROCESS = _crit(
+    "paper_process",
+    ("Trámites de compra", "Legal, compras o seguridad pueden frenar una compra ya decidida.",
+     "Dice qué revisan (contrato, compras, seguridad) y cuánto suele tardar.",
+     "«Eso ya lo veremos al final»."),
+    ("Paper process", "Legal, procurement or security can stall a purchase that is already decided.",
+     "Says what they review (contract, procurement, security) and how long it usually takes.",
+     "\"We'll deal with that at the end\"."),
+)
+_IDENTIFY_PAIN = _crit(
+    "identify_pain",
+    ("Dolor identificado", "La urgencia nace de un problema concreto, no del producto.",
+     "Nombra el problema y quién lo sufre en su día a día.",
+     "Habla de mejoras generales, no de un problema."),
+    ("Identified pain", "Urgency comes from a specific problem, not from the product.",
+     "Names the problem and who suffers it day to day.",
+     "Talks about general improvements, not a problem."),
+)
+_CHAMPION = _crit(
+    "champion",
+    ("Champion", "Alguien dentro que quiere que salga adelante y mueve la compra.",
+     "Una persona concreta se ofrece a presentar o defender la propuesta.",
+     "Escucha con interés, pero no se compromete a nada."),
+    ("Champion", "Someone inside who wants it to happen and pushes the purchase.",
+     "A specific person offers to present or defend the proposal.",
+     "Friendly, but commits to nothing."),
+)
+_COMPETITION = _crit(
+    "competition",
+    ("Alternativas", "Saber con qué le compara el cliente marca cómo defender la propuesta.",
+     "Nombra a quién más mira, o dice cómo lo resuelve hoy (Excel, a mano, otro proveedor).",
+     "«No miramos nada más» sin decir cómo lo hace hoy."),
+    ("Alternatives", "Knowing what the buyer compares you with sets how to defend the proposal.",
+     "Names who else they are looking at, or how they solve it today (Excel, by hand, another vendor).",
+     "\"We're not looking at anything else\" without saying how they do it today."),
+)
+
+_QUALIFICATION_TEMPLATES: tuple[dict, ...] = (
+    {"key": "bant", "label": "BANT", "criteria": (_BUDGET, _AUTHORITY, _NEED, _TIMELINE)},
+    {
+        "key": "meddic",
+        "label": "MEDDIC",
+        "criteria": (_METRICS, _ECONOMIC_BUYER, _DECISION_CRITERIA, _DECISION_PROCESS, _IDENTIFY_PAIN, _CHAMPION),
+    },
+    {
+        "key": "meddpicc",
+        "label": "MEDDPICC",
+        "criteria": (
+            _METRICS, _ECONOMIC_BUYER, _DECISION_CRITERIA, _DECISION_PROCESS,
+            _PAPER_PROCESS, _IDENTIFY_PAIN, _CHAMPION, _COMPETITION,
+        ),
+    },
+)
+QUALIFICATION_TEMPLATE_KEYS: tuple[str, ...] = tuple(entry["key"] for entry in _QUALIFICATION_TEMPLATES)
+
+
+def qualification_criteria(key: str, lang: str = "es") -> list[dict]:
+    """The criteria of one template ("bant" | "meddic" | "meddpicc") in `lang`; [] for any other key."""
+    lang = "en" if lang == "en" else "es"
+    for entry in _QUALIFICATION_TEMPLATES:
+        if entry["key"] == (key or "").strip().lower():
+            return [dict(criterion[lang]) for criterion in entry["criteria"]]
+    return []
+
+
+def qualification_templates() -> list[dict]:
+    """The payload of GET /playbooks/qualification-templates."""
+    return [
+        {
+            "key": entry["key"],
+            "label": entry["label"],
+            "criteria": {"es": qualification_criteria(entry["key"], "es"), "en": qualification_criteria(entry["key"], "en")},
+        }
+        for entry in _QUALIFICATION_TEMPLATES
+    ]

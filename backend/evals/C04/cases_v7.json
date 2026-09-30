@@ -1,0 +1,188 @@
+[
+  {
+    "id": "v7_category_price_too_expensive",
+    "transcript": "You: Hola Carmen, soy Lucía de Vocify. Te llamo por lo del seguimiento de llamadas del equipo comercial. Them: Sí, nos interesa, pero he visto la tarifa y me parece muy caro para lo que necesitamos. You: Entiendo, ¿con qué lo comparas? Them: Con lo que pagamos ahora, que es bastante menos.",
+    "expect": {
+      "objections": [{"category": "price", "kind": "objection"}]
+    }
+  },
+  {
+    "id": "v7_category_price_no_budget",
+    "transcript": "You: Buenas tardes Jorge, ¿te cuento cómo ayudamos a equipos de ventas a preparar cada llamada? Them: Suena bien, pero este año no tenemos presupuesto para nuevas herramientas, ya cerramos las partidas. You: Vale, lo tengo en cuenta.",
+    "expect": {
+      "objections": [{"category": "price", "kind": "objection"}]
+    }
+  },
+  {
+    "id": "v7_category_timing_not_a_priority",
+    "transcript": "You: Hola Marta, ¿cómo llevan el seguimiento de leads? Them: Pues mal, pero ahora mismo no es una prioridad, estamos metidos en el cierre del año. Lo vemos en primavera, no antes. You: Entendido, en primavera te vuelvo a escribir.",
+    "expect": {
+      "objections": [{"category": "timing", "kind": "objection"}]
+    }
+  },
+  {
+    "id": "v7_category_authority_decision_is_not_mine",
+    "transcript": "You: Hola Sergio, gracias por el tiempo. ¿Os encargáis vosotros de elegir las herramientas de ventas? Them: Me interesa lo que cuentas, pero la decisión no es mía, la última palabra la tiene la dirección general y a ellos no les gusta cambiar de proveedor. You: ¿Y con quién de dirección hablo?",
+    "expect": {
+      "objections": [{"category": "authority", "kind": "objection"}]
+    }
+  },
+  {
+    "id": "v7_category_status_quo_we_use_excel",
+    "transcript": "You: Hola Elena, ¿cómo apuntáis hoy lo que se habla en las llamadas? Them: Con una hoja de Excel compartida y nos funciona bien, no vemos por qué habría que cambiar algo que ya funciona. You: Claro, ¿y cuánto tarda cada comercial en rellenarla?",
+    "expect": {
+      "objections": [{"category": "status_quo", "kind": "objection"}]
+    }
+  },
+  {
+    "id": "v7_category_competitor_evaluating_hubspot",
+    "transcript": "You: Buenos días Pablo, ¿estáis valorando alguna herramienta ahora mismo? Them: Sí, estamos comparando con HubSpot y su propuesta nos parece mejor, viene con todo integrado. You: ¿Qué es lo que más te gusta de la suya?",
+    "expect": {
+      "objections": [{"category": "competitor", "kind": "objection"}],
+      "competitors": ["HubSpot"]
+    }
+  },
+  {
+    "id": "v7_category_trust_unknown_vendor",
+    "transcript": "You: Hola Andrea, te llamo de Vocify para enseñarte cómo analizamos las llamadas. Them: Es que no os conozco de nada. ¿Tenéis clientes como nosotros? No me fío de meter las conversaciones de mi equipo en algo tan nuevo. You: Tenemos varios casos en logística.",
+    "expect": {
+      "objections": [{"category": "trust", "kind": "objection"}]
+    }
+  },
+  {
+    "id": "v7_obstacle_bad_moment_driving_is_not_timing",
+    "transcript": "You: Hola Luis, soy Lucía de Vocify, ¿tienes un momento? Them: Estoy conduciendo, llámame la semana que viene. You: Perfecto, te llamo el martes.",
+    "expect": {
+      "objections": [{"category": "bad_moment", "kind": "obstacle"}],
+      "no_objections_of_category": ["price", "timing"]
+    }
+  },
+  {
+    "id": "v7_obstacle_gatekeeper",
+    "transcript": "You: Buenos días, ¿me pasa con el señor Ramírez, por favor? Them: Soy su secretaria, el señor Ramírez no atiende llamadas comerciales. Mándelo por correo y ya se verá. You: Vale, ¿a qué correo lo envío?",
+    "expect": {
+      "objections": [{"category": "gatekeeper", "kind": "obstacle"}],
+      "no_objections_of_category": ["price", "timing", "trust"]
+    }
+  },
+  {
+    "id": "v7_obstacle_needs_to_consult",
+    "transcript": "You: Hola Raquel, ¿te parece bien que quedemos para una demo? Them: Antes de decir nada tengo que consultarlo con mi socio, él lleva estas cosas. Te digo algo cuando hable con él. You: Genial, ¿te escribo el jueves para saber cómo ha ido?",
+    "expect": {
+      "objections": [{"category": "needs_to_consult", "kind": "obstacle"}],
+      "no_objections_of_category": ["price", "timing"]
+    }
+  },
+  {
+    "id": "v7_objection_and_obstacle_in_one_call",
+    "transcript": "You: Hola Iván, ¿tienes cinco minutos? Them: Ahora estoy en una reunión, llámame luego. You: Claro, solo te adelanto que ayudamos a cerrar más. Them: Y por cierto, vuestra tarifa me pareció carísima cuando la vi. You: Luego lo vemos con calma.",
+    "expect": {
+      "objections": [
+        {"category": "bad_moment", "kind": "obstacle"},
+        {"category": "price", "kind": "objection"}
+      ]
+    }
+  },
+  {
+    "id": "v7_two_objections_price_and_timing",
+    "transcript": "You: Hola Nuria, ¿qué te pareció la propuesta? Them: Es más cara de lo que esperábamos. Y además ahora no es el momento, hasta septiembre no tocamos nada de herramientas. You: Entiendo las dos cosas, vamos por partes.",
+    "expect": {
+      "objections": [
+        {"category": "price", "kind": "objection"},
+        {"category": "timing", "kind": "objection"}
+      ]
+    }
+  },
+  {
+    "id": "v7_custom_objection_erp_integration",
+    "playbook_objections": [
+      {"id": "integracion-erp", "label": "Integración con nuestro ERP", "trigger": "Dice que su ERP es propio o que no se conectaría con la herramienta"},
+      {"id": "rgpd-datos", "label": "Dónde se guardan los datos (RGPD)", "trigger": "Duda sobre protección de datos, RGPD o servidores fuera de la UE"}
+    ],
+    "transcript": "You: Hola Teresa, ¿qué sistemas usáis hoy para gestionar los pedidos? Them: Tenemos un ERP propio que desarrolló un proveedor hace años, y no creo que vuestra herramienta se pueda conectar con eso. You: Tenemos una API abierta, podemos verlo con vuestro equipo técnico.",
+    "expect": {
+      "objections": [{"kind": "objection", "objection_id": "integracion-erp"}]
+    }
+  },
+  {
+    "id": "v7_custom_objection_gdpr",
+    "playbook_objections": [
+      {"id": "integracion-erp", "label": "Integración con nuestro ERP", "trigger": "Dice que su ERP es propio o que no se conectaría con la herramienta"},
+      {"id": "rgpd-datos", "label": "Dónde se guardan los datos (RGPD)", "trigger": "Duda sobre protección de datos, RGPD o servidores fuera de la UE"}
+    ],
+    "transcript": "You: Hola Fernando, con Vocify grabamos y analizamos las llamadas de tu equipo. Them: Eso me preocupa por el RGPD, ¿dónde se guardan las grabaciones? Si los servidores están fuera de Europa, mi departamento legal no lo va a aprobar. You: Los datos se guardan en la Unión Europea.",
+    "expect": {
+      "objections": [{"kind": "objection", "objection_id": "rgpd-datos"}]
+    }
+  },
+  {
+    "id": "v7_custom_objection_not_matched_stays_null",
+    "playbook_objections": [
+      {"id": "integracion-erp", "label": "Integración con nuestro ERP", "trigger": "Dice que su ERP es propio o que no se conectaría con la herramienta"},
+      {"id": "rgpd-datos", "label": "Dónde se guardan los datos (RGPD)", "trigger": "Duda sobre protección de datos, RGPD o servidores fuera de la UE"}
+    ],
+    "transcript": "You: Hola Mónica, ¿qué te pareció la propuesta que te envié? Them: La herramienta está bien, pero el precio es demasiado alto para nosotros. You: ¿Qué presupuesto teníais pensado?",
+    "expect": {
+      "objections": [{"category": "price", "kind": "objection", "objection_id": null}]
+    }
+  },
+  {
+    "id": "v7_qualification_found_with_values",
+    "playbook_qualification": [
+      {"criterion_id": "presupuesto", "label": "Presupuesto", "good": "Sabe cuánto puede invertir o si hay una partida aprobada"},
+      {"criterion_id": "decisor", "label": "Quién decide", "good": "Se sabe quién firma y quién más participa"},
+      {"criterion_id": "plazo", "label": "Plazo", "good": "Se sabe cuándo quieren tenerlo resuelto"}
+    ],
+    "transcript": "You: Hola Daniel, gracias por atenderme. ¿Tenéis alguna partida pensada para esto? Them: Sí, tenemos unos veinte mil euros aprobados para este trimestre. You: Genial. ¿Quién tendría que dar el visto bueno? Them: Lo firmo yo, pero lo consulto con la directora de operaciones, Paula. You: ¿Y cuándo os gustaría tenerlo funcionando? Them: Antes de fin de octubre, sin falta.",
+    "expect": {
+      "qualification": {"presupuesto": "found", "decisor": "found", "plazo": "found"},
+      "qualification_values": {
+        "presupuesto": ["20.000", "20000", "veinte mil"],
+        "decisor": ["yo", "paula", "directora"],
+        "plazo": ["octubre"]
+      }
+    }
+  },
+  {
+    "id": "v7_qualification_missing_never_asked",
+    "playbook_qualification": [
+      {"criterion_id": "presupuesto", "label": "Presupuesto", "good": "Sabe cuánto puede invertir o si hay una partida aprobada"},
+      {"criterion_id": "plazo", "label": "Plazo", "good": "Se sabe cuándo quieren tenerlo resuelto"}
+    ],
+    "transcript": "You: Hola Rosa, ¿cómo lleváis hoy el seguimiento de clientes? Them: Regular, cada uno lo apunta como puede. You: ¿Y tenéis una partida para esto? Them: Sí, hay algo de dinero, pero prefiero no dar cifras. You: Sin problema. Pues te preparo una propuesta y te la mando esta tarde. Them: Vale, gracias.",
+    "expect": {
+      "qualification": {"presupuesto": ["missing", "unknown"], "plazo": "missing"}
+    }
+  },
+  {
+    "id": "v7_qualification_not_applicable_call_cut_short",
+    "playbook_qualification": [
+      {"criterion_id": "presupuesto", "label": "Presupuesto", "good": "Sabe cuánto puede invertir o si hay una partida aprobada"},
+      {"criterion_id": "decisor", "label": "Quién decide", "good": "Se sabe quién firma y quién más participa"}
+    ],
+    "transcript": "You: Hola Iker, soy Lucía de Vocify, ¿tienes un minuto? Them: Estoy entrando en una reunión, no puedo hablar. You: Sin problema, ¿te llamo mañana por la mañana? Them: Sí, mejor mañana.",
+    "expect": {
+      "qualification": {"presupuesto": "not_applicable", "decisor": "not_applicable"}
+    }
+  },
+  {
+    "id": "v7_qualification_unknown_garbled_audio",
+    "playbook_qualification": [
+      {"criterion_id": "presupuesto", "label": "Presupuesto", "good": "Sabe cuánto puede invertir o si hay una partida aprobada"}
+    ],
+    "transcript": "You: Y a nivel de presupuesto, ¿qué tenéis previsto? Them: [ruido] ...tenemos... [inaudible] ...el año que... [ruido] You: ¿Me oyes? Se ha cortado un poco. Them: [inaudible]",
+    "expect": {
+      "qualification": {"presupuesto": "unknown"}
+    }
+  },
+  {
+    "id": "v7_qualification_rep_guessing_is_not_found",
+    "playbook_qualification": [
+      {"criterion_id": "presupuesto", "label": "Presupuesto", "good": "Sabe cuánto puede invertir o si hay una partida aprobada"}
+    ],
+    "transcript": "You: Supongo que tendréis unos cincuenta mil euros de presupuesto para esto, ¿no? Them: Mmm, no sabría decirte, eso lo lleva finanzas. You: Vale, luego lo miro con ellos.",
+    "expect": {
+      "qualification": {"presupuesto": ["missing", "unknown"]}
+    }
+  }
+]

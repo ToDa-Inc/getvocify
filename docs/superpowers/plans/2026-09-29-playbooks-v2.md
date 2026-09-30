@@ -460,3 +460,93 @@ Migración `067_playbook_rules.sql`: `playbooks.label TEXT NULL`, `playbooks.app
 **Activación:** `docs/superpowers/plans/2026-09-29-activacion-playbooks-v2.sql` (migraciones 066 y 067 obligatorias antes de desplegar; `PLAYBOOK_ROUTING_ENABLED` opcional). `PLAYBOOK_V2_ENABLED` queda sin uso en el frontend.
 
 **Pruebas:** backend 3151 passed, 32 skipped. Frontend 453 pass. Build OK. Recorrido en navegador (app real, API simulada según §12): vacío → pegar documento mixto → 2 procesos → revisar → activar; editar uno activo con autoguardado; menú «···»; comercial; 390 px. Evals P01/P02 pendientes de clave.
+
+---
+
+## 15. El molde de tres capas (29 sep 2026)
+
+El Head of Sales da su playbook tal como lo tenga; Vocify lo encaja en este molde. **Lo que el documento no trae se queda vacío: la IA nunca lo inventa.** Lo que no encaja en ningún bloque va a `notes` de «Vuestra empresa». Las plantillas (tipo de llamada, BANT/MEDDIC/MEDDPICC) solo entran si se piden.
+
+| Capa | Qué | Dónde vive | Para qué |
+|---|---|---|---|
+| 1 · Se evalúa en cada llamada (por tipo) | Pasos · **Qué tiene que salir de la llamada** (cualificación) · Objeciones (fijas y **propias**, con significado, pregunta de diagnóstico, respuesta y prueba) | `playbook_versions` (steps, entries, **qualification**) con borrador y «Activar para el equipo» | Nota por bloques, coaching, brief, directo |
+| 2 · Lo que Vocify sabe de la empresa (una vez) | ICP y personas, no encaja, señales de compra, relato de valor (30 s / 3 min), diferenciadores, casos de cliente, **competidores**, precio y negociación, notas | `company_sales_knowledge` (efecto inmediato, sin activar) | Contexto del copiloto, brief, follow-up y Ask. No puntúa |
+| 3 · Sale de las llamadas | Ejemplos buenos/malos, mejor respuesta real por objeción, sugerencias | Ya existe (T11/T12, mejores llamadas) | Mantener el playbook vivo |
+
+### Contratos
+
+**Objeciones (entries de la versión).** `{entry_id, category, guidance, label?, trigger?, meaning?, question?, proof?, source_ref}`. `category` ∈ price, timing, authority, competitor, status_quo, trust, other, **custom**. Custom: `entry_id = "objection:custom:<slug>"`, `label` obligatorio (≤ 60), `trigger` = cómo lo dice el cliente (≤ 200). Máx. 12 custom. `meaning`, `question`, `proof` ≤ 200/200/300; `guidance` ≤ 600. Una custom sin `guidance` se guarda igual (se sabe detectar aunque aún no haya respuesta).
+
+**Cualificación (nueva columna `playbook_versions.qualification JSONB NOT NULL DEFAULT '[]'`).** `[{criterion_id, label, why?, good?, bad?}]`, máx. 8, `label` ≤ 60, resto ≤ 200. `criterion_id` = slug estable como `step_id`.
+
+**Editor (`GET /playbooks/{key}/editor`, `PUT /playbooks/{key}/draft`).** Añade:
+- `objections: [{category, guidance, id?, label?, trigger?, meaning?, question?, proof?}]` (`id` solo en custom = slug);
+- `qualification: [{criterion_id?, label, why?, good?, bad?}]`.
+Códigos 422 nuevos: `too_many_criteria`, `criterion_label_empty`, `criterion_label_too_long`, `custom_objection_label_empty`, `too_many_custom_objections`, `field_too_long`.
+
+**`GET /playbooks`** `details[key]` añade `criteria_count`.
+
+**`GET /playbooks/qualification-templates`** → `{templates: [{key: "bant"|"meddic"|"meddpicc", label, criteria: {es: Criterion[], en: Criterion[]}}]}`.
+
+**Vuestra empresa.** Tabla `company_sales_knowledge (company_id PK, data JSONB NOT NULL DEFAULT '{}', source_id TEXT NULL, updated_at TIMESTAMPTZ)`. `data`:
+```
+{icp, bad_fit, value_short, value_long, pricing, notes: string,
+ personas: [{name, cares_about, language, measured_on}],
+ triggers: [{signal, how_to_use}],
+ differentiators: [string],
+ proofs: [{customer, situation, change, number, tags: [string]}],
+ competitors: [{name, win_when, lose_when, they_like, landmines, how_to_talk}]}
+```
+Límites: textos largos ≤ 1500, campos cortos ≤ 300, listas ≤ 12. `GET /playbooks/company` (cualquier miembro) → `{knowledge, updated_at, sections: [claves no vacías]}`. `PUT /playbooks/company` (owner/admin) `{knowledge, base_updated_at?}` → mismo shape; 409 `stale_knowledge`.
+
+**Entrada única (`POST /playbooks/structure`)** además reparte en cualificación, objeciones ampliadas/propias y «Vuestra empresa». Respuesta añade `company: {knowledge, updated_at, sections, filled: [claves rellenadas ahora]} | null`. **Fusión con lo existente:** listas se añaden sin duplicar (por `name`/`customer`/`signal`), un texto solo se rellena si estaba vacío (nunca pisa lo que editó el Head of Sales). Si el documento dice «usamos MEDDIC» (o BANT…), la cualificación usa esos criterios.
+
+**Lectura de cada llamada (C04 `intelligence_v7`, flag `PLAYBOOK_QUALIFICATION_ENABLED`, apagado).** v6 más:
+- entrada `playbook_qualification: [{criterion_id, label, good?}]` y `playbook_objections: [{id, label, trigger}]` (solo custom);
+- salida `qualification_observations: [{criterion_id, status: found|missing|not_applicable|unknown, value, quote}]` y en cada objeción `objection_id` (id custom o null).
+
+**Nota por bloques (con el mismo flag).** El score añade `blocks: {steps: {met, applicable}, qualification: {met, applicable}, objections: {met, applicable}}`; `value` = media (0–10, redondeada) de los bloques con `applicable > 0`. Coaching: un criterio `missing` produce «No salió: {label}». Sin flag, todo como hoy.
+
+**Consumidores.** Brief y copiloto: la respuesta de una objeción custom se engancha por `objection_id`; el copiloto recibe de «Vuestra empresa» relato corto, diferenciadores, casos y competidores (sin inventar pruebas).
+
+### Estado del molde de tres capas (29 sep 2026)
+
+Hecho: migración 068, cualificación por versión con plantillas BANT/MEDDIC/MEDDPICC, objeciones propias y detalle (significado, pregunta, prueba), «Vuestra empresa» (`GET/PUT /playbooks/company`), reparto del documento en los tres bloques (`playbook_split_v2`/`playbook_structure_v2`), C04 `intelligence_v7` con cualificación y `objection_id`, nota por bloques, brief con respuesta de objeción propia y copiloto con «Vuestra empresa». UI: bloque «Qué tiene que salir de la llamada», objeciones propias, fila «Vuestra empresa» (también en la pestaña del comercial), nota «7/10 · Pasos 4/5 · Cualificación 2/4 · Objeciones 1/1».
+
+Pruebas: backend 3289 passed / 32 skipped; frontend 462; build OK; recorrido en navegador con la API simulada.
+
+Pendiente antes de encender `PLAYBOOK_QUALIFICATION_ENABLED`: correr con clave `scripts/eval_intelligence.py --v7` y `scripts/eval_playbook_structure.py --suite P01|P02|P03 --runs 3`. Migraciones 066, 067 y 068 obligatorias antes de desplegar (`2026-09-29-activacion-playbooks-v2.sql`).
+
+---
+
+## 16. Pausar, reanudar y eliminar (30 sep 2026)
+
+Un Head of Sales tiene que poder, en un gesto y viéndolo: **pausar** un playbook (las llamadas nuevas dejan de evaluarse con él; el contenido se queda), **reanudarlo**, y **eliminarlo** (desaparece de la lista; se puede deshacer). Las llamadas ya evaluadas no cambian nunca: siguen apuntando a su versión.
+
+**UX:** interruptor en la fila (Activo / Pausado); «···» en la fila con «Eliminar playbook» (confirmación + toast «Deshacer»). Un tipo de llamada propio vacío (p. ej. los «sdr»/«sales» del editor viejo) también se elimina así.
+
+**Datos (migración `069_playbook_pause_archive.sql`):** `playbooks.paused_version_id UUID NULL`, `playbooks.archived_at TIMESTAMPTZ NULL`, `playbooks.archived_state TEXT NULL` (estado previo, para deshacer). `list_playbook_motions` excluye los archivados y devuelve `paused` cuando `active_version_id IS NULL AND paused_version_id IS NOT NULL`. Pausar = mover `active_version_id` a `paused_version_id` (así todo lo que lee la versión activa —fijar a la llamada, copiloto, brief, insights, enrutado— la ignora sin cambios).
+
+**API (owner/admin; 409 `{code}` cuando no aplica):**
+- `POST /playbooks/{key}/pause` (solo si está publicado; `not_published`) · `POST /playbooks/{key}/resume` (`not_paused`) → `{motions, details}`.
+- `DELETE /playbooks/{key}` → archiva, guarda `archived_state`, pasa la versión activa a `paused_version_id`, borra los borradores pendientes, desactiva `interaction_types` de ese tipo → `{motions, details}`. Tipos sin fila en `playbooks` (solo `interaction_types`) también.
+- `POST /playbooks/{key}/restore` (deshacer) → vuelve a `archived_state` (publicado → activo de nuevo) → `{motions, details}`.
+- Guardar un borrador o crear el tipo sobre uno archivado lo desarchiva sin traer el contenido viejo. Publicar limpia `paused_version_id`.
+- `GET /playbooks` `details[key]` añade `paused: bool`. `GET /{key}/editor` de uno pausado devuelve esa versión como `source: "published"` con `paused: true`.
+
+---
+
+## 17. Refactor de arquitectura (30 sep 2026) — sin cambios de producto
+
+**Por qué:** varias escrituras de varios pasos iban sueltas por PostgREST (sin transacción); la 069 sobrecargaba `active_version_id` (nulo = «nunca publicado», «pausado» o «eliminado»); `store.py` implementaba todo dos veces (memoria y Supabase) con un falso PostgREST en los tests; `api/playbooks.py` y `PlaybookList.tsx` tenían cinco responsabilidades cada uno.
+
+**Decisiones (no se reabren):**
+1. **Una migración** `066_playbooks_v2.sql` (+ `.down.sql`) sustituye a 066–069. Idempotente y **segura si ya se aplicaron 066–069**: añade lo que falte, rellena `state`/`archived_at` desde `paused_version_id`/`archived_state` si existen y borra esas columnas.
+2. **Esquema final.** `playbooks`: `label`, `applies_to`, **`state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','paused'))`** (interruptor) y **`archived_at`** (borrado suave, ortogonal al interruptor). `active_version_id` vuelve a significar solo «la versión publicada»: pausar o eliminar **no la toca**. `playbook_versions`: `updated_at`, `qualification`. Tabla `company_sales_knowledge`.
+3. **Qué aplica a una llamada** = `active_version_id IS NOT NULL AND state = 'active' AND archived_at IS NULL`. Vista SQL `playbooks_live` y **un único acceso en Python** (`services/playbooks/live.py`). Ningún otro módulo lee `active_version_id` para decidir qué aplica.
+4. **Escrituras atómicas en Postgres** (funciones, como ya era `publish_playbook_motion`): guardar borrador con control de conflicto dentro del mismo `UPDATE … WHERE updated_at = base`; cambiar estado (`pause`/`resume`/`archive`/`restore`); guardar «Vuestra empresa» con control de conflicto; entrada única (todos los borradores + empresa en una transacción). Publicar pone `state='active'` y `archived_at=NULL`.
+5. **Repositorio con una interfaz** (`Protocol`): `SqlPlaybookRepository` (llamadas finas a esas funciones y lecturas) e `InMemoryPlaybookRepository` (solo para tests de API). **Una suite de contrato** se ejecuta contra los dos (el SQL contra Postgres real cuando lo hay); así no pueden divergir. Se elimina el falso PostgREST.
+6. **API por responsabilidad:** `playbooks.py` (lista, editor, borrador, publicar, estado), `playbook_intake.py` (estructurar e importar), `playbook_company.py` («Vuestra empresa»), `playbook_rules.py` y `playbook_insights.py` como están. Rutas y respuestas idénticas.
+7. **Frontend:** `PlaybookList` → hook de acciones + `IntakePanel`, `PlaybookRow`, `RuleLine`, `AddTypeMenu`; `PlaybookDocument` → hook de borrador (carga, autoguardado, conflicto, vaciado) + vista. Mismo comportamiento.
+
+**Criterio de hecho:** mismos contratos de API; todos los tests de API existentes pasan sin cambiar sus expectativas (salvo los que probaban detalles internos del almacenamiento); suite de contrato en verde contra memoria y contra Postgres real; los recorridos del navegador (crear, activar, editar, pausar, eliminar, deshacer, empresa) iguales.

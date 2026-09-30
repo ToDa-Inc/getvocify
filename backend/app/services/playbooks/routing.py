@@ -56,9 +56,12 @@ def rules_from(motions: dict, details: dict) -> list[dict]:
 
 
 def build_details(keys, stored: dict) -> dict:
-    """GET /playbooks `details`: per type its label, role, effective rule, goal and whether
-    it is a catalog type. `stored` is store.details(company_id)."""
+    """GET /playbooks `details`: per type its label, role, effective rule, goal, whether it is
+    a catalog type and whether it is paused. `stored` is store.details(company_id); `keys` is
+    store.motions(company_id) (status per key, which is where "paused" comes from) or any
+    iterable of keys (nothing is paused then)."""
     out: dict = {}
+    statuses = keys if isinstance(keys, dict) else {}
     for key in keys:
         meta = stored.get(key) or {}
         applies_to = effective_applies_to(key, meta.get("applies_to"))
@@ -68,6 +71,7 @@ def build_details(keys, stored: dict) -> dict:
             "applies_to": applies_to,
             "goal": goal_for(key),
             "catalog": is_catalog(key),
+            "paused": statuses.get(key) == "paused",
         }
     return out
 

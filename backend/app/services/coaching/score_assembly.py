@@ -6,6 +6,10 @@ from app.services.coaching.metrics import compute_adherence
 from app.services.coaching.scoring import assemble_score
 
 _STATUS = frozenset({"met", "missed", "not_applicable", "unknown"})
+# C04 v7: what a qualification criterion can be, and how each maps onto a score status.
+_QUALIFICATION_STATUS = {"found": "met", "missing": "missed", "not_applicable": "not_applicable", "unknown": "unknown"}
+_NOT_FOUND = {"es": "No salió", "en": "Not found out"}
+_BLOCKS = ("steps", "qualification", "objections")
 
 
 def _intelligence_block(extraction: dict, payload: dict | None) -> dict:
@@ -15,7 +19,7 @@ def _intelligence_block(extraction: dict, payload: dict | None) -> dict:
     return intel if isinstance(intel, dict) else {}
 
 
-def _extraction_has_score_inputs(extraction: dict, intelligence: dict) -> bool:
+def _extraction_has_score_inputs(extraction: dict, intelligence: dict, *, qualification_enabled: bool = False) -> bool:
     summary = str((extraction or {}).get("summary") or "").strip()
     if summary:
         return True
@@ -23,6 +27,8 @@ def _extraction_has_score_inputs(extraction: dict, intelligence: dict) -> bool:
     if objections:
         return True
     observations = list(intelligence.get("playbook_observations") or [])
+    if qualification_enabled:
+        observations += list(intelligence.get("qualification_observations") or [])
     return bool(observations)
 
 
@@ -37,8 +43,18 @@ def _evidence_ids(intelligence: dict) -> list[str]:
     return refs
 
 
-def _cited_refs(intelligence: dict, patterns: list[dict] | None, input_revision: str) -> list[str]:
+def _cited_refs(
+    intelligence: dict, patterns: list[dict] | None, input_revision: str, *, qualification_enabled: bool = False,
+) -> list[str]:
     refs: list[str] = []
+    if qualification_enabled:
+        for obs in intelligence.get("qualification_observations") or []:
+            if not isinstance(obs, dict):
+                continue
+            for ref in obs.get("evidence_refs") or []:
+                text = str(ref or "").strip()
+                if text and text not in refs:
+                    refs.append(text)
     for obs in intelligence.get("playbook_observations") or []:
         if not isinstance(obs, dict):
             continue
@@ -92,7 +108,52 @@ def _missed_steps(intelligence: dict, *, evidence_ids: list[str]) -> list[dict]:
     ]
 
 
-def _objection_handling(intelligence: dict, *, evidence_ids: list[str]) -> tuple[list[str], list[dict]]:
+def _labeled_qualification(intelligence: dict, *, evidence_ids: list[str]) -> list[dict]:
+    """C04 v7: one entry per criterion with its score status (found -> met, missing -> missed).
+    Like a step, found/missing only count with cited evidence the transcript backs; without it
+    the criterion is unknown, never a miss on missing data."""
+    known = set(evidence_ids)
+    labeled: list[dict] = []
+    for obs in intelligence.get("qualification_observations") or []:
+        if not isinstance(obs, dict):
+            continue
+        status = _QUALIFICATION_STATUS.get(str(obs.get("status") or "unknown").strip(), "unknown")
+        if status in {"met", "missed"}:
+            refs = [str(ref or "").strip() for ref in (obs.get("evidence_refs") or []) if str(ref or "").strip()]
+            if not refs or not any(ref in known for ref in refs):
+                status = "unknown"
+        labeled.append({
+            "criterion_id": str(obs.get("criterion_id") or ""),
+            "label": " ".join(str(obs.get("label") or "").split()),
+            "status": status,
+        })
+    return labeled
+
+
+def score_blocks(step_statuses: list[str], qualification_statuses: list[str], objection_statuses: list[str]) -> dict:
+    """{steps|qualification|objections: {met, applicable}}. applicable = met + missed; unknown and
+    not_applicable count for nothing, so a block the call never exercised has applicable 0."""
+    blocks = {}
+    for name, statuses in zip(_BLOCKS, (step_statuses, qualification_statuses, objection_statuses)):
+        met = statuses.count("met")
+        blocks[name] = {"met": met, "applicable": met + statuses.count("missed")}
+    return blocks
+
+
+def blocks_value(blocks: dict, *, screening: str | None = None) -> int | None:
+    """round(10 x the mean of the block ratios), over the blocks that had something to judge.
+    None when no block did: there is nothing to grade."""
+    if screening in {"voicemail", "no_response"}:
+        return None
+    ratios = [block["met"] / block["applicable"] for block in blocks.values() if block["applicable"] > 0]
+    if not ratios:
+        return None
+    return int(round(10 * sum(ratios) / len(ratios)))
+
+
+def _objection_handling(
+    intelligence: dict, *, evidence_ids: list[str], with_custom_id: bool = False,
+) -> tuple[list[str], list[dict]]:
     """T10/SCORING_OBJECTION_CREDIT_ENABLED: one synthetic criterion per real, evidenced objection.
 
     `met` when the rep's own reply is cited (resolved, with response_evidence_refs that
@@ -121,7 +182,10 @@ def _objection_handling(intelligence: dict, *, evidence_ids: list[str]) -> tuple
         elif resolution == "open" and not response_backed:
             if obj.get("rep_replied_after") is True:
                 statuses.append("missed")
-                missed.append({"kind": "objection", "id": str(obj.get("id") or ""), "category": str(obj.get("category") or "other")})
+                item = {"kind": "objection", "id": str(obj.get("id") or ""), "category": str(obj.get("category") or "other")}
+                if with_custom_id and obj.get("objection_id"):
+                    item["objection_id"] = str(obj["objection_id"])
+                missed.append(item)
             else:
                 statuses.append("unknown")
         else:
@@ -151,6 +215,23 @@ def _proposed_value(criteria_statuses: list[str], *, screening: str | None) -> i
     if adherence is None:
         return None
     return int(round(float(adherence) * 10))
+
+
+def _language(memo: dict) -> str:
+    """Spanish unless the conversation itself is clearly English."""
+    from app.services.crm_copilot.language import reply_language
+
+    return reply_language(str(memo.get("transcript") or "")) or "es"
+
+
+def qualification_improvements(intelligence: dict, *, evidence_ids: list[str], language: str = "es") -> list[str]:
+    """«No salió: {label}» for each cited missing criterion. Deterministic, like the step lines."""
+    prefix = _NOT_FOUND.get(language, _NOT_FOUND["es"])
+    return [
+        f"{prefix}: {item['label']}"
+        for item in _labeled_qualification(intelligence, evidence_ids=evidence_ids)
+        if item["status"] == "missed" and item["label"]
+    ]
 
 
 def coaching_lines(intelligence: dict, *, evidence_ids: list[str]) -> tuple[list[str], list[str]]:
@@ -191,11 +272,16 @@ def build_score_from_extraction(
     screening: str | None = None,
     objection_credit_enabled: bool = False,
     debrief_v2_enabled: bool = False,
+    qualification_enabled: bool = False,
 ) -> dict | None:
-    """Return an assembled score dict, or None when there is nothing to score."""
+    """Return an assembled score dict, or None when there is nothing to score.
+
+    qualification_enabled (PLAYBOOK_QUALIFICATION_ENABLED): qualification observations become
+    criteria (found -> met, missing -> missed), the score carries `blocks` and its value is the
+    mean of the blocks' ratios. Off, nothing below differs from before."""
     extraction = extraction if isinstance(extraction, dict) else {}
     intelligence = _intelligence_block(extraction, payload)
-    if not _extraction_has_score_inputs(extraction, intelligence):
+    if not _extraction_has_score_inputs(extraction, intelligence, qualification_enabled=qualification_enabled):
         return None
     revision = str(input_revision or intelligence.get("input_revision") or "").strip()
     if not revision:
@@ -205,14 +291,36 @@ def build_score_from_extraction(
     playbook_version_id = _playbook_version_id(intelligence, memo)
     playbook = _playbook_for_assembly(memo, playbook_version_id)
     evidence_refs = _evidence_ids(intelligence)
-    criteria_statuses = _criteria_statuses(intelligence, evidence_ids=evidence_refs)
+    step_statuses = _criteria_statuses(intelligence, evidence_ids=evidence_refs)
+    criteria_statuses = list(step_statuses)
     missed_items = _missed_steps(intelligence, evidence_ids=evidence_refs)
-    if objection_credit_enabled:
+    blocks = None
+    if qualification_enabled:
+        labeled_qualification = _labeled_qualification(intelligence, evidence_ids=evidence_refs)
+        qualification_statuses = [item["status"] for item in labeled_qualification]
+        criteria_statuses = criteria_statuses + qualification_statuses
+        missed_items = missed_items + [
+            {"kind": "qualification", "id": item["criterion_id"], "label": item["label"]}
+            for item in labeled_qualification
+            if item["status"] == "missed"
+        ]
+        # With the three blocks the objections the rep faced always count (they are a block of
+        # the mark), whatever SCORING_OBJECTION_CREDIT_ENABLED says for the old adherence.
+        objection_statuses, objection_missed = _objection_handling(
+            intelligence, evidence_ids=evidence_refs, with_custom_id=True,
+        )
+        criteria_statuses = criteria_statuses + objection_statuses
+        missed_items = missed_items + objection_missed
+        blocks = score_blocks(step_statuses, qualification_statuses, objection_statuses)
+    elif objection_credit_enabled:
         objection_statuses, objection_missed = _objection_handling(intelligence, evidence_ids=evidence_refs)
         criteria_statuses = criteria_statuses + objection_statuses
         missed_items = missed_items + objection_missed
-    cited_refs = _cited_refs(intelligence, patterns, revision)
-    proposed_value = _proposed_value(criteria_statuses, screening=screening)
+    cited_refs = _cited_refs(intelligence, patterns, revision, qualification_enabled=qualification_enabled)
+    if blocks is not None:
+        proposed_value = blocks_value(blocks, screening=screening)
+    else:
+        proposed_value = _proposed_value(criteria_statuses, screening=screening)
     score = assemble_score(
         playbook=playbook,
         criteria_statuses=criteria_statuses,
@@ -224,11 +332,18 @@ def build_score_from_extraction(
         playbook_version_id=playbook_version_id,
     )
     strengths, improvements = coaching_lines(intelligence, evidence_ids=evidence_refs)
+    if qualification_enabled:
+        improvements = improvements + qualification_improvements(
+            intelligence, evidence_ids=evidence_refs, language=_language(memo),
+        )
     score["strengths"] = strengths
     score["improvements"] = improvements
+    if blocks is not None:
+        score["blocks"] = blocks
     # Flag-off must stay byte-identical to pre-T10 output: missed_items is new surface, so it
-    # only appears when a T10 flag actually needs it (objection credit or the v2 debrief).
-    if objection_credit_enabled or debrief_v2_enabled:
+    # only appears when a T10 flag actually needs it (objection credit, the v2 debrief or the
+    # qualification blocks).
+    if objection_credit_enabled or debrief_v2_enabled or qualification_enabled:
         score["missed_items"] = missed_items
     return score
 
@@ -242,6 +357,7 @@ def attach_score_to_job_payload(
     crm_outcome: str | None = None,
     objection_credit_enabled: bool = False,
     debrief_v2_enabled: bool = False,
+    qualification_enabled: bool = False,
 ) -> dict:
     """Ensure payload carries a deterministic score when extraction is scoreable."""
     if not isinstance(payload, dict):
@@ -259,6 +375,7 @@ def attach_score_to_job_payload(
         screening=memo.get("screening_outcome"),
         objection_credit_enabled=objection_credit_enabled,
         debrief_v2_enabled=debrief_v2_enabled,
+        qualification_enabled=qualification_enabled,
     )
     if score is None:
         return payload

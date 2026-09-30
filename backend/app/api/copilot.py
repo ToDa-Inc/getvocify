@@ -14,7 +14,11 @@ from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.copilot.context import resolve_suggest_context
 from app.services.copilot.checklist import build_meeting_checklist
-from app.services.copilot.load_grounding import load_company_suggest_grounding, load_suggest_grounding
+from app.services.copilot.load_grounding import (
+    load_company_knowledge,
+    load_company_suggest_grounding,
+    load_suggest_grounding,
+)
 from app.services.copilot.suggest import stream_objection_suggestion
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
@@ -85,6 +89,8 @@ async def suggest_objection_handling(
             context=context,
         )
 
+    company_knowledge = load_company_knowledge(supabase, company_id=membership.company_id)
+
     async def event_gen():
         async for event in stream_objection_suggestion(
             transcript_window=body.transcript_window,
@@ -95,6 +101,7 @@ async def suggest_objection_handling(
             speaker_role=body.speaker_role,
             grounding=grounding,
             context=context,
+            company_knowledge=company_knowledge,
         ):
             if event.get("type") == "result":
                 if body.capture_id:

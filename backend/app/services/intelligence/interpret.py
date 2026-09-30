@@ -11,7 +11,7 @@ from app.services.llm.jev_schemas import INTELLIGENCE_QUESTIONS, evidence_state
 Classify = Callable[[dict], dict]
 
 
-_LISTS = ("objections", "commitments", "competitor_mentions", "playbook_observations")
+_LISTS = ("objections", "commitments", "competitor_mentions", "playbook_observations", "qualification_observations")
 _SCALARS = ("interest", "pain_confirmed", "sales_motion_key")
 _STATUS_RANK = {"ready": 2, "partial": 1, "unavailable": 0}
 

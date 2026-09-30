@@ -8,7 +8,9 @@ import {
   MAX_STEPS,
   OBJECTION_CATEGORIES,
   draftError,
+  objectionKey,
   stepError,
+  type EditorCriterion,
   type EditorObjection,
   type EditorStep,
   type ObjectionCategory,
@@ -43,8 +45,11 @@ export type PlaybookDetail = {
   /** Of what a manager's editor shows: the pending draft, else the live version. */
   step_count?: number;
   answer_count?: number;
+  criteria_count?: number;
   /** Saved changes the team doesn't have yet. */
   has_draft?: boolean;
+  /** Plan §16: switched off. Kept, but new calls aren't scored against it. */
+  paused?: boolean;
 };
 
 export type CatalogType = {
@@ -61,7 +66,17 @@ export type TemplateStep = { step_id: string; label: string; criterion: string }
 export type StructureResult = {
   sales_motion_key: string;
   steps: { step_id?: string | null; label: string; criterion: string; example?: string }[];
-  objections: { category: string; guidance: string }[];
+  objections: {
+    category: string;
+    guidance: string;
+    id?: string;
+    label?: string;
+    trigger?: string;
+    meaning?: string;
+    question?: string;
+    proof?: string;
+  }[];
+  qualification?: { criterion_id?: string | null; label: string; why?: string; good?: string; bad?: string }[];
   reason: null | "no_process" | "too_short" | "grouped";
   fallback: boolean;
   source: PlaybookSource | null;
@@ -120,45 +135,67 @@ export function publishBlocker(steps: EditorStep[], objections: EditorObjection[
 }
 
 export type ObjectionRow = {
-  category: ObjectionCategory;
-  guidance: string;
+  /** objectionKey(): the category, or "custom:<id>". */
+  key: string;
+  objection: EditorObjection;
   count: number;
   share: number;
   bestExample: string | null;
 };
 
-/** The objections the document shows: every answered one, every one the team hears without
- * an answer, and any the person added by hand. Most frequent first, then catalog order. */
+/** The objections the document shows: the company's own ones first (it wrote them on purpose),
+ * then every answered fixed one, every one the team hears, and any added by hand, most frequent
+ * first. A row stays while its answer is being cleared. */
 export function visibleObjections(
   answers: EditorObjection[],
   insights: ObjectionInsight[] | null | undefined,
   added: readonly string[] = [],
 ): ObjectionRow[] {
   const byCategory = new Map((insights ?? []).map((item) => [item.category, item]));
-  const guidance = new Map(answers.map((item) => [item.category, item.guidance]));
+  const fixed = new Map(answers.filter((item) => item.category !== "custom").map((item) => [item.category, item]));
+  const custom: ObjectionRow[] = answers
+    .filter((item) => item.category === "custom")
+    .map((item) => ({ key: objectionKey(item), objection: item, count: 0, share: 0, bestExample: null }));
   const rows: ObjectionRow[] = [];
   for (const category of OBJECTION_CATEGORIES) {
-    const text = guidance.get(category) ?? "";
+    const answer = fixed.get(category);
     const data = byCategory.get(category);
     const heard = (data?.count ?? 0) > 0;
-    if (!text.trim() && !heard && !added.includes(category) && !guidance.has(category)) continue;
+    if (!answer && !heard && !added.includes(category)) continue;
     rows.push({
-      category,
-      guidance: text,
+      key: category,
+      objection: answer ?? { category, guidance: "" },
       count: data?.count ?? 0,
       share: data?.share ?? 0,
       bestExample: data?.best_example ?? null,
     });
   }
-  return rows.sort(
-    (a, b) => b.count - a.count || OBJECTION_CATEGORIES.indexOf(a.category) - OBJECTION_CATEGORIES.indexOf(b.category),
+  rows.sort(
+    (a, b) =>
+      b.count - a.count ||
+      OBJECTION_CATEGORIES.indexOf(a.objection.category as ObjectionCategory) -
+        OBJECTION_CATEGORIES.indexOf(b.objection.category as ObjectionCategory),
   );
+  return [...custom, ...rows];
 }
 
-/** Categories not on screen yet, for "+ Objection". */
+/** Fixed categories not on screen yet, for "+ Objection". */
 export function hiddenObjectionCategories(rows: ObjectionRow[]): ObjectionCategory[] {
-  const shown = new Set(rows.map((row) => row.category));
+  const shown = new Set(rows.map((row) => row.key));
   return OBJECTION_CATEGORIES.filter((category) => !shown.has(category));
+}
+
+/** A new custom objection's id: a slug of its name, unique among the ones already there. */
+export function customObjectionId(label: string, taken: readonly string[]): string {
+  const base = typeKeyFromName(label) || "objecion";
+  let id = base;
+  for (let n = 2; taken.includes(id); n += 1) id = `${base.slice(0, 36)}_${n}`;
+  return id;
+}
+
+/** Whether an objection has any of the "on demand" detail filled. */
+export function hasObjectionDetail(item: EditorObjection): boolean {
+  return Boolean(item.meaning?.trim() || item.question?.trim() || item.proof?.trim());
 }
 
 /** "62 %" for a step, or null while there aren't enough calls to say. */
@@ -183,9 +220,9 @@ export type SaveState = "idle" | "saving" | "saved" | "error" | "stale";
 
 /** Structure result -> editor steps and answers. Keys are client-side only. */
 export function editorFromStructure(
-  result: Pick<StructureResult, "steps" | "objections">,
+  result: Pick<StructureResult, "steps" | "objections" | "qualification">,
   newKey: () => string,
-): { steps: EditorStep[]; objections: EditorObjection[] } {
+): { steps: EditorStep[]; objections: EditorObjection[]; qualification: EditorCriterion[] } {
   const steps = (result.steps ?? []).slice(0, MAX_STEPS).map((step) => ({
     key: newKey(),
     step_id: step.step_id ?? null,
@@ -193,10 +230,25 @@ export function editorFromStructure(
     criterion: step.criterion ?? "",
     example: step.example ?? "",
   }));
-  const objections = (result.objections ?? []).filter((item): item is EditorObjection =>
-    (OBJECTION_CATEGORIES as readonly string[]).includes(item.category) && Boolean(item.guidance?.trim()),
-  );
-  return { steps, objections };
+  // A fixed objection is kept only with an answer; a custom one also without (it can be detected).
+  const objections = (result.objections ?? [])
+    .filter((item) =>
+      item.category === "custom"
+        ? Boolean(item.label?.trim())
+        : (OBJECTION_CATEGORIES as readonly string[]).includes(item.category) && Boolean(item.guidance?.trim()),
+    )
+    .map((item) => ({ ...item, category: item.category as EditorObjection["category"], guidance: item.guidance ?? "" }));
+  const qualification = (result.qualification ?? [])
+    .filter((item) => item.label?.trim())
+    .map((item) => ({
+      key: newKey(),
+      criterion_id: item.criterion_id ?? null,
+      label: item.label,
+      why: item.why ?? "",
+      good: item.good ?? "",
+      bad: item.bad ?? "",
+    }));
+  return { steps, objections, qualification };
 }
 
 /** A step whose "counts as done" just repeats its name gives C04 nothing to judge. */
@@ -248,12 +300,14 @@ function defaultRole(key: string): SalesRoleKey | null {
   return null;
 }
 
-export type RowState = "empty" | "pending" | "live";
+export type RowState = "empty" | "pending" | "live" | "paused";
 
-/** What a row says at a glance: nothing yet, saved changes the team doesn't have, or active. */
+/** What a row says at a glance: nothing yet, saved changes the team doesn't have, active, or
+ * switched off. A paused playbook with new changes is "pending": turning them on resumes it. */
 export function rowState(status: MotionStatus, detail: PlaybookDetail | null | undefined): RowState {
   if (detail?.has_draft || status === "draft" || status === "importing") return "pending";
   if (status === "published") return "live";
+  if (status === "paused" || detail?.paused) return "paused";
   return (detail?.step_count ?? 0) > 0 ? "pending" : "empty";
 }
 
@@ -273,15 +327,17 @@ export function nothingYet(
   return Object.keys(motions).every((key) => rowState(motions[key], details?.[key]) === "empty");
 }
 
-/** "5 comprobaciones · 3 respuestas", singular-aware; null when there is nothing to count. */
+/** "5 comprobaciones · 4 datos · 3 respuestas", singular-aware; null when there is nothing to count. */
 export function countLine(
   detail: PlaybookDetail | null | undefined,
-  copy: { checks: string; checkOne: string; answers: string; answerOne: string },
+  copy: { checks: string; checkOne: string; answers: string; answerOne: string; criteria: string; criterionOne: string },
 ): string | null {
   const steps = detail?.step_count ?? 0;
+  const criteria = detail?.criteria_count ?? 0;
   const answers = detail?.answer_count ?? 0;
   if (!steps) return null;
   const parts = [steps === 1 ? copy.checkOne : copy.checks.replace("{count}", String(steps))];
+  if (criteria) parts.push(criteria === 1 ? copy.criterionOne : copy.criteria.replace("{count}", String(criteria)));
   if (answers) parts.push(answers === 1 ? copy.answerOne : copy.answers.replace("{count}", String(answers)));
   return parts.join(" · ");
 }
@@ -345,4 +401,18 @@ export function typeKeyFromName(name: string): string {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 40);
+}
+
+/** The switch on a row: on when active, off when paused; no switch before it was ever turned on. */
+export function switchState(state: RowState): boolean | null {
+  if (state === "live") return true;
+  if (state === "paused") return false;
+  return null;
+}
+
+/** Local status after a pause/resume/delete, before the server answers (it confirms or rolls back). */
+export function optimisticStatus(action: "pause" | "resume" | "delete", status: MotionStatus): MotionStatus | null {
+  if (action === "pause") return status === "published" ? "paused" : status;
+  if (action === "resume") return status === "paused" ? "published" : status;
+  return null;
 }

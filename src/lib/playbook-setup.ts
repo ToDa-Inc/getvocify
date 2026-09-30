@@ -1,5 +1,5 @@
 export type PlaybookRole = "owner" | "admin" | "member";
-export type MotionStatus = "missing" | "draft" | "importing" | "published";
+export type MotionStatus = "missing" | "draft" | "importing" | "published" | "paused";
 
 export type PlaybookNotice = {
   showNotice: boolean;

@@ -3,6 +3,7 @@
 import { api, ApiError } from "@/shared/lib/api-client";
 import type { draftPayload, EditorSnapshot } from "@/lib/playbook-editor";
 import type { MotionStatus } from "@/lib/playbook-setup";
+import type { Knowledge, KnowledgeDoc } from "@/lib/playbook-knowledge";
 import type {
   AppliesTo,
   CatalogType,
@@ -16,6 +17,8 @@ import type {
 export type EditorDoc = EditorSnapshot & {
   updated_at?: string | null;
   has_live?: boolean;
+  /** Switched off: this is the paused version, shown read-only until it is resumed. */
+  paused?: boolean;
   /** What the playbook was structured from. `source` is the draft/published/empty state. */
   source_doc?: PlaybookSource | null;
 };
@@ -27,6 +30,14 @@ export type IntakeResult = {
   reason: null | "no_process";
   candidates: { key: string; label: string }[];
   types: { sales_motion_key: string; reason: null | "grouped" | "too_short"; editor: EditorDoc }[];
+  /** What went to "Vuestra empresa": merged into what was there, never overwriting it. */
+  company: (KnowledgeDoc & { filled: string[] }) | null;
+};
+
+export type QualificationTemplate = {
+  key: "bant" | "meddic" | "meddpicc";
+  label: string;
+  criteria: Record<"es" | "en", { criterion_id: string; label: string; why?: string; good?: string; bad?: string }[]>;
 };
 
 export type PlaybookList = {
@@ -79,7 +90,16 @@ export const playbooksApi = {
     ),
   intake: (kind: SourceKind, payload: string, name?: string) =>
     api.post<IntakeResult>("/playbooks/structure", { kind, payload, ...(name ? { name } : {}) }, { timeoutMs: 120_000 }),
+  // Plan §16: switch a playbook off and on, delete it, and undo the delete.
+  pause: (key: string) => api.post<PlaybookList>(`${path(key)}/pause`),
+  resume: (key: string) => api.post<PlaybookList>(`${path(key)}/resume`),
+  remove: (key: string) => api.delete<PlaybookList>(path(key)),
+  restore: (key: string) => api.post<PlaybookList>(`${path(key)}/restore`),
   catalog: () => api.get<{ types: CatalogType[] }>("/playbooks/catalog"),
+  qualificationTemplates: () => api.get<{ templates: QualificationTemplate[] }>("/playbooks/qualification-templates"),
+  company: () => api.get<KnowledgeDoc>("/playbooks/company"),
+  saveCompany: (knowledge: Knowledge, baseUpdatedAt: string | null) =>
+    api.put<KnowledgeDoc>("/playbooks/company", { knowledge, base_updated_at: baseUpdatedAt }),
   addType: (body: { type_key: string; name: string; applies_to?: AppliesTo }) =>
     api.post<{ motions: Record<string, MotionStatus>; details?: Record<string, PlaybookDetail> }>("/playbooks/types", body),
   saveRule: (key: string, appliesTo: AppliesTo) =>

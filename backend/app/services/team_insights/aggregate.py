@@ -410,10 +410,11 @@ def load_team_adherence_inputs(
             if isinstance(versions, dict):
                 versions = [versions]
             versions = [v for v in versions or [] if isinstance(v, dict)]
-            # Prefer the flow's currently active version; a stray published-but-retired
-            # version should not surface its (possibly outdated) guidance.
+            # Only the flow's currently active version counts: a stray published-but-retired
+            # version, or the version of a paused or deleted flow (no active one), must not
+            # surface its (possibly outdated) guidance.
             active_id = row.get("active_version_id")
-            chosen = [v for v in versions if active_id and str(v.get("id")) == str(active_id)] or versions
+            chosen = [v for v in versions if active_id and str(v.get("id")) == str(active_id)]
             for version in chosen:
                 playbook_entries.extend(version.get("entries") or [])
     except _NoRepsInRole:
