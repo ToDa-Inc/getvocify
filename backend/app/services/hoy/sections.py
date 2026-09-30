@@ -38,6 +38,9 @@ SDR_FOLLOWUPS_CAP = 7
 SDR_NEW_CAP = 10
 FOLLOWUP_TYPE = "followup_due"
 NEW_TYPE = "never_contacted"
+# A loose CRM task (not linked to a Vocify signal) is not one of E7's/E13's Tareas, and the
+# rep's home never paints it (shared/ui/home.js), so it gets no block and no folded count.
+MANUAL_TASK_TYPE = "manual_task"
 # build_today_view's cap while the sections are built from its items: high enough that no
 # card is dropped before the per-section caps apply.
 SDR_SOURCE_LIMIT = 1000
@@ -57,6 +60,8 @@ SECTION_CAPS: dict[str, int] = {
 
 
 def _section_for(kind: str | None, keys: tuple[str, ...]) -> str | None:
+    if kind == MANUAL_TASK_TYPE:
+        return None
     if kind == FOLLOWUP_TYPE:
         return "followups"
     if kind == NEW_TYPE:
@@ -80,7 +85,7 @@ def _starts_at(item: dict) -> tuple[int, float]:
 def hoy_sections(items: list[dict], sales_role: str | None) -> tuple[dict, dict]:
     """(sections, folded per section) from the ranked items, order kept (demos by start
     time). Tasks are everything else: commitments due, callbacks, no-reply emails,
-    confirmations, the rep's manual CRM tasks - and, for an SDR, a meeting today.
+    confirmations - and, for an SDR, a meeting today. Loose CRM tasks are left out.
     D1: null behaves as general; an unknown role too."""
     keys = SECTION_KEYS.get(sales_role or "general", SECTION_KEYS["general"])
     buckets: dict[str, list[dict]] = {key: [] for key in keys}
