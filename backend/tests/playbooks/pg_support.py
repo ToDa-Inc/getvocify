@@ -45,7 +45,7 @@ def _env() -> dict[str, str]:
 
 def psql(dsn: str, sql: str, *, timeout: int = 60) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["psql", dsn, "-v", "ON_ERROR_STOP=1", "-tA", "-c", sql],
+        ["psql", dsn, "-q", "-v", "ON_ERROR_STOP=1", "-tA", "-c", sql],
         capture_output=True, text=True, timeout=timeout, check=False, env=_env(),
     )
 

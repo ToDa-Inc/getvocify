@@ -10,28 +10,28 @@ os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-playbooks-32b+")
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.playbooks import router as playbooks_router, set_playbook_store
+from app.api.playbooks import router as playbooks_router
 from app.deps import get_membership
 from app.services.company import Membership
 from app.services.playbooks.imports import start_import
-from app.services.playbooks.store import MemoryPlaybookStore
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 
 
 def test_import_from_another_company_is_not_found():
-    store = MemoryPlaybookStore({}, {})
-    store.save_import("co-a", {"import_id": "imp-a", "status": "ready", "draft": {"text": "secret"}}, None)
+    store = InMemoryPlaybookRepository()
+    store.save_import("co-a", {"import_id": "imp-a", "status": "ready", "draft": {"text": "secret"}}, "discovery")
     assert store.get_import("co-b", "imp-a") is None
     assert store.get_import("co-a", "imp-a")["import_id"] == "imp-a"
 
 
 def test_http_get_import_from_another_company_is_not_found():
-    store = MemoryPlaybookStore({}, {})
-    set_playbook_store(store)
+    store = InMemoryPlaybookRepository()
+    set_playbook_repository(store)
     try:
         store.save_import(
             "co-a",
             {"import_id": "imp-a", "status": "ready", "draft": {"text": "secret"}},
-            None,
+            "discovery",
         )
         app = FastAPI()
         app.include_router(playbooks_router)
@@ -47,7 +47,7 @@ def test_http_get_import_from_another_company_is_not_found():
         assert own.status_code == 200
         assert own.json()["import_id"] == "imp-a"
     finally:
-        set_playbook_store(None)
+        set_playbook_repository(None)
 
 
 def test_empty_pdf_fails_and_leaves_the_active_version():
@@ -221,12 +221,7 @@ def test_audio_import_uses_stt_and_does_not_create_a_memo():
 
 
 def test_a_contradiction_stays_a_draft_and_can_be_reopened():
-    from app.api import playbooks as playbooks_api
-
-    playbooks_api._MOTIONS.clear()
-    playbooks_api._IMPORTS.clear()
-    playbooks_api._LATEST.clear()
-    playbooks_api._ACTIVATED.clear()
+    set_playbook_repository(InMemoryPlaybookRepository())
     app = FastAPI()
     app.include_router(playbooks_router)
     app.dependency_overrides[get_membership] = lambda: Membership(
@@ -269,3 +264,4 @@ def test_a_contradiction_stays_a_draft_and_can_be_reopened():
     published = client.post("/api/v1/playbooks/discovery/publish")
     assert published.status_code == 200
     assert published.json()["motions"]["discovery"] == "published"
+    set_playbook_repository(None)

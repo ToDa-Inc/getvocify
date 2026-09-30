@@ -14,12 +14,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.playbook_rules import memo_router
-from app.api.playbooks import set_playbook_store
 from app.config import settings
 from app.deps import get_membership, get_supabase, get_user_id
 from app.services import feature_flags
 from app.services.company import Membership
-from app.services.playbooks.store import MemoryPlaybookStore
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 from tests.playbooks.live_double import TablesWithLiveView
 
 MEMO = "11111111-1111-1111-1111-111111111111"
@@ -31,7 +30,7 @@ def _clean(monkeypatch):
     monkeypatch.setattr(settings, "PLAYBOOK_ROUTING_ENABLED", True)
     yield
     feature_flags.clear_cache()
-    set_playbook_store(None)
+    set_playbook_repository(None)
 
 
 class _Query:
@@ -105,10 +104,8 @@ def _client(db, *, user="author", role="member", company="co-1", store=None):
     app.dependency_overrides[get_membership] = lambda: Membership(
         id="m", company_id=company, user_id=user, role=role, status="active",
     )
-    set_playbook_store(store or MemoryPlaybookStore(
-        {"co-1": {"discovery": "published", "closing": "published", "inbound": "draft", "negotiation": "missing", "renewal": "published"}},
-        {},
-    ))
+    set_playbook_repository(store or InMemoryPlaybookRepository(
+        {"co-1": {"discovery": "published", "closing": "published", "inbound": "draft", "negotiation": "missing", "renewal": "published"}}))
     return TestClient(app)
 
 
@@ -219,10 +216,9 @@ def test_the_real_hooks_republish_coaching_for_the_new_pin_and_never_re_route_it
 
 
 def test_get_lists_the_published_types_and_says_the_author_can_change_it():
-    store = MemoryPlaybookStore(
-        {"co-1": {"renewal": "published", "closing": "published", "inbound": "draft", "discovery": "published", "negotiation": "missing"}}, {},
-    )
-    store.save_type_meta("co-1", "renewal", label="Renovación")
+    store = InMemoryPlaybookRepository(
+        {"co-1": {"renewal": "published", "closing": "published", "inbound": "draft", "discovery": "published", "negotiation": "missing"}})
+    store.set_meta("co-1", "renewal", label="Renovación")
     body = _client(_Db(_memo()), store=store).get(f"/api/v1/memos/{MEMO}/playbook").json()
     assert body == {
         "sales_motion_key": "closing",

@@ -22,11 +22,15 @@ from app.services.playbooks.catalog import (
     validate_applies_to,
 )
 from app.services.playbooks.imports import start_import
-from app.services.playbooks.intake import candidate_types, ensure_type, public_candidates
+from app.services.playbooks.intake import candidate_types, ensure_payload, public_candidates
+from app.services.playbooks.knowledge import merge_knowledge, sections
 from app.services.playbooks.motion import goal_for, visible_to_role
-from app.services.playbooks.routing import build_details, routing_enabled
-from app.services.playbooks.knowledge import merge_knowledge, normalize_knowledge, sections
-from app.services.playbooks.store import NO_VERSION_SUMMARY
+from app.services.playbooks.repository import (
+    PlaybookRepository,
+    get_playbook_repository,
+    set_playbook_repository,
+)
+from app.services.playbooks.routing import build_details, motions_and_stored, routing_enabled
 from app.services.playbooks.structure import (
     detect_language,
     set_playbook_structure_llm,
@@ -41,7 +45,6 @@ from app.services.playbooks.structured import (
     normalize_qualification,
     normalize_steps,
 )
-from app.services.playbooks.store import MemoryPlaybookStore
 from app.services.playbooks.versions import LifecycleError, PublishError, StaleDraftError, can_publish
 
 SALES_ROLES_FLAG = "SALES_ROLES_ENABLED"
@@ -49,20 +52,10 @@ MANAGE_ROLES = frozenset({"owner", "admin"})
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["router", "set_playbook_store", "set_playbook_transcriber", "set_playbook_structure_llm"]
+__all__ = ["router", "set_playbook_repository", "set_playbook_transcriber", "set_playbook_structure_llm"]
 
 router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
-_IMPORTS: dict[str, dict] = {}
-_MOTIONS: dict[str, dict[str, str]] = {}
-_LATEST: dict[tuple[str, str], dict] = {}
-_ACTIVATED: dict[tuple[str, str], str] = {}
-_STRUCTURED: dict[tuple[str, str], dict] = {}
-_PUBLISHED_VERSIONS: dict[tuple[str, str], dict] = {}
-_DETAILS: dict[tuple[str, str], dict] = {}
-_KNOWLEDGE: dict[str, dict] = {}
-_LIFECYCLE: dict[tuple[str, str], dict] = {}
-_store = None
 _transcriber = None
 
 
@@ -86,19 +79,6 @@ async def _audio_text(payload: str) -> str:
     return result
 
 
-def get_playbook_store():
-    if _store is not None:
-        return _store
-    return MemoryPlaybookStore(
-        _MOTIONS, _IMPORTS, _LATEST, _ACTIVATED, _STRUCTURED, _PUBLISHED_VERSIONS, _DETAILS, _KNOWLEDGE, _LIFECYCLE,
-    )
-
-
-def set_playbook_store(store) -> None:
-    global _store
-    _store = store
-
-
 class TypeRequest(BaseModel):
     type_key: str
     name: str = ""
@@ -111,36 +91,27 @@ async def create_type(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
-    store = get_playbook_store()
+    if not can_publish(membership.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden añadir una tipología")
+    repository = get_playbook_repository()
     key = body.type_key.strip()
     rule = None
-    if can_publish(membership.role) and key:
+    if key:
         try:
             rule = _rule_for_new_type(supabase, membership.company_id, key, body.applies_to)
         except RuleError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": exc.code}
             ) from exc
-    try:
-        motions = store.add_type(
-            membership.company_id,
-            body.type_key,
-            body.name or body.type_key,
-            membership.role,
-        )
-    except PublishError as exc:
-        if exc.code == "forbidden":
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden añadir una tipología")
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La tipología necesita una clave")
+    named = {}
     if rule is not None:
-        store.save_type_meta(
-            membership.company_id,
-            key,
-            label=body.name.strip() or catalog_label(key) or None,
-            applies_to=rule,
-        )
-        motions = store.motions(membership.company_id)
-    return {"motions": motions, "details": build_details(motions, store.details(membership.company_id))}
+        named = {"label": body.name.strip() or catalog_label(key) or None, "applies_to": rule}
+    try:
+        repository.add_type(membership.company_id, body.type_key, body.name or body.type_key, **named)
+    except PublishError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La tipología necesita una clave") from exc
+    motions, stored = motions_and_stored(repository.list_types(membership.company_id))
+    return {"motions": motions, "details": build_details(motions, stored)}
 
 
 def _rule_for_new_type(supabase: Client, company_id: str, key: str, applies_to: Optional[dict]) -> Optional[dict]:
@@ -173,7 +144,7 @@ def _guard(membership: Membership) -> None:
 @router.post("/imports")
 async def create_import(body: ImportRequest, membership: Membership = Depends(get_membership)):
     _guard(membership)
-    store = get_playbook_store()
+    repository = get_playbook_repository()
     stt = None
     if body.kind == "audio":
         try:
@@ -186,38 +157,35 @@ async def create_import(body: ImportRequest, membership: Membership = Depends(ge
         kind=body.kind,
         payload=body.payload,
         active_version_id=body.active_version_id,
-        existing=store.get_import(membership.company_id, body.import_id),
+        existing=repository.get_import(membership.company_id, body.import_id),
         stt=stt,
     )
     if body.sales_motion_key:
         record = {**record, "sales_motion_key": body.sales_motion_key}
-    store.save_import(membership.company_id, record, body.sales_motion_key)
+    repository.save_import(membership.company_id, record, body.sales_motion_key)
     return record
 
 
-def _with_version_counts(details: dict, store, company_id: str, *, manager: bool) -> dict:
-    """Each `details[key]` gains step_count, answer_count, criteria_count and has_draft of the version the
-    editor would open: the pending draft for a manager, else the live one. A rep only ever
-    sees the live version, so for them has_draft is false and the counts are the live ones."""
-    summaries = store.version_summaries(company_id, include_draft=manager)
-    return {
-        key: {**detail, **(summaries.get(key) or {**NO_VERSION_SUMMARY, "paused": bool(detail.get("paused"))})}
-        for key, detail in details.items()
-    }
+_COUNT_FIELDS = ("step_count", "answer_count", "criteria_count", "has_draft")
 
 
-def _playbooks_payload(supabase: Client, membership: Membership, store) -> dict:
+def _playbooks_payload(supabase: Client, membership: Membership, repository: PlaybookRepository) -> dict:
     """The one shape of GET /playbooks, and of pause, resume, delete and restore: `motions`
     (paused ones say "paused"; deleted ones are not there), `details` and, with the roles flag,
-    `goals`; a rep only gets what their role can see."""
-    motions = store.motions(membership.company_id)
-    stored = store.details(membership.company_id)
-    details = _with_version_counts(
-        build_details(motions, stored), store, membership.company_id, manager=membership.role in MANAGE_ROLES,
-    )
+    `goals`; a rep only gets what their role can see. Each `details[key]` gains step_count,
+    answer_count, criteria_count and has_draft of the version the editor would open: the pending
+    draft for a manager, else the live one. A rep only ever sees the live version, so for them
+    has_draft is false and the counts are the live ones."""
+    manager = membership.role in MANAGE_ROLES
+    types = repository.list_types(membership.company_id, include_draft=manager)
+    motions, stored = motions_and_stored(types)
+    details = {
+        key: {**detail, **{name: types[key][name] for name in _COUNT_FIELDS}}
+        for key, detail in build_details(motions, stored).items()
+    }
     if not is_enabled(supabase, membership.company_id, SALES_ROLES_FLAG):
         return {"motions": motions, "details": details}
-    if membership.role not in MANAGE_ROLES:
+    if not manager:
         motions = {
             key: status_
             for key, status_ in motions.items()
@@ -233,28 +201,30 @@ async def list_playbooks(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
-    return _playbooks_payload(supabase, membership, get_playbook_store())
+    return _playbooks_payload(supabase, membership, get_playbook_repository())
 
 
 @router.post("/{sales_motion_key}/publish")
 async def publish_motion(sales_motion_key: str, membership: Membership = Depends(get_membership)):
+    if not can_publish(membership.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden publicar")
+    repository = get_playbook_repository()
     try:
-        updated = get_playbook_store().publish(membership.company_id, sales_motion_key, membership.role)
+        version_id = repository.publish(membership.company_id, sales_motion_key)
     except PublishError as exc:
-        if exc.code == "forbidden":
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden publicar")
         if exc.code == "contradiction":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Hay pasos contradictorios. Edita el borrador antes de publicar.",
             )
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No hay un borrador para publicar")
-    return {"motions": updated, "activated": get_playbook_store().activated(membership.company_id)}
+    motions, _ = motions_and_stored(repository.list_types(membership.company_id))
+    return {"motions": motions, "activated": {sales_motion_key: version_id}}
 
 
 @router.get("/imports/{import_id}")
 async def get_import(import_id: str, membership: Membership = Depends(get_membership)):
-    record = get_playbook_store().get_import(membership.company_id, import_id)
+    record = get_playbook_repository().get_import(membership.company_id, import_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Importación no encontrada")
     return record
@@ -329,7 +299,7 @@ async def get_playbook_editor(
         and not visible_to_role(sales_motion_key, membership.sales_role)
     ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook no encontrado")
-    snapshot = get_playbook_store().editor_snapshot(membership.company_id, sales_motion_key, include_draft=manager)
+    snapshot = get_playbook_repository().editor_snapshot(membership.company_id, sales_motion_key, include_draft=manager)
     return _editor_response(sales_motion_key, snapshot)
 
 
@@ -357,20 +327,20 @@ async def save_structured_playbook_draft(
         if exc.field:
             detail["field"] = exc.field
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail) from exc
-    store = get_playbook_store()
+    repository = get_playbook_repository()
     try:
-        store.save_structured_draft(
+        repository.save_draft(
             membership.company_id,
             sales_motion_key,
             steps,
             entries,
-            base_updated_at=body.base_updated_at,
-            source_id=body.source_id,
             qualification=criteria,
+            source_id=body.source_id,
+            base_updated_at=body.base_updated_at,
         )
     except StaleDraftError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
-    snapshot = store.editor_snapshot(membership.company_id, sales_motion_key, include_draft=True)
+    snapshot = repository.editor_snapshot(membership.company_id, sales_motion_key, include_draft=True)
     return _editor_response(sales_motion_key, snapshot)
 
 
@@ -382,9 +352,9 @@ async def discard_structured_playbook_draft(
     """"Descartar cambios": deletes the pending draft (never a published version) and
     returns the editor as it is now: the live version, or empty."""
     _guard(membership)
-    store = get_playbook_store()
-    store.discard_draft(membership.company_id, sales_motion_key)
-    snapshot = store.editor_snapshot(membership.company_id, sales_motion_key, include_draft=True)
+    repository = get_playbook_repository()
+    repository.discard_draft(membership.company_id, sales_motion_key)
+    snapshot = repository.editor_snapshot(membership.company_id, sales_motion_key, include_draft=True)
     return _editor_response(sales_motion_key, snapshot)
 
 
@@ -393,14 +363,14 @@ def _lifecycle(action: str, sales_motion_key: str, supabase: Client, membership:
     /playbooks. 409 {detail: {code}} when it does not apply as things are (not_published,
     not_paused, not_archived), 404 when the company has no such type (delete)."""
     _guard(membership)
-    store = get_playbook_store()
+    repository = get_playbook_repository()
     try:
-        getattr(store, action)(membership.company_id, sales_motion_key)
+        repository.set_state(membership.company_id, sales_motion_key, action)
     except LifecycleError as exc:
         if exc.code == "not_found":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook no encontrado") from exc
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
-    return _playbooks_payload(supabase, membership, store)
+    return _playbooks_payload(supabase, membership, repository)
 
 
 @router.post("/{sales_motion_key}/pause")
@@ -482,10 +452,10 @@ async def _read_source(body: StructureRequest) -> str:
     return text
 
 
-def _keep_source(store, membership: Membership, key: Optional[str], body: StructureRequest, text: str, lang: str):
+def _keep_source(repository: PlaybookRepository, membership: Membership, key: Optional[str], body: StructureRequest, text: str, lang: str):
     name = (body.name or "").strip()[:200] or _DEFAULT_SOURCE_NAMES[lang].get(body.kind, body.kind)
     try:
-        return store.save_source(membership.company_id, key, body.kind, name, text)
+        return repository.save_source(membership.company_id, key, body.kind, name, text)
     except Exception:  # keeping the original is a courtesy; it never blocks structuring
         logger.exception("playbook source not saved")
         return None
@@ -504,66 +474,83 @@ async def structure_company_source(
     saved and `fallback` is true: the caller asks which call type it is and uses
     POST /{key}/structure."""
     _guard(membership)
-    store = get_playbook_store()
+    repository = get_playbook_repository()
     text = await _read_source(body)
     lang = detect_language(text)
     routing = routing_enabled(supabase, membership.company_id)
-    candidates = candidate_types(routing, store.motions(membership.company_id), store.details(membership.company_id), lang)
-    source = _keep_source(store, membership, None, body, text, lang)
+    motions, stored = motions_and_stored(repository.list_types(membership.company_id, include_draft=False))
+    candidates = candidate_types(routing, motions, stored, lang)
+    source = _keep_source(repository, membership, None, body, text, lang)
     result = await split_source(text, candidates, lang)
 
     found = {item["key"]: item for item in result["types"]}
-    types = []
+    items, reasons = [], {}
     for candidate in candidates:  # candidate order (catalog order), not the model's
         item = found.get(candidate["key"])
         if item is None:
             continue
         key = item["key"]
-        ensure_type(store, membership.company_id, key, membership.role, routing=routing, lang=lang)
         criteria = normalize_qualification(item.get("qualification"))
-        store.save_structured_draft(
-            membership.company_id,
-            key,
-            item["steps"],
-            normalize_objections(item["objections"]),
-            source_id=(source or {}).get("id"),
+        reasons[key] = item["reason"]
+        items.append({
+            "key": key,
+            "steps": item["steps"],
+            "entries": normalize_objections(item["objections"]),
             # A document without criteria must not wipe the ones already in the draft.
-            qualification=criteria or None,
-        )
-        snapshot = store.editor_snapshot(membership.company_id, key, include_draft=True)
-        types.append({"sales_motion_key": key, "reason": item["reason"], "editor": _editor_response(key, snapshot)})
+            "qualification": criteria or None,
+            "ensure": ensure_payload(key, routing=routing, lang=lang),
+        })
+    existing, merged, filled = _merge_company(repository, membership.company_id, result.get("company"))
+    source_id = (source or {}).get("id")
+    saved = {"types": [], "knowledge": None}
+    if items or filled:
+        saved = repository.save_intake(membership.company_id, items, merged if filled else None, source_id)
+    types = [
+        {
+            "sales_motion_key": entry["sales_motion_key"],
+            "reason": reasons[entry["sales_motion_key"]],
+            "editor": _editor_response(
+                entry["sales_motion_key"],
+                repository.editor_snapshot(membership.company_id, entry["sales_motion_key"], include_draft=True),
+            ),
+        }
+        for entry in saved["types"]
+    ]
     return {
         "source": source,
         "fallback": bool(result["fallback"]),
         "reason": result["reason"],
         "candidates": public_candidates(candidates),
         "types": types,
-        "company": _merge_company(store, membership.company_id, result.get("company"), (source or {}).get("id")),
+        "company": _company_payload(saved["knowledge"] or existing, merged, filled),
     }
 
 
-def _merge_company(store, company_id: str, found: Optional[dict], source_id: Optional[str]) -> Optional[dict]:
-    """Adds what the document said about the company to what is already stored (never
-    overwriting it) and answers {knowledge, updated_at, sections, filled}. None when the
-    document had nothing company-level and nothing is stored. A failure here (the table is
-    not there yet) never costs the manager the call types that were just saved."""
+def _merge_company(repository: PlaybookRepository, company_id: str, found: Optional[dict]) -> tuple[Optional[dict], Optional[dict], list]:
+    """What the document said about the company added to what is already stored, never overwriting it:
+    (the stored row, the merged knowledge, the keys filled now). The write is part of the intake (one
+    transaction with the call types). A failed read (the table is not there yet) means there is nothing to
+    merge: the call types are still saved."""
     try:
-        saved = store.get_knowledge(company_id)
-        existing = (saved or {}).get("data") or {}
-        merged, filled = merge_knowledge(existing, found)
-        if filled:
-            saved = store.save_knowledge(company_id, merged, source_id=source_id)
-        if not sections(merged):
-            return None
-        return {
-            "knowledge": merged,
-            "updated_at": (saved or {}).get("updated_at"),
-            "sections": sections(merged),
-            "filled": filled,
-        }
+        existing = repository.get_knowledge(company_id)
     except Exception:
-        logger.exception("company knowledge not saved")
+        logger.exception("company knowledge not read")
+        return None, None, []
+    merged, filled = merge_knowledge((existing or {}).get("data") or {}, found)
+    return existing, merged, filled
+
+
+def _company_payload(row: Optional[dict], merged: Optional[dict], filled: list) -> Optional[dict]:
+    """{knowledge, updated_at, sections, filled}, None when the document had nothing company-level and nothing
+    is stored."""
+    if merged is None or not sections(merged):
         return None
+    return {
+        "knowledge": merged,
+        "updated_at": (row or {}).get("updated_at"),
+        "sections": sections(merged),
+        "filled": filled,
+    }
 
 
 @router.post("/{sales_motion_key}/structure")
@@ -577,9 +564,9 @@ async def structure_playbook_source(
     draft. The material is kept as `source` so the playbook can link back to it. If the
     model fails the steps come from the line parser and `fallback` is true."""
     _guard(membership)
-    store = get_playbook_store()
+    repository = get_playbook_repository()
     text = await _read_source(body)
     lang = detect_language(text)
-    source = _keep_source(store, membership, sales_motion_key, body, text, lang)
+    source = _keep_source(repository, membership, sales_motion_key, body, text, lang)
     result = await structure_source(text, sales_motion_key, lang)
     return {"sales_motion_key": sales_motion_key, **result, "source": source}

@@ -401,12 +401,11 @@ async def startup_event():
     asyncio.create_task(_periodic_confirm_writes())
     from app.services.intelligence.worker import install_intelligence_tick, start_worker
     from app.deps import get_supabase
-    from app.api.playbooks import set_playbook_store
     from app.api.ask import set_ask_loop, set_ask_store
-    from app.services.playbooks.store import SupabasePlaybookStore
+    from app.services.playbooks.repository import SqlPlaybookRepository, set_playbook_repository
     from app.services.crm_copilot.web_sessions import SupabaseAskStore, live_ask_loop
     supabase = get_supabase()
-    set_playbook_store(SupabasePlaybookStore(supabase))
+    set_playbook_repository(SqlPlaybookRepository(supabase))
     set_ask_store(SupabaseAskStore(supabase))
     set_ask_loop(live_ask_loop)
     from app.services.coaching.brief_preferences import set_supabase as set_brief_preference_supabase

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from app.api.playbooks import set_playbook_store, set_playbook_structure_llm, set_playbook_transcriber
+from app.api.playbooks import set_playbook_structure_llm, set_playbook_transcriber
 from app.config import settings
 from app.services import feature_flags
 from app.services.playbooks import structure as structure_module
@@ -33,7 +33,7 @@ from app.services.playbooks.knowledge import (
     normalize_knowledge,
     sections,
 )
-from app.services.playbooks.store import MemoryPlaybookStore, SupabasePlaybookStore
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 from app.services.playbooks.structure import split_source, structure_source
 from app.services.playbooks.structured import (
     PlaybookDraftError,
@@ -50,12 +50,15 @@ from tests.playbooks.test_company_intake import (
     PRICE,
     SDR,
     _client,
-    _Db,
     _post,
     _routing_on,
-    _stores,
 )
-from tests.playbooks.test_draft_autosave import FakeDb, js_iso
+from tests.playbooks.test_repository_contract import js_iso
+
+
+def _stores():
+    # The API is checked on the in-memory repository; the SQL one has the same contract (test_repository_contract).
+    return [("memory", InMemoryPlaybookRepository)]
 from tests.playbooks.test_structure import SCRIPT, FakeLLM
 
 BASE = "/api/v1/playbooks"
@@ -82,7 +85,7 @@ def _clean(monkeypatch):
     feature_flags.clear_cache()
     yield
     feature_flags.clear_cache()
-    set_playbook_store(None)
+    set_playbook_repository(None)
     set_playbook_structure_llm(None)
     set_playbook_transcriber(None)
 
@@ -287,21 +290,6 @@ def test_the_list_counts_criteria_and_custom_objections(make):
     assert (rep["criteria_count"], rep["has_draft"]) == (2, False)
 
 
-def test_publishing_on_the_supabase_store_keeps_the_criteria_in_the_same_row():
-    db = FakeDb()
-    client = _client(SupabasePlaybookStore(db))
-    saved = _put(client, qualification=CRITERIA, objections=[CUSTOM]).json()
-    row = db.tables["playbook_versions"][0]
-    assert row["qualification"][0]["criterion_id"] == "presupuesto" and row["entries"][0]["entry_id"] == "objection:custom:ya_lo_hacemos_con_excel"
-    client.post(f"{BASE}/discovery/publish")
-    assert len(db.tables["playbook_versions"]) == 1  # the draft row became the live one: nothing was copied
-    live = db.tables["playbook_versions"][0]
-    assert live["id"] == saved["version_id"] and live["status"] == "published" and len(live["qualification"]) == 2
-    playbook = db.tables["playbooks"][0]
-    view = published_snapshot({"id": playbook["id"], "sales_motion_key": "discovery"}, [live], live["id"])
-    assert [c["criterion_id"] for c in view["qualification"]] == ["presupuesto", "quien_decide"]
-
-
 # --- qualification templates -----------------------------------------------------------------
 
 
@@ -463,47 +451,9 @@ def test_a_stale_company_save_is_409_and_changes_nothing(make):
 
 
 def test_a_base_for_knowledge_that_was_never_saved_is_stale():
-    for make in (lambda: MemoryPlaybookStore({}, {}, {}, {}, {}, {}), lambda: SupabasePlaybookStore(FakeDb())):
-        client = _client(make())
-        response = client.put(f"{BASE}/company", json={"knowledge": {}, "base_updated_at": "2026-09-29T10:00:00Z"})
-        assert response.status_code == 409
-
-
-def test_the_supabase_knowledge_update_is_filtered_on_the_compared_row():
-    db = FakeDb()
-    store = SupabasePlaybookStore(db)
-    one = store.save_knowledge("co-1", {"icp": "Uno"})
-    # Someone else saves between our read and our write: the update matches no row.
-    original_select = store.supabase.table
-
-    class _Racy:
-        def __init__(self, inner):
-            self.inner = inner
-            self.raced = False
-
-        def table(self, name):
-            if name == "company_sales_knowledge" and not self.raced:
-                self.raced = True
-                query = self.inner.table(name)
-                real_execute = query.execute
-
-                def execute():
-                    result = real_execute()  # our read
-                    self.inner.table(name).update({"data": {"icp": "De otro"}}).eq("company_id", "co-1").execute()
-                    return result
-
-                query.execute = execute
-                return query
-            return self.inner.table(name)
-
-        def __getattr__(self, name):
-            return getattr(self.inner, name)
-
-    racy = SupabasePlaybookStore(_Racy(db))
-    with pytest.raises(StaleKnowledgeError):
-        racy.save_knowledge("co-1", {"icp": "Mío"}, base_updated_at=one["updated_at"])
-    assert db.tables["company_sales_knowledge"][0]["data"]["icp"] == "De otro"
-    del original_select
+    client = _client(InMemoryPlaybookRepository())
+    response = client.put(f"{BASE}/company", json={"knowledge": {}, "base_updated_at": "2026-09-29T10:00:00Z"})
+    assert response.status_code == 409
 
 
 # --- intake: a document with only some of it ---------------------------------------------------
@@ -627,22 +577,12 @@ def test_a_document_with_nothing_company_level_answers_the_stored_company_or_nul
 
 
 def test_a_company_that_cannot_be_saved_never_costs_the_call_types():
-    inner = MemoryPlaybookStore({}, {}, {}, {}, {}, {})
+    inner = InMemoryPlaybookRepository()
     client = _client(_Fixed(inner))
     _c, _l, response = _intake({"types": [SDR], "company": COMPANY}, client=client)
     body = response.json()
     assert response.status_code == 200 and body["company"] is None
     assert [t["sales_motion_key"] for t in body["types"]] == ["discovery"]
-
-
-def test_the_company_is_saved_on_the_supabase_store_with_its_source():
-    db = _Db()
-    client = _client(SupabasePlaybookStore(db))
-    _c, _l, response = _intake({"types": [SDR], "company": COMPANY}, COMPANY_DOC + " " + MIXED, client=client)
-    row = db.tables["company_sales_knowledge"][0]
-    assert row["company_id"] == "co-1" and row["source_id"] == response.json()["source"]["id"]
-    assert [c["name"] for c in row["data"]["competitors"]] == ["Holded", "Factorial"]
-    assert response.json()["company"]["updated_at"] == row["updated_at"]
 
 
 def test_the_model_cannot_invent_a_competitor_or_a_number_the_source_does_not_have():

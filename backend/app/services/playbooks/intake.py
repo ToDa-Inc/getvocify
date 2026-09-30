@@ -1,13 +1,10 @@
 """One input for the whole company (playbooks v2): the call types a document can be split into,
 and making sure a detected type exists before its draft is saved.
 
-Pure helpers over the store's `motions()` / `details()`; no I/O of their own except through
-the store passed in.
+Pure helpers over the company's motions and details (see routing.motions_and_stored); no I/O.
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 from app.services.playbooks.catalog import (
     CATALOG_KEYS,
@@ -95,15 +92,12 @@ def public_candidates(candidates: list[dict]) -> list[dict]:
     return [{"key": c["key"], "label": c["label"]} for c in candidates]
 
 
-def ensure_type(store: Any, company_id: str, key: str, role: str, *, routing: bool, lang: str) -> None:
-    """The type exists for the company before its draft is saved. A catalog type that is not
-    there yet is added the way POST /types adds it: the type, and (routing on) its catalog
-    label and default rule. A type that already exists is left alone."""
-    if key in store.motions(company_id) or key in store.details(company_id):
-        return
-    store.add_type(company_id, key, catalog_label(key, lang) or key, role)
+def ensure_payload(key: str, *, routing: bool, lang: str) -> dict:
+    """The `ensure` of one item of repository.save_intake: the type is created first when the company does not have
+    it yet, the way POST /types creates it: the type, and (routing on, a catalog type) its catalog label and default
+    rule. A type that already exists is left alone."""
+    payload: dict = {"name": catalog_label(key, lang) or key}
     if routing and is_catalog(key):
-        store.save_type_meta(
-            company_id, key, label=catalog_label(key, lang) or None, applies_to=default_applies_to(key),
-        )
-
+        payload["label"] = catalog_label(key, lang) or None
+        payload["applies_to"] = default_applies_to(key)
+    return payload

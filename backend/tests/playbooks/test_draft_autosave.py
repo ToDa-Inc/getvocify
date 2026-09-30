@@ -17,11 +17,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.playbooks import router as playbooks_router
-from app.api.playbooks import set_playbook_store
 from app.deps import get_membership, get_supabase
 from app.services import feature_flags
 from app.services.company import Membership
-from app.services.playbooks.store import MemoryPlaybookStore, SupabasePlaybookStore
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 from app.services.playbooks.versions import StaleDraftError, is_newer, parse_ts, same_instant
 
 BASE = "/api/v1/playbooks/discovery"
@@ -50,8 +49,8 @@ class _NoFlags:
 
 @pytest.fixture
 def client_for():
-    store = MemoryPlaybookStore({}, {}, {}, {}, {}, {})
-    set_playbook_store(store)
+    store = InMemoryPlaybookRepository()
+    set_playbook_repository(store)
     feature_flags.clear_cache()
 
     def make(role="owner", company="co-1"):
@@ -65,7 +64,7 @@ def client_for():
 
     make.store = store
     yield make
-    set_playbook_store(None)
+    set_playbook_repository(None)
     feature_flags.clear_cache()
 
 
@@ -104,7 +103,6 @@ def test_ten_saves_are_one_draft(client_for):
     assert len({body["version_id"] for body in seen}) == 1
     stamps = [body["updated_at"] for body in seen]
     assert all(is_newer(b, a) for a, b in zip(stamps, stamps[1:]))
-    assert len(client_for.store._structured) == 1
     got = client.get(f"{BASE}/editor").json()
     assert got["steps"][0]["criterion"] == "Se presenta 9"
     assert got["version_id"] == seen[0]["version_id"]
@@ -211,7 +209,22 @@ def test_discarding_never_touches_a_published_version_and_is_idempotent(client_f
     for _ in range(2):
         body = client.delete(f"{BASE}/draft").json()
         assert body["source"] == "published" and body["steps"][0]["label"] == "Apertura"
-    assert len(client_for.store._published_versions) == 1
+
+
+def test_editing_a_live_playbook_and_activating_again_publishes_the_edit(client_for):
+    client = client_for()
+    client.put(f"{BASE}/draft", json=draft("Apertura"))
+    client.post(f"{BASE}/publish")
+    client.put(f"{BASE}/draft", json=draft("Apertura nueva"))
+    listed = client.get("/api/v1/playbooks").json()
+    assert listed["motions"]["discovery"] == "published" and listed["details"]["discovery"]["has_draft"] is True
+    activated = client.post(f"{BASE}/publish")  # "Activar para el equipo" on a page with pending edits
+    assert activated.status_code == 200 and activated.json()["motions"]["discovery"] == "published"
+    now = client.get(f"{BASE}/editor").json()
+    assert now["source"] == "published" and now["steps"][0]["label"] == "Apertura nueva"
+    assert activated.json()["activated"]["discovery"] == now["version_id"]
+    assert client.get("/api/v1/playbooks").json()["details"]["discovery"]["has_draft"] is False
+    assert client.post(f"{BASE}/publish").status_code == 409  # nothing pending any more
 
 
 def test_a_member_cannot_save_discard_or_reach_a_draft(client_for):
@@ -256,333 +269,3 @@ def test_an_editor_save_clears_a_contradictory_import_gate(client_for):
     assert client.post(f"{BASE}/publish").status_code == 409
     client.put(f"{BASE}/draft", json=draft())
     assert client.post(f"{BASE}/publish").status_code == 200
-
-
-# --- SupabasePlaybookStore against an in-memory PostgREST stand-in ---
-
-
-class _Result:
-    def __init__(self, data):
-        self.data = data
-
-
-class FakeDb:
-    """Just enough of supabase-py and of the database for the playbook tables: chained filters,
-    insert/update/upsert/delete returning rows, the updated_at trigger on playbook_versions and the
-    two RPCs the store relies on."""
-
-    def __init__(self):
-        self.tables = {"playbooks": [], "playbook_versions": [], "playbook_imports": [], "company_sales_knowledge": []}
-        self._clock = datetime(2026, 9, 29, 10, 0, 0, tzinfo=timezone.utc)
-
-    def tick(self) -> str:
-        self._clock += timedelta(milliseconds=5)
-        return self._clock.isoformat()
-
-    def table(self, name):
-        return _Query(self, name)
-
-    def rpc(self, name, params):
-        return _Rpc(self, name, params)
-
-
-class _Rpc:
-    def __init__(self, db, name, params):
-        self.db, self.name, self.params = db, name, params
-
-    def execute(self):
-        db, params = self.db, self.params
-        if self.name == "publish_playbook_motion":
-            pb = next((p for p in db.tables["playbooks"] if p["company_id"] == params["p_company"] and p["sales_motion_key"] == params["p_motion"]), None)
-            drafts = [v for v in db.tables["playbook_versions"] if pb and v["playbook_id"] == pb["id"] and v["status"] == "draft"]
-            if not drafts:
-                return _Result("not_a_draft")
-            latest = max(drafts, key=lambda v: parse_ts(v["created_at"]))
-            latest["status"], latest["updated_at"] = "published", db.tick()
-            pb["active_version_id"] = latest["id"]
-            return _Result(f"published:{latest['id']}")
-        if self.name == "list_playbook_motions":
-            rows = []
-            for pb in db.tables["playbooks"]:
-                if pb["company_id"] != params["p_company"]:
-                    continue
-                has_draft = any(v["playbook_id"] == pb["id"] and v["status"] == "draft" for v in db.tables["playbook_versions"])
-                status = "published" if pb["active_version_id"] else "draft" if has_draft else "missing"
-                rows.append({"sales_motion_key": pb["sales_motion_key"], "motion_status": status})
-            return _Result(rows)
-        raise AssertionError(self.name)
-
-
-class _Query:
-    def __init__(self, db, name):
-        self.db, self.name = db, name
-        self.op, self.payload, self.filters = "select", None, []
-        self._order, self._limit, self._upsert = None, None, {}
-
-    def select(self, *_a, **_k):
-        return self
-
-    def eq(self, col, value):
-        self.filters.append(lambda row: row.get(col) == value)
-        return self
-
-    def in_(self, col, values):
-        self.filters.append(lambda row: row.get(col) in list(values))
-        return self
-
-    def order(self, col, desc=False):
-        self._order = (col, desc)
-        return self
-
-    def limit(self, n):
-        self._limit = n
-        return self
-
-    def insert(self, payload):
-        self.op, self.payload = "insert", payload
-        return self
-
-    def update(self, payload):
-        self.op, self.payload = "update", payload
-        return self
-
-    def upsert(self, payload, on_conflict=None, ignore_duplicates=False):
-        self.op, self.payload, self._upsert = "upsert", payload, {"on": on_conflict, "ignore": ignore_duplicates}
-        return self
-
-    def delete(self):
-        self.op = "delete"
-        return self
-
-    def _matching(self):
-        rows = [r for r in self.db.tables[self.name] if all(f(r) for f in self.filters)]
-        if self._order:
-            col, desc = self._order
-            rows.sort(key=lambda r: parse_ts(r[col]) or r[col], reverse=desc)
-        return rows[: self._limit] if self._limit else rows
-
-    def execute(self):
-        db, table = self.db, self.db.tables[self.name]
-        if self.op == "select":
-            return _Result(copy.deepcopy(self._matching()))
-        if self.op == "insert":
-            row = dict(self.payload)
-            if self.name in ("playbooks", "playbook_versions"):
-                row.setdefault("id", str(uuid.uuid4()))
-            if self.name == "playbooks":
-                row.setdefault("active_version_id", None)
-            if self.name == "playbook_versions":
-                row.setdefault("status", "draft")
-                stamp = db.tick()
-                row["created_at"] = row["updated_at"] = stamp
-            if self.name == "playbook_imports":
-                if any(r["id"] == row["id"] for r in table):
-                    raise AssertionError("duplicate import id")
-                row["created_at"] = db.tick()
-            table.append(row)
-            return _Result([copy.deepcopy(row)])
-        if self.op == "upsert":
-            keys = self._upsert["on"].split(",")
-            if self.name == "company_sales_knowledge":  # a real upsert: the trigger stamps updated_at
-                match = next((r for r in table if all(r.get(k) == self.payload[k] for k in keys)), None)
-                if match is not None:
-                    match.update(self.payload)
-                    match["updated_at"] = db.tick()
-                    return _Result([copy.deepcopy(match)])
-                row = {**self.payload, "updated_at": db.tick()}
-                table.append(row)
-                return _Result([copy.deepcopy(row)])
-            if any(all(r.get(k) == self.payload[k] for k in keys) for r in table):
-                return _Result([])
-            row = {**self.payload, "id": str(uuid.uuid4()), "active_version_id": None}
-            table.append(row)
-            return _Result([copy.deepcopy(row)])
-        if self.op == "update":
-            rows = self._matching()
-            for row in rows:
-                row.update(self.payload)
-                if self.name in ("playbook_versions", "company_sales_knowledge"):
-                    row["updated_at"] = db.tick()
-            return _Result(copy.deepcopy(rows))
-        if self.op == "delete":
-            rows = self._matching()
-            ids = {id(r) for r in rows}
-            table[:] = [r for r in table if id(r) not in ids]
-            return _Result(copy.deepcopy(rows))
-        raise AssertionError(self.op)
-
-
-@pytest.fixture
-def pg():
-    db = FakeDb()
-    return db, SupabasePlaybookStore(db)
-
-
-STEPS = [{"step_id": "apertura", "label": "Apertura", "criterion": "Se presenta"}]
-ENTRIES = [{"entry_id": "objection:price", "category": "price", "guidance": "ROI", "source_ref": "editor"}]
-
-
-def rows(db, table, **where):
-    return [r for r in db.tables[table] if all(r.get(k) == v for k, v in where.items())]
-
-
-def test_supabase_ten_saves_are_one_version_row_and_one_editor_import(pg):
-    db, store = pg
-    versions = [
-        store.save_structured_draft("co", "discovery", [{**STEPS[0], "criterion": f"Se presenta {i}"}], ENTRIES)
-        for i in range(10)
-    ]
-    assert len({v["id"] for v in versions}) == 1
-    assert len(db.tables["playbook_versions"]) == 1
-    imports = rows(db, "playbook_imports", kind="editor")
-    assert len(imports) == 1 and imports[0]["id"] == f"editor:{versions[0]['id']}"
-    assert "Se presenta 9" in imports[0]["draft"]["text"]
-    assert imports[0]["draft"]["contradictions"] == []
-    assert db.tables["playbook_versions"][0]["steps"][0]["criterion"] == "Se presenta 9"
-    assert is_newer(versions[-1]["updated_at"], versions[0]["updated_at"])
-    state = store.editor_snapshot("co", "discovery", include_draft=True)
-    assert state["state"] == "draft" and state["has_live"] is False
-    assert state["version"]["updated_at"] == versions[-1]["updated_at"]
-
-
-def test_supabase_publish_then_edit_inserts_a_new_draft(pg):
-    db, store = pg
-    first = store.save_structured_draft("co", "discovery", STEPS, ENTRIES)
-    store.save_structured_draft("co", "discovery", STEPS, ENTRIES)
-    store.publish("co", "discovery", "owner")
-    live_state = store.editor_snapshot("co", "discovery", include_draft=True)
-    assert live_state["state"] == "published" and live_state["has_live"] is True
-    edited = store.save_structured_draft(
-        "co", "discovery", [{**STEPS[0], "label": "Otra"}], [], base_updated_at=live_state["version"]["updated_at"],
-    )
-    assert edited["id"] != first["id"]
-    assert len(db.tables["playbook_versions"]) == 2
-    assert rows(db, "playbook_versions", id=first["id"])[0]["status"] == "published"
-    assert len(rows(db, "playbook_imports", kind="editor")) == 2
-    state = store.editor_snapshot("co", "discovery", include_draft=True)
-    assert state["state"] == "draft" and state["version"]["id"] == edited["id"] and state["has_live"] is True
-    assert store.editor_snapshot("co", "discovery", include_draft=False)["state"] == "published"
-    store.save_structured_draft("co", "discovery", STEPS, ENTRIES)
-    assert len(db.tables["playbook_versions"]) == 2
-
-
-def test_supabase_stale_draft_raises_and_leaves_the_row(pg):
-    db, store = pg
-    one = store.save_structured_draft("co", "discovery", STEPS, ENTRIES)
-    two = store.save_structured_draft("co", "discovery", [{**STEPS[0], "label": "Dos"}], ENTRIES, base_updated_at=one["updated_at"])
-    with pytest.raises(StaleDraftError):
-        store.save_structured_draft("co", "discovery", [{**STEPS[0], "label": "Tres"}], ENTRIES, base_updated_at=one["updated_at"])
-    assert db.tables["playbook_versions"][0]["steps"][0]["label"] == "Dos"
-    store.save_structured_draft("co", "discovery", [{**STEPS[0], "label": "Cuatro"}], ENTRIES, base_updated_at=js_iso(two["updated_at"]))
-    assert db.tables["playbook_versions"][0]["steps"][0]["label"] == "Cuatro"
-
-
-def test_supabase_a_draft_published_meanwhile_is_stale_and_not_overwritten(pg):
-    db, store = pg
-    one = store.save_structured_draft("co", "discovery", STEPS, ENTRIES)
-    store.publish("co", "discovery", "owner")  # another manager published it
-    with pytest.raises(StaleDraftError):
-        store.save_structured_draft("co", "discovery", [{**STEPS[0], "label": "Tarde"}], ENTRIES, base_updated_at=one["updated_at"])
-    assert db.tables["playbook_versions"][0]["steps"][0]["label"] == "Apertura"
-    assert len(db.tables["playbook_versions"]) == 1
-
-
-def test_supabase_a_first_save_over_a_live_version_needs_the_live_updated_at(pg):
-    db, store = pg
-    store.save_structured_draft("co", "discovery", STEPS, ENTRIES)
-    store.publish("co", "discovery", "owner")
-    live = store.editor_snapshot("co", "discovery", include_draft=True)["version"]
-    with pytest.raises(StaleDraftError):
-        store.save_structured_draft("co", "discovery", STEPS, ENTRIES, base_updated_at="2020-01-01T00:00:00Z")
-    store.save_structured_draft("co", "discovery", STEPS, ENTRIES, base_updated_at=live["updated_at"])
-
-
-def test_supabase_discard_deletes_the_pending_draft_and_its_import_only(pg):
-    db, store = pg
-    live = store.save_structured_draft("co", "discovery", STEPS, ENTRIES)
-    store.publish("co", "discovery", "owner")
-    draft_v = store.save_structured_draft("co", "discovery", [{**STEPS[0], "label": "Otra"}], ENTRIES)
-    assert store.discard_draft("co", "discovery") is True
-    assert [v["id"] for v in db.tables["playbook_versions"]] == [live["id"]]
-    assert {r["id"] for r in rows(db, "playbook_imports", kind="editor")} == {f"editor:{live['id']}"}
-    assert f"editor:{draft_v['id']}" not in {r["id"] for r in db.tables["playbook_imports"]}
-    state = store.editor_snapshot("co", "discovery", include_draft=True)
-    assert state["state"] == "published" and state["version"]["id"] == live["id"]
-    assert store.discard_draft("co", "discovery") is False  # nothing pending: the published one stays
-    assert len(db.tables["playbook_versions"]) == 1
-    assert store.motions("co") == {"discovery": "published"}
-
-
-def test_supabase_discard_without_a_live_version_removes_every_draft_row(pg):
-    db, store = pg
-    playbook = db.table("playbooks").upsert({"company_id": "co", "sales_motion_key": "discovery"}, on_conflict="company_id,sales_motion_key", ignore_duplicates=True).execute().data[0]
-    for _ in range(3):  # rows left by the one-row-per-save era
-        db.table("playbook_versions").insert({"playbook_id": playbook["id"], "status": "draft", "steps": STEPS, "entries": []}).execute()
-    store.save_structured_draft("co", "discovery", STEPS, ENTRIES)
-    assert store.discard_draft("co", "discovery") is True
-    assert db.tables["playbook_versions"] == []
-    assert store.editor_snapshot("co", "discovery", include_draft=True)["state"] == "empty"
-    assert store.motions("co") == {"discovery": "missing"}
-
-
-def test_supabase_an_old_draft_behind_the_live_version_is_not_pending(pg):
-    db, store = pg
-    playbook = db.table("playbooks").upsert({"company_id": "co", "sales_motion_key": "discovery"}, on_conflict="company_id,sales_motion_key", ignore_duplicates=True).execute().data[0]
-    old = db.table("playbook_versions").insert({"playbook_id": playbook["id"], "status": "draft", "steps": STEPS, "entries": []}).execute().data[0]
-    store.save_structured_draft("co", "discovery", STEPS, ENTRIES)  # updates `old` (the only draft)
-    assert store.publish("co", "discovery", "owner")
-    stale_row = db.table("playbook_versions").insert({"playbook_id": playbook["id"], "status": "draft", "steps": [], "entries": []}).execute().data[0]
-    # Make it older than the live version, as a draft left behind before a publish.
-    rows(db, "playbook_versions", id=stale_row["id"])[0]["created_at"] = "2020-01-01T00:00:00+00:00"
-    state = store.editor_snapshot("co", "discovery", include_draft=True)
-    assert state["state"] == "published" and state["version"]["id"] == old["id"]
-    fresh = store.save_structured_draft("co", "discovery", STEPS, ENTRIES)
-    assert fresh["id"] not in (old["id"], stale_row["id"])
-    assert store.discard_draft("co", "discovery") is True
-    assert {v["id"] for v in db.tables["playbook_versions"]} == {old["id"], stale_row["id"]}
-
-
-def test_supabase_source_is_stored_and_read_back_and_travels_across_publishing(pg):
-    db, store = pg
-    source = store.save_source("co", "discovery", "audio", "dictado.webm", "Hola, esto es el guion")
-    row = rows(db, "playbook_imports", id=source["id"])[0]
-    assert source["id"].startswith("source:")
-    assert row["kind"] == "audio" and row["status"] == "ready" and row["company_id"] == "co"
-    assert row["draft"]["text"] == "Hola, esto es el guion" and row["draft"]["name"] == "dictado.webm"
-    assert row["draft"]["source_ref"]
-    assert row["playbook_id"] == db.tables["playbooks"][0]["id"]
-    assert db.tables["playbook_versions"] == []  # a source is not a version
-
-    v1 = store.save_structured_draft("co", "discovery", STEPS, ENTRIES, source_id=source["id"])
-    assert rows(db, "playbook_imports", id=f"editor:{v1['id']}")[0]["draft"]["source_id"] == source["id"]
-    store.save_structured_draft("co", "discovery", STEPS, ENTRIES)  # keeps it
-    assert store.editor_snapshot("co", "discovery", include_draft=True)["source"] == {
-        "id": source["id"], "kind": "audio", "name": "dictado.webm",
-    }
-    store.publish("co", "discovery", "owner")
-    assert store.editor_snapshot("co", "discovery", include_draft=False)["source"]["id"] == source["id"]
-    v2 = store.save_structured_draft("co", "discovery", STEPS, ENTRIES)  # first edit over live
-    assert v2["id"] != v1["id"]
-    assert store.editor_snapshot("co", "discovery", include_draft=True)["source"]["id"] == source["id"]
-    assert store.get_source("other-co", source["id"]) is None
-    assert store.get_source("co", "editor:whatever") is None
-    other = store.save_source("co", "discovery", "text", "n", "t")
-    store.save_structured_draft("co", "discovery", STEPS, ENTRIES, source_id=other["id"])
-    assert store.editor_snapshot("co", "discovery", include_draft=True)["source"]["id"] == other["id"]
-
-
-def test_supabase_a_source_of_another_company_is_ignored(pg):
-    db, store = pg
-    foreign = store.save_source("co-2", "discovery", "text", "ajeno", "secreto")
-    store.save_structured_draft("co", "discovery", STEPS, ENTRIES, source_id=foreign["id"])
-    assert store.editor_snapshot("co", "discovery", include_draft=True)["source"] is None
-
-
-def test_supabase_editor_with_no_playbook_row_is_empty(pg):
-    _db, store = pg
-    assert store.editor_snapshot("co", "discovery", include_draft=True) == {
-        "state": "empty", "version": None, "has_live": False, "source": None, "paused": False,
-    }
-    assert store.editor_version("co", "discovery", include_draft=True) == ("empty", None)
-    assert store.discard_draft("co", "discovery") is False
-

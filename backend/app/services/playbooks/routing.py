@@ -58,8 +58,8 @@ def rules_from(motions: dict, details: dict) -> list[dict]:
 
 def build_details(keys, stored: dict) -> dict:
     """GET /playbooks `details`: per type its label, role, effective rule, goal, whether it is
-    a catalog type and whether it is paused. `stored` is store.details(company_id); `keys` is
-    store.motions(company_id) (status per key, which is where "paused" comes from) or any
+    a catalog type and whether it is paused. `stored` is {key: {label, applies_to}} (see
+    motions_and_stored); `keys` is {key: status} (which is where "paused" comes from) or any
     iterable of keys (nothing is paused then)."""
     out: dict = {}
     statuses = keys if isinstance(keys, dict) else {}
@@ -77,11 +77,19 @@ def build_details(keys, stored: dict) -> dict:
     return out
 
 
-def load_rules(supabase: Any, company_id: str) -> list[dict]:
-    from app.services.playbooks.store import SupabasePlaybookStore
+def motions_and_stored(types: dict) -> tuple[dict, dict]:
+    """The repository's type rows as ({key: status}, {key: {label, applies_to}}), the two shapes the routing and
+    the list payload work with."""
+    motions = {key: row["status"] for key, row in types.items()}
+    stored = {key: {"label": row.get("label"), "applies_to": row.get("applies_to")} for key, row in types.items()}
+    return motions, stored
 
-    store = SupabasePlaybookStore(supabase)
-    return rules_from(store.motions(company_id), store.details(company_id))
+
+def load_rules(company_id: str) -> list[dict]:
+    from app.services.playbooks.repository import get_playbook_repository
+
+    motions, stored = motions_and_stored(get_playbook_repository().list_types(company_id, include_draft=False))
+    return rules_from(motions, stored)
 
 
 def _needs(rules: list[dict], sales_role: Optional[str], interaction_kind: str) -> dict[str, bool]:
@@ -253,7 +261,7 @@ def resolve_motion(
     what is known of the contact and deal. `provisional` = a signal some published rule for
     this role and channel depends on was unknown, so the answer may change once it is known.
     Raises on a broken rules read: the caller falls back to D5."""
-    rules = load_rules(supabase, company_id)
+    rules = load_rules(company_id)
     need = _needs(rules, sales_role, interaction_kind)
     context = build_context(
         supabase,

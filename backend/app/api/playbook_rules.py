@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from supabase import Client
 
-from app.api.playbooks import MANAGE_ROLES, get_playbook_store
+from app.api.playbooks import MANAGE_ROLES
 from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
 from app.services.playbooks.catalog import (
@@ -30,7 +30,8 @@ from app.services.playbooks.catalog import (
 )
 from app.services.playbooks.live import live_version_id
 from app.services.playbooks.knowledge import StaleKnowledgeError, normalize_knowledge, sections
-from app.services.playbooks.routing import merge_pin_meta, routing_enabled
+from app.services.playbooks.repository import get_playbook_repository
+from app.services.playbooks.routing import merge_pin_meta, motions_and_stored, routing_enabled
 from app.services.playbooks.versions import can_publish
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,7 @@ def _company_response(row: Optional[dict]) -> dict:
 async def get_company_knowledge(membership: Membership = Depends(get_membership)):
     """What Vocify knows about this company (any member of it). Empty, with updated_at null,
     when nothing was saved yet."""
-    return _company_response(get_playbook_store().get_knowledge(membership.company_id))
+    return _company_response(get_playbook_repository().get_knowledge(membership.company_id))
 
 
 class CompanyKnowledgeRequest(BaseModel):
@@ -87,9 +88,8 @@ async def put_company_knowledge(
     someone saved since, 409 `stale_knowledge`."""
     if not can_publish(membership.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden editar Vuestra empresa")
-    store = get_playbook_store()
     try:
-        row = store.save_knowledge(
+        row = get_playbook_repository().save_knowledge(
             membership.company_id, normalize_knowledge(body.knowledge), base_updated_at=body.base_updated_at,
         )
     except StaleKnowledgeError as exc:
@@ -110,14 +110,14 @@ async def put_rule(
     if not can_publish(membership.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden cambiar cuándo se aplica")
     key = sales_motion_key.strip()
-    store = get_playbook_store()
-    if not key or (key not in store.motions(membership.company_id) and not is_catalog(key)):
+    repository = get_playbook_repository()
+    if not key or (key not in repository.list_types(membership.company_id, include_draft=False) and not is_catalog(key)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook no encontrado")
     try:
         rule = validate_applies_to(body.applies_to)
     except RuleError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": exc.code}) from exc
-    store.save_type_meta(membership.company_id, key, applies_to=rule)
+    repository.set_meta(membership.company_id, key, applies_to=rule)
     return {"sales_motion_key": key, "applies_to": rule}
 
 
@@ -190,9 +190,7 @@ def _is_manager_of(memo: dict, membership: Membership) -> bool:
 
 
 def _published_options(membership: Membership) -> list[dict]:
-    store = get_playbook_store()
-    motions = store.motions(membership.company_id)
-    stored = store.details(membership.company_id)
+    motions, stored = motions_and_stored(get_playbook_repository().list_types(membership.company_id, include_draft=False))
     keys = sorted((key for key, state in motions.items() if state == "published"), key=catalog_order)
     return [{"key": key, "label": (stored.get(key) or {}).get("label") or None} for key in keys]
 

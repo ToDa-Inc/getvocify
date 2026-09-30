@@ -1,15 +1,14 @@
-"""Playbooks v2 section 16: pause, resume and delete (soft, undoable) a call type.
+"""Playbooks v2 section 16: pause, resume and delete (soft, undoable) a call type, through the API.
 
-Every API test runs against the memory store and against SupabasePlaybookStore over an in-memory
-PostgREST stand-in (FakeDb, plus the interaction_types table and migration 069's SQL functions), so
-both agree. Pausing nulls the active version, so the readers of "the active playbook" (pinning,
-routing, copilot grounding, briefs, insights) are tested against it too.
+The API runs on InMemoryPlaybookRepository here; the storage semantics (what pausing and deleting do to the rows, the
+interaction types, drafts and versions) are the repository contract, tests/playbooks/test_repository_contract.py, which
+runs against this fake and against real PostgreSQL. What applies to a call while a playbook is paused or deleted is
+tests/playbooks/test_live.py.
 """
 
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
@@ -22,101 +21,12 @@ from fastapi.testclient import TestClient
 
 from app.api.playbook_rules import router as rules_router
 from app.api.playbooks import router as playbooks_router
-from app.api.playbooks import set_playbook_store
-from app.config import settings
 from app.deps import get_membership, get_supabase
 from app.services import feature_flags
 from app.services.company import Membership
-from app.services.playbooks.store import MemoryPlaybookStore, SupabasePlaybookStore
-from app.services.playbooks.versions import LifecycleError, accept_publish
-from tests.playbooks.test_draft_autosave import FakeDb, _Query, _Result
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 
 CO = "co-1"
-ROOT = Path(__file__).resolve().parents[2]
-
-
-# --- a PostgREST stand-in that also speaks migration 069 ---------------------------------------
-
-
-class _Neq(_Query):
-    def neq(self, col, value):
-        self.filters.append(lambda row: row.get(col) != value)
-        return self
-
-
-class _Rpc:
-    def __init__(self, fn):
-        self.fn = fn
-
-    def execute(self):
-        return _Result(self.fn())
-
-
-class LifeDb(FakeDb):
-    """FakeDb with interaction_types and the 069 versions of list_playbook_motions,
-    publish_playbook_motion and add_interaction_type."""
-
-    def __init__(self):
-        super().__init__()
-        for name in ("interaction_types", "company_feature_flags", "memos", "crm_connections"):
-            self.tables[name] = []
-
-    def table(self, name):
-        return _Neq(self, name)
-
-    def rpc(self, name, params):
-        if name == "list_playbook_motions":
-            return _Rpc(lambda: self._list(params["p_company"]))
-        if name == "add_interaction_type":
-            return _Rpc(lambda: self._add_type(params["p_company"], params["p_key"], params.get("p_name")))
-        if name == "publish_playbook_motion":
-            inner = super().rpc(name, params)
-
-            def publish():
-                outcome = inner.execute().data
-                if str(outcome).startswith("published"):
-                    for pb in self.tables["playbooks"]:
-                        if pb["company_id"] == params["p_company"] and pb["sales_motion_key"] == params["p_motion"]:
-                            pb.update(paused_version_id=None, archived_at=None, archived_state=None)
-                return outcome
-
-            return _Rpc(publish)
-        return super().rpc(name, params)
-
-    def _list(self, company):
-        rows, seen = [], set()
-        for pb in self.tables["playbooks"]:
-            if pb["company_id"] != company:
-                continue
-            seen.add(pb["sales_motion_key"])
-            if pb.get("archived_at"):
-                continue
-            has_draft = any(v["playbook_id"] == pb["id"] and v["status"] == "draft" for v in self.tables["playbook_versions"])
-            if pb.get("active_version_id"):
-                status = "published"
-            elif pb.get("paused_version_id"):
-                status = "paused"
-            else:
-                status = "draft" if has_draft else "missing"
-            rows.append({"sales_motion_key": pb["sales_motion_key"], "motion_status": status})
-        for t in self.tables["interaction_types"]:
-            if t["company_id"] == company and t.get("active", True) and t["type_key"] not in seen:
-                rows.append({"sales_motion_key": t["type_key"], "motion_status": "missing"})
-        return rows
-
-    def _add_type(self, company, key, name):
-        key = key.strip()
-        if not key:
-            return "empty"
-        row = next((t for t in self.tables["interaction_types"] if t["company_id"] == company and t["type_key"] == key), None)
-        if row is None:
-            self.tables["interaction_types"].append({"company_id": company, "type_key": key, "name": name or key, "active": True})
-        else:
-            row["active"] = True
-        for pb in self.tables["playbooks"]:
-            if pb["company_id"] == company and pb["sales_motion_key"] == key and pb.get("archived_at"):
-                pb.update(archived_at=None, paused_version_id=None, archived_state=None)
-        return key
 
 
 class _NoFlags:
@@ -134,11 +44,9 @@ class _NoFlags:
 
 
 class Env:
-    def __init__(self, kind):
-        self.kind = kind
-        self.db = LifeDb() if kind == "supabase" else None
-        self.store = SupabasePlaybookStore(self.db) if self.db else MemoryPlaybookStore({}, {}, {}, {}, {}, {})
-        set_playbook_store(self.store)
+    def __init__(self):
+        self.store = InMemoryPlaybookRepository()
+        set_playbook_repository(self.store)
 
     def client(self, role="owner", sales_role=None, company=CO):
         app = FastAPI()
@@ -151,19 +59,11 @@ class Env:
         return TestClient(app)
 
 
-@pytest.fixture(params=["memory", "supabase"])
-def env(request):
-    feature_flags.clear_cache()
-    yield Env(request.param)
-    set_playbook_store(None)
-    feature_flags.clear_cache()
-
-
 @pytest.fixture
-def pg():
+def env():
     feature_flags.clear_cache()
-    yield Env("supabase")
-    set_playbook_store(None)
+    yield Env()
+    set_playbook_repository(None)
     feature_flags.clear_cache()
 
 
@@ -301,12 +201,6 @@ def test_publishing_a_paused_playbook_that_has_no_draft_is_409(env):
     assert listing(client)["motions"]["discovery"] == "paused"
 
 
-def test_accept_publish_lets_a_paused_type_through_to_the_store():
-    assert accept_publish({"a": "paused"}, "a", "owner") == {"a": "published"}
-    with pytest.raises(Exception):
-        accept_publish({"a": "missing"}, "a", "owner")
-
-
 def test_pause_and_resume_touch_one_type_only(env):
     client = env.client()
     live(client, "discovery")
@@ -357,59 +251,7 @@ def test_deleting_twice_or_a_type_the_company_does_not_have_is_404(env):
     assert client.delete(f"{API}/discovery").status_code == 404  # co-2's type is not ours
 
 
-def test_delete_drops_the_pending_drafts_but_keeps_the_published_version_on_supabase(pg):
-    db = pg.db
-    client = pg.client()
-    live(client, qualification=CRITERIA)
-    put(client, label="Cambio a medias")
-    playbook = db.tables["playbooks"][0]
-    live_id = playbook["active_version_id"]
-    drafts = [v for v in db.tables["playbook_versions"] if v["status"] == "draft"]
-    assert len(drafts) == 1 and any(r["id"] == f"editor:{drafts[0]['id']}" for r in db.tables["playbook_imports"])
-    source = pg.store.save_source(CO, "discovery", "text", "guion", "Pasos del guion")
-
-    assert client.delete(f"{API}/discovery").status_code == 200
-    assert [v for v in db.tables["playbook_versions"] if v["status"] == "draft"] == []
-    assert not any(r["id"].startswith("editor:") and r["id"] != f"editor:{live_id}" for r in db.tables["playbook_imports"])
-    assert any(r["id"] == source["id"] for r in db.tables["playbook_imports"])  # source documents stay
-    assert [v["id"] for v in db.tables["playbook_versions"]] == [live_id]  # the published version is kept
-    row = db.tables["playbooks"][0]
-    assert row["active_version_id"] is None and row["paused_version_id"] == live_id
-    assert row["archived_state"] == "published" and row["archived_at"]
-
-
-def test_delete_deactivates_the_interaction_type_and_restore_reactivates_it(pg):
-    db = pg.db
-    client = pg.client()
-    client.post(f"{API}/types", json={"type_key": "discovery", "name": "Llamada en frío"})
-    live(client)
-    types = lambda: [t["active"] for t in db.tables["interaction_types"] if t["type_key"] == "discovery"]  # noqa: E731
-    assert types() == [True]
-    client.delete(f"{API}/discovery")
-    assert types() == [False]
-    assert "discovery" not in listing(client)["motions"]
-    restored = client.post(f"{API}/discovery/restore")
-    assert restored.status_code == 200 and restored.json()["motions"]["discovery"] == "published"
-    assert types() == [True]
-
-
-def test_a_legacy_type_that_only_exists_in_interaction_types_deletes_and_restores(pg):
-    db = pg.db
-    client = pg.client()
-    db.tables["interaction_types"].append({"company_id": CO, "type_key": "sales", "name": "Sales", "active": True})
-    assert listing(client)["motions"] == {"sales": "missing"}
-    assert client.delete(f"{API}/sales").status_code == 200
-    assert listing(client)["motions"] == {}
-    assert db.tables["interaction_types"][0]["active"] is False
-    assert db.tables["playbooks"] == []  # no playbook row was made for it
-    assert client.delete(f"{API}/sales").status_code == 404
-    restored = client.post(f"{API}/sales/restore")
-    assert restored.status_code == 200 and restored.json()["motions"] == {"sales": "missing"}
-    assert db.tables["interaction_types"][0]["active"] is True
-    assert client.post(f"{API}/sales/restore").status_code == 409  # not deleted any more
-
-
-def test_an_empty_type_of_the_company_deletes_on_both_stores(env):
+def test_an_empty_type_of_the_company_deletes_and_restores(env):
     client = env.client()
     client.post(f"{API}/types", json={"type_key": "sdr", "name": "SDR"})
     assert listing(client)["motions"] == {"sdr": "missing"}
@@ -502,16 +344,6 @@ def test_a_new_draft_on_a_deleted_type_un_archives_it_without_the_old_content(en
     assert [s["label"] for s in final["steps"]] == ["Nuevo"] and final["qualification"] == [] and final["paused"] is False
 
 
-def test_the_columns_are_clean_after_a_draft_un_archives_a_type(pg):
-    client = pg.client()
-    live(client)
-    client.delete(f"{API}/discovery")
-    put(client, label="Nuevo")
-    row = pg.db.tables["playbooks"][0]
-    assert row["archived_at"] is None and row["archived_state"] is None and row["paused_version_id"] is None
-    assert row["active_version_id"] is None
-
-
 def test_creating_a_deleted_type_again_brings_it_back_empty(env):
     client = env.client()
     live(client, label="Viejo")
@@ -522,18 +354,7 @@ def test_creating_a_deleted_type_again_brings_it_back_empty(env):
     assert client.post(f"{API}/discovery/restore").status_code == 409
 
 
-def test_creating_a_deleted_legacy_type_again_reactivates_it(pg):
-    db = pg.db
-    client = pg.client()
-    db.tables["interaction_types"].append({"company_id": CO, "type_key": "sales", "name": "Sales", "active": True})
-    client.delete(f"{API}/sales")
-    created = client.post(f"{API}/types", json={"type_key": "sales", "name": "Sales"})
-    assert created.json()["motions"] == {"sales": "missing"}
-    assert db.tables["interaction_types"][0]["active"] is True
-
-
-def test_the_legacy_import_path_un_archives_too_on_the_memory_store():
-    env = Env("memory")
+def test_the_legacy_import_path_un_archives_too(env):
     client = env.client()
     live(client, label="Viejo")
     client.delete(f"{API}/discovery")
@@ -544,7 +365,6 @@ def test_the_legacy_import_path_un_archives_too_on_the_memory_store():
     assert response.status_code == 200
     assert listing(client)["motions"]["discovery"] == "draft"
     assert editor(client)["has_live"] is False and editor(client)["paused"] is False  # nothing of the old one
-    set_playbook_store(None)
 
 
 # --- who can do it ---------------------------------------------------------------------------
@@ -619,7 +439,7 @@ def test_the_real_router_serves_the_lifecycle_routes_and_keeps_the_fixed_paths()
     ):
         assert method in paths.get(path, {}), (method, path)
     # Behaviour, through the real router: a fixed path is never read as a type.
-    set_playbook_store(MemoryPlaybookStore({}, {}, {}, {}, {}, {}))
+    set_playbook_repository(InMemoryPlaybookRepository())
     try:
         app.dependency_overrides[get_membership] = lambda: Membership(
             id="m", company_id=CO, user_id="u-1", role="owner", status="active", sales_role=None,
@@ -631,63 +451,16 @@ def test_the_real_router_serves_the_lifecycle_routes_and_keeps_the_fixed_paths()
         assert client.delete(f"{API}/ghost").status_code == 404
         assert client.post(f"{API}/ghost/pause").status_code == 409
     finally:
-        set_playbook_store(None)
+        set_playbook_repository(None)
 
 
-def test_the_store_raises_lifecycle_errors_with_the_codes_the_api_uses():
-    store = MemoryPlaybookStore({}, {}, {}, {}, {}, {})
-    for action, code in (("pause", "not_published"), ("resume", "not_paused"), ("archive", "not_found"), ("restore", "not_archived")):
-        with pytest.raises(LifecycleError) as raised:
-            getattr(store, action)(CO, "ghost")
-        assert raised.value.code == code
+# --- the memo's "evaluated as" options ----------------------------------------------------------
 
 
-# --- readers of "the active playbook" --------------------------------------------------------
-
-
-@pytest.fixture
-def roles_on(monkeypatch):
-    monkeypatch.setattr(settings, "SALES_ROLES_ENABLED", True)
-    monkeypatch.setattr(settings, "PLAYBOOK_ROUTING_ENABLED", False)
-    feature_flags.clear_cache()
-    yield
-    feature_flags.clear_cache()
-
-
-def _pin(db, **kwargs):
-    from app.services.captures import playbook_fields_for_capture
-
-    kwargs.setdefault("interaction_kind", "call")
-    kwargs.setdefault("sales_role", "sdr")
-    return playbook_fields_for_capture(db, CO, **kwargs)
-
-
-def test_routing_never_routes_to_a_paused_type_and_falls_back_to_the_role_default(pg, monkeypatch):
-    from app.services.playbooks import routing
-    from app.services.playbooks.motion import route
-
-    client = pg.client()
-    for key in ("closing", "ae_discovery"):
-        live(client, key, label=key)
-    rules = lambda: routing.rules_from(pg.store.motions(CO), pg.store.details(CO))  # noqa: E731
-    assert route("ae", "meeting", {"contact": "new"}, rules()) == ("ae_discovery", "rule")
-
-    client.post(f"{API}/ae_discovery/pause")
-    assert {r["key"]: r["published"] for r in rules()}["ae_discovery"] is False
-    assert route("ae", "meeting", {"contact": "new"}, rules()) == ("closing", "rule")
-    client.post(f"{API}/closing/pause")
-    assert route("ae", "meeting", {"contact": "new"}, rules()) == ("closing", "role_default")
-
-    client.post(f"{API}/ae_discovery/resume")
-    client.delete(f"{API}/ae_discovery")
-    assert {r["key"]: r["published"] for r in rules()}["ae_discovery"] is False
-    assert route("ae", "meeting", {"contact": "new"}, rules())[1] == "role_default"
-
-
-def test_the_memo_playbook_options_only_offer_active_types(pg):
+def test_the_memo_playbook_options_only_offer_active_types(env):
     from app.api.playbook_rules import _published_options
 
-    client = pg.client()
+    client = env.client()
     live(client, "discovery")
     live(client, "closing", label="Cierre")
     membership = Membership(id="m", company_id=CO, user_id="u-1", role="owner", status="active")
@@ -695,7 +468,3 @@ def test_the_memo_playbook_options_only_offer_active_types(pg):
     client.post(f"{API}/closing/pause")
     client.delete(f"{API}/discovery")
     assert _published_options(membership) == []
-
-
-# --- the SQL ---------------------------------------------------------------------------------
-

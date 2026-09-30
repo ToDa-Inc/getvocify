@@ -15,6 +15,7 @@ from app.config import settings
 from app.services import feature_flags
 from app.services.captures import playbook_fields_for_capture
 from app.services.playbooks import routing
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 from app.services.playbooks.routing import repin_before_c04
 from tests.playbooks.live_double import live_view_rows
 
@@ -26,6 +27,14 @@ def _flags(monkeypatch):
     monkeypatch.setattr(settings, "PLAYBOOK_ROUTING_ENABLED", True)
     yield
     feature_flags.clear_cache()
+    set_playbook_repository(None)
+
+
+class _DownRepository:
+    """The rules read is broken: routing must fall back to today's pin."""
+
+    def list_types(self, *_a, **_k):
+        raise RuntimeError("playbooks are down")
 
 
 class _Query:
@@ -70,22 +79,18 @@ class _Query:
         return type("R", (), {"data": rows[: self.max] if self.max else rows})()
 
 
-class _Rpc:
-    def __init__(self, db):
-        self.db = db
-
-    def execute(self):
-        rows = [
-            {"sales_motion_key": p["sales_motion_key"], "motion_status": "published" if p.get("active_version_id") else "missing"}
-            for p in self.db.tables["playbooks"]
-            if p["company_id"] == "co-1"
-        ]
-        return type("R", (), {"data": rows})()
-
-
 class _Db:
+    rules_down = False
+
     def __init__(self, *, published=(), rules=None, memos=None, broken=()):
         rules = rules or {}
+        # The rules (and which types are published) come from the playbooks repository, not from this client.
+        repository = InMemoryPlaybookRepository({"co-1": {key: "published" for key in published}})
+        for key, rule in rules.items():
+            repository.set_meta("co-1", key, applies_to=rule)
+        set_playbook_repository(
+            _DownRepository() if self.rules_down or "playbooks" in broken else repository
+        )
         self.tables = {
             "playbooks": [
                 {
@@ -107,10 +112,6 @@ class _Db:
 
     def table(self, name):
         return _Query(self, name)
-
-    def rpc(self, name, _params=None):
-        assert name == "list_playbook_motions"
-        return _Rpc(self)
 
 
 ALL = ("discovery", "inbound", "ae_discovery", "closing", "negotiation")
@@ -234,8 +235,7 @@ def test_a_failing_crm_lookup_never_blocks_the_capture():
 
 def test_a_broken_rules_read_falls_back_to_todays_pin():
     class Boom(_Db):
-        def rpc(self, *_a, **_k):
-            raise RuntimeError("rpc down")
+        rules_down = True
 
     fields = _pin(Boom(published=ALL), sales_role="ae", hubspot_contact_id="c-1")
     assert fields == {

@@ -15,11 +15,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.playbooks import router as playbooks_router
-from app.api.playbooks import set_playbook_store, set_playbook_structure_llm, set_playbook_transcriber
+from app.api.playbooks import set_playbook_structure_llm, set_playbook_transcriber
 from app.deps import get_membership
 from app.services.company import Membership
 from app.services.playbooks import structure as structure_module
-from app.services.playbooks.store import MemoryPlaybookStore
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 from app.services.playbooks.structure import detect_language, structure_source
 from app.services.playbooks.structured import (
     MAX_CRITERION,
@@ -380,8 +380,8 @@ def test_parser_handles_windows_newlines_and_empty_input():
 
 @pytest.fixture
 def client_for():
-    store = MemoryPlaybookStore({}, {}, {}, {}, {}, {})
-    set_playbook_store(store)
+    store = InMemoryPlaybookRepository()
+    set_playbook_repository(store)
 
     def make(role="owner"):
         app = FastAPI()
@@ -393,7 +393,7 @@ def client_for():
 
     make.store = store
     yield make
-    set_playbook_store(None)
+    set_playbook_repository(None)
     set_playbook_structure_llm(None)
     set_playbook_transcriber(None)
 
@@ -419,7 +419,7 @@ def test_structuring_text_returns_steps_objections_and_the_saved_source(client_f
     assert body["source"]["id"].startswith("source:")
     # It only structures: no version, no draft, nothing published.
     assert client.get("/api/v1/playbooks/discovery/editor").json()["source"] == "empty"
-    assert client.get("/api/v1/playbooks").json()["motions"] == {}
+    assert client.get("/api/v1/playbooks").json()["motions"] == {"discovery": "missing"}  # listed, nothing more
 
 
 def test_a_model_failure_is_a_200_with_fallback_true(client_for):
@@ -489,13 +489,17 @@ def test_blank_text_is_422_empty_source(client_for):
     assert _code(client_for().post(URL, json={"kind": "text", "payload": "   \n "})) == "empty_source"
 
 
-def test_a_failed_read_saves_no_source(client_for):
+def test_a_failed_read_saves_no_source(client_for, monkeypatch):
+    saved = []
+    monkeypatch.setattr(client_for.store, "save_source", lambda *args, **kwargs: saved.append(args))
     client_for().post(URL, json={"kind": "text", "payload": ""})
-    assert client_for.store._imports == {}
+    assert saved == []
 
 
-def test_a_member_cannot_structure(client_for):
+def test_a_member_cannot_structure(client_for, monkeypatch):
+    saved = []
+    monkeypatch.setattr(client_for.store, "save_source", lambda *args, **kwargs: saved.append(args))
     set_playbook_structure_llm(FakeLLM(GOOD))
     response = client_for(role="member").post(URL, json={"kind": "text", "payload": SCRIPT})
     assert response.status_code == 403
-    assert client_for.store._imports == {}
+    assert saved == []

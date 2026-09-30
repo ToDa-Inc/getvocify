@@ -863,7 +863,7 @@ LANGUAGE sql
 STABLE
 AS $import_get$
   SELECT jsonb_build_object(
-    'id', i.id, 'import_id', i.id, 'status', i.status, 'draft', i.draft,
+    'id', i.id, 'import_id', i.id, 'kind', i.kind, 'status', i.status, 'draft', i.draft,
     'active_version_id', i.active_version_id, 'published', false
   )
   FROM playbook_imports i

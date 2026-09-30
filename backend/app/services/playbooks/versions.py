@@ -88,19 +88,6 @@ def is_newer(a: Any, b: Any) -> bool:
     return left > right
 
 
-def accept_publish(motions: dict, key: str, role: str) -> dict:
-    """Publish one draft. A member is refused, and any other typology stays as it was. A paused
-    playbook can be published too (a pending draft goes live and lifts the pause): whether it has
-    a draft is the store's call, its status only says "paused"."""
-    if not can_publish(role):
-        raise PublishError("forbidden")
-    if motions.get(key) not in ("draft", "paused"):
-        raise PublishError("not_a_draft")
-    updated = dict(motions)
-    updated[key] = "published"
-    return updated
-
-
 def snapshot_for_capture(pinned_version_id: Optional[str], live_version_id: Optional[str]) -> Optional[str]:
     """The version a new capture is pinned to: the one the caller named, else the live one."""
     return pinned_version_id or live_version_id

@@ -13,10 +13,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api import playbooks as playbooks_api
-from app.api.playbooks import set_playbook_store
 from app.deps import get_membership
 from app.services.company import Membership
-from app.services.playbooks.store import MemoryPlaybookStore
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 
 COMPANY_A = "11111111-1111-1111-1111-111111111111"
 COMPANY_B = "22222222-2222-2222-2222-222222222222"
@@ -24,18 +23,13 @@ IMPORT_ID = "import-secret-1"
 
 
 def test_get_import_returns_only_the_callers_company():
-    store = MemoryPlaybookStore(
-        motions={},
-        imports={
-            IMPORT_ID: {
-                "import_id": IMPORT_ID,
-                "company_id": COMPANY_A,
-                "status": "ready",
-                "draft": {"steps": [{"title": "Paso 1"}]},
-            }
-        },
+    store = InMemoryPlaybookRepository()
+    store.save_import(
+        COMPANY_A,
+        {"import_id": IMPORT_ID, "status": "ready", "draft": {"text": "Paso 1"}},
+        "discovery",
     )
-    set_playbook_store(store)
+    set_playbook_repository(store)
     app = FastAPI()
     app.include_router(playbooks_api.router)
 

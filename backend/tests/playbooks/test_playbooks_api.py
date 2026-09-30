@@ -11,12 +11,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.playbooks import router as playbooks_router, set_playbook_store
+from app.api.playbooks import router as playbooks_router
 from app.config import settings
 from app.deps import get_membership, get_supabase
 from app.services import feature_flags
 from app.services.company import Membership
-from app.services.playbooks.store import MemoryPlaybookStore
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 
 
 @pytest.fixture(autouse=True)
@@ -52,12 +52,12 @@ def _client(store, role: str, sales_role):
         id="m", company_id="co-1", user_id="u", role=role, status="active", sales_role=sales_role,
     )
     app.dependency_overrides[get_supabase] = lambda: _FlagSupabase()
-    set_playbook_store(store)
+    set_playbook_repository(store)
     return TestClient(app)
 
 
-def _store() -> MemoryPlaybookStore:
-    return MemoryPlaybookStore({"co-1": {"discovery": "published", "closing": "published", "qualification": "missing"}}, {})
+def _store() -> InMemoryPlaybookRepository:
+    return InMemoryPlaybookRepository({"co-1": {"discovery": "published", "closing": "published", "qualification": "missing"}})
 
 
 def test_flag_off_returns_the_old_shape(monkeypatch):
@@ -70,7 +70,7 @@ def test_flag_off_returns_the_old_shape(monkeypatch):
         # v2 contract: `details` is always there, additive.
         assert set(body["details"]) == {"discovery", "closing", "qualification"}
     finally:
-        set_playbook_store(None)
+        set_playbook_repository(None)
 
 
 def test_sdr_member_does_not_see_closing(monkeypatch):
@@ -82,7 +82,7 @@ def test_sdr_member_does_not_see_closing(monkeypatch):
         assert body["motions"]["discovery"] == "published"
         assert body["goals"] == {"discovery": "meeting_booked"}
     finally:
-        set_playbook_store(None)
+        set_playbook_repository(None)
 
 
 def test_ae_member_does_not_see_discovery(monkeypatch):
@@ -93,7 +93,7 @@ def test_ae_member_does_not_see_discovery(monkeypatch):
         assert "discovery" not in body["motions"]
         assert body["motions"]["closing"] == "published"
     finally:
-        set_playbook_store(None)
+        set_playbook_repository(None)
 
 
 def test_general_member_sees_both_flows(monkeypatch):
@@ -104,7 +104,7 @@ def test_general_member_sees_both_flows(monkeypatch):
         assert body["motions"]["discovery"] == "published"
         assert body["motions"]["closing"] == "published"
     finally:
-        set_playbook_store(None)
+        set_playbook_repository(None)
 
 
 def test_owner_sees_every_motion_regardless_of_sales_role(monkeypatch):
@@ -115,4 +115,4 @@ def test_owner_sees_every_motion_regardless_of_sales_role(monkeypatch):
         assert body["motions"]["discovery"] == "published"
         assert body["motions"]["closing"] == "published"
     finally:
-        set_playbook_store(None)
+        set_playbook_repository(None)

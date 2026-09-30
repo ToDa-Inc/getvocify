@@ -15,13 +15,13 @@ from fastapi.testclient import TestClient
 
 from app.api import playbook_rules
 from app.api.playbook_rules import router as rules_router
-from app.api.playbooks import router as playbooks_router, set_playbook_store
+from app.api.playbooks import router as playbooks_router
 from app.config import settings
 from app.deps import get_membership, get_supabase
 from app.services import feature_flags
 from app.services.company import Membership
 from app.services.playbooks.catalog import default_applies_to
-from app.services.playbooks.store import MemoryPlaybookStore
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +31,7 @@ def _clean():
     yield
     feature_flags.clear_cache()
     playbook_rules.clear_deal_stages_cache()
-    set_playbook_store(None)
+    set_playbook_repository(None)
 
 
 class _FlagSupabase:
@@ -62,7 +62,7 @@ def _client(store=None, role="owner", sales_role=None):
         id="m", company_id="co-1", user_id="u-1", role=role, status="active", sales_role=sales_role,
     )
     app.dependency_overrides[get_supabase] = lambda: _FlagSupabase()
-    set_playbook_store(store or MemoryPlaybookStore({}, {}))
+    set_playbook_repository(store or InMemoryPlaybookRepository())
     return TestClient(app)
 
 
@@ -75,9 +75,9 @@ def _routing(monkeypatch, on=True):
 
 def test_list_adds_details_for_every_type(monkeypatch):
     monkeypatch.setattr(settings, "SALES_ROLES_ENABLED", False)
-    store = MemoryPlaybookStore({"co-1": {"discovery": "published", "renewal": "missing", "qualification": "missing"}}, {})
+    store = InMemoryPlaybookRepository({"co-1": {"discovery": "published", "renewal": "missing", "qualification": "missing"}})
     rule = {"role": "ae", "channels": ["call"], "contact": "contacted", "deal_stages": []}
-    store.save_type_meta("co-1", "renewal", label="Renovación", applies_to=rule)
+    store.set_meta("co-1", "renewal", label="Renovación", applies_to=rule)
     body = _client(store).get("/api/v1/playbooks").json()
     assert body["details"]["discovery"] == {
         "label": None,
@@ -99,10 +99,10 @@ def test_list_adds_details_for_every_type(monkeypatch):
 
 def test_details_follow_the_role_filter(monkeypatch):
     monkeypatch.setattr(settings, "SALES_ROLES_ENABLED", True)
-    store = MemoryPlaybookStore(
-        {"co-1": {"discovery": "published", "inbound": "draft", "closing": "published", "negotiation": "missing", "renewal": "missing"}}, {},
+    store = InMemoryPlaybookRepository(
+        {"co-1": {"discovery": "published", "inbound": "draft", "closing": "published", "negotiation": "missing", "renewal": "missing"}},
     )
-    store.save_type_meta("co-1", "renewal", label="Renovación", applies_to={"role": "any", "channels": [], "contact": "any", "deal_stages": []})
+    store.set_meta("co-1", "renewal", label="Renovación", applies_to={"role": "any", "channels": [], "contact": "any", "deal_stages": []})
     sdr = _client(store, role="member", sales_role="sdr").get("/api/v1/playbooks").json()
     assert set(sdr["motions"]) == {"discovery", "inbound", "renewal"}
     assert set(sdr["details"]) == set(sdr["motions"])
@@ -201,7 +201,7 @@ def test_a_member_cannot_add_a_type_and_gets_403_before_any_rule_check(monkeypat
 
 
 def test_put_rule_saves_it_and_details_show_it(monkeypatch):
-    store = MemoryPlaybookStore({"co-1": {"closing": "published"}}, {})
+    store = InMemoryPlaybookRepository({"co-1": {"closing": "published"}})
     client = _client(store)
     rule = {"role": "ae", "channels": ["meeting"], "contact": "contacted", "deal_stages": ["contract", 7]}
     response = client.put("/api/v1/playbooks/closing/rule", json={"applies_to": rule})
@@ -225,14 +225,14 @@ def test_put_rule_on_a_catalog_type_that_was_never_created_lists_it():
     [{}, {"role": "boss"}, {"role": "ae", "channels": ["sms"]}, {"role": "ae", "contact": "x"}, {"role": "ae", "deal_stages": "won"}],
 )
 def test_put_rule_validates_the_schema(applies_to):
-    store = MemoryPlaybookStore({"co-1": {"closing": "published"}}, {})
+    store = InMemoryPlaybookRepository({"co-1": {"closing": "published"}})
     response = _client(store).put("/api/v1/playbooks/closing/rule", json={"applies_to": applies_to})
     assert response.status_code == 422
     assert response.json()["detail"] == {"code": "bad_rule"}
 
 
 def test_put_rule_is_for_owner_and_admin_only():
-    store = MemoryPlaybookStore({"co-1": {"closing": "published"}}, {})
+    store = InMemoryPlaybookRepository({"co-1": {"closing": "published"}})
     rule = {"applies_to": {"role": "ae"}}
     assert _client(store, role="member").put("/api/v1/playbooks/closing/rule", json=rule).status_code == 403
     assert _client(store, role="admin").put("/api/v1/playbooks/closing/rule", json=rule).status_code == 200

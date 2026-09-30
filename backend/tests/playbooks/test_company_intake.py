@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from app.api import playbook_rules
 from app.api.playbook_rules import router as rules_router
 from app.api.playbooks import router as playbooks_router
-from app.api.playbooks import set_playbook_store, set_playbook_structure_llm, set_playbook_transcriber
+from app.api.playbooks import set_playbook_structure_llm, set_playbook_transcriber
 from app.config import settings
 from app.deps import get_membership, get_supabase
 from app.services import feature_flags
@@ -28,9 +28,8 @@ from app.services.company import Membership
 from app.services.playbooks import intake
 from app.services.playbooks.catalog import default_applies_to
 from app.services.playbooks.knowledge import normalize_knowledge
-from app.services.playbooks.store import MemoryPlaybookStore, SupabasePlaybookStore
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 from app.services.playbooks.structure import split_source
-from tests.playbooks.test_draft_autosave import FakeDb, _Result
 from tests.playbooks.test_imports import _pdf_bytes
 from tests.playbooks.test_structure import FakeLLM
 
@@ -91,7 +90,7 @@ def _clean(monkeypatch):
     feature_flags.clear_cache()
     yield
     feature_flags.clear_cache()
-    set_playbook_store(None)
+    set_playbook_repository(None)
     set_playbook_structure_llm(None)
     set_playbook_transcriber(None)
 
@@ -105,8 +104,8 @@ def _client(store=None, role="owner", sales_role=None, company="co-1", rules_fir
         id="m", company_id=company, user_id="u-1", role=role, status="active", sales_role=sales_role,
     )
     app.dependency_overrides[get_supabase] = lambda: _Flags()
-    store = store if store is not None else MemoryPlaybookStore({}, {}, {}, {}, {}, {})
-    set_playbook_store(store)
+    store = store if store is not None else InMemoryPlaybookRepository()
+    set_playbook_repository(store)
     client = TestClient(app)
     client.store = store
     return client
@@ -205,9 +204,9 @@ def test_a_type_that_is_not_a_candidate_is_never_saved(monkeypatch):
 
 def test_with_routing_on_the_five_catalog_types_and_custom_types_with_a_rule_are_candidates(monkeypatch):
     _routing_on(monkeypatch)
-    store = MemoryPlaybookStore({"co-1": {"renewal": "missing", "legacy": "missing"}}, {}, {}, {}, {}, {})
+    store = InMemoryPlaybookRepository({"co-1": {"renewal": "missing", "legacy": "missing"}})
     rule = {"role": "ae", "channels": ["call"], "contact": "contacted", "deal_stages": []}
-    store.save_type_meta("co-1", "renewal", label="Renovación", applies_to=rule)
+    store.set_meta("co-1", "renewal", label="Renovación", applies_to=rule)
     llm = FakeLLM({"types": [SDR]})
     set_playbook_structure_llm(llm)
     body = _post(_client(store)).json()
@@ -225,17 +224,18 @@ def test_with_routing_on_a_missing_catalog_type_is_created_with_its_default_rule
     inbound = {**SDR, "key": "inbound"}
     ae_discovery = {**AE, "key": "ae_discovery"}
     set_playbook_structure_llm(FakeLLM({"types": [inbound, ae_discovery]}))
-    store = MemoryPlaybookStore({"co-1": {"inbound": "published"}}, {}, {}, {}, {}, {})
-    store.save_type_meta("co-1", "inbound", label="Mi inbound")
+    store = InMemoryPlaybookRepository({"co-1": {"inbound": "published"}})
+    store.set_meta("co-1", "inbound", label="Mi inbound")
     client = _client(store)
     body = _post(client).json()
     assert [t["sales_motion_key"] for t in body["types"]] == ["inbound", "ae_discovery"]
     motions = client.get("/api/v1/playbooks").json()
     assert motions["motions"] == {"inbound": "published", "ae_discovery": "draft"}
-    details = store.details("co-1")
-    assert details["ae_discovery"] == {"label": "Discovery", "applies_to": default_applies_to("ae_discovery")}
-    assert details["inbound"]["label"] == "Mi inbound"  # an existing type is left as it was
-    assert details["inbound"].get("applies_to") is None
+    rows = store.list_types("co-1")
+    assert rows["ae_discovery"]["label"] == "Discovery"
+    assert rows["ae_discovery"]["applies_to"] == default_applies_to("ae_discovery")
+    assert rows["inbound"]["label"] == "Mi inbound"  # an existing type is left as it was
+    assert rows["inbound"].get("applies_to") is None
     listed = motions["details"]
     assert listed["ae_discovery"]["applies_to"] == default_applies_to("ae_discovery")
     assert listed["ae_discovery"]["has_draft"] is True and listed["ae_discovery"]["step_count"] == 2
@@ -245,7 +245,9 @@ def test_with_routing_off_a_missing_type_is_added_without_a_rule():
     set_playbook_structure_llm(FakeLLM(MIXED_ANSWER))
     client = _client()
     _post(client)
-    assert client.store.details("co-1") == {}  # no rule, no label: the flag is off
+    assert all(
+        not row["label"] and not row["applies_to"] for row in client.store.list_types("co-1").values()
+    )  # no rule, no label: the flag is off
 
 
 def test_a_pending_draft_is_overwritten_and_a_live_version_stays_live():
@@ -260,7 +262,7 @@ def test_a_pending_draft_is_overwritten_and_a_live_version_stays_live():
     editor = _post(client).json()["types"][0]["editor"]
     assert editor["source"] == "draft" and editor["has_live"] is True
     assert editor["version_id"] != live_id and editor["steps"][0]["label"] == "Apertura con permiso"
-    assert client.store._published_versions[("co-1", "discovery")]["id"] == live_id
+    assert client.store.editor_snapshot("co-1", "discovery", include_draft=False)["version"]["id"] == live_id
     assert client.get("/api/v1/playbooks").json()["motions"]["discovery"] == "published"
     # A second pass overwrites the pending draft in place.
     again = _post(client).json()["types"][0]["editor"]
@@ -486,80 +488,13 @@ def test_the_real_router_serves_structure_and_catalog():
         id="m", company_id="co-1", user_id="u", role="owner", status="active", sales_role=None,
     )
     app.dependency_overrides[get_supabase] = lambda: _Flags()
-    set_playbook_store(MemoryPlaybookStore({}, {}, {}, {}, {}, {}))
+    set_playbook_repository(InMemoryPlaybookRepository())
     set_playbook_structure_llm(FakeLLM(MIXED_ANSWER))
     client = TestClient(app)
     assert client.post(URL, json={"kind": "text", "payload": MIXED}).status_code == 200
     assert client.get("/api/v1/playbooks/catalog").json()["types"][0]["key"] == "discovery"
     # there is no GET on it, and no {key} route swallows it
     assert client.get("/api/v1/playbooks/structure").status_code in (404, 405)
-
-
-# --- the same flow against the Supabase store -------------------------------------------------
-
-
-class _Db(FakeDb):
-    """FakeDb plus the RPC POST /types uses, and a count of the queries made."""
-
-    def __init__(self):
-        super().__init__()
-        self.queries: list[str] = []
-        self.added: list[str] = []
-
-    def table(self, name):
-        self.queries.append(name)
-        return super().table(name)
-
-    def rpc(self, name, params):
-        if name == "add_interaction_type":
-            self.added.append(params["p_key"])
-
-            class _R:
-                def execute(self_inner):
-                    return _Result(None)
-
-            return _R()
-        if name == "list_playbook_motions":
-            rows = super().rpc(name, params).execute().data
-            known = {row["sales_motion_key"] for row in rows}
-            rows += [{"sales_motion_key": key, "motion_status": "missing"} for key in self.added if key not in known]
-
-            class _L:
-                def execute(self_inner):
-                    return _Result(rows)
-
-            return _L()
-        return super().rpc(name, params)
-
-
-def test_the_flow_works_on_the_supabase_store_and_the_company_source_has_no_playbook_row():
-    set_playbook_structure_llm(FakeLLM(MIXED_ANSWER))
-    db = _Db()
-    client = _client(SupabasePlaybookStore(db))
-    body = _post(client, name="todo.txt").json()
-    assert [t["sales_motion_key"] for t in body["types"]] == ["discovery", "closing"]
-    sources = [r for r in db.tables["playbook_imports"] if r["id"] == body["source"]["id"]]
-    assert len(sources) == 1 and sources[0]["playbook_id"] is None and sources[0]["company_id"] == "co-1"
-    assert sorted(p["sales_motion_key"] for p in db.tables["playbooks"]) == ["closing", "discovery"]  # no "_company" row
-    assert sorted(db.added) == ["closing", "discovery"]
-    for entry in body["types"]:
-        editor = entry["editor"]
-        assert editor["source_doc"] == body["source"] and editor["source"] == "draft"
-        assert editor == client.get(f"/api/v1/playbooks/{entry['sales_motion_key']}/editor").json()
-    versions = db.tables["playbook_versions"]
-    assert len(versions) == 2 and all(v["status"] == "draft" for v in versions)
-    # Structuring again updates each draft in place.
-    _post(client)
-    assert len(db.tables["playbook_versions"]) == 2
-
-
-def test_a_source_without_a_type_can_be_saved_on_both_stores():
-    memory = MemoryPlaybookStore({}, {}, {}, {}, {}, {})
-    assert memory.save_source("co-1", None, "text", "x", "hola")["kind"] == "text"
-    db = _Db()
-    view = SupabasePlaybookStore(db).save_source("co-1", None, "pdf", "g.pdf", "hola")
-    assert view == {"id": view["id"], "kind": "pdf", "name": "g.pdf"}
-    assert db.tables["playbooks"] == []
 
 
 # --- GET /playbooks: step_count, answer_count, has_draft --------------------------------------
@@ -576,16 +511,11 @@ def _save(client, key, steps=1, answers=0):
 
 
 def _memory():
-    return MemoryPlaybookStore({}, {}, {}, {}, {}, {})
+    return InMemoryPlaybookRepository()
 
 
-def _stores():
-    return [("memory", _memory), ("supabase", lambda: SupabasePlaybookStore(_Db()))]
-
-
-@pytest.mark.parametrize("make", [make for _name, make in _stores()], ids=[name for name, _ in _stores()])
-def test_details_count_the_version_the_editor_would_show(make):
-    client = _client(make())
+def test_details_count_the_version_the_editor_would_show():
+    client = _client(_memory())
     details = lambda: client.get("/api/v1/playbooks").json()["details"]  # noqa: E731
     client.post("/api/v1/playbooks/types", json={"type_key": "renewal", "name": "Renovación"})
     assert details()["renewal"]["step_count"] == 0
@@ -610,9 +540,8 @@ def test_details_count_the_version_the_editor_would_show(make):
     assert details()["renewal"]["step_count"] == 0
 
 
-@pytest.mark.parametrize("make", [make for _name, make in _stores()], ids=[name for name, _ in _stores()])
-def test_a_rep_sees_the_live_counts_and_no_draft(make, monkeypatch):
-    store = make()
+def test_a_rep_sees_the_live_counts_and_no_draft():
+    store = _memory()
     owner = _client(store)
     _save(owner, "discovery", steps=2, answers=1)
     owner.post("/api/v1/playbooks/discovery/publish")
@@ -625,65 +554,17 @@ def test_a_rep_sees_the_live_counts_and_no_draft(make, monkeypatch):
 
 def test_a_legacy_entry_is_not_an_answer():
     store = _memory()
-    store._published_versions[("co-1", "discovery")] = {
-        "id": "v1", "status": "published",
-        "steps": [{"step_id": "a", "label": "A", "criterion": "a"}, {"step_id": "b", "label": "B", "criterion": "b"}],
-        "entries": [
+    store.save_draft(
+        "co-1", "discovery",
+        [{"step_id": "a", "label": "A", "criterion": "a"}, {"step_id": "b", "label": "B", "criterion": "b"}],
+        [
             {"entry_id": "text:1", "category": "process", "guidance": "todo el documento", "source_ref": "text:1"},
             {"entry_id": "objection:price", "category": "price", "guidance": "ROI", "source_ref": "editor"},
         ],
-    }
-    store._motions["co-1"] = {"discovery": "published"}
+    )
+    store.publish("co-1", "discovery")
     detail = _client(store).get("/api/v1/playbooks").json()["details"]["discovery"]
     assert (detail["step_count"], detail["answer_count"]) == (2, 1)
-
-
-def test_the_supabase_store_reads_all_the_counts_in_a_constant_number_of_queries():
-    db = _Db()
-    store = SupabasePlaybookStore(db)
-    client = _client(store)
-    keys = ["discovery", "inbound", "ae_discovery", "closing", "negotiation", "renewal"]
-    for key in keys:
-        _save(client, key, steps=2, answers=1)
-    client.post("/api/v1/playbooks/closing/publish")
-    db.queries.clear()
-    summaries = store.version_summaries("co-1")
-    assert set(summaries) == set(keys)
-    assert len(db.queries) <= 3  # playbooks, live versions, drafts: not one per type
-    assert summaries["closing"] == {
-        "step_count": 2, "answer_count": 1, "criteria_count": 0, "has_draft": False, "paused": False,
-    }
-    assert summaries["discovery"] == {
-        "step_count": 2, "answer_count": 1, "criteria_count": 0, "has_draft": True, "paused": False,
-    }
-    assert store.version_summaries("other-company") == {}
-
-
-def test_an_old_draft_behind_the_live_version_is_not_pending_on_the_supabase_store():
-    db = _Db()
-    store = SupabasePlaybookStore(db)
-    client = _client(store)
-    _save(client, "discovery", steps=2)
-    client.post("/api/v1/playbooks/discovery/publish")
-    playbook = db.tables["playbooks"][0]
-    live = next(v for v in db.tables["playbook_versions"] if v["id"] == playbook["active_version_id"])
-    db.tables["playbook_versions"].append({
-        "id": "old", "playbook_id": playbook["id"], "status": "draft", "steps": [], "entries": [],
-        "created_at": "2020-01-01T00:00:00+00:00", "updated_at": "2020-01-01T00:00:00+00:00",
-    })
-    assert live["status"] == "published"
-    assert store.version_summaries("co-1")["discovery"]["has_draft"] is False
-
-
-def test_a_failing_read_leaves_the_list_working_without_counts():
-    class _Broken(_Db):
-        def table(self, name):
-            if name == "playbook_versions":
-                raise RuntimeError("db down")
-            return super().table(name)
-
-    store = SupabasePlaybookStore(_Broken())
-    assert store.version_summaries("co-1") == {}
 
 
 def test_intake_candidate_helpers_are_pure():

@@ -13,11 +13,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.playbooks import router as playbooks_router, set_playbook_store
+from app.api.playbooks import router as playbooks_router
 from app.deps import get_membership, get_supabase
 from app.services import feature_flags
 from app.services.company import Membership
-from app.services.playbooks.store import MemoryPlaybookStore
+from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 from app.services.playbooks.structured import (
     PlaybookDraftError,
     editor_view,
@@ -110,8 +110,8 @@ class _NoFlags:
 
 @pytest.fixture
 def client_for():
-    store = MemoryPlaybookStore({}, {}, {}, {}, {}, {})
-    set_playbook_store(store)
+    store = InMemoryPlaybookRepository()
+    set_playbook_repository(store)
     feature_flags.clear_cache()
 
     def make(role="owner", sales_role=None):
@@ -124,7 +124,7 @@ def client_for():
         return TestClient(app)
 
     yield make
-    set_playbook_store(None)
+    set_playbook_repository(None)
     feature_flags.clear_cache()
 
 

@@ -44,14 +44,12 @@ def test_publishing_discovery_does_not_activate_another_motion_and_a_member_cann
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from app.api import playbooks as playbooks_api
     from app.api.playbooks import router as playbooks_router
     from app.deps import get_membership
     from app.services.company import Membership
+    from app.services.playbooks.repository import get_playbook_repository, set_playbook_repository
 
-    playbooks_api._MOTIONS.clear()
-    playbooks_api._LATEST.clear()
-    playbooks_api._ACTIVATED.clear()
+    set_playbook_repository(None)
     role = {"value": "owner"}
     app = FastAPI()
     app.include_router(playbooks_router)
@@ -85,109 +83,19 @@ def test_publishing_discovery_does_not_activate_another_motion_and_a_member_cann
     role["value"] = "member"
     denied = client.post("/api/v1/playbooks/discovery/publish")
     assert denied.status_code == 403
-    assert playbooks_api._MOTIONS["co"]["discovery"] == "published"
-
-
-def test_the_publish_route_asks_postgres_for_one_motion_only():
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-
-    from app.api.playbooks import router as playbooks_router
-    from app.api.playbooks import set_playbook_store
-    from app.deps import get_membership
-    from app.services.company import Membership
-    from app.services.playbooks.store import SupabasePlaybookStore
-
-    class Result:
-        def __init__(self, data):
-            self.data = data
-
-        def execute(self):
-            return self
-
-    class Client:
-        def __init__(self):
-            self.calls = []
-            self.motions = {}
-
-        def table(self, _name):
-            class Chain:
-                def select(self, *_args, **_kwargs):
-                    return self
-
-                def eq(self, *_args, **_kwargs):
-                    return self
-
-                def limit(self, *_args, **_kwargs):
-                    return self
-
-                def execute(self):
-                    return Result([])
-
-            return Chain()
-
-        def rpc(self, name, params):
-            self.calls.append((name, params))
-            if name == "save_playbook_draft":
-                self.motions[params["p_motion"]] = "draft"
-                return Result("ready")
-            if name == "list_playbook_motions":
-                return Result([
-                    {"sales_motion_key": key, "motion_status": status}
-                    for key, status in self.motions.items()
-                ])
-            if name == "publish_playbook_motion":
-                if self.motions.get(params["p_motion"]) != "draft":
-                    return Result("not_a_draft")
-                self.motions[params["p_motion"]] = "published"
-                return Result("published")
-            raise AssertionError(name)
-
-    database = Client()
-    set_playbook_store(SupabasePlaybookStore(database))
-    app = FastAPI()
-    app.include_router(playbooks_router)
-    app.dependency_overrides[get_membership] = lambda: Membership(
-        id="m", company_id="co", user_id="u", role="owner", status="active",
-    )
-    client = TestClient(app)
-    try:
-        created = client.post(
-            "/api/v1/playbooks/imports",
-            json={
-                "import_id": "imp-discovery",
-                "kind": "text",
-                "payload": "Confirmar el problema antes del precio.",
-                "sales_motion_key": "discovery",
-            },
-        )
-        assert created.status_code == 200
-        assert client.post("/api/v1/playbooks/qualification/publish").status_code == 409
-        published = client.post("/api/v1/playbooks/discovery/publish")
-        assert published.status_code == 200
-        assert published.json()["motions"]["discovery"] == "published"
-        assert "qualification" not in published.json()["motions"]
-        assert [
-            params["p_motion"]
-            for name, params in database.calls
-            if name == "publish_playbook_motion"
-        ] == ["discovery"]
-    finally:
-        set_playbook_store(None)
+    assert get_playbook_repository().list_types("co")["discovery"]["status"] == "published"
 
 
 def test_adding_a_typology_does_not_publish_it_and_a_member_cannot():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from app.api import playbooks as playbooks_api
     from app.api.playbooks import router as playbooks_router
     from app.deps import get_membership
     from app.services.company import Membership
+    from app.services.playbooks.repository import get_playbook_repository, set_playbook_repository
 
-    playbooks_api._MOTIONS.clear()
-    playbooks_api._LATEST.clear()
-    playbooks_api._ACTIVATED.clear()
+    set_playbook_repository(None)
     role = {"value": "member"}
     app = FastAPI()
     app.include_router(playbooks_router)
