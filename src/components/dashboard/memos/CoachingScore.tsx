@@ -32,7 +32,7 @@ export function CoachingScore({ memoId }: { memoId: string }) {
         <div className="space-y-3">
           <p className={THEME_TOKENS.typography.body}>{surface.title}</p>
           {surface.action ? (
-            <Button type="button" variant="outline" onClick={() => navigate("/dashboard/process")}>
+            <Button type="button" variant="outline" onClick={() => navigate("/dashboard/settings/playbooks")}>
               {surface.action}
             </Button>
           ) : (

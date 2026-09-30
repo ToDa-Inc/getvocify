@@ -161,7 +161,7 @@ export default function TeamRepDetailPage() {
               {p.hosSeeCalls}
             </Link>
           ) : null}
-          <Link className="text-sm underline text-foreground" to="/dashboard/insights">
+          <Link className="text-sm underline text-foreground" to="/dashboard/insights?tab=people">
             {p.teamRepDetailBack}
           </Link>
         </div>

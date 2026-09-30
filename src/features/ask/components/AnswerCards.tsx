@@ -182,7 +182,7 @@ function PlaybookSources({ evidence }: { evidence: AskEvidence[] }) {
   const { t } = useLanguage();
   const p = t.product;
   const { user } = useAuth();
-  const to = isManagerRole(user?.company?.role) ? "/dashboard/process#playbooks" : "/dashboard/playbook";
+  const to = isManagerRole(user?.company?.role) ? "/dashboard/settings/playbooks" : "/dashboard/coach?tab=playbook";
   return (
     <Frame label={p.askPlaybookSource} to={to} place={p.navPlaybook}>
       <ul className="space-y-3">

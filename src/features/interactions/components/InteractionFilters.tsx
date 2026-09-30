@@ -3,6 +3,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { activityFilterChips, type ActivityAuthor } from "@/lib/activity-authors";
 import { CHANNELS, type Channel, type TypeOption } from "@/lib/interactions";
 import { useLanguage } from "@/lib/i18n";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
 
 const ALL = "all";
 const selectClass = "h-9 w-auto min-w-[9rem] max-w-[14rem] gap-2 rounded-full border-border/70 bg-card text-[13px]";
@@ -13,12 +14,12 @@ export function ChannelTabs({ channel, onChannel }: { channel: Channel | "all"; 
   const copy = t.product.interactions;
   return (
     <Tabs value={channel} onValueChange={(next) => onChannel(next as Channel | "all")}>
-      <TabsList aria-label={copy.channelFilter} className="h-auto max-w-full flex-wrap justify-start rounded-full border border-border bg-card p-1">
+      <TabsList aria-label={copy.channelFilter} className={THEME_TOKENS.interaction.segmentList}>
         {(["all", ...CHANNELS] as const).map((option) => (
           <TabsTrigger
             key={option}
             value={option}
-            className="rounded-full px-3.5 py-1 text-xs font-normal text-muted-foreground transition-colors duration-150 hover:text-foreground motion-reduce:transition-none data-[state=active]:bg-beige data-[state=active]:text-cream data-[state=active]:shadow-none"
+            className={THEME_TOKENS.interaction.segmentTab}
           >
             {copy.channels[option]}
           </TabsTrigger>

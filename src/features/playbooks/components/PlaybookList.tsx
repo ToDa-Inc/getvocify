@@ -19,7 +19,7 @@ const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 
 /**
  * "Vuestro proceso" (plan §14–16): one way in for the whole company, one row per call type
- * (plus "Vuestra empresa"), one action to turn changes on. This component only arranges the
+ * (plus "Vuestra empresa" and the reserved Interna), one action to turn changes on. This component only arranges the
  * pieces; the data and actions live in usePlaybookProcess and useIntake.
  */
 export function PlaybookList() {
@@ -124,6 +124,11 @@ export function PlaybookList() {
                 />
               );
             })}
+            {/* Reserved type for a conversation with no customer: no playbook, never scored, nothing to switch or delete. */}
+            <li className="flex items-center gap-3 border-t border-border/40 py-4 first:border-t-0">
+              <span className="text-[15px] text-foreground">{t.product.interactions.internal}</span>
+              <span className={cn(THEME_TOKENS.typography.capsLabel, "ml-auto")}>{copy.internalRow}</span>
+            </li>
           </ul>
           {canEdit ? (
             <ProcessFooter

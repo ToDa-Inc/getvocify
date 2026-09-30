@@ -1,6 +1,7 @@
+import { Link } from "react-router-dom";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { processHealthView, type ProcessHealthFlow, type ProcessTone } from "@/lib/head-of-sales";
+import { PROCESS_HREF, processHealthView, type ProcessHealthFlow, type ProcessTone } from "@/lib/head-of-sales";
 import { teamFlowFilterLabel } from "@/lib/team-insights";
 
 const TONE_DOT: Record<ProcessTone, string> = {
@@ -30,9 +31,9 @@ export function ProcessHealth({ flows }: { flows: ProcessHealthFlow[] }) {
           <h2 id="hos-process" className={THEME_TOKENS.typography.sectionTitle}>{p.hosProcessHeading}</h2>
           <p className="text-xs text-muted-foreground mt-1">{p.hosProcessSubtitle}</p>
         </div>
-        <a href="#playbooks" className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+        <Link to={PROCESS_HREF} className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
           {p.hosProcessReview}
-        </a>
+        </Link>
       </div>
       <ul className="space-y-4">
         {ordered.map((flow) => {

@@ -3,7 +3,6 @@ import { Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
-import { InterfaceLanguageSettings } from "@/components/dashboard/settings/InterfaceLanguageSettings";
 import { isManagerRole } from "@/lib/nav";
 import { firstAllowedSettingsPath, isSettingsPathAllowed, visibleSettingsTabs } from "@/lib/settings-nav";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -14,7 +13,7 @@ import { loadSalesforceSetup } from "@/lib/api/salesforce-setup";
 import { callKeys, callsApi } from "@/features/calls/api";
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
-  `shrink-0 lg:w-full lg:text-left ${THEME_TOKENS.interaction.navPill} ${
+  `shrink-0 whitespace-nowrap lg:w-full lg:text-left ${THEME_TOKENS.interaction.navPill} ${
     isActive ? THEME_TOKENS.interaction.navPillActive : THEME_TOKENS.interaction.navPillIdle
   }`;
 
@@ -26,7 +25,7 @@ const SettingsLayout = () => {
   const paywalled = companyIsPaywalled(user?.company);
   // Item 2 / Lista 4 E6: a rep (member) sees Calling, the shared Glossary (read-only)
   // and their own Usage; the Head of Sales (owner/admin) sees everything, including the
-  // company-wide sections (CRM, Offer, Brief, Playbooks, Team, Billing).
+  // company-wide sections (CRM, Offer, Brief, Team, Playbooks, Billing).
   const isManager = isManagerRole(user?.company?.role);
 
   const sections = useMemo(() => visibleSettingsTabs(isManager), [isManager]);
@@ -79,7 +78,7 @@ const SettingsLayout = () => {
         </h1>
       </div>
 
-      <div className={`lg:items-start ${paywalled ? "" : "lg:grid lg:grid-cols-[11.5rem_minmax(0,1fr)] lg:gap-10"}`}>
+      <div className={`lg:items-start ${paywalled ? "" : "lg:grid lg:grid-cols-[max-content_minmax(0,1fr)] lg:gap-10"}`}>
         {!paywalled && (
           <div>
             <nav
@@ -97,7 +96,6 @@ const SettingsLayout = () => {
                 </NavLink>
               ))}
             </nav>
-            <InterfaceLanguageSettings />
           </div>
         )}
 

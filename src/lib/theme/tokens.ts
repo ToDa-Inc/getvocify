@@ -51,6 +51,10 @@ export const THEME_TOKENS = {
     navPill: "rounded-full px-3.5 py-1.5 text-[13px] transition-colors",
     navPillActive: "glass-nav text-foreground",
     navPillIdle: "text-muted-foreground hover:bg-white/25 hover:text-foreground",
+    /** Kit `Tabs` as a compact pill row (TabsList / TabsTrigger): Interacciones, Equipo, Coaching. */
+    segmentList: "h-auto max-w-full flex-wrap justify-start rounded-full border border-border bg-card p-1",
+    segmentTab:
+      "rounded-full px-3.5 py-1 text-xs font-normal text-muted-foreground transition-colors duration-150 hover:text-foreground motion-reduce:transition-none data-[state=active]:bg-beige data-[state=active]:text-cream data-[state=active]:shadow-none",
   },
 };
 

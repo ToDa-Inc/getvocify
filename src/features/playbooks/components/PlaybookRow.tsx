@@ -73,14 +73,15 @@ export function PlaybookRow({
     <li className="group/row border-t border-border/40 first:border-t-0">
       <div className="flex items-center gap-2">
         <button type="button" className="flex min-w-0 flex-1 items-center gap-3 py-4 text-left" aria-expanded={open} onClick={onToggleOpen}>
-          <span className="min-w-0">
+          <span className="shrink-0">
             <span className="text-[15px] text-foreground">{label}</span>
             {row.role && row.role !== "any" ? (
               <span className={cn(THEME_TOKENS.typography.capsLabel, "ml-2")}>{copy.ruleRoles[row.role]}</span>
             ) : null}
             {row.unrouted && canEdit ? <span className="block text-xs text-warning">{copy.unrouted}</span> : null}
           </span>
-          <span className="ml-auto flex shrink-0 items-center gap-3">
+          {/* In Ajustes the row is narrower: the counts truncate (full on hover), the name and state never break. */}
+          <span className="ml-auto flex min-w-0 items-center gap-3">
             {state === "empty" ? (
               canEdit && !open ? (
                 <span className="rounded-full border border-border px-3 py-1 text-[13px] text-foreground">{copy.create}</span>
@@ -88,10 +89,10 @@ export function PlaybookRow({
                 <span className={THEME_TOKENS.typography.capsLabel}>{copy.statusMissing}</span>
               )
             ) : (
-              <span className={cn(THEME_TOKENS.typography.capsLabel, "inline-flex items-center gap-2")}>
-                <span className="hidden sm:inline">{counts}</span>
-                <span className={cn("h-1.5 w-1.5 rounded-full transition-colors", DOT[state])} aria-hidden />
-                {statusText}
+              <span className={cn(THEME_TOKENS.typography.capsLabel, "inline-flex min-w-0 items-center gap-2")}>
+                <span className="hidden truncate sm:block" title={counts ?? undefined}>{counts}</span>
+                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full transition-colors", DOT[state])} aria-hidden />
+                <span className="shrink-0 whitespace-nowrap">{statusText}</span>
               </span>
             )}
           </span>

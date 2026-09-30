@@ -211,8 +211,8 @@ describe("summaryDiagnosis", () => {
   it("gives one line per flow, most severe first, so a second problem is not hidden", () => {
     const d = summaryDiagnosis({ attempts: 10, adherence: 0.5, processHealth: [f("coach_reps", "discovery"), f("playbook_underperforms", "closing")] });
     assert.deepEqual(d, [
-      { tone: "process", key: "hosDiagPlaybook", motion: "closing", href: "/dashboard/process" },
-      { tone: "rep", key: "hosDiagCoach", motion: "discovery", href: "/dashboard/insights" },
+      { tone: "process", key: "hosDiagPlaybook", motion: "closing", href: "/dashboard/settings/playbooks" },
+      { tone: "rep", key: "hosDiagCoach", motion: "discovery", href: "/dashboard/insights?tab=people" },
     ]);
   });
 

@@ -17,8 +17,7 @@ import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import InviteAcceptPage from "./pages/auth/InviteAcceptPage";
 import TeamPage from "./pages/dashboard/TeamPage";
-import { InsightsRoute, ManagerOnly, RepOnly } from "./pages/dashboard/headOfSalesRoutes";
-import SalesProcessPage from "./pages/dashboard/SalesProcessPage";
+import { InsightsRoute, RepOnly } from "./pages/dashboard/headOfSalesRoutes";
 import TeamRepDetailPage from "./pages/dashboard/TeamRepDetailPage";
 import CoachPage from "./pages/dashboard/CoachPage";
 import ReportPage from "./pages/dashboard/ReportPage";
@@ -55,10 +54,10 @@ import { isLandingDomain, isLandingPath, APP_URL } from "@/lib/app-url";
 import { sessionGateView } from "@/lib/auth-session";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 
-/** The old recordings list lives on as Interacciones; `?author=` comes along. */
-const MemosRedirect = () => {
-  const { search } = useLocation();
-  return <Navigate to={{ pathname: "/dashboard/interactions", search }} replace />;
+/** An old route that lives on elsewhere; its query (`?author=`) and hash come along. */
+const MovedTo = ({ pathname }: { pathname: string }) => {
+  const { search, hash } = useLocation();
+  return <Navigate to={{ pathname, search, hash }} replace />;
 };
 
 /** Redirects getvocify.com/login, /dashboard, etc. → app.getvocify.com */
@@ -176,7 +175,7 @@ const App = () => (
               <Route path="onboarding" element={<OnboardingWizard />} />
               <Route path="record" element={<RecordPage />} />
               <Route path="interactions" element={<InteractionsPage />} />
-              <Route path="memos" element={<MemosRedirect />} />
+              <Route path="memos" element={<MovedTo pathname="/dashboard/interactions" />} />
               <Route path="memos/:id" element={<MemoDetail />} />
               <Route path="integrations" element={<IntegrationsPage />} />
               <Route path="profile" element={<ProfilePage />} />
@@ -187,15 +186,14 @@ const App = () => (
                 <Route path="glossary" element={<GlossarySection />} />
                 <Route path="brief" element={<BriefHighlightSection />} />
                 <Route path="team" element={<TeamPage />} />
+                <Route path="playbooks" element={<PlaybooksSection />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="usage" element={<UsagePage />} />
                 <Route path="billing" element={<BillingPage />} />
               </Route>
               <Route path="insights" element={<InsightsRoute />} />
-              <Route path="process" element={<ManagerOnly><SalesProcessPage /></ManagerOnly>} />
-              {/* The playbook editor moved from Ajustes to Proceso de venta; outside the settings
-                  layout so its tab guard doesn't bounce the old URL first. */}
-              <Route path="settings/playbooks" element={<Navigate to="/dashboard/process#playbooks" replace />} />
+              {/* Proceso de venta is gone: types and playbooks live in Ajustes, its health in Equipo. */}
+              <Route path="process" element={<MovedTo pathname="/dashboard/settings/playbooks" />} />
               <Route path="insights/rep/:userId" element={<TeamRepDetailPage />} />
               <Route path="coach" element={<RepOnly><CoachPage /></RepOnly>} />
               {/* T13: MANAGER_HOME_ENABLED moves an owner/admin's home to the team panel;
