@@ -19,7 +19,11 @@ const POLL_SLOW_AFTER_MS = 30000;
 export type ConversationSummary = { id: string; title: string; turns: number; updated_at: string | null };
 
 /** `fresh` means this tab has no conversation yet, so there is nothing to restore from the server. */
-function readConversation(): { id: string; fresh: boolean } {
+function readConversation(restoreId?: string | null): { id: string; fresh: boolean } {
+  if (restoreId) {
+    rememberConversationId(restoreId);
+    return { id: restoreId, fresh: false };
+  }
   try {
     const existing = sessionStorage.getItem(CONVERSATION_KEY);
     if (existing) return { id: existing, fresh: false };
@@ -39,10 +43,17 @@ function rememberConversationId(id: string) {
   }
 }
 
-/** One conversation: streams a turn, recovers it if the reader drops, runs confirmations, lists history. */
-export function useAskConversation() {
+/**
+ * One conversation: streams a turn, recovers it if the reader drops, runs confirmations, lists history.
+ * `restoreId` opens that conversation instead of this tab's last one (a `?c=` link); `onMissing` hears
+ * when the conversation restored on mount could not be read.
+ */
+export function useAskConversation({ restoreId, onMissing }: { restoreId?: string | null; onMissing?: () => void } = {}) {
   const [thread, dispatch] = useReducer(reduceThread, undefined, emptyThread);
-  const initial = useRef(readConversation());
+  const initial = useRef<{ id: string; fresh: boolean } | null>(null);
+  if (initial.current === null) initial.current = readConversation(restoreId);
+  const missing = useRef(onMissing);
+  missing.current = onMissing;
   const [conversationId, setConversationId] = useState(initial.current.id);
   const [history, setHistory] = useState<ConversationSummary[] | null>(null);
   const [historyError, setHistoryError] = useState(false);
@@ -225,6 +236,7 @@ export function useAskConversation() {
     setConversationId(id);
     conversationRef.current = id;
     dispatch({ type: "clear" });
+    return id;
   }, [stopPolling]);
 
   const deleteConversation = useCallback(
@@ -271,7 +283,7 @@ export function useAskConversation() {
   // Reload: bring back this tab's conversation, and keep waiting for a turn that was still running.
   useEffect(() => {
     alive.current = true;
-    if (!initial.current.fresh) void openConversation(conversationRef.current).catch(() => undefined);
+    if (!initial.current?.fresh) void openConversation(conversationRef.current).catch(() => missing.current?.());
     return () => {
       alive.current = false;
       abort.current?.abort();
@@ -282,6 +294,7 @@ export function useAskConversation() {
   }, []);
 
   return {
+    conversationId,
     thread,
     busy: isBusy(thread),
     reconnecting,

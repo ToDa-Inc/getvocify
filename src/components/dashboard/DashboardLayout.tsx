@@ -78,7 +78,8 @@ const DashboardLayout = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [paywalled]);
   const showDialer = !isDesktopHost() && !paywalled && companyCanUseDialer(user?.company);
-  const homeColumn = usesRepHome(user?.company) && location.pathname === "/dashboard";
+  // The full Hoy (/dashboard/today) keeps its contact column; Inicio (/dashboard) has its own rail.
+  const homeColumn = usesRepHome(user?.company) && location.pathname === "/dashboard/today";
   const closeAsk = useCallback(() => setAskOpen(false), []);
   const column = useMemo(
     () => ({ target: homeColumn ? columnNode : null, askOpen, closeAsk, canDial: showDialer }),
