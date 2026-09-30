@@ -1,3 +1,95 @@
+-- The playbooks schema as migrations 066, 067, 068 and 069 left it (concatenated, in order), for the
+-- test that 066_playbooks_v2.sql upgrades a database where they were already applied.
+
+-- ===== 066_playbook_draft_autosave.sql
+-- Playbook draft autosave. The editor now saves the draft in place instead of inserting one
+-- playbook_versions row per save, and compares updated_at to notice that someone else changed
+-- the draft (409 stale_draft). Existing rows start with updated_at = created_at.
+-- Rollback: 066_playbook_draft_autosave.down.sql
+
+BEGIN;
+
+ALTER TABLE playbook_versions
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- Before the trigger exists, so the backfill does not stamp every row with "now".
+UPDATE playbook_versions SET updated_at = created_at;
+
+CREATE OR REPLACE FUNCTION playbook_versions_touch_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $touch$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$touch$;
+
+DROP TRIGGER IF EXISTS playbook_versions_updated_at ON playbook_versions;
+CREATE TRIGGER playbook_versions_updated_at
+  BEFORE UPDATE ON playbook_versions
+  FOR EACH ROW EXECUTE FUNCTION playbook_versions_touch_updated_at();
+
+COMMIT;
+
+-- ===== 067_playbook_rules.sql
+-- Playbooks v2 (fase 2, T7): a label for the type and the rule that says which calls it applies to.
+-- applies_to = {role: sdr|ae|any, channels: [call|meeting|visit], contact: new|contacted|inbound|any,
+-- deal_stages: [crm stage id, ...]}. NULL on a catalog type means "the catalog's default rule".
+-- Rollback: 067_playbook_rules.down.sql
+
+BEGIN;
+
+ALTER TABLE playbooks
+  ADD COLUMN IF NOT EXISTS label TEXT,
+  ADD COLUMN IF NOT EXISTS applies_to JSONB;
+
+COMMIT;
+
+-- ===== 068_playbook_three_layers.sql
+-- Playbooks: the three-layer model (docs/superpowers/plans/2026-09-29-playbooks-v2.md, section 15).
+--   1. playbook_versions.qualification: "what has to come out of the call", [{criterion_id, label,
+--      why?, good?, bad?}] per version, edited in the draft and activated with the rest of it.
+--      Publishing flips the draft's status in place (publish_playbook_version), so nothing copies
+--      columns and nothing can drop it; save_playbook_draft (the legacy import path) inserts a
+--      draft without it and takes the default.
+--      Custom objections need no column: they are entries of playbook_versions.entries.
+--   2. company_sales_knowledge: what Vocify knows about the company, once (ICP, personas, value
+--      story, differentiators, cases, competitors, pricing, notes). One row per company, no draft:
+--      a save takes effect at once. updated_at is bumped by a trigger so the API can answer
+--      409 stale_knowledge to an editor that is not looking at the latest save.
+-- Rollback: 068_playbook_three_layers.down.sql
+
+BEGIN;
+
+ALTER TABLE playbook_versions
+  ADD COLUMN IF NOT EXISTS qualification JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+CREATE TABLE IF NOT EXISTS company_sales_knowledge (
+  company_id UUID PRIMARY KEY,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  source_id TEXT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION company_sales_knowledge_touch_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $touch$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$touch$;
+
+DROP TRIGGER IF EXISTS company_sales_knowledge_updated_at ON company_sales_knowledge;
+CREATE TRIGGER company_sales_knowledge_updated_at
+  BEFORE UPDATE ON company_sales_knowledge
+  FOR EACH ROW EXECUTE FUNCTION company_sales_knowledge_touch_updated_at();
+
+COMMIT;
+
+-- ===== 069_playbook_pause_archive.sql
 -- Playbooks: pause, resume and delete (soft, undoable) a call type
 -- (docs/superpowers/plans/2026-09-29-playbooks-v2.md, section 16).
 --   * Pausing moves playbooks.active_version_id to paused_version_id, so everything that reads the

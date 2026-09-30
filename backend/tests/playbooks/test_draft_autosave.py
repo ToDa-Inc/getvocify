@@ -586,15 +586,3 @@ def test_supabase_editor_with_no_playbook_row_is_empty(pg):
     assert store.editor_version("co", "discovery", include_draft=True) == ("empty", None)
     assert store.discard_draft("co", "discovery") is False
 
-
-def test_the_migration_adds_updated_at_and_a_trigger():
-    from pathlib import Path
-
-    migrations = Path(__file__).resolve().parents[2] / "migrations"
-    up = (migrations / "066_playbook_draft_autosave.sql").read_text()
-    down = (migrations / "066_playbook_draft_autosave.down.sql").read_text()
-    assert "updated_at TIMESTAMPTZ NOT NULL DEFAULT now()" in up
-    assert "BEFORE UPDATE ON playbook_versions" in up
-    assert "DROP COLUMN IF EXISTS updated_at" in down
-    reset = (Path(__file__).resolve().parents[2] / "full_reset.sql").read_text()
-    assert "playbook_versions_updated_at" in reset

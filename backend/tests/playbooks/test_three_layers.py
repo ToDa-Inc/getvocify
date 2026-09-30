@@ -302,33 +302,6 @@ def test_publishing_on_the_supabase_store_keeps_the_criteria_in_the_same_row():
     assert [c["criterion_id"] for c in view["qualification"]] == ["presupuesto", "quien_decide"]
 
 
-def test_the_publish_sql_never_copies_columns():
-    """publish_playbook_version flips status on the row and points the playbook at it, and
-    publish_playbook_motion only picks that row: a new column can not be dropped by publishing."""
-    root = Path(__file__).resolve().parents[2]
-    reset = (root / "full_reset.sql").read_text(encoding="utf-8")
-    start = reset.index("CREATE OR REPLACE FUNCTION publish_playbook_version")
-    end = reset.index("CREATE OR REPLACE FUNCTION save_playbook_draft")
-    assert "INSERT INTO playbook_versions" not in reset[start:end]
-    assert "UPDATE playbook_versions SET status = 'published'" in reset[start:end]
-    start = reset.index("CREATE OR REPLACE FUNCTION publish_playbook_motion")
-    end = reset.index("CREATE OR REPLACE FUNCTION list_playbook_motions")
-    assert "INSERT INTO playbook_versions" not in reset[start:end]
-
-
-def test_migration_068_and_full_reset_agree():
-    root = Path(__file__).resolve().parents[2]
-    up = (root / "migrations" / "068_playbook_three_layers.sql").read_text(encoding="utf-8")
-    down = (root / "migrations" / "068_playbook_three_layers.down.sql").read_text(encoding="utf-8")
-    reset = (root / "full_reset.sql").read_text(encoding="utf-8")
-    assert "qualification JSONB NOT NULL DEFAULT '[]'" in up and "qualification JSONB NOT NULL DEFAULT '[]'" in reset
-    for text in (up, reset):
-        assert "CREATE TABLE IF NOT EXISTS company_sales_knowledge" in text
-        assert "company_id UUID PRIMARY KEY" in text and "source_id TEXT NULL" in text
-        assert "company_sales_knowledge_touch_updated_at" in text and "BEFORE UPDATE ON company_sales_knowledge" in text
-    assert "DROP TABLE IF EXISTS company_sales_knowledge" in down and "DROP COLUMN IF EXISTS qualification" in down
-
-
 # --- qualification templates -----------------------------------------------------------------
 
 
