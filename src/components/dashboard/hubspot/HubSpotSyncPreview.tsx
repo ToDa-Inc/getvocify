@@ -819,7 +819,7 @@ export const HubSpotSyncPreview = ({
               </div>
 
               {hadExisting && (
-                <p className="text-[10px] text-[#b42318] line-through">
+                <p className="text-[10px] text-[#b42318] line-through dark:text-destructive">
                   {optionLabelFor(update.current_value, update.options) || "—"}
                 </p>
               )}
@@ -860,7 +860,7 @@ export const HubSpotSyncPreview = ({
                 </div>
               ) : (
                 <p
-                  className="text-sm font-normal leading-relaxed text-[#067647]"
+                  className="text-sm font-normal leading-relaxed text-[#067647] dark:text-success"
                 >
                   {isCrmDateField(update)
                     ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"

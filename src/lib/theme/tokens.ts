@@ -50,7 +50,7 @@ export const THEME_TOKENS = {
     pageLoad: "flex min-h-[280px] items-center justify-center",
     navPill: "rounded-full px-3.5 py-1.5 text-[13px] transition-colors",
     navPillActive: "glass-nav text-foreground",
-    navPillIdle: "text-muted-foreground hover:bg-white/25 hover:text-foreground",
+    navPillIdle: "text-muted-foreground hover:bg-white/25 hover:text-foreground dark:hover:bg-white/5",
     /** Kit `Tabs` as a compact pill row (TabsList / TabsTrigger): Interacciones, Equipo, Coaching. */
     segmentList: "h-auto max-w-full flex-wrap justify-start rounded-full border border-border bg-card p-1",
     segmentTab:

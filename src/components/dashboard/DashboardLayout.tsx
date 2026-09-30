@@ -117,7 +117,8 @@ const DashboardLayout = () => {
       >
         <div className="px-5 py-6 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <Logo size="sm" />
+            {/* The wordmark is a dark raster: in dark it is inverted with its hues kept (gold mic, light text). */}
+            <Logo size="sm" className="dark:[filter:invert(1)_hue-rotate(180deg)]" />
             <span className="px-1.5 py-px text-[10px] font-medium text-beige bg-beige/10 rounded-md">
               Beta
             </span>

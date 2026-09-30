@@ -73,15 +73,17 @@ export function PlaybookRow({
     <li className="group/row border-t border-border/40 first:border-t-0">
       <div className="flex items-center gap-2">
         <button type="button" className="flex min-w-0 flex-1 items-center gap-3 py-4 text-left" aria-expanded={open} onClick={onToggleOpen}>
-          <span className="shrink-0">
+          {/* Below lg a long type name (and the unrouted line) wraps; from lg the name never breaks. */}
+          <span className="min-w-0 lg:shrink-0">
             <span className="text-[15px] text-foreground">{label}</span>
             {row.role && row.role !== "any" ? (
               <span className={cn(THEME_TOKENS.typography.capsLabel, "ml-2")}>{copy.ruleRoles[row.role]}</span>
             ) : null}
             {row.unrouted && canEdit ? <span className="block text-xs text-warning">{copy.unrouted}</span> : null}
           </span>
-          {/* In Ajustes the row is narrower: the counts truncate (full on hover), the name and state never break. */}
-          <span className="ml-auto flex min-w-0 items-center gap-3">
+          {/* In Ajustes the row is narrower: from lg the counts truncate (full on hover) and the name and
+              state never break; below lg the name wraps and the state keeps its room. */}
+          <span className="ml-auto flex min-w-0 shrink-0 items-center gap-3 lg:shrink">
             {state === "empty" ? (
               canEdit && !open ? (
                 <span className="rounded-full border border-border px-3 py-1 text-[13px] text-foreground">{copy.create}</span>

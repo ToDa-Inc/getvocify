@@ -274,7 +274,7 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
                 </span>
                 <span className="text-xs text-muted-foreground">Category:</span>
                 <select
-                  className="h-8 px-3 rounded-lg border border-input bg-white text-xs font-medium"
+                  className="h-8 px-3 rounded-lg border border-input bg-card text-xs font-medium"
                   value={bulkCategory}
                   onChange={(e) => setBulkCategory(e.target.value)}
                 >
@@ -325,7 +325,7 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
                         <td className="p-2 font-medium">{row.word}</td>
                         <td className="p-2">
                           <select
-                            className="h-7 px-2 rounded border border-input bg-white text-xs w-28"
+                            className="h-7 px-2 rounded border border-input bg-card text-xs w-28"
                             value={row.category}
                             onChange={(e) =>
                               setBulkPreview((prev) =>
@@ -397,7 +397,7 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
                   placeholder="e.g. Acme Corp" 
                   value={newWord}
                   onChange={(e) => setNewWord(e.target.value)}
-                  className="rounded-full bg-white font-bold pr-10"
+                  className="rounded-full bg-card font-bold pr-10"
                 />
                 <button 
                   onClick={handleSuggest}
@@ -412,7 +412,7 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
             <div className="space-y-2">
               <label className={THEME_TOKENS.typography.capsLabel}>Category</label>
               <select 
-                className="w-full h-10 px-4 rounded-full border border-input bg-white text-sm font-bold"
+                className="w-full h-10 px-4 rounded-full border border-input bg-card text-sm font-bold"
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value)}
               >
@@ -437,13 +437,13 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
               placeholder="How it sounds, comma separated" 
               value={newHints}
               onChange={(e) => setNewHints(e.target.value)}
-              className="rounded-full bg-white"
+              className="rounded-full bg-card"
             />
           </div>
           <Button 
             onClick={handleAdd} 
             disabled={isGenerating}
-            className="w-full rounded-full bg-beige text-white font-bold"
+            className="w-full rounded-full bg-beige text-white font-bold dark:text-cream"
           >
             {isGenerating ? <VocifySpinner size={12} /> : null}
             Add to Vocabulary
@@ -465,15 +465,15 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
           items.map((item) => (
             <div 
               key={item.id} 
-              className="group flex items-center justify-between p-4 rounded-2xl bg-white border border-beige/10 hover:border-beige/30 hover:shadow-sm transition-all"
+              className="group flex items-center justify-between p-4 rounded-2xl bg-card border border-beige/10 hover:border-beige/30 hover:shadow-sm transition-all"
             >
               <div className="flex items-center gap-4">
                 <div className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter ${
-                  item.category === 'Company' ? 'bg-blue-100 text-blue-700' :
-                  item.category === 'Competitor' ? 'bg-red-100 text-red-700' :
-                  item.category === 'Product' ? 'bg-purple-100 text-purple-700' :
-                  item.category === 'Slang' ? 'bg-orange-100 text-orange-700' :
-                  'bg-gray-100 text-gray-700'
+                  item.category === 'Company' ? 'bg-blue-100 text-blue-700 dark:bg-blue-400/15 dark:text-blue-300' :
+                  item.category === 'Competitor' ? 'bg-red-100 text-red-700 dark:bg-red-400/15 dark:text-red-300' :
+                  item.category === 'Product' ? 'bg-purple-100 text-purple-700 dark:bg-purple-400/15 dark:text-purple-300' :
+                  item.category === 'Slang' ? 'bg-orange-100 text-orange-700 dark:bg-orange-400/15 dark:text-orange-300' :
+                  'bg-gray-100 text-gray-700 dark:bg-secondary dark:text-muted-foreground'
                 }`}>
                   {item.category}
                 </div>

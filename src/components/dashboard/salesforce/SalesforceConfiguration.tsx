@@ -206,7 +206,7 @@ export const SalesforceConfiguration = ({ onSaved, readOnly = false }: Salesforc
                     className={`flex items-center justify-between px-4 py-3 rounded-2xl border transition-all text-left group ${
                       config.allowed_deal_fields.includes(prop.name)
                         ? "bg-beige/10 border-beige/30 text-beige"
-                        : "bg-white/50 border-border/20 text-muted-foreground hover:border-border/40"
+                        : "bg-card/50 border-border/20 text-muted-foreground hover:border-border/40"
                     }`}
                   >
                     <div className="flex flex-col min-w-0">

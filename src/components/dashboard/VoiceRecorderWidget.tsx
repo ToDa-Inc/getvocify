@@ -464,7 +464,7 @@ export const VoiceRecorderWidget = ({
           disabled={state === "requesting"}
           aria-label="Start recording voice memo"
           className={cn(
-            "group relative w-20 h-20 rounded-full glass-panel border border-white/70 shadow-lg flex items-center justify-center",
+            "group relative w-20 h-20 rounded-full glass-panel border border-white/70 shadow-lg dark:border-white/10 flex items-center justify-center",
             "hover:scale-105 hover:border-beige/40 active:scale-95 transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-beige"
           )}
         >

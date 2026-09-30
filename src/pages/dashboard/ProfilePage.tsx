@@ -192,14 +192,14 @@ const ProfilePage = () => {
         <div className="flex items-center gap-8 mb-8 pb-8 border-b border-border/40">
           <div className="relative">
             <div
-              className={`w-24 h-24 ${THEME_TOKENS.radius.pill} bg-secondary/10 flex items-center justify-center border-4 border-white shadow-medium`}
+              className={`w-24 h-24 ${THEME_TOKENS.radius.pill} bg-secondary/10 flex items-center justify-center border-4 border-card shadow-medium`}
             >
               <span className="text-2xl font-semibold text-beige">
                 {user ? getUserInitials(user) : "?"}
               </span>
             </div>
             <button
-              className={`absolute -bottom-1 -right-1 w-10 h-10 ${THEME_TOKENS.radius.pill} bg-beige text-cream flex items-center justify-center shadow-medium hover:bg-beige-dark transition-colors border-4 border-white`}
+              className={`absolute -bottom-1 -right-1 w-10 h-10 ${THEME_TOKENS.radius.pill} bg-beige text-cream flex items-center justify-center shadow-medium hover:bg-beige-dark transition-colors border-4 border-card`}
             >
               <Camera className="h-4 w-4" />
             </button>

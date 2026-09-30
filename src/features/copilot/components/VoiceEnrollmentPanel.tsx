@@ -138,14 +138,14 @@ export function VoiceEnrollmentPanel({
 
   if (loading && !status) {
     return (
-      <section className="rounded-3xl border border-border/40 bg-white/70 p-5 text-sm text-muted-foreground">
+      <section className="rounded-3xl border border-border/40 bg-card/70 p-5 text-sm text-muted-foreground">
         Cargando configuración de voz…
       </section>
     );
   }
 
   return (
-    <section className="rounded-3xl border border-border/40 bg-white/70 p-5 space-y-4">
+    <section className="rounded-3xl border border-border/40 bg-card/70 p-5 space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-xs font-medium text-muted-foreground">
@@ -158,7 +158,7 @@ export function VoiceEnrollmentPanel({
           </p>
         </div>
         {status?.enrolled && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-[10px] font-medium shrink-0">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-success/10 dark:text-success dark:border-success/30 px-2.5 py-1 text-[10px] font-medium shrink-0">
             <Check className="h-3 w-3" />
             Lista
           </span>
@@ -183,7 +183,7 @@ export function VoiceEnrollmentPanel({
       </label>
 
       {(error || sttError) && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-destructive/30 dark:bg-destructive/10 dark:text-destructive">
           {error || sttError}
         </div>
       )}
@@ -202,7 +202,7 @@ export function VoiceEnrollmentPanel({
       )}
 
       {phase === "captured" && (
-        <p className="text-xs text-emerald-700 font-medium">
+        <p className="text-xs text-emerald-700 font-medium dark:text-success">
           Muestra capturada. Guárdala para usarla en la siguiente llamada.
         </p>
       )}
