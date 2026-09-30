@@ -4,6 +4,8 @@ import {
   addableTypes,
   appendDictation,
   countLine,
+  optimisticStatus,
+  switchState,
   customObjectionId,
   hasObjectionDetail,
   nothingYet,
@@ -222,5 +224,25 @@ describe("playbook document", () => {
     const type = (key: string) => ({ key }) as unknown as CatalogType;
     assert.deepEqual(addableTypes([type("discovery"), type("inbound")], { discovery: "published" }).map((t) => t.key), ["inbound"]);
     assert.equal(typeKeyFromName("Rellamada de cualificación"), "rellamada_de_cualificacion");
+  });
+});
+
+describe("pause, resume and delete", () => {
+  it("shows a paused row with its switch off, and new changes on a paused one as pending", () => {
+    const detail = (extra: object) => ({ label: null, role: null, applies_to: null, goal: null, catalog: true, ...extra });
+    assert.equal(rowState("paused", detail({ paused: true, step_count: 5 })), "paused");
+    assert.equal(rowState("paused", detail({ paused: true, has_draft: true })), "pending");
+    assert.equal(switchState("live"), true);
+    assert.equal(switchState("paused"), false);
+    assert.equal(switchState("pending"), null);
+    assert.equal(switchState("empty"), null);
+    assert.equal(nothingYet({ discovery: "paused" }, {}), false);
+  });
+
+  it("flips the status optimistically and removes a deleted row", () => {
+    assert.equal(optimisticStatus("pause", "published"), "paused");
+    assert.equal(optimisticStatus("resume", "paused"), "published");
+    assert.equal(optimisticStatus("pause", "draft"), "draft");
+    assert.equal(optimisticStatus("delete", "published"), null);
   });
 });

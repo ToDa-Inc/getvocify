@@ -74,6 +74,7 @@ export function PlaybookDocument({
   insights,
   onSaved,
   registerFlush,
+  onDelete,
 }: {
   motionKey: string;
   canEdit: boolean;
@@ -85,6 +86,8 @@ export function PlaybookDocument({
   onSaved?: () => void;
   /** The list calls this before turning drafts on, so nothing typed is left behind. */
   registerFlush?: (flush: Flush | null) => void;
+  /** "Eliminar playbook", owned by the list; shown in this document's "···" menu. */
+  onDelete?: () => void;
 }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
@@ -409,6 +412,11 @@ export function PlaybookDocument({
                 <DropdownMenuItem onSelect={() => setRebuildOpen(true)}>{copy.replaceFrom}</DropdownMenuItem>
                 {canDiscard ? (
                   <DropdownMenuItem onSelect={() => setDiscardOpen(true)}>{copy.discard}</DropdownMenuItem>
+                ) : null}
+                {onDelete ? (
+                  <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
+                    {copy.deleteAction}
+                  </DropdownMenuItem>
                 ) : null}
               </DropdownMenuContent>
             </DropdownMenu>

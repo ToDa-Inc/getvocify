@@ -48,6 +48,8 @@ export type PlaybookDetail = {
   criteria_count?: number;
   /** Saved changes the team doesn't have yet. */
   has_draft?: boolean;
+  /** Plan §16: switched off. Kept, but new calls aren't scored against it. */
+  paused?: boolean;
 };
 
 export type CatalogType = {
@@ -298,12 +300,14 @@ function defaultRole(key: string): SalesRoleKey | null {
   return null;
 }
 
-export type RowState = "empty" | "pending" | "live";
+export type RowState = "empty" | "pending" | "live" | "paused";
 
-/** What a row says at a glance: nothing yet, saved changes the team doesn't have, or active. */
+/** What a row says at a glance: nothing yet, saved changes the team doesn't have, active, or
+ * switched off. A paused playbook with new changes is "pending": turning them on resumes it. */
 export function rowState(status: MotionStatus, detail: PlaybookDetail | null | undefined): RowState {
   if (detail?.has_draft || status === "draft" || status === "importing") return "pending";
   if (status === "published") return "live";
+  if (status === "paused" || detail?.paused) return "paused";
   return (detail?.step_count ?? 0) > 0 ? "pending" : "empty";
 }
 
@@ -397,4 +401,18 @@ export function typeKeyFromName(name: string): string {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 40);
+}
+
+/** The switch on a row: on when active, off when paused; no switch before it was ever turned on. */
+export function switchState(state: RowState): boolean | null {
+  if (state === "live") return true;
+  if (state === "paused") return false;
+  return null;
+}
+
+/** Local status after a pause/resume/delete, before the server answers (it confirms or rolls back). */
+export function optimisticStatus(action: "pause" | "resume" | "delete", status: MotionStatus): MotionStatus | null {
+  if (action === "pause") return status === "published" ? "paused" : status;
+  if (action === "resume") return status === "paused" ? "published" : status;
+  return null;
 }

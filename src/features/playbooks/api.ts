@@ -17,6 +17,8 @@ import type {
 export type EditorDoc = EditorSnapshot & {
   updated_at?: string | null;
   has_live?: boolean;
+  /** Switched off: this is the paused version, shown read-only until it is resumed. */
+  paused?: boolean;
   /** What the playbook was structured from. `source` is the draft/published/empty state. */
   source_doc?: PlaybookSource | null;
 };
@@ -88,6 +90,11 @@ export const playbooksApi = {
     ),
   intake: (kind: SourceKind, payload: string, name?: string) =>
     api.post<IntakeResult>("/playbooks/structure", { kind, payload, ...(name ? { name } : {}) }, { timeoutMs: 120_000 }),
+  // Plan §16: switch a playbook off and on, delete it, and undo the delete.
+  pause: (key: string) => api.post<PlaybookList>(`${path(key)}/pause`),
+  resume: (key: string) => api.post<PlaybookList>(`${path(key)}/resume`),
+  remove: (key: string) => api.delete<PlaybookList>(path(key)),
+  restore: (key: string) => api.post<PlaybookList>(`${path(key)}/restore`),
   catalog: () => api.get<{ types: CatalogType[] }>("/playbooks/catalog"),
   qualificationTemplates: () => api.get<{ templates: QualificationTemplate[] }>("/playbooks/qualification-templates"),
   company: () => api.get<KnowledgeDoc>("/playbooks/company"),

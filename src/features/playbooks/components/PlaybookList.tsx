@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CaretRight, Plus } from "@phosphor-icons/react";
+import { CaretRight, DotsThree, Plus } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { errorCode, playbooksApi, type PlaybookList as PlaybookListData } from "@/features/playbooks/api";
@@ -9,6 +9,14 @@ import { PlaybookDocument, type Flush } from "@/features/playbooks/components/Pl
 import { PlaybookStart, type SourceInput } from "@/features/playbooks/components/PlaybookStart";
 import { RuleEditor } from "@/features/playbooks/components/RuleEditor";
 import { Button } from "@/components/ui/button";
+import { ConfirmAction } from "@/components/ui/confirm-action";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
@@ -18,6 +26,8 @@ import {
   countLine,
   editorFromStructure,
   nothingYet,
+  optimisticStatus,
+  switchState,
   pendingKeys,
   playbookRows,
   rowState,
@@ -34,6 +44,8 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 
 const LIST_KEY = ["playbooks"] as const;
+/** Always listed for a manager, so deleting one empties it rather than hiding it. */
+const BASE_KEYS = ["discovery", "closing"];
 const COMPANY_KEY = ["playbook-company"] as const;
 /** The "Vuestra empresa" row's key, next to the call types' motion keys. */
 const COMPANY_ROW = "__company";
@@ -69,6 +81,8 @@ export function PlaybookList() {
   const [picking, setPicking] = useState<string | null>(null);
   const [activating, setActivating] = useState(false);
   const [docVersion, setDocVersion] = useState(0);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [deleteKey, setDeleteKey] = useState<string | null>(null);
   const flushes = useRef(new Map<string, Flush>());
 
   const list = useQuery({ queryKey: LIST_KEY, queryFn: playbooksApi.list, retry: false });
@@ -102,6 +116,63 @@ export function PlaybookList() {
   const pending = pendingKeys(motions, details);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: LIST_KEY });
+
+  /** The server's answer to a pause/resume/delete/restore is the new list: take it as is. */
+  const adoptList = (data: PlaybookListData) => queryClient.setQueryData<PlaybookListData>(LIST_KEY, data);
+
+  /** The row switch. Flips at once, confirms with the server, rolls back on failure; the toast
+   * offers the opposite action, so a misclick costs one click. */
+  const toggle = async (key: string, on: boolean) => {
+    const action = on ? "resume" : "pause";
+    const label = name(key);
+    setBusyKey(key);
+    queryClient.setQueryData<PlaybookListData>(LIST_KEY, (old) => {
+      if (!old) return old;
+      const next = optimisticStatus(action, old.motions[key] ?? "missing");
+      return next ? { ...old, motions: { ...old.motions, [key]: next } } : old;
+    });
+    try {
+      adoptList(await (on ? playbooksApi.resume(key) : playbooksApi.pause(key)));
+      setDocVersion((version) => version + 1);
+      toast((on ? copy.resumedToast : copy.pausedToast).replace("{name}", label), {
+        action: { label: copy.undo, onClick: () => void toggle(key, !on) },
+      });
+    } catch {
+      await refresh();
+      toast.error(copy.actionFailed);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  /** Delete is soft on the server (calls already scored keep their mark), so it can be undone. */
+  const remove = async (key: string) => {
+    const label = name(key);
+    setBusyKey(key);
+    try {
+      adoptList(await playbooksApi.remove(key));
+      flushes.current.delete(key);
+      if (openKey === key) setOpenKey(null);
+      toast(copy.deletedToast.replace("{name}", label), {
+        action: {
+          label: copy.undo,
+          onClick: () =>
+            void playbooksApi
+              .restore(key)
+              .then((data) => {
+                adoptList(data);
+                setDocVersion((version) => version + 1);
+              })
+              .catch(() => toast.error(copy.actionFailed)),
+        },
+      });
+    } catch {
+      toast.error(copy.actionFailed);
+    } finally {
+      setBusyKey(null);
+      setDeleteKey(null);
+    }
+  };
 
   const name = (key: string) => {
     if (key === "closing" && "negotiation" in motions) return copy.closingDemoOnly;
@@ -323,44 +394,89 @@ export function PlaybookList() {
               const counts = countLine(detail, copy);
               const goal = detail?.goal ?? list.data?.goals?.[row.key] ?? typeOf(row.key)?.goal ?? DEFAULT_GOALS[row.key];
               return (
-                <li key={row.key} className="border-t border-border/40 first:border-t-0">
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 py-4 text-left"
-                    aria-expanded={open}
-                    onClick={() => setOpenKey(open ? null : row.key)}
-                  >
-                    <span className="min-w-0">
-                      <span className="text-[15px] text-foreground">{name(row.key)}</span>
-                      {row.role && row.role !== "any" ? (
-                        <span className={cn(THEME_TOKENS.typography.capsLabel, "ml-2")}>{copy.ruleRoles[row.role]}</span>
-                      ) : null}
-                      {row.unrouted && canEdit ? <span className="block text-xs text-warning">{copy.unrouted}</span> : null}
-                    </span>
-                    <span className="ml-auto flex shrink-0 items-center gap-3">
-                      {state === "empty" ? (
-                        canEdit && !open ? (
-                          <span className="rounded-full border border-border px-3 py-1 text-[13px] text-foreground">{copy.create}</span>
+                <li key={row.key} className="group/row border-t border-border/40 first:border-t-0">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-3 py-4 text-left"
+                      aria-expanded={open}
+                      onClick={() => setOpenKey(open ? null : row.key)}
+                    >
+                      <span className="min-w-0">
+                        <span className="text-[15px] text-foreground">{name(row.key)}</span>
+                        {row.role && row.role !== "any" ? (
+                          <span className={cn(THEME_TOKENS.typography.capsLabel, "ml-2")}>{copy.ruleRoles[row.role]}</span>
+                        ) : null}
+                        {row.unrouted && canEdit ? <span className="block text-xs text-warning">{copy.unrouted}</span> : null}
+                      </span>
+                      <span className="ml-auto flex shrink-0 items-center gap-3">
+                        {state === "empty" ? (
+                          canEdit && !open ? (
+                            <span className="rounded-full border border-border px-3 py-1 text-[13px] text-foreground">{copy.create}</span>
+                          ) : (
+                            <span className={THEME_TOKENS.typography.capsLabel}>{copy.statusMissing}</span>
+                          )
                         ) : (
-                          <span className={THEME_TOKENS.typography.capsLabel}>{copy.statusMissing}</span>
-                        )
-                      ) : (
-                        <span className={cn(THEME_TOKENS.typography.capsLabel, "inline-flex items-center gap-2")}>
-                          <span className="hidden sm:inline">{counts}</span>
-                          <span
-                            className={cn("h-1.5 w-1.5 rounded-full", state === "live" ? "bg-success" : "bg-beige")}
-                            aria-hidden
-                          />
-                          {state === "live" ? copy.statusLive : copy.statusPending}
-                        </span>
-                      )}
+                          <span className={cn(THEME_TOKENS.typography.capsLabel, "inline-flex items-center gap-2")}>
+                            <span className="hidden sm:inline">{counts}</span>
+                            <span
+                              className={cn(
+                                "h-1.5 w-1.5 rounded-full transition-colors",
+                                state === "live" ? "bg-success" : state === "paused" ? "bg-muted-foreground/40" : "bg-beige",
+                              )}
+                              aria-hidden
+                            />
+                            {state === "live" ? copy.statusLive : state === "paused" ? copy.statusPaused : copy.statusPending}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                    {canEdit && switchState(state) !== null ? (
+                      <Switch
+                        // Off has to read as "off", not as missing: the default unchecked track is near-white.
+                        className="data-[state=unchecked]:bg-muted-foreground/30"
+                        checked={Boolean(switchState(state))}
+                        disabled={busyKey === row.key}
+                        aria-label={copy.switchLabel.replace("{name}", name(row.key))}
+                        onCheckedChange={(on) => void toggle(row.key, on)}
+                      />
+                    ) : null}
+                    {/* Open with content, the document's own "···" has "Eliminar": one menu at a time. */}
+                    {canEdit && !(open && state !== "empty") && (state !== "empty" || !BASE_KEYS.includes(row.key)) ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={copy.rowMenu.replace("{name}", name(row.key))}
+                            className={cn(
+                              THEME_TOKENS.interaction.iconButton,
+                              "h-8 w-8 md:opacity-0 md:group-hover/row:opacity-100 md:focus-visible:opacity-100 data-[state=open]:opacity-100",
+                            )}
+                          >
+                            <DotsThree size={18} weight="bold" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleteKey(row.key)}>
+                            {copy.deleteAction}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-hidden
+                      className="py-4"
+                      onClick={() => setOpenKey(open ? null : row.key)}
+                    >
                       <CaretRight
                         size={14}
                         weight="light"
                         className={cn("text-muted-foreground transition-transform duration-150", open && "rotate-90")}
                       />
-                    </span>
-                  </button>
+                    </button>
+                  </div>
                   {open ? (
                     <div className={cn("pb-7 pt-1", THEME_TOKENS.motion.fadeIn)}>
                       <RowDocument
@@ -370,6 +486,7 @@ export function PlaybookList() {
                         live={state === "live"}
                         template={template(row.key)}
                         onSaved={() => void refresh()}
+                        onDelete={state === "empty" && BASE_KEYS.includes(row.key) ? undefined : () => setDeleteKey(row.key)}
                         registerFlush={(flush) => {
                           if (flush) flushes.current.set(row.key, flush);
                           else flushes.current.delete(row.key);
@@ -377,6 +494,7 @@ export function PlaybookList() {
                         meta={
                           <>
                             {goal && copy.goals[goal] ? <p className={THEME_TOKENS.typography.capsLabel}>{copy.goals[goal]}</p> : null}
+                            {state === "paused" ? <p className={THEME_TOKENS.typography.capsLabel}>{copy.pausedLine}</p> : null}
                             {canEdit && ruleNeeded(rows, row.key, routing) ? (
                               <RuleLine
                                 rule={ruleOf(row.key)}
@@ -432,6 +550,21 @@ export function PlaybookList() {
           ) : null}
         </>
       )}
+      <ConfirmAction
+        open={deleteKey !== null}
+        onOpenChange={(next) => {
+          if (!next) setDeleteKey(null);
+        }}
+        title={copy.deleteTitle.replace("{name}", deleteKey ? name(deleteKey) : "")}
+        description={copy.deleteConfirm}
+        confirmLabel={copy.deleteAction}
+        cancelLabel={t.product.cancelAction}
+        tone="danger"
+        pending={deleteKey !== null && busyKey === deleteKey}
+        onConfirm={() => {
+          if (deleteKey) void remove(deleteKey);
+        }}
+      />
     </div>
   );
 }
@@ -445,6 +578,7 @@ function RowDocument({
   meta,
   onSaved,
   registerFlush,
+  onDelete,
 }: {
   motionKey: string;
   canEdit: boolean;
@@ -453,6 +587,7 @@ function RowDocument({
   meta: React.ReactNode;
   onSaved: () => void;
   registerFlush: (flush: Flush | null) => void;
+  onDelete?: () => void;
 }) {
   const insights = useQuery({
     queryKey: ["playbook-insights", motionKey],
@@ -470,6 +605,7 @@ function RowDocument({
       insights={insights.data ?? null}
       onSaved={onSaved}
       registerFlush={registerFlush}
+      onDelete={onDelete}
     />
   );
 }
