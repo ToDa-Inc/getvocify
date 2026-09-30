@@ -51,6 +51,8 @@ export const memosApi = {
     if (filters?.offset) params.set('offset', String(filters.offset));
     if (filters?.scope) params.set('scope', filters.scope);
     if (filters?.authorUserId) params.set('author_user_id', filters.authorUserId);
+    if (filters?.interactionKind) params.set('interaction_kind', filters.interactionKind);
+    if (filters?.salesMotionKey) params.set('sales_motion_key', filters.salesMotionKey);
     
     const query = params.toString();
     return api.get<Memo[]>(`/memos${query ? `?${query}` : ''}`);
@@ -61,6 +63,13 @@ export const memosApi = {
    */
   get: (id: string): Promise<Memo> => {
     return api.get<Memo>(`/memos/${id}`);
+  },
+
+  /**
+   * Retag a memo with another type; it is scored again against that type's live playbook.
+   */
+  setType: (id: string, key: string): Promise<{ sales_motion_key: string; playbook_version_id: string | null; status: string }> => {
+    return api.post(`/memos/${encodeURIComponent(id)}/playbook`, { sales_motion_key: key });
   },
 
   /**
