@@ -42,7 +42,7 @@ describe("firstAllowedSettingsPath", () => {
 describe("isSettingsPathAllowed", () => {
   it("lets the Head of Sales onto every tab they see, and not onto the rep-personal ones", () => {
     for (const tab of SETTINGS_TABS) {
-      assert.equal(isSettingsPathAllowed(tab.to, true), !tab.repOnly, tab.id);
+      assert.equal(isSettingsPathAllowed(tab.to, true), !tab.repOnly && !tab.flag, tab.id);
     }
     assert.equal(isSettingsPathAllowed("/dashboard/settings/calling", true), false);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/usage", true), false);
@@ -68,5 +68,16 @@ describe("isSettingsPathAllowed", () => {
     assert.equal(isSettingsPathAllowed("/dashboard/settings/glossary", true), true);
     // The index tab uses exact match, so it never swallows a sibling route.
     assert.equal(isSettingsPathAllowed("/dashboard/settings/whatever", true), false);
+  });
+});
+
+describe("the Calendar tab", () => {
+  it("shows for every role only while the meeting bot flag is on", () => {
+    for (const isManager of [true, false]) {
+      assert.equal(visibleSettingsTabs(isManager).some((t) => t.id === "calendar"), false);
+      assert.equal(visibleSettingsTabs(isManager, ["RECALL_BOT_ENABLED"]).some((t) => t.id === "calendar"), true);
+      assert.equal(isSettingsPathAllowed("/dashboard/settings/calendar", isManager), false);
+      assert.equal(isSettingsPathAllowed("/dashboard/settings/calendar", isManager, ["RECALL_BOT_ENABLED"]), true);
+    }
   });
 });

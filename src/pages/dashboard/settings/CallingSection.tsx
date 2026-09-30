@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { CalendarSettings } from "@/components/dashboard/settings/CalendarSettings";
 import { CallerIdSettings } from "@/components/dashboard/settings/CallerIdSettings";
 import { TranscriptionLanguageSettings } from "@/components/dashboard/settings/TranscriptionLanguageSettings";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -24,7 +23,6 @@ const CallingSection = () => {
       <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
         <TranscriptionLanguageSettings />
       </div>
-      <CalendarSettings />
     </div>
   );
 };

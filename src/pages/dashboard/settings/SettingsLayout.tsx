@@ -28,13 +28,14 @@ const SettingsLayout = () => {
   // and their own Usage; the Head of Sales (owner/admin) sees everything, including the
   // company-wide sections (CRM, Offer, Brief, Playbooks, Team, Billing).
   const isManager = isManagerRole(user?.company?.role);
+  const features = useMemo(() => user?.company?.features ?? [], [user?.company?.features]);
 
-  const sections = useMemo(() => visibleSettingsTabs(isManager), [isManager]);
+  const sections = useMemo(() => visibleSettingsTabs(isManager, features), [isManager, features]);
   // A member who navigates straight to a manager-only settings URL (bookmark, typed
   // link) lands on their first allowed tab instead. Skip while `user` hasn't loaded
   // yet, so a manager never flashes to Calling before their role is known.
   const needsRedirect =
-    Boolean(user) && !paywalled && !isSettingsPathAllowed(location.pathname, isManager);
+    Boolean(user) && !paywalled && !isSettingsPathAllowed(location.pathname, isManager, features);
 
   useEffect(() => {
     if (paywalled) return;
@@ -102,7 +103,7 @@ const SettingsLayout = () => {
         )}
 
         <div className="min-w-0">
-          {needsRedirect ? <Navigate to={firstAllowedSettingsPath(isManager)} replace /> : <Outlet />}
+          {needsRedirect ? <Navigate to={firstAllowedSettingsPath(isManager, features)} replace /> : <Outlet />}
         </div>
       </div>
     </div>

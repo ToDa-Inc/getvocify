@@ -25,7 +25,7 @@ const PLATFORM_PROVIDER: Record<string, CalendarProvider> = {
 /**
  * The rep's calendar for the Recall.ai meeting bot: connect Google Calendar or Outlook, then
  * one switch for whether the bot joins their meetings with people outside the company.
- * Behind RECALL_BOT_ENABLED; nothing connectable and nothing connected renders nothing.
+ * Its own settings tab (every role), behind RECALL_BOT_ENABLED.
  */
 export const CalendarSettings = () => {
   const { t } = useLanguage();
@@ -97,7 +97,7 @@ export const CalendarSettings = () => {
 
   const connection = data?.connection ?? null;
   const providers = data?.providers ?? [];
-  if (!enabled || !data || (!connection && providers.length === 0)) return null;
+  if (!enabled || !data) return null;
 
   const connectedProvider = connection ? PLATFORM_PROVIDER[connection.platform] : null;
 
@@ -156,6 +156,8 @@ export const CalendarSettings = () => {
             />
           </label>
         </div>
+      ) : providers.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t.product.calendarUnavailable}</p>
       ) : (
         <div className="divide-y divide-border/40">
           {providers.map((provider) => (

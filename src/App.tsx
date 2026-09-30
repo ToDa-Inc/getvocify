@@ -37,6 +37,7 @@ import IntegrationsPage from "./pages/dashboard/IntegrationsPage";
 import SettingsPage from "./pages/dashboard/SettingsPage";
 import SettingsLayout from "./pages/dashboard/settings/SettingsLayout";
 import CallingSection from "./pages/dashboard/settings/CallingSection";
+import { CalendarSettings } from "@/components/dashboard/settings/CalendarSettings";
 import OfferSection from "./pages/dashboard/settings/OfferSection";
 import GlossarySection from "./pages/dashboard/settings/GlossarySection";
 import BriefHighlightSection from "./pages/dashboard/settings/BriefHighlightSection";
@@ -177,6 +178,7 @@ const App = () => (
               <Route path="settings" element={<SettingsLayout />}>
                 <Route index element={<SettingsPage />} />
                 <Route path="calling" element={<CallingSection />} />
+                <Route path="calendar" element={<CalendarSettings />} />
                 <Route path="offer" element={<OfferSection />} />
                 <Route path="glossary" element={<GlossarySection />} />
                 <Route path="brief" element={<BriefHighlightSection />} />
