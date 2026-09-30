@@ -132,3 +132,30 @@ def test_refresh_assigns_the_contacts_to_the_cached_member():
     assert hint is None
     assert {row["owner_user_id"] for row in rows} == {"sdr-1"}
     assert len(rows) == 2
+
+
+# --- never-contacted cards carry the CRM name -------------------------------------------
+
+from app.services.hoy.assigned import parse_assigned_page  # noqa: E402
+from app.services.hoy.materialize import never_contacted_signals  # noqa: E402
+from app.services.hoy.priority import rank_candidates  # noqa: E402
+
+
+def test_a_never_contacted_card_is_named_from_the_crm_read():
+    page = parse_assigned_page(
+        "hubspot",
+        {"results": [
+            {"id": "1", "properties": {"firstname": "Marta", "lastname": "Ruiz", "hubspot_owner_id": "77"}},
+            {"id": "2", "properties": {"email": "solo@email.com", "hubspot_owner_id": "77"}},
+        ]},
+        connection_id="c", observed_at="2026-09-30T10:00:00Z",
+    )
+    assert [item["contact_name"] for item in page["items"]] == ["Marta Ruiz", "solo@email.com"]
+    candidates = [
+        {**item, "connection_id": "c", "coverage": "complete"} for item in page["items"]
+    ]
+    from datetime import datetime, timezone
+
+    ranked = rank_candidates(candidates, datetime(2026, 9, 30, tzinfo=timezone.utc))
+    signals = never_contacted_signals(ranked, touched_contact_ids=set())
+    assert sorted(signal.payload.get("contact_name") for signal in signals) == ["Marta Ruiz", "solo@email.com"]
