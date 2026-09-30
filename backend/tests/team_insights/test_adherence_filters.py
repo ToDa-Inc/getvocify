@@ -221,9 +221,10 @@ def test_load_team_adherence_inputs_collects_published_playbook_entries():
         {
             "id": "pb-1",
             "company_id": COMPANY,
+            "active_version_id": "v-1",
             "playbook_versions.status": "published",
             "playbook_versions": [
-                {"status": "published", "entries": [{"category": "price", "guidance": "Ancla en el ROI."}]},
+                {"id": "v-1", "status": "published", "entries": [{"category": "price", "guidance": "Ancla en el ROI."}]},
             ],
         },
     ]
@@ -247,6 +248,26 @@ def test_load_team_adherence_inputs_prefers_the_active_version_over_a_stray_publ
     ]
     inputs = load_team_adherence_inputs(store, COMPANY)
     assert inputs["playbook_entries"] == [{"category": "price", "guidance": "Guía vigente."}]
+
+
+def test_a_paused_or_deleted_playbook_contributes_no_entries():
+    """Pausing moves the active version to paused_version_id: it is still a published row, but
+    nothing points at it any more, so team adherence must not read its guidance."""
+    store = _store()
+    store.tables["playbooks"] = [
+        {
+            "id": "pb-paused",
+            "company_id": COMPANY,
+            "active_version_id": None,
+            "paused_version_id": "v-paused",
+            "playbook_versions.status": "published",
+            "playbook_versions": [
+                {"id": "v-paused", "status": "published", "entries": [{"category": "price", "guidance": "Pausada."}]},
+            ],
+        },
+    ]
+    inputs = load_team_adherence_inputs(store, COMPANY)
+    assert inputs["playbook_entries"] == []
 
 
 def test_http_passes_filters_to_loader():

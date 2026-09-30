@@ -28,6 +28,16 @@ class StaleDraftError(Exception):
         super().__init__("stale_draft")
 
 
+class LifecycleError(Exception):
+    """Pause, resume, delete or restore does not apply to the type as it is. `code` is what the
+    API answers: not_published (pause), not_paused (resume), not_archived (restore), not_found
+    (delete of a type the company does not have)."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 _FRACTION = re.compile(r"\.(\d+)")
 
 
@@ -78,10 +88,12 @@ def is_newer(a: Any, b: Any) -> bool:
 
 
 def accept_publish(motions: dict, key: str, role: str) -> dict:
-    """Publish one draft. A member is refused, and any other typology stays as it was."""
+    """Publish one draft. A member is refused, and any other typology stays as it was. A paused
+    playbook can be published too (a pending draft goes live and lifts the pause): whether it has
+    a draft is the store's call, its status only says "paused"."""
     if not can_publish(role):
         raise PublishError("forbidden")
-    if motions.get(key) != "draft":
+    if motions.get(key) not in ("draft", "paused"):
         raise PublishError("not_a_draft")
     updated = dict(motions)
     updated[key] = "published"

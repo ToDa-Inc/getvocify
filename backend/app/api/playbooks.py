@@ -42,7 +42,7 @@ from app.services.playbooks.structured import (
     normalize_steps,
 )
 from app.services.playbooks.store import MemoryPlaybookStore
-from app.services.playbooks.versions import PublishError, StaleDraftError, can_publish
+from app.services.playbooks.versions import LifecycleError, PublishError, StaleDraftError, can_publish
 
 SALES_ROLES_FLAG = "SALES_ROLES_ENABLED"
 MANAGE_ROLES = frozenset({"owner", "admin"})
@@ -61,6 +61,7 @@ _STRUCTURED: dict[tuple[str, str], dict] = {}
 _PUBLISHED_VERSIONS: dict[tuple[str, str], dict] = {}
 _DETAILS: dict[tuple[str, str], dict] = {}
 _KNOWLEDGE: dict[str, dict] = {}
+_LIFECYCLE: dict[tuple[str, str], dict] = {}
 _store = None
 _transcriber = None
 
@@ -89,7 +90,7 @@ def get_playbook_store():
     if _store is not None:
         return _store
     return MemoryPlaybookStore(
-        _MOTIONS, _IMPORTS, _LATEST, _ACTIVATED, _STRUCTURED, _PUBLISHED_VERSIONS, _DETAILS, _KNOWLEDGE,
+        _MOTIONS, _IMPORTS, _LATEST, _ACTIVATED, _STRUCTURED, _PUBLISHED_VERSIONS, _DETAILS, _KNOWLEDGE, _LIFECYCLE,
     )
 
 
@@ -199,15 +200,16 @@ def _with_version_counts(details: dict, store, company_id: str, *, manager: bool
     editor would open: the pending draft for a manager, else the live one. A rep only ever
     sees the live version, so for them has_draft is false and the counts are the live ones."""
     summaries = store.version_summaries(company_id, include_draft=manager)
-    return {key: {**detail, **summaries.get(key, NO_VERSION_SUMMARY)} for key, detail in details.items()}
+    return {
+        key: {**detail, **(summaries.get(key) or {**NO_VERSION_SUMMARY, "paused": bool(detail.get("paused"))})}
+        for key, detail in details.items()
+    }
 
 
-@router.get("")
-async def list_playbooks(
-    supabase: Client = Depends(get_supabase),
-    membership: Membership = Depends(get_membership),
-):
-    store = get_playbook_store()
+def _playbooks_payload(supabase: Client, membership: Membership, store) -> dict:
+    """The one shape of GET /playbooks, and of pause, resume, delete and restore: `motions`
+    (paused ones say "paused"; deleted ones are not there), `details` and, with the roles flag,
+    `goals`; a rep only gets what their role can see."""
     motions = store.motions(membership.company_id)
     stored = store.details(membership.company_id)
     details = _with_version_counts(
@@ -224,6 +226,14 @@ async def list_playbooks(
         details = {key: details[key] for key in motions}
     goals = {key: goal_for(key) for key in motions if goal_for(key)}
     return {"motions": motions, "goals": goals, "details": details}
+
+
+@router.get("")
+async def list_playbooks(
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    return _playbooks_payload(supabase, membership, get_playbook_store())
 
 
 @router.post("/{sales_motion_key}/publish")
@@ -297,6 +307,7 @@ def _editor_response(sales_motion_key: str, snapshot: dict) -> dict:
         "version_id": (version or {}).get("id"),
         "updated_at": (version or {}).get("updated_at"),
         "has_live": bool(snapshot.get("has_live")),
+        "paused": bool(snapshot.get("paused")),
         "categories": list(OBJECTION_CATEGORIES),
         **editor_view(version),
     }
@@ -375,6 +386,62 @@ async def discard_structured_playbook_draft(
     store.discard_draft(membership.company_id, sales_motion_key)
     snapshot = store.editor_snapshot(membership.company_id, sales_motion_key, include_draft=True)
     return _editor_response(sales_motion_key, snapshot)
+
+
+def _lifecycle(action: str, sales_motion_key: str, supabase: Client, membership: Membership) -> dict:
+    """Runs pause | resume | archive | restore for the company's type and answers like GET
+    /playbooks. 409 {detail: {code}} when it does not apply as things are (not_published,
+    not_paused, not_archived), 404 when the company has no such type (delete)."""
+    _guard(membership)
+    store = get_playbook_store()
+    try:
+        getattr(store, action)(membership.company_id, sales_motion_key)
+    except LifecycleError as exc:
+        if exc.code == "not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook no encontrado") from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
+    return _playbooks_payload(supabase, membership, store)
+
+
+@router.post("/{sales_motion_key}/pause")
+async def pause_playbook(
+    sales_motion_key: str,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """Owner/admin. New calls stop being evaluated with this playbook; its content stays."""
+    return _lifecycle("pause", sales_motion_key, supabase, membership)
+
+
+@router.post("/{sales_motion_key}/resume")
+async def resume_playbook(
+    sales_motion_key: str,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """Owner/admin. A paused playbook evaluates new calls again."""
+    return _lifecycle("resume", sales_motion_key, supabase, membership)
+
+
+@router.delete("/{sales_motion_key}")
+async def delete_playbook(
+    sales_motion_key: str,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """Owner/admin. "Eliminar playbook": soft, undoable with POST /{key}/restore. Calls already
+    evaluated keep pointing at their version."""
+    return _lifecycle("archive", sales_motion_key, supabase, membership)
+
+
+@router.post("/{sales_motion_key}/restore")
+async def restore_playbook(
+    sales_motion_key: str,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """Owner/admin. Undo "Eliminar": back to the state it had (published, paused, empty)."""
+    return _lifecycle("restore", sales_motion_key, supabase, membership)
 
 
 class StructureRequest(BaseModel):

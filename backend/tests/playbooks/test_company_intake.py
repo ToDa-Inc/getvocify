@@ -145,7 +145,7 @@ def test_a_mixed_document_saves_one_draft_per_call_type():
         # The exact editor shape, as GET /editor returns it right after.
         assert editor == client.get(f"/api/v1/playbooks/{key}/editor").json()
         assert set(editor) == {
-            "sales_motion_key", "source", "source_doc", "version_id", "updated_at", "has_live", "categories",
+            "sales_motion_key", "source", "source_doc", "version_id", "updated_at", "has_live", "paused", "categories",
             "steps", "objections", "qualification",
         }
         assert editor["source"] == "draft" and editor["has_live"] is False
@@ -650,8 +650,12 @@ def test_the_supabase_store_reads_all_the_counts_in_a_constant_number_of_queries
     summaries = store.version_summaries("co-1")
     assert set(summaries) == set(keys)
     assert len(db.queries) <= 3  # playbooks, live versions, drafts: not one per type
-    assert summaries["closing"] == {"step_count": 2, "answer_count": 1, "criteria_count": 0, "has_draft": False}
-    assert summaries["discovery"] == {"step_count": 2, "answer_count": 1, "criteria_count": 0, "has_draft": True}
+    assert summaries["closing"] == {
+        "step_count": 2, "answer_count": 1, "criteria_count": 0, "has_draft": False, "paused": False,
+    }
+    assert summaries["discovery"] == {
+        "step_count": 2, "answer_count": 1, "criteria_count": 0, "has_draft": True, "paused": False,
+    }
     assert store.version_summaries("other-company") == {}
 
 

@@ -581,7 +581,7 @@ def test_supabase_a_source_of_another_company_is_ignored(pg):
 def test_supabase_editor_with_no_playbook_row_is_empty(pg):
     _db, store = pg
     assert store.editor_snapshot("co", "discovery", include_draft=True) == {
-        "state": "empty", "version": None, "has_live": False, "source": None,
+        "state": "empty", "version": None, "has_live": False, "source": None, "paused": False,
     }
     assert store.editor_version("co", "discovery", include_draft=True) == ("empty", None)
     assert store.discard_draft("co", "discovery") is False
