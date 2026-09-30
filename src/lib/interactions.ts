@@ -3,7 +3,11 @@ import { memoContactName, memoListSubtitle } from "./copilot-note.ts";
 
 export type Channel = "call" | "meeting" | "visit" | "voice_note";
 export const CHANNELS: Channel[] = ["call", "meeting", "visit", "voice_note"];
-export type TypeOption = { key: string; label: string; scored: boolean };
+export type PlaybookStatus = "published" | "paused" | "draft" | "missing" | "importing";
+/** `status` is the type's playbook state from GET /playbooks; "Interna" has none (it has no playbook). */
+export type TypeOption = { key: string; label: string; scored: boolean; status?: PlaybookStatus };
+
+const STATUSES: readonly string[] = ["published", "paused", "draft", "missing", "importing"];
 
 /** The reserved type for internal conversations: it has no playbook and is never scored. */
 export const INTERNAL_KEY = "internal";
@@ -26,9 +30,28 @@ export function typeOptions(
   const { motions, details } = (playbooksPayload ?? {}) as PlaybooksPayload;
   const types = Object.keys(motions ?? {})
     .filter((key) => key !== INTERNAL_KEY)
-    .map((key) => ({ key, label: details?.[key]?.label || labelOf(key), scored: true }))
+    .map((key) => {
+      const status = motions?.[key];
+      return {
+        key,
+        label: details?.[key]?.label || labelOf(key),
+        scored: true,
+        ...(typeof status === "string" && STATUSES.includes(status) && { status: status as PlaybookStatus }),
+      };
+    })
     .sort((a, b) => a.label.localeCompare(b.label));
   return [...types, { key: INTERNAL_KEY, label: internalLabel, scored: false }];
+}
+
+/**
+ * What a memo can be retagged to: types with a live playbook (a draft has no version to score
+ * against and the API refuses it; a paused one is switched off), then "Interna", which needs none.
+ * Keeps the alphabetical order of `typeOptions`.
+ */
+export function retagOptions(options: TypeOption[]): TypeOption[] {
+  const types = options.filter((option) => option.key !== INTERNAL_KEY && option.status === "published");
+  const internal = options.filter((option) => option.key === INTERNAL_KEY);
+  return [...types, ...internal];
 }
 
 /** The chip on a feed row: null without a type; a type that is no longer listed shows its key. */

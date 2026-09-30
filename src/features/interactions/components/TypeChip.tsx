@@ -13,14 +13,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { memoKeys, memosApi } from "@/features/memos/api";
 import type { Memo } from "@/features/memos/types";
 import { errorCode } from "@/features/playbooks/api";
-import { INTERNAL_KEY, type TypeOption } from "@/lib/interactions";
+import { INTERNAL_KEY, retagOptions, type TypeOption } from "@/lib/interactions";
 import { useLanguage } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 export const chipClass = "inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs font-medium";
 
 /**
- * The row's type, as a menu: one click retags the memo to another type or to "Interna". The chip
+ * The row's type, as a menu: one click retags the memo to another active type or to "Interna". The chip
  * changes at once and goes back if the server refuses (a type with no live playbook, a network error).
  */
 export function TypeChip({
@@ -60,10 +60,13 @@ export function TypeChip({
     },
   });
 
-  const types = options.filter((option) => option.key !== INTERNAL_KEY);
-  const internal = options.find((option) => option.key === INTERNAL_KEY);
+  // Only types that can score (a live playbook) and "Interna". The chip itself still names whatever
+  // the memo carries, even a paused or deleted type.
+  const choices = retagOptions(options);
+  const types = choices.filter((option) => option.key !== INTERNAL_KEY);
+  const internal = choices.find((option) => option.key === INTERNAL_KEY);
   const pick = (key: string) => {
-    const option = options.find((candidate) => candidate.key === key);
+    const option = choices.find((candidate) => candidate.key === key);
     if (option && option.key !== chip.key) retag.mutate(option);
   };
 

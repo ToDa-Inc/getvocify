@@ -8,6 +8,7 @@ import {
   feedBusy,
   feedQuery,
   pageOf,
+  retagOptions,
   rowPeople,
   rowStatus,
   rowTitle,
@@ -29,9 +30,9 @@ describe("typeOptions", () => {
   it("orders types alphabetically by label with internal last and unscored", () => {
     const options = typeOptions(payload, "Internal", fallback);
     assert.deepEqual(options, [
-      { key: "demo_zeta", label: "Álpha demo", scored: true },
-      { key: "closing", label: "Closing", scored: true },
-      { key: "discovery", label: "Discovery", scored: true },
+      { key: "demo_zeta", label: "Álpha demo", scored: true, status: "paused" },
+      { key: "closing", label: "Closing", scored: true, status: "draft" },
+      { key: "discovery", label: "Discovery", scored: true, status: "published" },
       { key: "internal", label: "Internal", scored: false },
     ]);
   });
@@ -51,6 +52,42 @@ describe("typeOptions", () => {
     ]);
     assert.deepEqual(typeOptions(null, "Internal"), [{ key: "internal", label: "Internal", scored: false }]);
     assert.deepEqual(typeOptions({}, "Internal"), [{ key: "internal", label: "Internal", scored: false }]);
+  });
+});
+
+describe("playbook status and retagOptions", () => {
+  const all = typeOptions(
+    {
+      motions: { discovery: "published", closing: "paused", demo: "draft", onboarding: "missing", odd: "weird", bare: {} },
+      details: { demo: { label: "Demo" }, onboarding: { label: "Onboarding" }, odd: { label: "Odd" }, bare: { label: "Bare" } },
+    },
+    "Interna",
+    fallback,
+  );
+  const statusOf = (key: string) => all.find((option) => option.key === key)?.status;
+
+  it("carries each type's playbook status, and none for an unknown one or for internal", () => {
+    assert.equal(statusOf("discovery"), "published");
+    assert.equal(statusOf("closing"), "paused");
+    assert.equal(statusOf("demo"), "draft");
+    assert.equal(statusOf("onboarding"), "missing");
+    assert.equal(statusOf("odd"), undefined);
+    assert.equal(statusOf("bare"), undefined);
+    assert.equal("status" in all[all.length - 1], false);
+  });
+
+  it("offers only published types, alphabetically, then internal last", () => {
+    const published = typeOptions(
+      { motions: { zeta: "published", alpha: "published", mid: "paused" }, details: { zeta: { label: "Zeta" }, alpha: { label: "Alpha" }, mid: { label: "Mid" } } },
+      "Interna",
+    );
+    assert.deepEqual(retagOptions(published).map((option) => option.key), ["alpha", "zeta", "internal"]);
+  });
+
+  it("drops paused, draft, missing and status-less types but keeps internal", () => {
+    assert.deepEqual(retagOptions(all).map((option) => option.key), ["discovery", "internal"]);
+    assert.deepEqual(retagOptions([{ key: "x", label: "X", scored: true }]), []);
+    assert.deepEqual(retagOptions(typeOptions(null, "Interna")).map((option) => option.key), ["internal"]);
   });
 });
 
