@@ -1,85 +1,48 @@
-export type NavItemId = "home" | "memos" | "copilot" | "ask" | "insights" | "coach" | "playbook" | "process" | "settings" | "call";
+export type NavItemId = "home" | "interactions" | "insights" | "coach" | "settings";
 
-export type NavLabelKey =
-  | "navHome"
-  | "navToday"
-  | "navMemos"
-  | "navConversations"
-  | "navRecordings"
-  | "navCopilot"
-  | "navAsk"
-  | "navCall"
-  | "navInsights"
-  | "navCoach"
-  | "navPlaybook"
-  | "navSummary"
-  | "navProcess"
-  | "navSettings";
+export type NavLabelKey = "navHome" | "navInteractions" | "navInsights" | "navCoach" | "navSettings";
 
 export type NavItem = {
   id: NavItemId;
   labelKey: NavLabelKey;
-  path?: string;
+  path: string;
   beta?: boolean;
 };
 
 export type NavMenu = { items: NavItem[]; showPlans: boolean };
 
 const HOME: NavItem = { id: "home", labelKey: "navHome", path: "/dashboard" };
-const MEMOS: NavItem = { id: "memos", labelKey: "navMemos", path: "/dashboard/memos" };
-const COPILOT: NavItem = { id: "copilot", labelKey: "navCopilot", path: "/dashboard/copilot", beta: true };
-const ASK: NavItem = { id: "ask", labelKey: "navAsk", path: "/dashboard/ask" };
-const CALL: NavItem = { id: "call", labelKey: "navCall" };
+const INTERACTIONS: NavItem = { id: "interactions", labelKey: "navInteractions", path: "/dashboard/interactions" };
 const INSIGHTS: NavItem = { id: "insights", labelKey: "navInsights", path: "/dashboard/insights" };
 const COACH: NavItem = { id: "coach", labelKey: "navCoach", path: "/dashboard/coach" };
-const PLAYBOOK: NavItem = { id: "playbook", labelKey: "navPlaybook", path: "/dashboard/playbook" };
 const SETTINGS: NavItem = { id: "settings", labelKey: "navSettings", path: "/dashboard/settings" };
-// Head of Sales (docs/features/HEAD_OF_SALES_DASHBOARD_PLAN.md §2): Resumen is the manager's /dashboard.
-const SUMMARY: NavItem = { ...HOME, labelKey: "navSummary" };
-const PROCESS: NavItem = { id: "process", labelKey: "navProcess", path: "/dashboard/process" };
 
 export function isManagerRole(role?: string | null): boolean {
   return role === "owner" || role === "admin";
 }
 
-// Lista 4 E1–E5 apply to reps (SDR/AE/General) only: their sidebar is only their places -
-// no Copilot link (its route stays), Ask and Call live in the top bar (DashboardLayout,
-// `topBarActions`), Recordings, and Coach where a manager gets Team.
-// The Head of Sales (owner/admin) does not call: their sidebar is the plan's four places -
-// Resumen, Equipo, Proceso de venta, Ajustes - and Ask (the manager chat) sits in the top
-// bar without Call (`managerTopBarAsk`). Every other route still exists, just unlinked.
+// One home for both roles (Inicio, /dashboard). The Head of Sales: Inicio, Interacciones, Equipo,
+// Ajustes. A rep: Inicio, Interacciones, Coaching, Ajustes. Llamar sits in the top bar for reps
+// (`topBarActions`); Ask is the floating sheet (⌘K), not a place. Every other route still exists,
+// just unlinked. `playbookTabEnabled` no longer adds an item: the rep's playbook is a Coaching tab.
 export function navItemsFor({
   role,
   repWorkspace,
-  playbookTabEnabled,
 }: {
   role?: string | null;
   repWorkspace?: boolean;
   playbookTabEnabled?: boolean;
 }): NavMenu {
-  const manager = isManagerRole(role);
-  // T11: the Playbook tab is for every company member (SDR, AE, General, owner/admin alike).
-  const playbook = playbookTabEnabled ? [PLAYBOOK] : [];
-  if (manager) {
+  if (isManagerRole(role)) {
     // Billing is the owner's: the Plans card is not shown to an admin.
-    return { items: [SUMMARY, INSIGHTS, PROCESS, SETTINGS], showPlans: role === "owner" };
+    return { items: [HOME, INTERACTIONS, INSIGHTS, SETTINGS], showPlans: role === "owner" };
   }
-  const home: NavItem = repWorkspace ? { ...HOME, labelKey: "navToday" } : HOME;
-  const recordings: NavItem = { ...MEMOS, labelKey: "navRecordings" };
-  return {
-    items: [home, recordings, ...playbook, COACH, SETTINGS],
-    showPlans: !repWorkspace,
-  };
+  return { items: [HOME, INTERACTIONS, COACH, SETTINGS], showPlans: !repWorkspace };
 }
 
-/** Lista 4 E3: Ask and Call sit in the top bar for reps. */
+/** Llamar sits in the top bar for reps; the Head of Sales doesn't dial. */
 export function topBarActions(role?: string | null): boolean {
   return !isManagerRole(role);
-}
-
-/** Head of Sales: Ask (manager chat) in the top bar, and no Call - they don't dial. */
-export function managerTopBarAsk(role?: string | null): boolean {
-  return isManagerRole(role);
 }
 
 export function usesRepHome(company?: { repWorkspace?: boolean } | null): boolean {

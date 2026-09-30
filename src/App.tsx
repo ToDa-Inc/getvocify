@@ -20,7 +20,6 @@ import TeamPage from "./pages/dashboard/TeamPage";
 import { InsightsRoute, ManagerOnly, RepOnly } from "./pages/dashboard/headOfSalesRoutes";
 import SalesProcessPage from "./pages/dashboard/SalesProcessPage";
 import TeamRepDetailPage from "./pages/dashboard/TeamRepDetailPage";
-import PlaybookPage from "./pages/dashboard/PlaybookPage";
 import CoachPage from "./pages/dashboard/CoachPage";
 import ReportPage from "./pages/dashboard/ReportPage";
 import BillingPage from "./pages/dashboard/BillingPage";
@@ -202,7 +201,8 @@ const App = () => (
               {/* T13: MANAGER_HOME_ENABLED moves an owner/admin's home to the team panel;
                   this is where "go to my Today" points a manager who also sells. */}
               <Route path="today" element={<RepHome />} />
-              <Route path="playbook" element={<PlaybookPage />} />
+              {/* The rep's playbook is a tab of Coaching. */}
+              <Route path="playbook" element={<Navigate to="/dashboard/coach?tab=playbook" replace />} />
               <Route path="ask" element={<Navigate to="/dashboard" replace state={{ ask: true }} />} />
               <Route path="reports/:id" element={<ReportPage />} />
               <Route path="team" element={<Navigate to="/dashboard/settings/team" replace />} />

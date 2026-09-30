@@ -1,32 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/features/auth";
-import { getUserDisplayName, getUserInitials } from "@/features/auth/types";
+import { getUserDisplayName } from "@/features/auth/types";
 import {
   Home,
-  Mic,
+  Inbox,
   Settings,
   Menu,
   X,
   Phone,
-  LogOut,
-  MessageCircle,
   Users,
-  BookOpen,
-  Workflow,
   GraduationCap,
-  Headphones,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { IconAction } from "@/components/ui/icon-action";
 import Logo from "@/components/Logo";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { ReportBell } from "@/components/dashboard/ReportBell";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
 import ImpersonationBanner from "@/components/admin/ImpersonationBanner";
-import { getImpersonation, returnToAdmin } from "@/lib/admin-impersonation";
+import { AvatarMenu } from "@/components/dashboard/AvatarMenu";
 import { FloatingDialer } from "@/components/dashboard/calling/FloatingDialer";
 import { DialerFocusProvider, useDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
@@ -34,20 +28,15 @@ import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopShellBridge } from "@/features/desktop/DesktopShellBridge";
 import { isDesktopHost } from "@/lib/desktop-host";
-import { isManagerRole, managerTopBarAsk, navItemsFor, topBarActions, usesRepHome, type NavItemId } from "@/lib/nav";
+import { isManagerRole, navItemsFor, topBarActions, usesRepHome, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
 import { useWideScreen } from "@/features/today/hooks/useWideScreen";
 
 const NAV_ICONS: Record<NavItemId, LucideIcon> = {
   home: Home,
-  memos: Mic,
-  copilot: Headphones,
-  ask: MessageCircle,
-  call: Phone,
+  interactions: Inbox,
   insights: Users,
   coach: GraduationCap,
-  playbook: BookOpen,
-  process: Workflow,
   settings: Settings,
 };
 
@@ -61,26 +50,32 @@ const DashboardLayout = () => {
   const [columnNode, setColumnNode] = useState<HTMLElement | null>(null);
   const location = useLocation();
   const { t } = useLanguage();
-  const { user, logout } = useAuth();
-  const impersonating = !!getImpersonation();
+  const { user } = useAuth();
   const dialerLive = isInCall(callState);
   const dialerActive = dialerOpen || dialerLive;
   const canManageBilling = isManagerRole(user?.company?.role);
   const paywalled = companyIsPaywalled(user?.company);
   const repTopBar = topBarActions(user?.company?.role);
-  // Head of Sales: Ask (manager chat) in the top bar; no Call, they don't dial.
-  const askInTopBar = repTopBar || managerTopBarAsk(user?.company?.role);
   const menu = navItemsFor({
     role: user?.company?.role,
     repWorkspace: user?.company?.repWorkspace,
-    // The Playbook tab is where a rep reads the process they are scored against: always there.
-    playbookTabEnabled: true,
   });
 
+  // Ask is the floating sheet: /dashboard/ask (state.ask) and ⌘K / Ctrl+K open it.
   useEffect(() => {
     const state = location.state as { ask?: boolean } | null;
     if (state?.ask) setAskOpen(true);
   }, [location.state]);
+  useEffect(() => {
+    if (paywalled) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.isComposing || event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      setAskOpen(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [paywalled]);
   const showDialer = !isDesktopHost() && !paywalled && companyCanUseDialer(user?.company);
   const homeColumn = usesRepHome(user?.company) && location.pathname === "/dashboard";
   const closeAsk = useCallback(() => setAskOpen(false), []);
@@ -138,57 +133,6 @@ const DashboardLayout = () => {
         <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
           {!paywalled && menu.items.map((item) => {
             const Icon = NAV_ICONS[item.id];
-            if (item.id === "call") {
-              return showDialer ? (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-label={t.product.navCall}
-                  aria-expanded={dialerOpen}
-                  onClick={() => {
-                    setDialerOpen((current) => !current);
-                    setSidebarOpen(false);
-                  }}
-                  className={`
-                    flex w-full items-center gap-3 px-3 py-2 text-[13.5px]
-                    ${THEME_TOKENS.radius.pill} transition-colors duration-150
-                    ${dialerActive
-                      ? THEME_TOKENS.interaction.navPillActive
-                      : THEME_TOKENS.interaction.navPillIdle}
-                  `}
-                >
-                  <Icon className={`h-4 w-4 ${dialerActive ? "opacity-100" : "opacity-70"}`} />
-                  <span className="flex-1 text-left">{t.product.navCall}</span>
-                  {dialerLive ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-beige" />
-                  ) : null}
-                </button>
-              ) : null;
-            }
-            if (item.id === "ask") {
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-expanded={askOpen}
-                  onClick={() => {
-                    setAskOpen((open) => !open);
-                    setSidebarOpen(false);
-                  }}
-                  className={`
-                    flex w-full items-center gap-3 px-3 py-2 text-[13.5px]
-                    ${THEME_TOKENS.radius.pill} transition-colors duration-150
-                    ${askOpen
-                      ? THEME_TOKENS.interaction.navPillActive
-                      : THEME_TOKENS.interaction.navPillIdle}
-                  `}
-                >
-                  <Icon className={`h-4 w-4 ${askOpen ? "opacity-100" : "opacity-70"}`} />
-                  <span className="flex-1 text-left">{t.product[item.labelKey]}</span>
-                </button>
-              );
-            }
-            if (!item.path) return null;
             const active = isActive(item.path);
             return (
               <Link
@@ -252,23 +196,8 @@ const DashboardLayout = () => {
             <Menu className="h-5 w-5" />
           </Button>
 
-          {/* Lista 4 E3: for reps, Ask and Call live in the top bar, left side. The Head of
-              Sales gets Ask there too, without Call. */}
+          {/* Llamar lives in the top bar for reps who can dial; the Head of Sales doesn't dial. */}
           <div className="flex flex-1 items-center gap-1.5 lg:gap-2">
-            {askInTopBar && !paywalled ? (
-              <button
-                type="button"
-                aria-label={t.product.navAsk}
-                aria-expanded={askOpen}
-                onClick={() => setAskOpen((open) => !open)}
-                className={`inline-flex items-center gap-2 ${THEME_TOKENS.interaction.navPill} ${
-                  askOpen ? THEME_TOKENS.interaction.navPillActive : THEME_TOKENS.interaction.navPillIdle
-                }`}
-              >
-                <MessageCircle className={`h-4 w-4 ${askOpen ? "opacity-100" : "opacity-70"}`} />
-                <span className="hidden sm:inline">{t.product.navAsk}</span>
-              </button>
-            ) : null}
             {repTopBar && showDialer ? (
               <button
                 type="button"
@@ -296,30 +225,7 @@ const DashboardLayout = () => {
               </p>
             </div>
 
-            <span data-testid="session-sign-out">
-              <IconAction
-                label={t.product.navLogOut}
-                tone="danger"
-                onClick={() => {
-                  void logout().then(() => window.location.replace("/login"));
-                }}
-              >
-                <LogOut className="h-4 w-4" />
-              </IconAction>
-            </span>
-
-            <Link
-              to={impersonating ? "#" : "/dashboard/profile"}
-              onClick={(e) => {
-                if (impersonating) {
-                  e.preventDefault();
-                  returnToAdmin();
-                }
-              }}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-xs font-medium text-beige hover:border-beige/40 transition-colors"
-            >
-              {user ? getUserInitials(user) : "U"}
-            </Link>
+            <AvatarMenu />
           </div>
         </header>
 
