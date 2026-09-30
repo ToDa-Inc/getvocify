@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Mail, RefreshCw, Trash2, Users } from "lucide-react";
+import { Mail, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { authKeys } from "@/features/auth/api";
@@ -15,6 +15,7 @@ import { ConfirmAction } from "@/components/ui/confirm-action";
 import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
+import { AnimIcon } from "@/components/ui/anim-icon";
 
 const SELECT_FIELD =
   "rounded-full border border-border/40 bg-secondary/5 px-3 h-7 text-[11px] text-foreground";
@@ -82,6 +83,7 @@ const TeamPage = () => {
   const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [inviteEmail, setInviteEmail] = useState("");
+  const [linkCopied, setLinkCopied] = useState(false);
   // Item 3: an invite from here is always a rep (role="member"); a second Head of
   // Sales is still possible, but through the role change on an existing member, not
   // from this form. SDR is the default commercial type, and it's required.
@@ -209,7 +211,8 @@ const TeamPage = () => {
     if (!inviteUrl) return;
     try {
       await navigator.clipboard.writeText(inviteUrl);
-      toast.success("Invite link copied");
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 1500);
     } catch {
       toast.error("Could not copy the link");
     }
@@ -298,9 +301,10 @@ const TeamPage = () => {
                       label="Resend invite email"
                       pendingLabel="Sending…"
                       pending={resendMutation.isPending && resendMutation.variables === inv.id}
+                      pendingIcon={<AnimIcon name="refresh" state="busy" />}
                       onClick={() => resendMutation.mutate(inv.id)}
                     >
-                      <RefreshCw className="h-4 w-4" />
+                      <AnimIcon name="refresh" />
                     </IconAction>
                     <IconAction
                       label={`Revoke invite for ${inv.email}`}
@@ -424,8 +428,8 @@ const TeamPage = () => {
                 className="rounded-full"
                 onClick={() => void copyInviteLink()}
               >
-                <Copy className="h-3.5 w-3.5" />
-                Copy link
+                <AnimIcon name="copy" size={14} state={linkCopied && "done"} />
+                {linkCopied ? "Copied" : "Copy link"}
               </Button>
             </div>
           )}

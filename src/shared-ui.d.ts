@@ -199,3 +199,38 @@ declare namespace JSX {
     "v-followup": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
   }
 }
+
+declare module "@shared/ui/html.js" {
+  export type HtmlFragment = { readonly __vocifyRaw?: never };
+  export function html(strings: TemplateStringsArray, ...values: unknown[]): HtmlFragment;
+  export function raw(markup: string): HtmlFragment;
+  export function escapeHtml(value: unknown): string;
+  export function renderToString(fragment: unknown): string;
+}
+
+declare module "@shared/ui/components/done-mark.js" {
+  import type { HtmlFragment } from "@shared/ui/html.js";
+  export function renderDoneMark(opts?: {
+    tone?: "success" | "failed";
+    size?: number;
+    animate?: boolean;
+    label?: string;
+  }): HtmlFragment;
+}
+
+declare module "@shared/ui/components/anim-icon.js" {
+  import type { HtmlFragment } from "@shared/ui/html.js";
+  export type AnimIconName = "refresh" | "copy" | "phone" | "bell";
+  export const ANIM_ICONS: AnimIconName[];
+  export function animIconSvg(name: AnimIconName): HtmlFragment;
+  export function animIconAttrs(
+    name: AnimIconName,
+    opts?: { size?: number; stroke?: number; state?: string },
+  ): { className: string; style: string };
+  export function renderAnimIcon(
+    name: AnimIconName,
+    opts?: { size?: number; stroke?: number; state?: string; label?: string },
+  ): HtmlFragment;
+  export function playAnimIcon(el: Element | null, play?: string): void;
+  export function flashCopied(button: Element | null, copiedLabel?: string, ms?: number): void;
+}

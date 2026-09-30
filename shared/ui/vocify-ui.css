@@ -133,6 +133,7 @@ v-followup[hidden] { display: none; }
 }
 
 .v-text-action:hover { color: var(--v-foreground); }
+.v-text-action--icon { display: inline-flex; align-items: center; gap: 6px; }
 
 .v-pill:focus-visible,
 .v-text-action:focus-visible {
@@ -172,3 +173,152 @@ v-followup[hidden] { display: none; }
   transition: opacity 180ms ease, transform 180ms ease, height 180ms ease;
 }
 
+/* The "written to your CRM" mark (components/done-mark.js). Plays once, then rests. */
+.v-done {
+  --v-done-tone: var(--v-success);
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--v-done-size, 64px);
+  height: var(--v-done-size, 64px);
+  flex: none;
+  color: var(--v-done-tone);
+}
+.v-done--failed { --v-done-tone: var(--v-destructive); }
+.v-done__svg { width: 100%; height: 100%; overflow: visible; transform-origin: 50% 50%; }
+.v-done__disc { fill: color-mix(in srgb, var(--v-done-tone) 10%, transparent); stroke: none; }
+.v-done__ring,
+.v-done__glyph {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+.v-done__ring { stroke-width: 2; transform: rotate(-90deg); transform-box: fill-box; transform-origin: center; }
+.v-done__glyph { stroke-width: 3.25; }
+.v-done__halo {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--v-done-tone);
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .v-done.is-playing .v-done__svg { animation: v-done-pop 620ms cubic-bezier(0.32, 0.72, 0, 1) 340ms both; }
+  .v-done.is-playing .v-done__disc { animation: v-done-fade 360ms ease-out both; }
+  .v-done.is-playing .v-done__ring { animation: v-done-draw 520ms cubic-bezier(0.65, 0, 0.35, 1) both; }
+  .v-done.is-playing .v-done__glyph { animation: v-done-draw 300ms cubic-bezier(0.32, 0.72, 0, 1) 400ms both; }
+  .v-done.is-playing .v-done__dot { animation-delay: 620ms; }
+  /* forwards, not both: the halo must not sit on screen while it waits its turn. */
+  .v-done.is-playing .v-done__halo { animation: v-done-halo 720ms cubic-bezier(0.22, 1, 0.36, 1) 560ms forwards; }
+}
+
+/* The opacity step hides the round cap a zero-length stroke would otherwise leave as a dot. */
+@keyframes v-done-draw {
+  from { stroke-dashoffset: 1; opacity: 0; }
+  6% { opacity: 1; }
+  to { stroke-dashoffset: 0; opacity: 1; }
+}
+@keyframes v-done-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes v-done-pop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+@keyframes v-done-halo {
+  from { opacity: 0.35; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.45); }
+}
+
+/* Icons that move when something happens (components/anim-icon.js). Motion from itshover.com. */
+.v-ai {
+  display: inline-flex;
+  flex: none;
+  width: var(--v-ai-size, 16px);
+  height: var(--v-ai-size, 16px);
+  color: inherit;
+  vertical-align: middle;
+}
+.v-ai[hidden] { display: none; }
+/* Two classes: host rules like the web Button's `[&_svg]:size-4` must not resize the glyph. */
+.v-ai > .v-ai__svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--v-ai-stroke, 2);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform-origin: 50% 50%;
+}
+.v-ai__check { opacity: 0; stroke-dasharray: 1; stroke-dashoffset: 1; }
+.v-ai__wave { transform-origin: 14px 10px; }
+.v-ai__bell { transform-box: fill-box; transform-origin: 50% 10%; }
+.v-ai__clapper { transform-box: fill-box; transform-origin: 50% 0%; }
+.v-ai--refresh.is-busy { opacity: 0.55; }
+.v-ai--copy.is-done .v-ai__sheets { opacity: 0; }
+.v-ai--copy.is-done .v-ai__check { opacity: 1; stroke-dashoffset: 0; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .v-ai--refresh .v-ai__svg { transition: transform 400ms ease-in-out; }
+  .v-ai--refresh.is-busy { opacity: 1; }
+  .v-ai--refresh.is-busy .v-ai__svg { animation: v-ai-spin 900ms linear infinite; }
+
+  .v-ai__sheets { transition: opacity 150ms ease, transform 150ms ease; transform-origin: 12px 12px; }
+  .v-ai--copy.is-done .v-ai__sheets { transform: scale(0.7); }
+  .v-ai--copy.is-done .v-ai__check { animation: v-ai-draw 260ms cubic-bezier(0.32, 0.72, 0, 1) 60ms both; }
+
+  .v-ai--phone.is-ringing .v-ai__wave--in { animation: v-ai-wave-in 1.2s ease-in-out infinite; }
+  .v-ai--phone.is-ringing .v-ai__wave--out { animation: v-ai-wave-out 1.2s ease-in-out 100ms infinite; }
+
+  .v-ai--bell[data-v-play="ring"] .v-ai__bell { animation: v-ai-ring 600ms ease-in-out; }
+  .v-ai--bell[data-v-play="ring"] .v-ai__clapper { animation: v-ai-clapper 600ms ease-in-out 50ms; }
+}
+
+/* Hover previews the moment, inside any enabled button or link. Touch screens skip it. */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  :is(button, a, [role="button"]):not(:disabled):hover .v-ai--refresh:not(.is-busy) .v-ai__svg { transform: rotate(180deg); }
+  :is(button, a, [role="button"]):not(:disabled):hover .v-ai--copy:not(.is-done) .v-ai__front { animation: v-ai-nudge 300ms ease-in-out; }
+  :is(button, a, [role="button"]):not(:disabled):hover .v-ai--phone:not(.is-ringing) .v-ai__wave--in { animation: v-ai-wave-in 400ms ease-in-out; }
+  :is(button, a, [role="button"]):not(:disabled):hover .v-ai--phone:not(.is-ringing) .v-ai__wave--out { animation: v-ai-wave-out 450ms ease-in-out 100ms; }
+  :is(button, a, [role="button"]):not(:disabled):hover .v-ai--bell:not([data-v-play]) .v-ai__bell { animation: v-ai-ring 600ms ease-in-out; }
+  :is(button, a, [role="button"]):not(:disabled):hover .v-ai--bell:not([data-v-play]) .v-ai__clapper { animation: v-ai-clapper 600ms ease-in-out 50ms; }
+}
+
+@keyframes v-ai-spin { to { transform: rotate(360deg); } }
+@keyframes v-ai-nudge { 50% { transform: translate(2px, 2px); } }
+@keyframes v-ai-draw {
+  from { stroke-dashoffset: 1; opacity: 0; }
+  10% { opacity: 1; }
+  to { stroke-dashoffset: 0; opacity: 1; }
+}
+/* Both start and end at rest, so a hover preview never snaps and the ring loops seamlessly. */
+@keyframes v-ai-wave-in {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  30% { transform: scale(1); opacity: 0.4; }
+  65% { transform: scale(1.15); opacity: 1; }
+}
+@keyframes v-ai-wave-out {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  30% { transform: scale(1); opacity: 0.2; }
+  65% { transform: scale(1.25); opacity: 0.8; }
+}
+@keyframes v-ai-ring {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(-8deg); }
+  40% { transform: rotate(6deg); }
+  60% { transform: rotate(-4deg); }
+  80% { transform: rotate(2deg); }
+}
+@keyframes v-ai-clapper {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(20deg); }
+  40% { transform: rotate(-18deg); }
+  60% { transform: rotate(12deg); }
+  80% { transform: rotate(-6deg); }
+}

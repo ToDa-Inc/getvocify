@@ -1375,12 +1375,6 @@ body {
   line-height: 1.45;
   text-align: left;
 }
-.success-icon-container--warning {
-  background: rgba(220, 38, 38, 0.1);
-}
-.success-icon-container--warning .success-checkmark {
-  color: #b91c1c;
-}
 .transcript-conversation--compact {
   margin-top: 10px;
   max-height: 240px;
@@ -1679,8 +1673,7 @@ body {
 #screen-success .center-content { flex: 1; }
 #screen-success .review-step-actions { width: 100%; padding: 0 24px 32px; box-sizing: border-box; }
 #screen-success .review-step-actions .btn { flex: 1; }
-.success-icon-container { width: 80px; height: 80px; border-radius: 50%; background: rgba(5, 150, 105, 0.1); display: flex; justify-content: center; align-items: center; margin-bottom: 24px; }
-.success-checkmark { font-size: 40px; color: var(--success); }
+.success-mark { display: flex; justify-content: center; margin-bottom: 24px; min-height: 72px; }
 
 /* Login Screen */
 #screen-login { padding: 0; }

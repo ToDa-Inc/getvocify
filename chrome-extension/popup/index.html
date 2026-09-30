@@ -48,7 +48,7 @@
           </button>
           <div id="call-cta-row" class="call-cta-row" hidden>
             <button id="call-contact" type="button" class="tool-btn" hidden data-tip-align="start">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+              <span data-v-icon="phone" data-v-size="14" data-v-stroke="1.5"></span>
               <span id="call-contact-label">Llamar a este contacto</span>
             </button>
             <button id="open-calling-settings" type="button" class="tool-btn tool-btn-icon" hidden aria-label="Open Calling settings" data-tip="Calling settings" data-tip-align="end">
@@ -78,6 +78,7 @@
         </p>
 
         <div id="call-live" class="dialer-live" hidden>
+          <span id="call-ring" data-v-icon="phone" data-v-size="12" data-v-stroke="1.5" hidden></span>
           <span id="call-state-label"></span>
           <span id="call-timer" class="dialer-timer">0:00</span>
           <button id="call-mute" type="button" class="dialer-icon-btn" aria-label="Silenciar" aria-pressed="false" data-tip="Silenciar">
@@ -346,9 +347,7 @@
     <!-- 4. SUCCESS SCREEN -->
     <div id="screen-success" class="screen" style="display: none;">
       <div class="center-content">
-        <div class="success-icon-container">
-          <div class="success-checkmark">✓</div>
-        </div>
+        <div id="success-mark" class="success-mark"></div>
         <h2 class="title-large">Sync Successful</h2>
         <p id="success-message" class="body-muted">Updated deal in HubSpot.</p>
         <p id="success-outcome-warning" class="outcome-warning-banner" style="display: none;"></p>

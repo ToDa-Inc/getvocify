@@ -9,13 +9,14 @@ import {
   type PipedriveObjectTab,
 } from "@/lib/api/pipedrive-setup";
 import { toast } from "sonner";
-import { Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info } from "lucide-react";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
 import { DealCreationRuleField } from "@/components/dashboard/crm/DealCreationRuleField";
 import { useLanguage } from "@/lib/i18n";
+import { AnimIcon } from "@/components/ui/anim-icon";
 
 interface PipedriveConfigurationProps {
   onSaved?: () => void;
@@ -252,7 +253,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
               title="Pull the latest Pipedrive fields and pipelines"
               className="rounded-full h-8 px-3 text-[12px] border-border/50 text-beige shrink-0"
             >
-              {isRefreshing ? <VocifySpinner size={12} /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+              <AnimIcon name="refresh" size={14} state={isRefreshing && "busy"} className="mr-1.5" />
               Refresh
             </Button>
           )}

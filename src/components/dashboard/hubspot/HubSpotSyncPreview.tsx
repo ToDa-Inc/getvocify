@@ -13,7 +13,6 @@ import {
   ChevronDown,
   Search,
   X,
-  RefreshCw,
   Pencil,
   Trash2,
   Plus,
@@ -30,6 +29,7 @@ import {
   proposedFieldKey,
 } from "@/lib/extraction-omit";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
+import { AnimIcon } from "@/components/ui/anim-icon";
 import { CopilotNote } from "@/components/dashboard/CopilotNote";
 import {
   clearCachedPreview,
@@ -708,7 +708,7 @@ export const HubSpotSyncPreview = ({
             variant="outline"
             className="mt-6 rounded-full border-beige/40 hover:bg-beige/10"
           >
-            {reExtracting ? <VocifySpinner size={16} className="mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+            <AnimIcon name="refresh" state={reExtracting && "busy"} className="mr-2" />
             {reExtracting ? "Re-extracting..." : "Re-extract"}
           </Button>
           ) : null}

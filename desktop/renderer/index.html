@@ -123,7 +123,10 @@
 
         <section id="review-panel" hidden>
           <h1 data-desktop-i18n="review"></h1>
-          <p id="review-status" class="lede" role="status"></p>
+          <div class="review-status-row">
+            <span id="review-done" hidden></span>
+            <p id="review-status" class="lede" role="status"></p>
+          </div>
           <p id="review-error" class="error" role="alert" hidden></p>
           <button id="btn-review-retry" class="ghost" type="button" hidden data-i18n="desktopRetry"></button>
           <div class="review-decision">

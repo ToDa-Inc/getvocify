@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { composeTarget } from "@shared/ui/compose.js";
+import { flashCopied } from "@shared/ui/components/anim-icon.js";
 import { memosApi } from "@/features/memos/api";
 import type { FollowupView } from "@/features/memos/types";
 import { useVElement, type VAction } from "@/hooks/use-v-element";
@@ -51,7 +52,7 @@ export function FollowupCard({
       try {
         if (action === "copy") {
           await navigator.clipboard.writeText(body);
-          toast.success(t.product.followupCopied);
+          flashCopied(element.querySelector('[data-action="copy"]'), t.product.askCopied);
           await memosApi.followupAction(memoId, { action: "copied", channel: "email", subject, body });
           return;
         }
