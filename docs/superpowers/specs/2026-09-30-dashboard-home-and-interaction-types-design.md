@@ -33,7 +33,8 @@ in the main panel, Today condensed on the side, and Settings reorganised.
   new types endpoint.
 - R3. **No backfill.** Memos without a `sales_motion_key` show the channel chip only.
 - R4. **Voice-note fix:** the web recorder sends `interaction_kind=voice_note` to
-  `/memos/upload`; the extension keeps today's `call`. Cost if wrong: extension voice memos stay
+  `/memos/upload-and-extract` (live transcript) or `/memos/upload` (audio only); the extension
+  keeps today's `call`. Cost if wrong: extension voice memos stay
   "call".
 - R5. **Manager KPI tiles move to Equipo → Resumen**; ProcessHealth and ObjectionBreakdown move
   to Equipo too, since Proceso de venta disappears. Cost if wrong: moving them back.
@@ -46,6 +47,16 @@ in the main panel, Today condensed on the side, and Settings reorganised.
   script does not run in this client-only SPA. The provider wraps `/dashboard`, stores the choice
   under `vocify-theme` (light, dark, system; garbage or blocked storage gives system) and removes
   `.dark` on leaving. Login, marketing and auth pages stay light. `next-themes` is now an unused dependency.
+- R10. **AI detection of `internal` is behind `INTERNAL_DETECTION_ENABLED`, per company, off by
+  default.** Extraction still reports `customerPresent`; only the automatic tag waits for the flag.
+  A manual retag to Interna, the scoring skip, the read-side exclusions and the CRM-proposal skip
+  work for any memo already tagged. Cost: no memo is tagged Interna by the AI until the flag is on.
+- R11. **Ask leaves `internal` memos out.** The memo loader behind `deal_story`, `find_interactions`,
+  `objection_breakdown`, `competitor_mentions`, `meetings_agreed` and `next_actions` drops them
+  (`include_internal=False` by default), so a meeting agreed with a colleague is never a customer's.
+  Cost: Ask cannot answer questions about internal calls until a tool asks for them.
+- R12. **A manager's Interacciones opens on everyone** (no author filter), like Inicio's feed;
+  `?author=` still pre-selects a person. A member's list is always their own.
 
 ## Design
 
@@ -77,9 +88,11 @@ Facturación. Language/theme controls leave the settings side nav.
 
 ### Backend
 - `GET /memos` gains `interaction_kind` and `sales_motion_key` filters; `Memo` gains `salesMotionKey`.
-- `/memos/upload` accepts optional `interaction_kind`; `voice_note` is stored.
+- `/memos/upload`, `/memos/upload-transcript` and `/memos/upload-and-extract` accept optional
+  `interaction_kind`; `voice_note` is stored.
 - `internal` type: extraction reports `customerPresent`; false → `sales_motion_key='internal'`
-  unless the pin source is `manual`; scoring and CRM proposals skip `internal`.
+  unless the pin source is `manual` (only with `INTERNAL_DETECTION_ENABLED`, R10); scoring and
+  CRM proposals skip `internal`.
 - Retag reuses `POST /memos/{id}/playbook` (accepts `internal`).
 
 ### Density map
