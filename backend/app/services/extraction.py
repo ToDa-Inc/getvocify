@@ -529,6 +529,7 @@ class ExtractionService:
             "competitors": ("string[]", "Competing vendors/products being evaluated."),
             "objections": ("string[]", "Objections raised."),
             "decisionMakers": ("string[]", "Decision makers involved."),
+            "customerPresent": ("boolean | null", "Whether anyone outside the rep's team took part."),
         }
         standard_fields = {k: v for k, v in all_standard.items() if k not in schema_field_names}
 
@@ -757,6 +758,7 @@ TRANSCRIPT:
 5b. **CRM fields**: Honor each field's fill policy. Pre-call / talk-track fields → null. Identity fields with a CURRENT VALUE → null if the spoken person is different. Account fit/motion fields describe the prospect, not our outreach. When CURRENT VALUE is empty and the call answered the field, you MUST set it — including mapping a description onto the closest enumeration option. ICP thresholds in a field description (e.g. "3+ reps") are scoring hints only — still store the real answer.
 5c. **contactEmail**: Only if a real address was spoken or spelled. Phone and/or name are enough to create a CRM contact. Never invent, guess, or fabricate an email (no lead.vocify / example.com placeholders). If not mentioned, null.
 5d. **Enumerations**: prefer the best-matching option over null. Use an `unknown` option only if they said they do not know. If the topic never came up, null.
+5e. **customerPresent**: true only if someone outside the rep's team spoke or is clearly the counterpart (a prospect, customer or partner). false only when everyone speaking is on the same team (a team meeting, an internal brief). null if unsure, and null for a note the rep dictates alone.
 6. **Format**: Return JSON in this structure:
 
 {json_structure}
@@ -977,6 +979,8 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             deal_amount = extracted.get("amount")
             if deal_amount is not None and not isinstance(deal_amount, (int, float)):
                 deal_amount = _parse_amount(deal_amount)
+            # Not a CRM field: kept out of raw_extraction so no provider writes it.
+            customer_present = extracted.pop("customerPresent", None)
             result = MemoExtraction(
                 companyName=company or None,
                 contactName=contact or None,
@@ -994,6 +998,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 decisionMakers=extracted.get("decisionMakers", []),
                 confidence=extracted.get("confidence", {"overall": 0.5, "fields": {}}),
                 raw_extraction=extracted,
+                customerPresent=customer_present if isinstance(customer_present, bool) else None,
             )
             conf = result.confidence or {}
             conf_overall = conf.get("overall") if isinstance(conf, dict) else None

@@ -178,6 +178,9 @@ _TYPES: tuple[dict, ...] = (
 
 _BY_KEY = {entry["key"]: entry for entry in _TYPES}
 CATALOG_KEYS: tuple[str, ...] = tuple(entry["key"] for entry in _TYPES)
+# Reserved type for a conversation with no customer in it (a team meeting, an internal brief):
+# no playbook, never scored, never proposed to the CRM. Not a catalog type and never routed to.
+INTERNAL_KEY = "internal"
 
 
 def is_catalog(key: Optional[str]) -> bool:

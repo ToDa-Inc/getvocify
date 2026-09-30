@@ -20,6 +20,7 @@ from app.services.playbooks.api_support import MANAGE_ROLES
 from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
 from app.services.playbooks.catalog import (
+    INTERNAL_KEY,
     RuleError,
     catalog_order,
     catalog_types,
@@ -219,16 +220,20 @@ async def change_memo_playbook(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo el autor o un manager pueden cambiar el playbook")
     key = body.sales_motion_key.strip()
     company_id = str(memo.get("company_id") or membership.company_id)
-    version = live_version_id(supabase, company_id, key) if key else None
-    if not version:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "not_published"})
+    # `internal` has no playbook: it is never scored, so it needs no live version.
+    version: Optional[str] = None
+    if key != INTERNAL_KEY:
+        live = live_version_id(supabase, company_id, key) if key else None
+        if not live:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "not_published"})
+        version = str(live)
     update: dict[str, Any] = {
         "sales_motion_key": key,
-        "playbook_version_id": str(version),
+        "playbook_version_id": version,
         "pipeline_meta": merge_pin_meta(
             memo.get("pipeline_meta"), "manual", changed_from=memo.get("sales_motion_key"), changed_by=str(membership.user_id),
         ),
     }
     supabase.table("memos").update(update).eq("id", str(memo["id"])).execute()
     _requeue(supabase, {**memo, **update})
-    return {"sales_motion_key": key, "playbook_version_id": str(version), "status": "requeued"}
+    return {"sales_motion_key": key, "playbook_version_id": version, "status": "requeued"}
