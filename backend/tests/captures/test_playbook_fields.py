@@ -7,6 +7,7 @@ import pytest
 from app.config import settings
 from app.services import feature_flags
 from app.services.captures import playbook_fields_for_capture
+from tests.playbooks.live_double import live_view_rows
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +29,10 @@ class _Query:
         self._filters.append((column, value))
         return self
 
+    def in_(self, column, values):
+        self._rows = [row for row in self._rows if row.get(column) in set(values)]
+        return self
+
     def limit(self, *_a, **_k):
         return self
 
@@ -47,6 +52,8 @@ class _Supabase:
     def table(self, name: str):
         if name == "playbooks":
             return _Query(self._playbooks)
+        if name == "playbooks_live":
+            return _Query(live_view_rows(self._playbooks))
         if name == "playbook_versions":
             return _Query(self._versions)
         if name == "company_feature_flags":

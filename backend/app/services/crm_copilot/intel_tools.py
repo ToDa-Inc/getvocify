@@ -589,20 +589,15 @@ async def _meetings_agreed(args: dict, ctx, actor: AskActor) -> dict:
 
 
 async def _playbook_lookup(args: dict, ctx, actor: AskActor) -> dict:
-    from app.services.playbooks.versions import get_published_playbook
+    from app.services.playbooks.live import live_snapshots
 
-    plays = (ctx.supabase.table("playbooks").select("id,sales_motion_key,active_version_id").eq("company_id", actor.company_id).execute().data) or []
-    if not plays:
+    snapshots = live_snapshots(ctx.supabase, actor.company_id)
+    if not snapshots:
         return _envelope(n=0, n_analysed=0, coverage="complete", playbooks=[], evidence=[], note="no_playbook")
-    ids = [p["active_version_id"] for p in plays if p.get("active_version_id")]
-    versions = (ctx.supabase.table("playbook_versions").select("id,playbook_id,status,steps,entries").in_("id", ids).execute().data) if ids else []
     category = str(args.get("category") or "").strip().lower()
     topic = str(args.get("topic") or "").strip().lower()
     out, evidence = [], []
-    for play in plays:
-        view = get_published_playbook(play, [v for v in versions if v.get("playbook_id") == play["id"]])
-        if not view:
-            continue
+    for view in snapshots:
         entries = []
         for entry in view["entries"]:
             hay = " ".join(str(entry.get(k) or "") for k in ("category", "guidance", "approved_answer")).lower()
@@ -613,7 +608,7 @@ async def _playbook_lookup(args: dict, ctx, actor: AskActor) -> dict:
             evidence.append({"id": ev_id, "quote": text, "speaker": "playbook", "rep": view["sales_motion_key"]})
             entries.append({"category": entry.get("category"), "answer": text, "evidence": ev_id})
         out.append({"motion": view["sales_motion_key"], "entries": entries, "steps": [s.get("label") for s in view["steps"] if isinstance(s, dict)]})
-    return _envelope(n=len(out), n_analysed=len(out), coverage="complete", playbooks=out, evidence=evidence, **({} if out else {"note": "no_published_playbook"}))
+    return _envelope(n=len(out), n_analysed=len(out), coverage="complete", playbooks=out, evidence=evidence)
 
 
 # ----- HubSpot tools --------------------------------------------------------------------------

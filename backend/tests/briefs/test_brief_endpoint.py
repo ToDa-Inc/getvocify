@@ -23,6 +23,7 @@ from app.services import crm_providers, feature_flags
 from app.services.briefs.v2 import prepare_brief_v2
 from app.services.crm_copilot.tools import HubSpotBundle
 from app.services.company import Membership
+from tests.playbooks.live_double import live_view_rows
 from app.services.intelligence.extract import PROMPT_VERSION
 from app.services.intelligence.worker import revision_for_memo
 
@@ -46,7 +47,8 @@ def _columns(migration: str, table: str) -> set[str]:
 SCHEMA = {
     "action_signals": _columns("043_action_signals.sql", "action_signals"),
     "playbooks": _columns("040_company_playbooks.sql", "playbooks"),
-    "playbook_versions": _columns("040_company_playbooks.sql", "playbook_versions"),
+    "playbook_versions": _columns("040_company_playbooks.sql", "playbook_versions") | {"updated_at", "qualification"},
+    "playbooks_live": {"playbook_id", "company_id", "sales_motion_key", "version_id"},  # the view of 066_playbooks_v2
 }
 
 
@@ -84,7 +86,8 @@ class _Query:
         self.db.queries.append((self.name, dict(self.eqs), self.n))
         if self.name in self.db.failing:
             raise RuntimeError(f"{self.name} down")
-        rows = [row for row in self.db.tables.get(self.name, []) if all(row.get(c) == v for c, v in self.eqs)]
+        source = live_view_rows(self.db.tables.get("playbooks", [])) if self.name == "playbooks_live" else self.db.tables.get(self.name, [])
+        rows = [row for row in source if all(row.get(c) == v for c, v in self.eqs)]
         rows = [row for row in rows if all(row.get(c) in v for c, v in self.ins)]
         rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=self.desc)
         return SimpleNamespace(data=rows[: self.n] if self.n else rows)
@@ -304,7 +307,7 @@ def test_flag_on_without_sales_motion_reads_no_playbook_and_has_no_label():
     }, sales_motion_key=None)
     db = _Db(_tables([memo], playbooks=[PLAYBOOK], versions=[VERSION]))
     body = _get(db)
-    assert "playbooks" not in db.reads
+    assert "playbooks_live" not in db.reads
     assert body["label"] is None
 
 
@@ -332,7 +335,7 @@ def test_malformed_no_reply_signal_marks_the_brief_partial():
 
 def test_failed_playbook_read_marks_the_brief_partial():
     briefs_api.set_brief_tasks(_tasks([]))
-    db = _Db(_tables([_memo()], playbooks=[PLAYBOOK], versions=[VERSION]), failing={"playbooks"})
+    db = _Db(_tables([_memo()], playbooks=[PLAYBOOK], versions=[VERSION]), failing={"playbooks_live"})
     body = _get(db)
     assert body["status"] == "partial"
     assert body["label"] is None
@@ -473,7 +476,7 @@ def test_cold_hubspot_contact_reads_the_sdk_and_carries_the_hoy_reason(monkeypat
         UNCALLED_WHY,
     ]
     assert contacts.calls == [("42", ["jobtitle", "company", "createdate", "hs_analytics_source"])]
-    assert "playbooks" not in db.reads
+    assert "playbooks_live" not in db.reads
 
 
 def test_cold_hubspot_unknown_source_is_omitted(monkeypatch):

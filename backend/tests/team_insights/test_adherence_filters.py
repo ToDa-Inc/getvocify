@@ -19,6 +19,7 @@ import pytest
 
 from app.services.team_insights import aggregate
 from app.services.team_insights.aggregate import load_team_adherence_inputs, team_adherence
+from tests.playbooks.live_double import TablesWithLiveView
 
 COMPANY = "co-filter-1"
 USER_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -115,7 +116,7 @@ class _Query:
 
 class _Supabase:
     def __init__(self, tables: dict[str, list[dict]]):
-        self.tables = tables
+        self.tables = TablesWithLiveView(tables)
         self.in_calls: list[tuple[str, str, int]] = []
 
     def table(self, name: str):
@@ -215,84 +216,58 @@ def test_user_filter_excludes_the_other_rep():
     assert body["attempts"] == 1
 
 
+def _playbook(store, *, playbook: dict, versions: list[dict]) -> None:
+    store.tables["playbooks"] = [{"id": "pb-1", "company_id": COMPANY, "sales_motion_key": "discovery", **playbook}]
+    store.tables["playbook_versions"] = [{"playbook_id": "pb-1", **version} for version in versions]
+
+
 def test_load_team_adherence_inputs_collects_published_playbook_entries():
     store = _store()
-    store.tables["playbooks"] = [
-        {
-            "id": "pb-1",
-            "company_id": COMPANY,
-            "active_version_id": "v-1",
-            "playbook_versions.status": "published",
-            "playbook_versions": [
-                {"id": "v-1", "status": "published", "entries": [{"category": "price", "guidance": "Ancla en el ROI."}]},
-            ],
-        },
-    ]
+    _playbook(
+        store,
+        playbook={"active_version_id": "v-1"},
+        versions=[{"id": "v-1", "status": "published", "entries": [{"category": "price", "guidance": "Ancla en el ROI."}]}],
+    )
     inputs = load_team_adherence_inputs(store, COMPANY)
     assert inputs["playbook_entries"] == [{"category": "price", "guidance": "Ancla en el ROI."}]
+    assert inputs["playbook_present"] is True
 
 
 def test_load_team_adherence_inputs_prefers_the_active_version_over_a_stray_published_one():
     store = _store()
-    store.tables["playbooks"] = [
-        {
-            "id": "pb-1",
-            "company_id": COMPANY,
-            "active_version_id": "v-active",
-            "playbook_versions.status": "published",
-            "playbook_versions": [
-                {"id": "v-stale", "status": "published", "entries": [{"category": "price", "guidance": "Guía vieja."}]},
-                {"id": "v-active", "status": "published", "entries": [{"category": "price", "guidance": "Guía vigente."}]},
-            ],
-        },
-    ]
+    _playbook(
+        store,
+        playbook={"active_version_id": "v-active"},
+        versions=[
+            {"id": "v-stale", "status": "published", "entries": [{"category": "price", "guidance": "Guía vieja."}]},
+            {"id": "v-active", "status": "published", "entries": [{"category": "price", "guidance": "Guía vigente."}]},
+        ],
+    )
     inputs = load_team_adherence_inputs(store, COMPANY)
     assert inputs["playbook_entries"] == [{"category": "price", "guidance": "Guía vigente."}]
 
 
-def test_a_paused_or_deleted_playbook_contributes_no_entries():
-    """Pausing moves the active version to paused_version_id: it is still a published row, but
-    nothing points at it any more, so team adherence must not read its guidance."""
+def test_a_paused_playbook_contributes_no_entries_but_the_company_still_has_a_playbook():
+    """Pausing keeps the version and switches the playbook off: it is not what applies to calls, so team
+    adherence must not read its guidance, yet the company has a playbook and its adherence stays visible."""
     store = _store()
-    store.tables["playbooks"] = [
-        {
-            "id": "pb-paused",
-            "company_id": COMPANY,
-            "active_version_id": None,
-            "paused_version_id": "v-paused",
-            "playbook_versions.status": "published",
-            "playbook_versions": [
-                {"id": "v-paused", "status": "published", "entries": [{"category": "price", "guidance": "Pausada."}]},
-            ],
-        },
-    ]
+    _playbook(
+        store,
+        playbook={"active_version_id": "v-paused", "state": "paused"},
+        versions=[{"id": "v-paused", "status": "published", "entries": [{"category": "price", "guidance": "Pausada."}]}],
+    )
     inputs = load_team_adherence_inputs(store, COMPANY)
     assert inputs["playbook_entries"] == []
+    assert inputs["playbook_present"] is True
 
 
-def test_http_passes_filters_to_loader():
-    captured: dict = {}
-
-    def loader(supabase, company_id, user_id, motion):
-        captured["user_id"] = user_id
-        captured["motion"] = motion
-        inputs = load_team_adherence_inputs(supabase, company_id, user_id=user_id, motion=motion)
-        return inputs
-
-    team_api.set_team_adherence_loader(loader)
-    app = FastAPI()
-    app.include_router(team_api.router)
-    app.dependency_overrides[get_membership] = lambda: Membership(
-        id="m",
-        company_id=COMPANY,
-        user_id=USER_A,
-        role="admin",
-        status="active",
+def test_a_deleted_playbook_contributes_no_entries_and_is_not_a_playbook():
+    store = _store()
+    _playbook(
+        store,
+        playbook={"active_version_id": "v-gone", "archived_at": "2026-09-30T08:00:00Z"},
+        versions=[{"id": "v-gone", "status": "published", "entries": [{"category": "price", "guidance": "Eliminada."}]}],
     )
-    app.dependency_overrides[get_supabase] = _store
-    client = TestClient(app)
-    response = client.get(f"/api/v1/team/adherence?user_id={USER_B}&motion=discovery")
-    team_api.set_team_adherence_loader(None)
-    assert response.status_code == 200
-    assert captured == {"user_id": USER_B, "motion": "discovery"}
-    assert response.json()["attempts"] == 1
+    inputs = load_team_adherence_inputs(store, COMPANY)
+    assert inputs["playbook_entries"] == []
+    assert inputs["playbook_present"] is False

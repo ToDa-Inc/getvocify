@@ -19,6 +19,7 @@ from app.services.playbooks.catalog import (
     is_catalog,
     requires_stages,
 )
+from app.services.playbooks.live import live_version_id
 from app.services.playbooks.motion import goal_for, route, rule_matches_static
 
 logger = logging.getLogger(__name__)
@@ -304,7 +305,7 @@ def repin_before_c04(supabase: Any, memo: dict) -> dict:
             return memo
         if not is_repinnable(memo.get("pipeline_meta")):
             return memo
-        from app.services.captures import active_playbook_version, interaction_kind_of
+        from app.services.captures import interaction_kind_of
         from app.services.company import sales_role_for_user
         from app.services.feature_flags import is_enabled
 
@@ -321,7 +322,7 @@ def repin_before_c04(supabase: Any, memo: dict) -> dict:
         )
         if why != "rule" or not motion or motion == memo.get("sales_motion_key"):
             return memo
-        version = active_playbook_version(supabase, str(company_id), motion)
+        version = live_version_id(supabase, str(company_id), motion)
         if not version:
             return memo
         update = {

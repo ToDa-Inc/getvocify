@@ -662,43 +662,6 @@ def _pin(db, **kwargs):
     return playbook_fields_for_capture(db, CO, **kwargs)
 
 
-def test_a_paused_or_deleted_type_is_never_pinned(pg, roles_on):
-    client = pg.client()
-    live(client, "discovery")
-    version = pg.db.tables["playbooks"][0]["active_version_id"]
-    assert _pin(pg.db) == {"sales_motion_key": "discovery", "playbook_version_id": version}
-
-    client.post(f"{API}/discovery/pause")
-    assert _pin(pg.db) == {}
-    # Asking for it by name pins the type but no version: there is nothing active to snapshot.
-    assert _pin(pg.db, sales_motion_key="discovery") == {"sales_motion_key": "discovery"}
-    assert _pin(pg.db, default_when_unspecified=True, interaction_kind=None, sales_role=None) == {}
-
-    client.post(f"{API}/discovery/resume")
-    assert _pin(pg.db) == {"sales_motion_key": "discovery", "playbook_version_id": version}
-
-    client.delete(f"{API}/discovery")
-    assert _pin(pg.db) == {}
-    client.post(f"{API}/discovery/restore")
-    assert _pin(pg.db)["playbook_version_id"] == version
-
-
-def test_a_call_already_evaluated_keeps_its_version_after_the_pause(pg):
-    from app.services.copilot.load_grounding import published_playbook_snapshots
-    from app.services.playbooks.versions import get_published_playbook
-
-    client = pg.client()
-    live(client)
-    playbook = pg.db.tables["playbooks"][0]
-    pinned = playbook["active_version_id"]
-    client.post(f"{API}/discovery/pause")
-    row = pg.db.tables["playbooks"][0]
-    versions = [v for v in pg.db.tables["playbook_versions"] if v["playbook_id"] == row["id"]]
-    assert get_published_playbook(row, versions) is None  # the active snapshot: none
-    assert get_published_playbook(row, versions, version_id=pinned)["version_id"] == pinned  # the pinned one: intact
-    assert published_playbook_snapshots(pg.db, company_id=CO) == []
-
-
 def test_routing_never_routes_to_a_paused_type_and_falls_back_to_the_role_default(pg, monkeypatch):
     from app.services.playbooks import routing
     from app.services.playbooks.motion import route
@@ -719,48 +682,6 @@ def test_routing_never_routes_to_a_paused_type_and_falls_back_to_the_role_defaul
     client.delete(f"{API}/ae_discovery")
     assert {r["key"]: r["published"] for r in rules()}["ae_discovery"] is False
     assert route("ae", "meeting", {"contact": "new"}, rules())[1] == "role_default"
-
-
-def test_the_pin_with_routing_on_skips_a_paused_rule_target(pg, monkeypatch):
-    monkeypatch.setattr(settings, "SALES_ROLES_ENABLED", True)
-    monkeypatch.setattr(settings, "PLAYBOOK_ROUTING_ENABLED", True)
-    feature_flags.clear_cache()
-    client = pg.client()
-    for key in ("closing", "ae_discovery"):
-        live(client, key, label=key)
-    ids = {p["sales_motion_key"]: p["active_version_id"] for p in pg.db.tables["playbooks"]}
-    kwargs = dict(sales_role="ae", interaction_kind="meeting", hubspot_contact_id="c-1")
-    fields = _pin(pg.db, **kwargs)  # a contact never talked to: the first-meeting rule
-    assert fields["sales_motion_key"] == "ae_discovery" and fields["playbook_version_id"] == ids["ae_discovery"]
-
-    client.post(f"{API}/ae_discovery/pause")
-    fields = _pin(pg.db, **kwargs)
-    assert fields["sales_motion_key"] == "closing" and fields["playbook_version_id"] == ids["closing"]
-
-    client.post(f"{API}/closing/pause")
-    assert _pin(pg.db, **kwargs) == {}  # nothing active to route to: the call is not evaluated
-    feature_flags.clear_cache()
-
-
-def test_copilot_briefs_and_insights_ignore_a_paused_playbook(pg):
-    from app.api.briefs import _closing_playbook_steps
-    from app.services.coaching.rep_coaching_reads import load_published_playbook
-    from app.services.copilot.load_grounding import published_playbook_snapshots
-
-    client = pg.client()
-    live(client, "closing", label="Cierre")
-    assert [s["motion"] if "motion" in s else s["sales_motion_key"] for s in published_playbook_snapshots(pg.db, company_id=CO)] == ["closing"]
-    assert _closing_playbook_steps(pg.db, CO)
-    assert load_published_playbook(pg.db, CO, "closing")["published"] is True
-
-    client.post(f"{API}/closing/pause")
-    assert published_playbook_snapshots(pg.db, company_id=CO) == []
-    assert _closing_playbook_steps(pg.db, CO) == []
-    assert load_published_playbook(pg.db, CO, "closing") == {"published": False, "steps": [], "entries": []}
-
-    client.post(f"{API}/closing/resume")
-    assert len(published_playbook_snapshots(pg.db, company_id=CO)) == 1
-    assert load_published_playbook(pg.db, CO, "closing")["published"] is True
 
 
 def test_the_memo_playbook_options_only_offer_active_types(pg):

@@ -9,6 +9,8 @@ os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-copilot-32-chars")
 
 from types import SimpleNamespace
 
+from tests.playbooks.live_double import TablesWithLiveView
+
 from app.services.copilot.load_grounding import (
     load_company_suggest_grounding,
     load_suggest_grounding,
@@ -23,9 +25,14 @@ class _Chain:
     def __init__(self, table: "_FakeTable"):
         self._table = table
         self._filters: dict[str, str] = {}
+        self._ins: dict[str, set[str]] = {}
         self._limit: int | None = None
 
     def select(self, _columns: str):
+        return self
+
+    def in_(self, column: str, values):
+        self._ins[column] = {str(v) for v in values}
         return self
 
     def eq(self, column: str, value: str):
@@ -37,7 +44,10 @@ class _Chain:
         return self
 
     def execute(self):
-        rows = self._table.filter_rows(self._filters)
+        rows = [
+            row for row in self._table.filter_rows(self._filters)
+            if all(str(row.get(k)) in wanted for k, wanted in self._ins.items())
+        ]
         if self._limit is not None:
             rows = rows[: self._limit]
         return SimpleNamespace(data=rows)
@@ -58,7 +68,7 @@ class _FakeTable:
 
 class _FakeSupabase:
     def __init__(self, tables: dict[str, list[dict]]):
-        self._tables = tables
+        self._tables = TablesWithLiveView(tables)
 
     def table(self, name: str):
         return _Chain(_FakeTable(name, self._tables.get(name, [])))

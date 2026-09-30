@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from app.services.playbooks.live import live_snapshot
 from app.services.team_insights.aggregate import load_team_reps
 
 _MEMO_COLUMNS = (
@@ -100,32 +101,15 @@ def load_patterns(supabase, memo_ids: list[str]) -> list[dict]:
 
 
 def load_published_playbook(supabase, company_id: str, motion: str) -> dict:
-    """{published, steps, entries} of the flow's active published version."""
+    """{published, steps, entries} of the flow's live published version (none when it is paused, deleted or
+    was never published)."""
     empty = {"published": False, "steps": [], "entries": []}
     try:
-        playbooks = (
-            supabase.table("playbooks")
-            .select("id,active_version_id")
-            .eq("company_id", company_id)
-            .eq("sales_motion_key", motion)
-            .limit(1)
-            .execute()
-        ).data or []
-        active = playbooks[0].get("active_version_id") if playbooks else None
-        if not active:
-            return empty
-        versions = (
-            supabase.table("playbook_versions")
-            .select("id,status,steps,entries")
-            .eq("id", active)
-            .eq("status", "published")
-            .limit(1)
-            .execute()
-        ).data or []
+        snapshot = live_snapshot(supabase, company_id, motion)
     except Exception:
         return empty
-    if not versions:
+    if not snapshot:
         return empty
-    steps = [s for s in versions[0].get("steps") or [] if isinstance(s, dict) and s.get("step_id")]
-    entries = [e for e in versions[0].get("entries") or [] if isinstance(e, dict)]
+    steps = [s for s in snapshot["steps"] if isinstance(s, dict) and s.get("step_id")]
+    entries = [e for e in snapshot["entries"] if isinstance(e, dict)]
     return {"published": bool(steps), "steps": steps, "entries": entries}

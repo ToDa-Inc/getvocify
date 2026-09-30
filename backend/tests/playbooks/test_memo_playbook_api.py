@@ -20,6 +20,7 @@ from app.deps import get_membership, get_supabase, get_user_id
 from app.services import feature_flags
 from app.services.company import Membership
 from app.services.playbooks.store import MemoryPlaybookStore
+from tests.playbooks.live_double import TablesWithLiveView
 
 MEMO = "11111111-1111-1111-1111-111111111111"
 
@@ -65,13 +66,13 @@ class _Query:
 
 class _Db:
     def __init__(self, memo=None, published=("closing", "discovery")):
-        self.tables = {
+        self.tables = TablesWithLiveView({
             "memos": [memo] if memo else [],
             "playbooks": [
                 {"company_id": "co-1", "sales_motion_key": key, "active_version_id": f"v-{key}"} for key in published
             ],
             "company_feature_flags": [],
-        }
+        })
 
     def table(self, name):
         return _Query(self, name)

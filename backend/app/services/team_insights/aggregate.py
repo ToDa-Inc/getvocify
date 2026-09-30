@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from app.services.activity_scope import author_display_name, can_view_company_activity
 from app.services.coaching.metrics import aggregate_adherence
 from app.services.company import CompanyService
+from app.services.playbooks.live import has_published_playbook, live_snapshots
 from app.services.team_insights.competitors import competitor_counts
 from app.services.team_insights.objections import objection_counts
 from app.services.team_insights.outcomes import adherence_crm_outcomes
@@ -397,26 +398,11 @@ def load_team_adherence_inputs(
                 memo_ids,
                 ("memo_id", "pattern_id", "input_revision"),
             )
-        published = (
-            supabase.table("playbooks")
-            .select("id, active_version_id, playbook_versions!inner(id,status,entries)")
-            .eq("company_id", company_id)
-            .eq("playbook_versions.status", "published")
-            .execute()
-        )
-        playbook_present = bool(published.data)
-        for row in published.data or []:
-            versions = row.get("playbook_versions")
-            if isinstance(versions, dict):
-                versions = [versions]
-            versions = [v for v in versions or [] if isinstance(v, dict)]
-            # Only the flow's currently active version counts: a stray published-but-retired
-            # version, or the version of a paused or deleted flow (no active one), must not
-            # surface its (possibly outdated) guidance.
-            active_id = row.get("active_version_id")
-            chosen = [v for v in versions if active_id and str(v.get("id")) == str(active_id)]
-            for version in chosen:
-                playbook_entries.extend(version.get("entries") or [])
+        # The guidance of what applies to calls now: a paused or deleted flow contributes nothing, but the
+        # company still has a playbook (playbook_present), so adherence stays visible.
+        playbook_present = has_published_playbook(supabase, company_id)
+        for snapshot in live_snapshots(supabase, company_id):
+            playbook_entries.extend(snapshot["entries"])
     except _NoRepsInRole:
         pass
     except Exception:

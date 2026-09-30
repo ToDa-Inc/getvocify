@@ -12,6 +12,8 @@ from typing import Any, Optional
 from fastapi import HTTPException, status
 from supabase import Client
 
+from app.services.playbooks.live import live_snapshots, live_version_id
+
 logger = logging.getLogger(__name__)
 
 INTERACTION_KINDS = frozenset({"call", "meeting", "visit", "voice_note"})
@@ -155,37 +157,13 @@ def content_fingerprint(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def active_playbook_version(
-    supabase: Client,
-    company_id: str,
-    sales_motion_key: Optional[str],
-) -> Optional[str]:
-    if not sales_motion_key:
-        return None
-    try:
-        result = (
-            supabase.table("playbooks")
-            .select("active_version_id")
-            .eq("company_id", company_id)
-            .eq("sales_motion_key", sales_motion_key)
-            .limit(1)
-            .execute()
-        )
-    except Exception:
-        return None
-    rows = list(getattr(result, "data", None) or [])
-    if not rows:
-        return None
-    return rows[0].get("active_version_id")
-
-
 def playbook_fields_for_capture(
     supabase: Client,
     company_id: str,
     *,
     sales_motion_key: Optional[str] = None,
     playbook_version_id: Optional[str] = None,
-    active_version_id: Optional[str] = None,
+    resolved_version_id: Optional[str] = None,
     default_when_unspecified: bool = False,
     sales_role: Optional[str] = None,
     interaction_kind: Optional[str] = None,
@@ -235,23 +213,21 @@ def playbook_fields_for_capture(
                         candidate, candidate_source = routed, why or "role_default"
                 except Exception:
                     logger.warning("playbook routing failed, using the role default", exc_info=True)
-            candidate_version = active_playbook_version(supabase, company_id, candidate)
+            candidate_version = live_version_id(supabase, company_id, candidate)
             if not candidate_version and candidate_source == "rule":
                 candidate = motion_for(sales_role, interaction_kind)
                 candidate_source = "role_default"
-                candidate_version = active_playbook_version(supabase, company_id, candidate)
+                candidate_version = live_version_id(supabase, company_id, candidate)
             if candidate_version:
                 motion = candidate
-                active_version_id = candidate_version
+                resolved_version_id = candidate_version
                 if routing_on:
                     pin_source = candidate_source
                     pin_provisional = provisional
     if not motion and not pinned_id:
         if not default_when_unspecified:
             return {}
-        from app.services.copilot.load_grounding import published_playbook_snapshots
-
-        snapshots = published_playbook_snapshots(supabase, company_id=str(company_id))
+        snapshots = live_snapshots(supabase, str(company_id))
         if len(snapshots) != 1:
             return {}
         snapshot = snapshots[0]
@@ -259,8 +235,8 @@ def playbook_fields_for_capture(
             "sales_motion_key": str(snapshot["sales_motion_key"]),
             "playbook_version_id": str(snapshot["version_id"]),
         }
-    active = None if pinned_id else (active_version_id or active_playbook_version(supabase, company_id, motion))
-    version = snapshot_for_capture(pinned_id, active)
+    live = None if pinned_id else (resolved_version_id or live_version_id(supabase, company_id, motion))
+    version = snapshot_for_capture(pinned_id, live)
     fields: dict[str, Any] = {}
     if motion:
         fields["sales_motion_key"] = motion
@@ -393,7 +369,7 @@ def reserve_capture(
     interaction_kind: str,
     sales_motion_key: Optional[str] = None,
     playbook_version_id: Optional[str] = None,
-    active_version_id: Optional[str] = None,
+    resolved_version_id: Optional[str] = None,
     sales_role: Optional[str] = None,
     source: str = "desktop",
     source_type: Optional[str] = None,
@@ -425,7 +401,7 @@ def reserve_capture(
         company_id,
         sales_motion_key=sales_motion_key,
         playbook_version_id=playbook_version_id,
-        active_version_id=active_version_id,
+        resolved_version_id=resolved_version_id,
         sales_role=sales_role,
         interaction_kind=kind,
         hubspot_contact_id=hubspot_contact_id,

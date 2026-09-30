@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.playbooks.live_double import TablesWithLiveView
+
 
 class _Result:
     def __init__(self, data):
@@ -103,7 +105,7 @@ class _Query:
 
 class FakeSupabase:
     def __init__(self, **tables):
-        self.tables = tables
+        self.tables = TablesWithLiveView(tables)
 
     def table(self, name):
         return _Query(self.tables, name)

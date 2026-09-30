@@ -11,20 +11,20 @@ import pytest
 
 from app.services.playbooks.versions import (
     can_publish,
-    get_published_playbook,
+    published_snapshot,
     snapshot_for_capture,
     validate_entries,
 )
 
-PLAYBOOK = {"id": "pb-1", "company_id": "co-1", "sales_motion_key": "discovery", "active_version_id": "pv-2"}
+PLAYBOOK = {"id": "pb-1", "company_id": "co-1", "sales_motion_key": "discovery"}
 V1 = {"id": "pv-1", "status": "published", "steps": [{"step_id": "pain", "label": "Confirmar problema", "criterion": "El prospecto confirma un problema concreto"}], "entries": []}
 V2 = {"id": "pv-2", "status": "published", "steps": [{"step_id": "next", "label": "Siguiente paso", "criterion": "Hay un siguiente paso concreto"}], "entries": []}
 
 
 def test_capture_keeps_the_version_fixed_at_the_start():
     assert snapshot_for_capture("pv-1", "pv-2") == "pv-1"
-    assert get_published_playbook(PLAYBOOK, [V1, V2], version_id="pv-1")["version_id"] == "pv-1"
-    assert get_published_playbook(PLAYBOOK, [V1, V2])["version_id"] == "pv-2"
+    assert published_snapshot(PLAYBOOK, [V1, V2], "pv-1")["version_id"] == "pv-1"
+    assert published_snapshot(PLAYBOOK, [V1, V2], "pv-2")["version_id"] == "pv-2"
 
 
 def test_member_cannot_publish_and_an_entry_needs_a_source():
@@ -34,9 +34,10 @@ def test_member_cannot_publish_and_an_entry_needs_a_source():
         validate_entries([{"entry_id": "e1", "source_ref": "  "}])
 
 
-def test_unpublished_playbook_is_explicitly_absent():
-    draft = {**PLAYBOOK, "active_version_id": None}
-    assert get_published_playbook(draft, [{**V1, "status": "draft"}]) is None
+def test_a_draft_is_never_a_published_snapshot():
+    assert published_snapshot(PLAYBOOK, [{**V1, "status": "draft"}], "pv-1") is None
+    assert published_snapshot(PLAYBOOK, [V1], "pv-404") is None
+    assert published_snapshot(None, [V1], "pv-1") is None
 
 
 def test_publishing_discovery_does_not_activate_another_motion_and_a_member_cannot():

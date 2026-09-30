@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
+from tests.playbooks.live_double import TablesWithLiveView
+
 ABSENT_COLUMNS = {"memos": frozenset({"connection_id"})}
 
 UNIQUE_KEYS = {
@@ -298,7 +300,7 @@ class FakeDB:
 
     def __init__(self, *, clock: datetime, emails: dict[str, str] | None = None, **tables):
         self.clock = clock
-        self.tables: dict[str, list[dict]] = {name: [_normalize(r) for r in rows] for name, rows in tables.items()}
+        self.tables: dict[str, list[dict]] = TablesWithLiveView({name: [_normalize(r) for r in rows] for name, rows in tables.items()})
         self.calls: list[tuple[str, str]] = []
         self.auth = SimpleNamespace(admin=_Admin(emails or {}))
 

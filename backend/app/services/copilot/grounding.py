@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from app.services.playbooks.versions import get_published_playbook
+from app.services.playbooks.versions import published_snapshot
 
 
 @dataclass(frozen=True)
@@ -55,7 +55,7 @@ def resolve_suggest_grounding(
     version_id = str(row.get("playbook_version_id") or "").strip() or None
     snapshot = None
     if playbook and versions and version_id:
-        snapshot = get_published_playbook(playbook, versions, version_id=version_id)
+        snapshot = published_snapshot(playbook, versions, version_id)
         if snapshot is None:
             version_id = None
     elif version_id and not (playbook and versions):

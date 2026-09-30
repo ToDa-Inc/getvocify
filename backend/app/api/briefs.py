@@ -22,7 +22,7 @@ from app.services.handoff_visibility import (
     handoff_sdr_map_for_viewer,
     sdr_ids_for_contact,
 )
-from app.services.playbooks.versions import get_published_playbook
+from app.services.playbooks.live import live_snapshot, pinned_snapshot
 from app.services.hoy.no_reply import NO_REPLY_FLAG
 from app.services.hoy.context import snapshot_from_rows
 from app.services.hoy.priority import rank_candidates
@@ -260,25 +260,7 @@ def _closing_playbook_steps(supabase, company_id: str) -> list[dict]:
     """The published closing playbook's steps (D4: AE plays the `closing` motion). No
     published version is no steps, never an error."""
     try:
-        result = (
-            supabase.table("playbooks")
-            .select("id,company_id,sales_motion_key,active_version_id")
-            .eq("company_id", company_id)
-            .eq("sales_motion_key", "closing")
-            .limit(1)
-            .execute()
-        )
-        playbooks = list(getattr(result, "data", None) or [])
-        if not playbooks:
-            return []
-        playbook = playbooks[0]
-        versions = (
-            supabase.table("playbook_versions")
-            .select("id,status,steps,entries")
-            .eq("playbook_id", playbook["id"])
-            .execute()
-        )
-        snapshot = get_published_playbook(playbook, list(getattr(versions, "data", None) or []), version_id=None)
+        snapshot = live_snapshot(supabase, company_id, "closing")
     except Exception:
         logger.warning("meeting brief playbook read failed", extra={"company_id": company_id}, exc_info=True)
         return []
@@ -497,28 +479,11 @@ def _playbook_for_memo(supabase, company_id: str, rows: list[dict]) -> tuple[lis
     if not motion:
         return [], []
     try:
-        result = (
-            supabase.table("playbooks")
-            .select("id,company_id,sales_motion_key,active_version_id")
-            .eq("company_id", company_id)
-            .eq("sales_motion_key", motion)
-            .limit(1)
-            .execute()
-        )
-        playbooks = list(getattr(result, "data", None) or [])
-        if not playbooks:
-            return [], []
-        playbook = playbooks[0]
-        versions = (
-            supabase.table("playbook_versions")
-            .select("id,status,steps,entries")
-            .eq("playbook_id", playbook["id"])
-            .execute()
-        )
-        snapshot = get_published_playbook(
-            playbook,
-            list(getattr(versions, "data", None) or []),
-            version_id=version_id,
+        # A call keeps the version it was evaluated with; without one, what applies now.
+        snapshot = (
+            pinned_snapshot(supabase, company_id, motion, version_id)
+            if version_id
+            else live_snapshot(supabase, company_id, motion)
         )
     except Exception as exc:
         logger.warning("brief playbook read failed", extra={"company_id": company_id}, exc_info=True)

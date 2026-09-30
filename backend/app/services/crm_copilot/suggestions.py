@@ -34,14 +34,11 @@ def _has_analysed_objection(memos: list[dict]) -> bool:
 
 
 def _published_playbook(supabase: Any, company_id: str) -> dict:
-    """What the published playbook holds: {"entries": bool, "steps": bool}."""
-    plays = supabase.table("playbooks").select("id,active_version_id").eq("company_id", company_id).execute().data or []
-    ids = [p["active_version_id"] for p in plays if p.get("active_version_id")]
-    if not ids:
-        return {"entries": False, "steps": False}
-    versions = supabase.table("playbook_versions").select("id,status,entries,steps").in_("id", ids).execute().data or []
-    live = [v for v in versions if v.get("status") == "published"]
-    return {"entries": any(v.get("entries") for v in live), "steps": any(v.get("steps") for v in live)}
+    """What the playbook that applies to calls holds: {"entries": bool, "steps": bool}."""
+    from app.services.playbooks.live import live_snapshots
+
+    live = live_snapshots(supabase, company_id)
+    return {"entries": any(v["entries"] for v in live), "steps": any(v["steps"] for v in live)}
 
 
 def compute(supabase: Any, *, company_id: str, user_id: str, role: str, member_ids: list[str], has_crm: bool) -> list[str]:

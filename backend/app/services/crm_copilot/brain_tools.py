@@ -64,20 +64,15 @@ def _day(value: Optional[datetime], tz_name: str) -> Optional[str]:
 def published_answers(ctx, actor: AskActor) -> tuple[dict[str, dict], list[dict]]:
     """{objection category: {answer, evidence, motion}} from the published playbooks, plus the citable entries.
     ({}, []) when there is none or the read fails: no answer is ever made up."""
-    from app.services.playbooks.versions import get_published_playbook
+    from app.services.playbooks.live import live_snapshots
 
     try:
-        plays = ctx.supabase.table("playbooks").select("id,sales_motion_key,active_version_id").eq("company_id", actor.company_id).execute().data or []
-        ids = [p["active_version_id"] for p in plays if p.get("active_version_id")]
-        versions = ctx.supabase.table("playbook_versions").select("id,playbook_id,status,steps,entries").in_("id", ids).execute().data or [] if ids else []
+        snapshots = live_snapshots(ctx.supabase, actor.company_id)
     except Exception:  # noqa: BLE001
         return {}, []
     answers: dict[str, dict] = {}
     evidence: list[dict] = []
-    for play in plays:
-        view = get_published_playbook(play, [v for v in versions if v.get("playbook_id") == play["id"]])
-        if not view:
-            continue
+    for view in snapshots:
         for entry in view["entries"]:
             category = str(entry.get("category") or "").strip().lower()
             text = " ".join(str(entry.get("approved_answer") or entry.get("guidance") or "").split())

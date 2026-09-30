@@ -268,7 +268,7 @@ def test_a_meeting_keeps_the_playbook_version_it_started_with():
         interaction_kind="meeting",
         sales_motion_key="discovery",
         playbook_version_id="pv-1",
-        active_version_id="pv-9",
+        resolved_version_id="pv-9",
     )
     assert store[0]["playbook_version_id"] == "pv-1"
     reserve_capture(
@@ -280,7 +280,7 @@ def test_a_meeting_keeps_the_playbook_version_it_started_with():
         interaction_kind="meeting",
         sales_motion_key="discovery",
         playbook_version_id="pv-2",
-        active_version_id="pv-2",
+        resolved_version_id="pv-2",
     )
     assert store[0]["playbook_version_id"] == "pv-1"
     reserve_capture(
@@ -291,7 +291,7 @@ def test_a_meeting_keeps_the_playbook_version_it_started_with():
         started_at=STARTED_AT,
         interaction_kind="meeting",
         sales_motion_key="discovery",
-        active_version_id="pv-3",
+        resolved_version_id="pv-3",
     )
     assert store[1]["playbook_version_id"] == "pv-3"
     complete_capture(

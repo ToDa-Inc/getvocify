@@ -16,6 +16,7 @@ import pytest
 from app.config import settings
 from app.services import feature_flags
 from app.services.telephony.call_processor import initiate_vocify_call_memo
+from tests.playbooks.live_double import TablesWithLiveView
 
 
 @pytest.fixture(autouse=True)
@@ -47,11 +48,19 @@ class _Query:
         self._filters.append((column, value))
         return self
 
+    def in_(self, column: str, values):
+        wanted = {str(v) for v in values}
+        self._filters.append((column, wanted))
+        return self
+
     def limit(self, *_a, **_k):
         return self
 
     def _matches(self, row: dict) -> bool:
-        return all(str(row.get(column)) == str(value) for column, value in self._filters)
+        return all(
+            str(row.get(column)) in value if isinstance(value, set) else str(row.get(column)) == str(value)
+            for column, value in self._filters
+        )
 
     def execute(self):
         kind, payload = self._op
@@ -72,7 +81,7 @@ class _Query:
 
 class _Supabase:
     def __init__(self, tables: dict[str, list[dict]]):
-        self._tables = {name: list(rows) for name, rows in tables.items()}
+        self._tables = TablesWithLiveView({name: list(rows) for name, rows in tables.items()})
 
     def table(self, name: str):
         return _Query(self._tables.setdefault(name, []))

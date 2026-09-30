@@ -42,7 +42,7 @@ from app.services.playbooks.structured import (
     normalize_qualification,
     render_text,
 )
-from app.services.playbooks.versions import get_published_playbook
+from app.services.playbooks.versions import published_snapshot
 from app.services.text_guard import generic_phrases
 from tests.playbooks.test_company_intake import (
     AE,
@@ -298,7 +298,7 @@ def test_publishing_on_the_supabase_store_keeps_the_criteria_in_the_same_row():
     live = db.tables["playbook_versions"][0]
     assert live["id"] == saved["version_id"] and live["status"] == "published" and len(live["qualification"]) == 2
     playbook = db.tables["playbooks"][0]
-    view = get_published_playbook({"id": playbook["id"], "sales_motion_key": "discovery", "active_version_id": live["id"]}, [live])
+    view = published_snapshot({"id": playbook["id"], "sales_motion_key": "discovery"}, [live], live["id"])
     assert [c["criterion_id"] for c in view["qualification"]] == ["presupuesto", "quien_decide"]
 
 

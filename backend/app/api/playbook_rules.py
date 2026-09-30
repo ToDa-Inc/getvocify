@@ -28,6 +28,7 @@ from app.services.playbooks.catalog import (
     qualification_templates,
     validate_applies_to,
 )
+from app.services.playbooks.live import live_version_id
 from app.services.playbooks.knowledge import StaleKnowledgeError, normalize_knowledge, sections
 from app.services.playbooks.routing import merge_pin_meta, routing_enabled
 from app.services.playbooks.versions import can_publish
@@ -257,10 +258,8 @@ async def change_memo_playbook(
     if not (_is_author(memo, membership) or _is_manager_of(memo, membership)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo el autor o un manager pueden cambiar el playbook")
     key = body.sales_motion_key.strip()
-    from app.services.captures import active_playbook_version
-
     company_id = str(memo.get("company_id") or membership.company_id)
-    version = active_playbook_version(supabase, company_id, key) if key else None
+    version = live_version_id(supabase, company_id, key) if key else None
     if not version:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "not_published"})
     update: dict[str, Any] = {

@@ -13,12 +13,12 @@ from app.deps import get_membership, get_supabase
 from app.services.captures import (
     CaptureContentConflict,
     CaptureIdentity,
-    active_playbook_version,
     complete_capture,
     reserve_capture,
     store_capture_audio,
 )
 from app.services.company import Membership
+from app.services.playbooks.live import live_version_id
 
 router = APIRouter(prefix="/api/v1/captures", tags=["captures"])
 
@@ -71,7 +71,7 @@ async def create_capture(
         interaction_kind=body.interaction_kind,
         sales_motion_key=body.sales_motion_key,
         playbook_version_id=body.playbook_version_id,
-        active_version_id=None if body.playbook_version_id else active_playbook_version(
+        resolved_version_id=None if body.playbook_version_id else live_version_id(
             supabase, membership.company_id, body.sales_motion_key
         ),
         sales_role=membership.sales_role,

@@ -16,6 +16,7 @@ from app.services import feature_flags
 from app.services.captures import playbook_fields_for_capture
 from app.services.playbooks import routing
 from app.services.playbooks.routing import repin_before_c04
+from tests.playbooks.live_double import live_view_rows
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +57,7 @@ class _Query:
     def execute(self):
         if self.name in self.db.broken:
             raise RuntimeError(f"{self.name} is down")
-        rows = self.db.tables.get(self.name, [])
+        rows = live_view_rows(self.db.tables["playbooks"]) if self.name == "playbooks_live" else self.db.tables.get(self.name, [])
         for op, column, value in self.filters:
             if op == "eq":
                 rows = [r for r in rows if str(r.get(column)) == str(value)]
@@ -402,7 +403,7 @@ def test_no_re_pin_when_the_new_type_has_no_published_version(ae):
 
 def test_a_failure_is_swallowed_and_the_memo_is_returned_as_it_was(ae):
     memo = _memo()
-    db = _db_with_memo(memo, broken=("playbooks",))
+    db = _db_with_memo(memo, broken=("playbooks", "playbooks_live"))
     assert repin_before_c04(db, memo) == memo
 
 

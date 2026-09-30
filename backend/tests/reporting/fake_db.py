@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from tests.playbooks.live_double import TablesWithLiveView
+
 
 def _matches_or(row: dict, clause: str) -> bool:
     for part in clause.split(","):
@@ -140,7 +142,7 @@ class _AuthUsers:
 
 class FakeDB:
     def __init__(self, tables: dict | None = None, *, emails: dict | None = None, fail_tables=()):
-        self.tables: dict[str, list[dict]] = {name: list(rows) for name, rows in (tables or {}).items()}
+        self.tables: dict[str, list[dict]] = TablesWithLiveView({name: list(rows) for name, rows in (tables or {}).items()})
         self.emails = dict(emails or {})
         self.fail_tables = set(fail_tables)
         self.calls: list[tuple[str, str]] = []

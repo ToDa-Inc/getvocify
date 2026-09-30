@@ -1,4 +1,5 @@
-"""Published playbook snapshots. A meeting keeps the version it started with."""
+"""Playbook version rules that need no database: who can publish, the errors, timestamps, and a published snapshot by id.
+A meeting keeps the version it started with."""
 
 from __future__ import annotations
 
@@ -100,26 +101,20 @@ def accept_publish(motions: dict, key: str, role: str) -> dict:
     return updated
 
 
-def snapshot_for_capture(pinned_version_id: Optional[str], active_version_id: Optional[str]) -> Optional[str]:
-    return pinned_version_id or active_version_id
+def snapshot_for_capture(pinned_version_id: Optional[str], live_version_id: Optional[str]) -> Optional[str]:
+    """The version a new capture is pinned to: the one the caller named, else the live one."""
+    return pinned_version_id or live_version_id
 
 
-def get_published_playbook(playbook: Optional[dict], versions: list[dict], version_id: Optional[str] = None) -> Optional[dict]:
-    """Return a published snapshot, or None when the company has not published one."""
-    if not playbook:
+def published_snapshot(playbook: Optional[dict], versions: list[dict], version_id: str) -> Optional[dict]:
+    """The published snapshot with this id, of this playbook ({id, sales_motion_key, ...}), None when it is not one.
+    For a version a call was pinned to; what applies to a NEW call is decided by services/playbooks/live.py."""
+    if not playbook or not version_id:
         return None
-    if version_id:
-        match = next((row for row in versions if row["id"] == version_id), None)
-        if not match or match.get("status") != "published":
-            return None
-        return _view(playbook, match)
-    active = playbook.get("active_version_id")
-    if not active:
+    match = next((row for row in versions if row["id"] == version_id), None)
+    if not match or match.get("status") != "published":
         return None
-    match = next((row for row in versions if row["id"] == active and row.get("status") == "published"), None)
-    if not match:
-        return None
-    return _view(playbook, match)
+    return snapshot_view(playbook["id"], playbook["sales_motion_key"], match)
 
 
 def validate_entries(entries: list[dict]) -> None:
@@ -128,11 +123,12 @@ def validate_entries(entries: list[dict]) -> None:
             raise ValueError("una entrada sin fuente no se publica")
 
 
-def _view(playbook: dict, version: dict) -> dict:
+def snapshot_view(playbook_id: str, sales_motion_key: str, version: dict) -> dict:
+    """A published version row as every consumer reads it."""
     return {
-        "playbook_id": playbook["id"],
+        "playbook_id": playbook_id,
         "version_id": version["id"],
-        "sales_motion_key": playbook["sales_motion_key"],
+        "sales_motion_key": sales_motion_key,
         "steps": version.get("steps") or [],
         "entries": version.get("entries") or [],
         "qualification": version.get("qualification") or [],
