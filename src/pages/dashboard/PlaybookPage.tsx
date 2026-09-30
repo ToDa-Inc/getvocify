@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth";
 import { playbooksApi } from "@/features/playbooks/api";
+import { COMPANY_KEY, PLAYBOOKS_KEY } from "@/features/playbooks/keys";
 import { PlaybookDocument } from "@/features/playbooks/components/PlaybookDocument";
 import { CompanyKnowledge } from "@/features/playbooks/components/CompanyKnowledge";
 import { isEmptyKnowledge } from "@/lib/playbook-knowledge";
@@ -34,7 +35,7 @@ function YourProcess() {
   const { t, language } = useLanguage();
   const copy = t.product.pb2;
   const lang = language === "EN" ? "en" : "es";
-  const list = useQuery({ queryKey: ["playbooks"], queryFn: playbooksApi.list, retry: false });
+  const list = useQuery({ queryKey: PLAYBOOKS_KEY, queryFn: playbooksApi.list, retry: false });
   const live = Object.entries(list.data?.motions ?? {})
     .filter(([, status]) => status === "published")
     .map(([key]) => key);
@@ -83,7 +84,7 @@ function YourProcess() {
 /** "Vuestra empresa", read-only: the value story, customer stories and competitors a rep uses. */
 function YourCompany() {
   const { t } = useLanguage();
-  const company = useQuery({ queryKey: ["playbook-company"], queryFn: playbooksApi.company, retry: false });
+  const company = useQuery({ queryKey: COMPANY_KEY, queryFn: playbooksApi.company, retry: false });
   if (!company.data || isEmptyKnowledge(company.data.knowledge)) return null;
   return (
     <section aria-labelledby="your-company" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-4 p-5 md:p-6`}>

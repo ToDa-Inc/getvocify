@@ -11,6 +11,7 @@ import {
 import { IconAction } from "@/components/ui/icon-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { errorCode, playbooksApi } from "@/features/playbooks/api";
+import { linkButton } from "@/features/playbooks/styles";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { useLanguage } from "@/lib/i18n";
 import { AUTOSAVE_MS, type SaveState } from "@/lib/playbook-doc";
@@ -154,7 +155,7 @@ export function CompanyKnowledge({ canEdit, onSaved }: { canEdit: boolean; onSav
   const addButton = (onClick: () => void, label = copy.addItem) => (
     <button
       type="button"
-      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+      className={linkButton}
       onClick={onClick}
     >
       <Plus size={12} weight="light" />
@@ -349,7 +350,7 @@ export function CompanyKnowledge({ canEdit, onSaved }: { canEdit: boolean; onSav
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+              className={linkButton}
             >
               <Plus size={12} weight="light" />
               {copy.addSection}

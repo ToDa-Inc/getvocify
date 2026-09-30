@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { IconAction } from "@/components/ui/icon-action";
+import { linkButton } from "@/features/playbooks/styles";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { useLanguage } from "@/lib/i18n";
 import { hasObjectionDetail, hiddenObjectionCategories, percent, type ObjectionRow } from "@/lib/playbook-doc";
@@ -81,7 +82,7 @@ export function PlaybookObjections({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="mt-1 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+              className={cn(linkButton, "mt-1")}
             >
               <Plus size={12} weight="light" />
               {copy.addObjection}

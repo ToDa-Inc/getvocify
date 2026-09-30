@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { IconAction } from "@/components/ui/icon-action";
 import { playbooksApi } from "@/features/playbooks/api";
+import { QUALIFICATION_TEMPLATES_KEY } from "@/features/playbooks/keys";
+import { linkButton } from "@/features/playbooks/styles";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { useLanguage } from "@/lib/i18n";
 import {
@@ -38,7 +40,7 @@ export function PlaybookQualification({
   const [pending, setPending] = useState<EditorCriterion[] | null>(null);
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const templates = useQuery({
-    queryKey: ["playbook-qualification-templates"],
+    queryKey: QUALIFICATION_TEMPLATES_KEY,
     queryFn: playbooksApi.qualificationTemplates,
     enabled: editable,
     retry: false,
@@ -83,7 +85,7 @@ export function PlaybookQualification({
             {chips}
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+              className={linkButton}
               onClick={add}
             >
               <Plus size={12} weight="light" />
@@ -108,7 +110,7 @@ export function PlaybookQualification({
       {editable && criteria.length > 0 && criteria.length < MAX_CRITERIA ? (
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-sm text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+          className={linkButton}
           onClick={add}
         >
           <Plus size={12} weight="light" />
