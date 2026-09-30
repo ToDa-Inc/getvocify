@@ -161,7 +161,9 @@ async def get_brief(
     except _ReadFailed:
         no_reply, complete = None, False
     try:
-        crm_task = await run_in_threadpool(_open_crm_task, supabase, membership.company_id, contact_id)
+        crm_task = await run_in_threadpool(
+            _open_crm_task, supabase, membership.company_id, contact_id, membership.user_id,
+        )
     except _ReadFailed:
         crm_task, complete = None, False
 
@@ -289,7 +291,9 @@ async def _cold_brief(
     except _ReadFailed:
         priority, complete = None, False
     try:
-        crm_task = await run_in_threadpool(_open_crm_task, supabase, membership.company_id, contact_id)
+        crm_task = await run_in_threadpool(
+            _open_crm_task, supabase, membership.company_id, contact_id, membership.user_id,
+        )
     except _ReadFailed:
         crm_task, complete = None, False
 
@@ -534,8 +538,10 @@ def _pending_no_reply(
     return {"text": text, "source_ref": row.get("id"), "observed_at": None}
 
 
-def _open_crm_task(supabase, company_id: str, contact_id: str) -> dict | None:
-    """The contact's first open CRM task, from the same read Hoy uses. No connection is nothing to read."""
+def _open_crm_task(supabase, company_id: str, contact_id: str, user_id: str | None = None) -> dict | None:
+    """The contact's first open CRM task, from the same read Hoy uses (the rep's own tasks when
+    their HubSpot owner is known, not the whole portal's: that read ran on every brief and could
+    outlast the screen's wait). No connection is nothing to read."""
     try:
         if _TASKS is not None:
             tasks, coverage = _TASKS(company_id)
@@ -545,7 +551,7 @@ def _open_crm_task(supabase, company_id: str, contact_id: str) -> dict | None:
             connection = _connection(supabase, company_id)
             if connection is None:
                 return None
-            tasks, coverage = _read_tasks(connection)
+            tasks, coverage = _read_tasks(connection, user_id)
     except Exception as exc:
         logger.warning("brief crm task read failed", extra={"company_id": company_id}, exc_info=True)
         raise _ReadFailed from exc

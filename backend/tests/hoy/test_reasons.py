@@ -62,7 +62,12 @@ def test_callback_no_answer_reason_names_the_outcome_and_days_computed_at_render
         payload={"outcome": "voicemail", "at": (NOW - timedelta(days=2)).isoformat()},
         dedupe_key="callback:memo-1",
     )
-    assert "mensaje de voz" in reason(voicemail, lang="es", now=NOW)
+    # "voicemail" is how the call ended, not a message the rep left: never claim one.
+    assert reason(voicemail, lang="es", now=NOW) == "Saltó el buzón de voz hace 2 días. Vuelve a llamar."
+    assert reason(voicemail, lang="en", now=NOW) == "It went to voicemail 2 days ago. Call again."
+    assert "mensaje" not in reason(voicemail, lang="es", now=NOW)
+    assert reason(called, lang="es", now=NOW - timedelta(days=2)) == "Le llamaste ayer y no contestó."
+    assert reason(called, lang="es", now=NOW - timedelta(days=3)) == "Le llamaste hoy y no contestó."
 
 
 def test_never_contacted_reason():

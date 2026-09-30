@@ -4,9 +4,16 @@ across the team gave an SDR «Información incompleta» and «280 más» over an
 
 from __future__ import annotations
 
-from app.api import today as today_api
-from app.services.hoy.scheduler import collect_open_tasks, task_request
-from app.services.hoy.sections import hoy_sections
+import os
+
+os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
+os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-rep-task-scope")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-rep-task-scope")
+
+from app.api import today as today_api  # noqa: E402
+from app.services.hoy.scheduler import collect_open_tasks, task_request  # noqa: E402
+from app.services.hoy.sections import hoy_sections  # noqa: E402
 
 
 def _owner_filters(request: dict) -> list[dict]:
@@ -159,3 +166,19 @@ def test_a_never_contacted_card_is_named_from_the_crm_read():
     ranked = rank_candidates(candidates, datetime(2026, 9, 30, tzinfo=timezone.utc))
     signals = never_contacted_signals(ranked, touched_contact_ids=set())
     assert sorted(signal.payload.get("contact_name") for signal in signals) == ["Marta Ruiz", "solo@email.com"]
+
+
+# --- the brief's open-task read is the rep's too ------------------------------------------
+
+def test_the_brief_reads_only_the_reps_crm_tasks(monkeypatch):
+    from app.api import briefs as briefs_api
+
+    asked: list[dict] = []
+    connection = {"id": "c", "provider": "hubspot", "metadata": {"hubspot_owners": {"sdr-1": "77"}}}
+    monkeypatch.setattr(today_api, "_connection", lambda _s, _company: connection)
+    monkeypatch.setattr(today_api, "_FETCH", lambda request: asked.append(request) or {
+        "results": [{"id": "9", "properties": {"hs_task_status": "NOT_STARTED", "hs_task_subject": "Llamar"}}],
+    })
+    monkeypatch.setattr(briefs_api, "_TASKS", None)
+    briefs_api._open_crm_task(None, "co", "contact-1", "sdr-1")
+    assert _owner_filters(asked[-1])[0]["value"] == "77"
