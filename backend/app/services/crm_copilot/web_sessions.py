@@ -19,7 +19,7 @@ WEB_HIDDEN_TOOLS = frozenset({"load_skill", "remember", "reset_session"})
 from app.services.crm_copilot.tools import ASK_DATA_TOOLS as _WHATSAPP_DATA_TOOLS  # noqa: E402
 _STORED_KEYS = (
     "question", "coverage", "item_count", "choices", "confirmation", "call_targets", "steps",
-    "evidence", "coverage_note", "memory",
+    "evidence", "coverage_note", "memory", "cards",
 )
 
 
@@ -488,6 +488,8 @@ async def live_ask_loop(text: str, confirm: bool | None = None, on_event=None):
     targets = public_call_targets(ctx, kind=result.kind)
     if targets:
         body["call_targets"] = targets
+    if result.kind == "text" and ctx.cards:
+        body["cards"] = list(ctx.cards)
     return body
 
 

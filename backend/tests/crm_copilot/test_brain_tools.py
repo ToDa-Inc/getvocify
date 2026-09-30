@@ -227,6 +227,48 @@ async def test_team_health_without_scored_conversations_says_so(monkeypatch):
     assert out["note"] == "no_scored_conversations_or_no_published_playbook"
 
 
+# ----- cards: what Ask draws under its answer ---------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_my_coaching_leaves_the_coach_screens_own_numbers_for_the_answer_card(monkeypatch):
+    async def fake(flow, membership, supabase):
+        return SUMMARY
+
+    monkeypatch.setattr(coaching_api, "get_my_coaching_summary", fake)
+    ctx = _ctx(FakeSupabase(memos=[]))
+    await run("my_coaching", {}, ctx)
+    (card,) = ctx.cards
+    assert card["kind"] == "coaching" and card["focus"] == SUMMARY["focus"] and card["steps"] == SUMMARY["steps"]
+
+
+@pytest.mark.asyncio
+async def test_no_coaching_card_without_a_published_playbook(monkeypatch):
+    async def fake(flow, membership, supabase):
+        return {**SUMMARY, "playbook_published": False, "steps": [], "focus": None, "conversion": None}
+
+    monkeypatch.setattr(coaching_api, "get_my_coaching_summary", fake)
+    ctx = _ctx(FakeSupabase(memos=[]))
+    await run("my_coaching", {}, ctx)
+    assert not getattr(ctx, "cards", None)
+
+
+@pytest.mark.asyncio
+async def test_team_health_card_keeps_raw_rates_reps_alphabetical_and_one_card_per_kind(monkeypatch):
+    async def fake(**kwargs):
+        return JSONResponse(TEAM)
+
+    monkeypatch.setattr(team_api, "get_team_adherence", fake)
+    ctx = _ctx(FakeSupabase(memos=[]), role="admin")
+    await run("team_health", {}, ctx)
+    await run("team_health", {"period": "week"}, ctx)
+    (card,) = ctx.cards
+    assert card["kind"] == "team" and card["period"] == "week" and (card["adherence"], card["previous"]) == (0.62, 0.5)
+    assert card["process"][0]["verdict"] == "coach_reps" and card["process"][0]["follows_goal_rate"] == 0.5
+    assert [r["name"] for r in card["reps"]] == ["Abel", "Zoe"]
+    assert card["reps"][1] == {"user_id": "u2", "name": "Zoe", "focus": {"label": "Confirmar problema", "rate": 0.25}}
+
+
 # ----- deal_story carries the approved answer ---------------------------------------------------
 
 

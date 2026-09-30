@@ -122,7 +122,7 @@ def _public(turn: dict) -> dict:
         "item_count": turn.get("item_count"),
         "confirmation": _public_confirmation(turn.get("confirmation")),
     }
-    for key in ("choices", "evidence", "coverage_note", "call_targets", "steps"):
+    for key in ("choices", "evidence", "coverage_note", "call_targets", "steps", "cards"):
         if turn.get(key):
             body[key] = turn[key]
     return body
@@ -233,7 +233,7 @@ async def _finish(turn: dict, text: str, on_event=None) -> dict:
             envelope = result.get("envelope")
             confirmation = result.get("confirmation")
             choices = result.get("choices")
-            extras = {k: result[k] for k in ("evidence", "coverage_note", "memory", "call_targets", "steps") if result.get(k)}
+            extras = {k: result[k] for k in ("evidence", "coverage_note", "memory", "call_targets", "steps", "cards") if result.get(k)}
         updated = {**turn, "status": "completed", "text": answer, "question": turn.get("question") or text, **extras}
         if confirmation:
             updated["confirmation"] = confirmation
@@ -304,6 +304,7 @@ def _closing_events(turn: dict) -> list[dict]:
                 "coverage_note": turn.get("coverage_note"),
                 "coverage": turn.get("coverage"),
                 **({"call_targets": turn["call_targets"]} if turn.get("call_targets") else {}),
+                **({"cards": turn["cards"]} if turn.get("cards") else {}),
             }
         )
         if turn.get("choices"):

@@ -1,5 +1,6 @@
 import type { AskEvent } from "./ask-sse.ts";
 import { askCallTargets, type AskCallTarget } from "./ask-calls.ts";
+import { askCards, type AskCard } from "./ask-cards.ts";
 
 export type AskEvidence = {
   id: string;
@@ -8,6 +9,8 @@ export type AskEvidence = {
   speaker?: string | null;
   at?: string;
   rep?: string;
+  /** Playbook entries only: the objection category the approved answer is for. */
+  category?: string | null;
 };
 export type AskStep = {
   id: string;
@@ -40,6 +43,8 @@ export type AskMessage = {
   coverageNote: AskCoverageNote | null;
   /** Contacts the server chose to call, with a Call action. Built from tool results, never from the model's words. */
   callTargets: AskCallTarget[];
+  /** Coaching or team read this turn, drawn under the answer. From the tool's producer, never the model's words. */
+  cards: AskCard[];
   confirm: AskConfirm | null;
   choices: AskChoiceOption[];
   retryable: boolean;
@@ -67,6 +72,7 @@ export type TurnBody = {
   evidence?: AskEvidence[];
   coverage_note?: AskCoverageNote | null;
   call_targets?: AskCallTarget[];
+  cards?: unknown;
   choices?: AskChoiceOption[];
   confirmation?: { operation_id?: string; revision?: number; contact_id?: string; applied?: boolean; cancelled?: boolean; state?: string; url?: string } | null;
 };
@@ -91,6 +97,7 @@ function assistant(id: string, question: string): AskMessage {
     evidence: [],
     coverageNote: null,
     callTargets: [],
+    cards: [],
     confirm: null,
     choices: [],
     retryable: false,
@@ -143,6 +150,7 @@ function applyEvent(m: AskMessage, e: AskEvent): AskMessage {
         evidence: (e.evidence as AskEvidence[]) ?? [],
         coverageNote: (e.coverage_note as AskCoverageNote) ?? null,
         callTargets: askCallTargets({ call_targets: e.call_targets as AskCallTarget[] | undefined }),
+        cards: askCards({ cards: e.cards }),
       };
     case "choices":
       return { ...m, choices: (e.options as AskChoiceOption[]) ?? [] };
@@ -184,6 +192,7 @@ function fromSnapshot(m: AskMessage, t: TurnBody): AskMessage {
     evidence: t.evidence ?? [],
     coverageNote: t.coverage_note ?? null,
     callTargets: askCallTargets(t),
+    cards: askCards(t),
     choices: t.choices ?? [],
     confirm,
   };

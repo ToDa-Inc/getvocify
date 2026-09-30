@@ -80,7 +80,7 @@ def published_answers(ctx, actor: AskActor) -> tuple[dict[str, dict], list[dict]
                 continue
             ev_id = f"pb-{entry.get('entry_id') or category}"
             answers[category] = {"answer": text, "evidence": ev_id, "motion": view["sales_motion_key"]}
-            evidence.append({"id": ev_id, "quote": text, "speaker": "playbook", "rep": view["sales_motion_key"]})
+            evidence.append({"id": ev_id, "quote": text, "speaker": "playbook", "rep": view["sales_motion_key"], "category": category})
     return answers, evidence
 
 
@@ -286,6 +286,43 @@ def _record_call_targets(ctx, actor: AskActor, items: list[dict], team_view: boo
         logger.info("call targets skipped", exc_info=True)
 
 
+# ----- cards --------------------------------------------------------------------------------------
+
+
+def record_card(ctx, card: dict) -> None:
+    """What the Coach or Team screen shows, taken from the same producer, for Ask to draw under its answer.
+    Turn-scoped, one per kind: the last read of the turn wins. Never built from the model's words."""
+    try:
+        ctx.cards = [*(c for c in (getattr(ctx, "cards", None) or []) if c.get("kind") != card["kind"]), card]
+    except Exception:  # noqa: BLE001 - a card is a courtesy, never a failure
+        pass
+
+
+def _coaching_card(body: dict) -> dict:
+    return {
+        "kind": "coaching", "flow": body.get("flow"), "focus": body.get("focus"),
+        "steps": body.get("steps") or [], "conversion": body.get("conversion"),
+    }
+
+
+def _team_card(body: dict, previous: dict, period: str, one_rep: bool) -> dict:
+    keys = ("motion", "goal", "scored", "verdict", "follow_share", "follows_goal_rate", "deviates_goal_rate", "needed")
+    reps = []
+    for rep in body.get("reps") or []:
+        focus = rep.get("coaching_focus") or None
+        reps.append({
+            "user_id": rep.get("userId"), "name": rep.get("name"),
+            "focus": {"label": focus.get("label"), "rate": focus.get("rate")} if focus else None,
+        })
+    reps.sort(key=lambda r: str(r["name"] or "").casefold())
+    return {
+        "kind": "team", "period": period, "one_rep": one_rep,
+        "adherence": body.get("adherence"), "previous": previous.get("adherence"),
+        "process": [{k: flow.get(k) for k in keys} for flow in body.get("process_health") or []],
+        "reps": reps[:MAX_REPS], "more_reps": max(0, len(reps) - MAX_REPS),
+    }
+
+
 # ----- my_coaching --------------------------------------------------------------------------------
 
 
@@ -320,6 +357,7 @@ async def _my_coaching(args: dict, ctx, actor: AskActor) -> dict:
     }
     if not body.get("playbook_published"):
         return base._envelope(n=numbers.get("conversations") or 0, n_analysed=0, coverage="partial", note="no_published_playbook", **out)
+    record_card(ctx, _coaching_card(body))
     out["steps"] = [
         {
             "step": s["label"], "rate_pct": _pct(s.get("rate")), "last_week_pct": _pct(s.get("prev_rate")),
@@ -411,6 +449,8 @@ async def _team_health(args: dict, ctx, actor: AskActor) -> dict:
         for o in (body.get("objection_categories") or [])[:5]
     ]
     playbook = bool(body.get("applicable_steps"))
+    if playbook:
+        record_card(ctx, _team_card(body, previous, period, bool(requested)))
     complete = adherence is not None and not body.get("sample_limited")
     out = {
         "ok": True, "scope": "one rep" if requested else "whole team", "period_key": period, "period": None,

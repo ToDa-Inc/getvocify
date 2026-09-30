@@ -12,6 +12,7 @@ import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import type { AskMessage } from "@/lib/ask-thread";
 import ActivityLine from "./ActivityLine";
+import AnswerCards from "./AnswerCards";
 import AnswerBody from "./AnswerBody";
 import ConfirmCard from "./ConfirmCard";
 import CoverageNote from "./CoverageNote";
@@ -35,9 +36,11 @@ export default function TurnView({ message, isLast, onRetry, onChoose, onConfirm
 
   if (message.role === "user") {
     return (
-      <p className="ml-auto max-w-[85%] whitespace-pre-line rounded-2xl bg-secondary/70 px-4 py-2.5 text-[15px] leading-relaxed text-foreground">
-        {message.text}
-      </p>
+      <div className="ask-enter flex justify-end">
+        <p className="max-w-[85%] whitespace-pre-line rounded-[20px] rounded-br-md border border-[hsl(var(--hairline))] bg-secondary/70 px-4 py-2.5 text-[15px] leading-relaxed text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.6)] [overflow-wrap:anywhere]">
+          {message.text}
+        </p>
+      </div>
     );
   }
 
@@ -56,7 +59,7 @@ export default function TurnView({ message, isLast, onRetry, onChoose, onConfirm
   }
 
   return (
-    <div className="space-y-3">
+    <div className="group/turn ask-enter space-y-3">
       <ActivityLine
         steps={message.steps}
         thinking={message.phase === "sending" || (message.phase === "working" && !hasText)}
@@ -64,8 +67,9 @@ export default function TurnView({ message, isLast, onRetry, onChoose, onConfirm
       />
       {/* A proposed write shows its sentence once, inside the card that asks for the decision. */}
       {hasText && !message.confirm ? <AnswerBody text={message.text} evidence={message.evidence} streaming={running} /> : null}
+      {message.phase === "done" && !message.confirm ? <AnswerCards cards={message.cards} evidence={message.evidence} /> : null}
       {message.phase === "pending" ? (
-        <p className="text-[13px] text-muted-foreground" role="status">{t.product.askReconnecting}</p>
+        <p className="ask-shimmer text-[13px]" role="status">{t.product.askReconnecting}</p>
       ) : null}
       {message.stopped ? <p className={THEME_TOKENS.typography.capsLabel}>{t.product.askStopped}</p> : null}
       {message.phase === "done" && message.callTargets.length > 0 ? (
@@ -73,7 +77,7 @@ export default function TurnView({ message, isLast, onRetry, onChoose, onConfirm
           {message.callTargets.map((target) => (
             <li
               key={`${target.connection_id ?? ""}:${target.contact_id}`}
-              className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card py-1.5 pl-4 pr-1.5"
+              className="ask-enter flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--hairline))] bg-card py-1.5 pl-4 pr-1.5 shadow-[0_1px_2px_rgb(40_30_20/0.04)] transition-colors hover:border-beige/25"
             >
               <div className="min-w-0">
                 <p className="truncate text-[15px] text-foreground">{target.contact_name || t.product.today_unknown_contact}</p>
@@ -94,7 +98,7 @@ export default function TurnView({ message, isLast, onRetry, onChoose, onConfirm
       {message.choices.length > 0 && isLast ? (
         <div className="flex flex-wrap gap-2" role="group" aria-label={t.product.askChoicesLabel}>
           {message.choices.map((choice) => (
-            <Button key={choice.id} size="sm" variant="outline" onClick={() => onChoose(choice.id)}>
+            <Button key={choice.id} size="sm" variant="outline" className="rounded-full" onClick={() => onChoose(choice.id)}>
               {choice.label}
             </Button>
           ))}
@@ -118,7 +122,7 @@ export default function TurnView({ message, isLast, onRetry, onChoose, onConfirm
         </Button>
       ) : null}
       {message.phase === "done" && hasText && !message.stopped ? (
-        <div className="-ml-2.5 flex">
+        <div className={`-ml-2.5 -mt-1 flex transition-opacity duration-150 ${isLast ? "" : "opacity-0 group-hover/turn:opacity-100 group-focus-within/turn:opacity-100 max-md:opacity-100"}`}>
           <IconAction label={copied ? t.product.askCopied : t.product.askCopy} onClick={() => void copy()}>
             <AnimIcon name="copy" stroke={1.25} state={copied && "done"} />
           </IconAction>

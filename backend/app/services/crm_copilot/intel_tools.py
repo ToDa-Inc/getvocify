@@ -605,7 +605,7 @@ async def _playbook_lookup(args: dict, ctx, actor: AskActor) -> dict:
                 continue
             text = entry.get("approved_answer") or entry.get("guidance") or ""
             ev_id = f"pb-{entry.get('entry_id') or len(evidence)}"
-            evidence.append({"id": ev_id, "quote": text, "speaker": "playbook", "rep": view["sales_motion_key"]})
+            evidence.append({"id": ev_id, "quote": text, "speaker": "playbook", "rep": view["sales_motion_key"], "category": entry.get("category")})
             entries.append({"category": entry.get("category"), "answer": text, "evidence": ev_id})
         out.append({"motion": view["sales_motion_key"], "entries": entries, "steps": [s.get("label") for s in view["steps"] if isinstance(s, dict)]})
     return _envelope(n=len(out), n_analysed=len(out), coverage="complete", playbooks=out, evidence=evidence)
