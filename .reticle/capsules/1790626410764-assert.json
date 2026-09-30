@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "id": "1790626410764-assert",
+  "createdAt": 1790626410765,
+  "origin": "failed-assert",
+  "expected": "declared consequence",
+  "observed": "no 'button' named 'Confirmar'; saw: Preguntar, Llamar, Salir, Grabar interacción, Cancelar, Historial, Nueva conversación, Consultó 1 fuente, De la conversación 1, De la conversación 2, Copiar, Consultó 1 fuente, De la conversación 1, De la conversación 2, Copiar, Grabar, Enviar",
+  "steps": [
+    {
+      "tool": "reticle_act",
+      "anchor": {
+        "kind": "testid",
+        "value": "",
+        "source": {
+          "file": "src/features/ask/components/Composer.tsx",
+          "line": 53,
+          "column": 9
+        }
+      },
+      "action": "press"
+    }
+  ]
+}

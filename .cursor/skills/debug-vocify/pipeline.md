@@ -7,7 +7,7 @@ Hugo patterns adapted to Cursor. Parent skill: [SKILL.md](SKILL.md).
 | Layer | What it is | How to inspect |
 |---|---|---|
 | Vercel | `app.getvocify.com` HTML/JS | [vercel.md](services/vercel.md) |
-| Railway | FastAPI `api.getvocify.com` | [railway.md](services/railway.md) |
+| Railway | FastAPI prod `api.getvocify.com` / staging `getvocify-staging.up.railway.app` | [railway.md](services/railway.md) |
 | Supabase | Auth + Postgres | [supabase.md](services/supabase.md) |
 | Vendor | Resend, Stripe, Twilio, … | matching card + `vocify-http.sh` |
 
@@ -17,7 +17,7 @@ A 200 dashboard page with failed XHR is Railway (or the vendor), not Vercel.
 
 Before tools, lock:
 
-- **env**: production (default) vs local (`localhost:8080` / `:8888`)
+- **env**: production (default), staging, or local (`localhost:8080` / `:8888`)
 - **when**: UTC window (or "last 2h")
 - **who**: user email and/or `company_id` if known
 - **what**: exact user-visible failure
@@ -40,7 +40,8 @@ the user asks — it mints a real session and is audited.
 
 ## Phase 1 — Health
 
-`GET https://api.getvocify.com/health`
+`GET https://api.getvocify.com/health` (production) or
+`GET https://getvocify-staging.up.railway.app/health` (staging)
 
 - `200` → API up; keep going for app/vendor errors
 - `502` / timeout → Phase 2 deploys; skip vendors until the API boots

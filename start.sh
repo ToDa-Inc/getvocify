@@ -32,10 +32,22 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
+# Ensure backend virtualenv (system python3 often lacks uvicorn)
+mkdir -p logs
+if [ ! -x "backend/.venv/bin/python3" ]; then
+    echo -e "${YELLOW}📦 Creating backend/.venv (first run)...${NC}"
+    PY=$(command -v python3.11 || command -v python3.12 || command -v python3)
+    (cd backend && "$PY" -m venv .venv)
+fi
+if ! backend/.venv/bin/python3 -m uvicorn --version >/dev/null 2>&1; then
+    echo -e "${YELLOW}📦 Installing backend dependencies (first run)...${NC}"
+    backend/.venv/bin/pip install -r backend/requirements.txt
+fi
+
 # Start backend
 echo -e "${GREEN}🔧 Starting backend server (port 8888)...${NC}"
 cd backend
-python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8888 > ../logs/backend.log 2>&1 &
+.venv/bin/python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8888 > ../logs/backend.log 2>&1 &
 BACKEND_PID=$!
 cd ..
 
