@@ -228,6 +228,11 @@ def drop_call_unsafe_props(
         if policy == "identity" and key.lower() in {"email", "hs_email"}:
             if _has_value((current or {}).get(key)):
                 continue
+        if object_type == "contacts" and key.lower() == "hs_lead_status":
+            from app.services.llm.lead_status import is_lead_status_regression
+
+            if is_lead_status_regression(value, (current or {}).get(key)):
+                continue  # a call never moves a contact back (Open Deal -> Attempted)
         out[key] = value
     return out
 

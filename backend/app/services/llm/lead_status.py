@@ -50,22 +50,30 @@ LEAD_STATUS_RULES = (
 
 REACH_INSTRUCTIONS = (
     "Did this call reach a real two-way conversation about the offer? "
-    "A few polite words do not count. Someone who could not talk — busy, in a "
+    "A few polite words do not count. A prospect who could not talk — busy, in a "
     "meeting, driving, voicemail, no answer, gatekeeper, 'call me later' — is "
-    "no_live_conversation."
+    "no_live_conversation. It is about the prospect: when the salesperson is the one "
+    "who asks to pause, or the call is only logistics between two people who are "
+    "already in touch (joining a meeting late, 'one second', confirming or moving a "
+    "meeting they already have), it is not_stated."
 )
 
 REACH_CRITERIA = {
     "no_live_conversation": (
-        "No commercial conversation. No answer, voicemail, busy, gatekeeper, they "
-        "are in a meeting, driving, or asked for a callback without discussing the "
-        "offer. Not being available to talk is this."
+        "The prospect was not reached or could not talk: no answer, voicemail, busy, "
+        "gatekeeper, they are in a meeting, driving, or asked for a callback without "
+        "discussing the offer. Not being available to talk is this; a pause the "
+        "salesperson asked for is not."
     ),
     "live_conversation": (
         "Both sides discussed the offer, the problem, or a next step. A later "
         "callback after that discussion is still a live conversation."
     ),
-    "not_stated": "Cannot tell whether a real conversation happened.",
+    "not_stated": (
+        "Cannot tell whether a real conversation happened, or the call is only logistics "
+        "between people already in touch (joining a meeting, 'dame un segundito', "
+        "confirming or moving a meeting they already have)."
+    ),
 }
 
 STANCE_INSTRUCTIONS = (
@@ -84,9 +92,9 @@ STANCE_CRITERIA = {
         "and not a disqualification."
     ),
     "unavailable": (
-        "They could not talk and did not reject the offer: busy, in a meeting, "
+        "The prospect could not talk and did not reject the offer: busy, in a meeting, "
         "driving, voicemail, no answer, 'llámame luego' / call me later. "
-        "This is never disqualified."
+        "This is never disqualified. A pause the salesperson asks for is not this."
     ),
     "rejected": (
         "Explicit rejection or a confirmed dead end, and only after they actually "
@@ -103,7 +111,10 @@ STANCE_CRITERIA = {
         "A real conversation happened, with no hard no, no booked meeting, and "
         "no concrete next step."
     ),
-    "not_stated": "No decision is available. Unclear audio and internal chatter stay here.",
+    "not_stated": (
+        "No decision is available. Unclear audio, internal chatter and pure logistics "
+        "(joining or confirming a meeting already booked) stay here."
+    ),
 }
 
 _BUCKET_FALLBACKS = {
@@ -169,6 +180,21 @@ def lead_status_bucket(value: str, label: str = "") -> str:
     if upper == "OPEN" or raw_label.lower() in {"open", "abierto"}:
         return "open"
     return "other"
+
+
+# How far along a contact is. A call never moves it back: "Attempted to Contact" after the
+# prospect already talked to us (or has a meeting) is wrong. Disqualified and portal-specific
+# options have no rank, so they are never blocked by this.
+_BUCKET_RANK = {"new": 0, "attempted": 1, "connected": 2, "open": 2, "in_progress": 3, "bad_timing": 3, "open_deal": 4}
+
+
+def is_lead_status_regression(new_value: Any, current_value: Any) -> bool:
+    """True when `new_value` is an earlier stage than the contact's current status."""
+    new_rank = _BUCKET_RANK.get(lead_status_bucket(str(new_value or "")))
+    current_rank = _BUCKET_RANK.get(lead_status_bucket(str(current_value or "")))
+    if new_rank is None or current_rank is None:
+        return False
+    return new_rank < current_rank
 
 
 def _option_value_label(option: Any) -> tuple[str, str]:
