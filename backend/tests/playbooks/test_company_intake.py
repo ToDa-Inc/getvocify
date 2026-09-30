@@ -674,3 +674,72 @@ def test_the_attitude_retry_still_runs_with_time_left(monkeypatch):
         timeout=25.0, budget=110.0,
     ))
     assert shaped == {"a": 2} and len(llm.calls) == 2
+
+
+# --- a document whose titles already name its call types --------------------------------------
+
+from pathlib import Path  # noqa: E402
+
+from app.services.playbooks.structure import titled_sections  # noqa: E402
+
+TITLED = (Path(__file__).parent / "fixtures" / "titled_company_playbook.md").read_text(encoding="utf-8")
+ROUTING_KEYS = {"discovery", "inbound", "ae_discovery", "closing", "negotiation"}
+
+
+def test_titles_split_a_real_company_playbook_into_its_four_call_types():
+    sections, rest = titled_sections(TITLED, ROUTING_KEYS)
+    assert [key for key, _ in sections] == ["discovery", "ae_discovery", "closing", "negotiation"]
+    assert sections[0][1].startswith("## 1. SDR · Llamada en frío")
+    assert "Apertura con motivo" in sections[0][1] and "Marcar el marco" not in sections[0][1]
+    assert "Confirmar decisores" in sections[3][1]
+    # The company and the funnel go to the rest, never into a call type.
+    assert "Vuestra empresa" in rest and "Funnel:" in rest
+    assert all("Vuestra empresa" not in body for _, body in sections)
+
+
+def test_titles_with_routing_off_fold_the_ae_sections_into_closing():
+    sections, _rest = titled_sections(TITLED, {"discovery", "closing"})
+    assert [key for key, _ in sections] == ["discovery", "closing"]
+    assert "Marcar el marco" in sections[1][1] and "Confirmar decisores" in sections[1][1]
+
+
+def test_a_document_without_typed_titles_keeps_the_one_answer_split():
+    assert titled_sections(MIXED, ROUTING_KEYS) is None
+    assert titled_sections("# Nuestro proceso\nLlamamos y agendamos.", ROUTING_KEYS) is None
+
+
+class _ByType:
+    """chat_json stand-in that answers each call from what it was asked for."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def chat_json(self, messages, **kwargs):
+        user = messages[-1]["content"]
+        self.calls.append(user)
+        if "Call type:" in user:
+            key = user.split("(key: ")[1].split(")")[0]
+            return {"steps": [
+                {"label": f"Paso {key} uno", "criterion": "El prospecto acepta un día y una hora"},
+                {"label": f"Paso {key} dos", "criterion": "Pregunta cómo lo hacen hoy y el prospecto nombra un problema"},
+                {"label": f"Paso {key} tres", "criterion": "Se presenta y pide 30 segundos antes de contar nada"},
+            ]}
+        return {"types": [], "company": {"icp": "Empresas B2B que quieren acelerar su crecimiento"}}
+
+
+def test_a_titled_document_is_structured_one_short_answer_per_type_plus_the_company():
+    candidates = [{"key": key, "label": key} for key in ["discovery", "inbound", "ae_discovery", "closing", "negotiation"]]
+    llm = _ByType()
+    result = asyncio.run(split_source(TITLED, candidates, "es", llm=llm))
+    assert result["fallback"] is False
+    assert [t["key"] for t in result["types"]] == ["discovery", "ae_discovery", "closing", "negotiation"]
+    assert result["company"]["icp"].startswith("Empresas B2B")
+    # four per-type calls and one company call, none of them the whole document
+    assert len(llm.calls) == 5
+    assert sum("Vuestra empresa" in call for call in llm.calls) == 1
+
+
+def test_titled_sections_that_all_fail_ask_for_the_call_type():
+    candidates = [{"key": key, "label": key} for key in ["discovery", "ae_discovery", "closing", "negotiation"]]
+    result = asyncio.run(split_source(TITLED, candidates, "es", llm=FakeLLM(RuntimeError())))
+    assert result["fallback"] is True and result["types"] == []

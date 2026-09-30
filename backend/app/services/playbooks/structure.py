@@ -549,7 +549,103 @@ def _split_note(shaped: dict) -> str:
     return _retry_message(lines)
 
 
-async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any = None) -> dict:
+# --- a document that already says which section is which call type ---------------------------
+
+_HEADING = re.compile(r"^\s{0,3}(#{1,3})\s+(.+?)\s*#*\s*$")
+# Words in a section title, in the order they decide (a "Discovery (se puede combinar con la
+# Demo)" title is a discovery). Each maps to catalog keys, best first; the first one that is a
+# candidate wins (routing off only has `discovery` and `closing`).
+_TITLE_RULES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("inbound",), ("inbound", "discovery")),
+    (("frio", "cold call", "cold-call", "prospeccion", "captacion"), ("discovery",)),
+    (("propuesta", "proposal", "negociacion", "negotiation", "decision"), ("negotiation", "closing")),
+    (("discovery", "descubrimiento"), ("ae_discovery", "closing")),
+    (("demo", "cierre", "closing"), ("closing",)),
+)
+
+
+def _title_key(title: str, allowed: set[str]) -> str | None:
+    """The candidate a section title names, or None. A title that only names the role (SDR or
+    AE) falls back to that role's first type."""
+    folded = _fold(unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode())
+    words = set(folded.split())
+    is_sdr, is_ae = "sdr" in words, "ae" in words or "closer" in words
+    for needles, keys in _TITLE_RULES:
+        if any(needle in folded for needle in needles):
+            if needles[0] == "discovery" and is_sdr and not is_ae:
+                keys = ("discovery",)  # an SDR's "discovery" call is their cold call
+            for key in keys:
+                if key in allowed:
+                    return key
+    if is_sdr and "discovery" in allowed:
+        return "discovery"
+    if is_ae and "closing" in allowed:
+        return "closing"
+    return None
+
+
+def titled_sections(text: str, allowed: set[str]) -> tuple[list[tuple[str, str]], str] | None:
+    """([(key, section text)], everything else) when the document's own titles name at least
+    two call types, else None. The level of the first typed title is the section level; the
+    text under a title of that level that names no type (the company, the funnel) and the text
+    before the first section go to "everything else". Two sections for one key are merged."""
+    lines = text.splitlines()
+    heads: list[tuple[int, int, str | None]] = []  # (line, level, key)
+    for index, line in enumerate(lines):
+        match = _HEADING.match(line)
+        if match:
+            heads.append((index, len(match.group(1)), _title_key(match.group(2), allowed)))
+    typed = [head for head in heads if head[2]]
+    if len({head[2] for head in typed}) < 2:
+        return None
+    level = min(head[1] for head in typed)
+    cuts = [head for head in heads if head[1] <= level]
+    order: list[str] = []
+    by_key: dict[str, list[str]] = {}
+    rest: list[str] = ["\n".join(lines[: cuts[0][0]])]
+    for position, (start, _level, key) in enumerate(cuts):
+        end = cuts[position + 1][0] if position + 1 < len(cuts) else len(lines)
+        chunk = "\n".join(lines[start:end]).strip()
+        if key:
+            if key not in by_key:
+                order.append(key)
+            by_key.setdefault(key, []).append(chunk)
+        else:
+            rest.append(chunk)
+    return [(key, "\n\n".join(by_key[key])) for key in order], "\n\n".join(p for p in rest if p.strip())
+
+
+async def _split_by_titles(
+    sections: list[tuple[str, str]], rest: str, candidates: list[dict], lang: str, llm: Any,
+) -> dict:
+    """Each titled section through structure_source (one short answer each, in parallel) and
+    the rest through the company split, which only has the company to write. Same result
+    shape as split_source; `fallback` only when no section got steps from the model."""
+    client = _client(llm)
+    calls = [structure_source(body, key, lang, llm=client) for key, body in sections]
+    with_company = _letters(rest) >= MIN_SOURCE_CHARS
+    if with_company:
+        calls.append(split_source(rest, candidates, lang, llm=client, by_titles=False))
+    answers = await asyncio.gather(*calls)
+    results = answers[: len(sections)]
+    company = answers[-1]["company"] if with_company else normalize_knowledge({})
+    types = [
+        {
+            "key": key,
+            "reason": result["reason"],
+            "steps": result["steps"],
+            "objections": result["objections"],
+            "qualification": result["qualification"],
+        }
+        for (key, _body), result in zip(sections, results)
+        if result["steps"] and not result.get("fallback")
+    ]
+    if not types:
+        return {"types": [], "company": normalize_knowledge({}), "reason": None, "fallback": True}
+    return {"types": types, "company": company, "reason": None, "fallback": False}
+
+
+async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any = None, by_titles: bool = True) -> dict:
     """One model call for a whole company's document. `candidates` is [{key, label,
     description?}]. -> {types: [{key, reason, steps, objections, qualification}], company:
     knowledge shape (empty when the source says nothing about the company), reason: None |
@@ -566,6 +662,14 @@ async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any
     short = _letters(source) < MIN_SOURCE_CHARS
     folded_source = _fold(source[:MAX_SOURCE_CHARS])
     allowed = {c["key"] for c in candidates}
+    # The document already names its call types in its titles: split there, not with one huge
+    # answer that has to write every type at once (it does not fit in the time the screen waits).
+    titled = titled_sections(source[:MAX_SOURCE_CHARS], allowed) if by_titles else None
+    if titled:
+        try:
+            return await _split_by_titles(titled[0], titled[1], candidates, lang, llm)
+        except Exception as exc:  # never a 500: fall through to the one-answer split
+            logger.warning("playbook split by titles failed: %s", type(exc).__name__)
     try:
         shaped = await _ask_with_retry(
             _client(llm),
