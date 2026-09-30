@@ -533,3 +533,20 @@ Un Head of Sales tiene que poder, en un gesto y viéndolo: **pausar** un playboo
 - `POST /playbooks/{key}/restore` (deshacer) → vuelve a `archived_state` (publicado → activo de nuevo) → `{motions, details}`.
 - Guardar un borrador o crear el tipo sobre uno archivado lo desarchiva sin traer el contenido viejo. Publicar limpia `paused_version_id`.
 - `GET /playbooks` `details[key]` añade `paused: bool`. `GET /{key}/editor` de uno pausado devuelve esa versión como `source: "published"` con `paused: true`.
+
+---
+
+## 17. Refactor de arquitectura (30 sep 2026) — sin cambios de producto
+
+**Por qué:** varias escrituras de varios pasos iban sueltas por PostgREST (sin transacción); la 069 sobrecargaba `active_version_id` (nulo = «nunca publicado», «pausado» o «eliminado»); `store.py` implementaba todo dos veces (memoria y Supabase) con un falso PostgREST en los tests; `api/playbooks.py` y `PlaybookList.tsx` tenían cinco responsabilidades cada uno.
+
+**Decisiones (no se reabren):**
+1. **Una migración** `066_playbooks_v2.sql` (+ `.down.sql`) sustituye a 066–069. Idempotente y **segura si ya se aplicaron 066–069**: añade lo que falte, rellena `state`/`archived_at` desde `paused_version_id`/`archived_state` si existen y borra esas columnas.
+2. **Esquema final.** `playbooks`: `label`, `applies_to`, **`state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','paused'))`** (interruptor) y **`archived_at`** (borrado suave, ortogonal al interruptor). `active_version_id` vuelve a significar solo «la versión publicada»: pausar o eliminar **no la toca**. `playbook_versions`: `updated_at`, `qualification`. Tabla `company_sales_knowledge`.
+3. **Qué aplica a una llamada** = `active_version_id IS NOT NULL AND state = 'active' AND archived_at IS NULL`. Vista SQL `playbooks_live` y **un único acceso en Python** (`services/playbooks/live.py`). Ningún otro módulo lee `active_version_id` para decidir qué aplica.
+4. **Escrituras atómicas en Postgres** (funciones, como ya era `publish_playbook_motion`): guardar borrador con control de conflicto dentro del mismo `UPDATE … WHERE updated_at = base`; cambiar estado (`pause`/`resume`/`archive`/`restore`); guardar «Vuestra empresa» con control de conflicto; entrada única (todos los borradores + empresa en una transacción). Publicar pone `state='active'` y `archived_at=NULL`.
+5. **Repositorio con una interfaz** (`Protocol`): `SqlPlaybookRepository` (llamadas finas a esas funciones y lecturas) e `InMemoryPlaybookRepository` (solo para tests de API). **Una suite de contrato** se ejecuta contra los dos (el SQL contra Postgres real cuando lo hay); así no pueden divergir. Se elimina el falso PostgREST.
+6. **API por responsabilidad:** `playbooks.py` (lista, editor, borrador, publicar, estado), `playbook_intake.py` (estructurar e importar), `playbook_company.py` («Vuestra empresa»), `playbook_rules.py` y `playbook_insights.py` como están. Rutas y respuestas idénticas.
+7. **Frontend:** `PlaybookList` → hook de acciones + `IntakePanel`, `PlaybookRow`, `RuleLine`, `AddTypeMenu`; `PlaybookDocument` → hook de borrador (carga, autoguardado, conflicto, vaciado) + vista. Mismo comportamiento.
+
+**Criterio de hecho:** mismos contratos de API; todos los tests de API existentes pasan sin cambiar sus expectativas (salvo los que probaban detalles internos del almacenamiento); suite de contrato en verde contra memoria y contra Postgres real; los recorridos del navegador (crear, activar, editar, pausar, eliminar, deshacer, empresa) iguales.
