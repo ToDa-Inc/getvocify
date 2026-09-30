@@ -19,6 +19,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.playbook_company import router as company_router
 from app.api.playbook_rules import router as rules_router
 from app.api.playbooks import router as playbooks_router
 from app.deps import get_membership, get_supabase
@@ -51,6 +52,7 @@ class Env:
     def client(self, role="owner", sales_role=None, company=CO):
         app = FastAPI()
         app.include_router(rules_router)  # the real order: /company, /catalog... before /{key}
+        app.include_router(company_router)
         app.include_router(playbooks_router)
         app.dependency_overrides[get_membership] = lambda: Membership(
             id="m", company_id=company, user_id="u-1", role=role, status="active", sales_role=sales_role,

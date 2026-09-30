@@ -550,3 +550,20 @@ Un Head of Sales tiene que poder, en un gesto y viéndolo: **pausar** un playboo
 7. **Frontend:** `PlaybookList` → hook de acciones + `IntakePanel`, `PlaybookRow`, `RuleLine`, `AddTypeMenu`; `PlaybookDocument` → hook de borrador (carga, autoguardado, conflicto, vaciado) + vista. Mismo comportamiento.
 
 **Criterio de hecho:** mismos contratos de API; todos los tests de API existentes pasan sin cambiar sus expectativas (salvo los que probaban detalles internos del almacenamiento); suite de contrato en verde contra memoria y contra Postgres real; los recorridos del navegador (crear, activar, editar, pausar, eliminar, deshacer, empresa) iguales.
+
+### Estado del refactor (30 sep 2026)
+
+Hecho y en `staging`, un commit por paso:
+
+| Paso | Qué | Verificación |
+|---|---|---|
+| 1 | `066_playbooks_v2.sql` (+ `.down.sql`) sustituye a 066–069; funciones SQL atómicas; `full_reset.sql` alineado | `test_migration_066.py`: aplica sobre una base vacía y **sobre una base que ya tenía 066–069** |
+| 2 | Un solo camino de lectura de «qué aplica a una llamada»: vista `playbooks_live` + `services/playbooks/live.py`; los lectores (briefs, captures, coaching, copilot, CRM copilot, team insights, routing) dejan de leer `active_version_id` | `test_live.py` (el doble de la vista se comprueba contra la vista real) |
+| 3 | `PlaybookRepository` (Protocol) + `SqlPlaybookRepository` + `InMemoryPlaybookRepository`; se borra `store.py` y el falso PostgREST | `test_repository_contract.py`: los mismos escenarios contra memoria y contra **PostgreSQL 16 real** |
+| 4 | API por responsabilidad: `playbooks.py`, `playbook_intake.py`, `playbook_company.py`, `playbook_rules.py`, `playbook_insights.py`; lo compartido en `services/playbooks/api_support.py` | rutas y respuestas idénticas; humo sobre el router real (`/company`, `/catalog`, `/structure` no se confunden con `/{key}`) |
+| 5 | Frontend: hooks + componentes de una sola responsabilidad (ya estaba) | 650 tests de front, build |
+
+Suite de backend: 3433 pasan, 30 saltados (los que necesitan servicios externos), con `VOCIFY_TEST_PG_DSN` apuntando a un Postgres 16 real: los 76 tests de contrato SQL se ejecutan.
+
+Pendiente fuera del código: aplicar `066_playbooks_v2.sql` en Supabase justo antes de desplegar (el código nuevo lee `playbooks_live`; el desplegado antes lee `paused_version_id`, que la migración borra), y pasar las evals con clave de OpenRouter antes de activar `PLAYBOOK_QUALIFICATION_ENABLED`.
+

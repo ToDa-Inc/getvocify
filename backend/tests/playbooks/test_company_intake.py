@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api import playbook_rules
+from app.api.playbook_company import router as company_router
 from app.api.playbook_rules import router as rules_router
 from app.api.playbook_intake import router as playbook_intake_router
 from app.api.playbooks import router as playbooks_router
@@ -101,6 +102,7 @@ def _client(store=None, role="owner", sales_role=None, company="co-1", rules_fir
     app = FastAPI()
     if rules_first:
         app.include_router(rules_router)
+        app.include_router(company_router)
     app.include_router(playbooks_router)
     app.include_router(playbook_intake_router)
     app.dependency_overrides[get_membership] = lambda: Membership(
