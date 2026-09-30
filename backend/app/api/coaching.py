@@ -14,7 +14,7 @@ from app.services.coaching.brief_preferences import highlight_at, read_preferenc
 from app.services.coaching.briefs import absent_brief
 from app.services.coaching import rep_coaching as engine
 from app.services.coaching import rep_coaching_reads as reads
-from app.services.coaching.rep_focus import FLOW_MOTION, FLOW_WEEKS, published_flows, resolve_flow
+from app.services.coaching.rep_focus import FLOW_WEEKS, motion_for_flow, published_flows, resolve_flow
 from app.services.activity_scope import effective_visibility, memo_readable_by
 from app.services.company import CompanyService, Membership
 from app.services.feature_flags import is_enabled
@@ -251,7 +251,6 @@ async def get_coaching_best(
 
 # --- Rep coaching tab: always the caller's own data --------------------------------------
 
-_FLOW_MOTION = FLOW_MOTION
 _OWN_WEEKS = FLOW_WEEKS  # also the window that decides a general rep's flow
 _PEER_WEEKS = 4
 _MAX_MOMENTS = 3
@@ -295,8 +294,9 @@ def _rep_context(
 
     available = published_flows(playbook_for)
     # `flow` is only honoured for general/NULL reps; SDR/AE always get their own.
-    flow = resolve_flow(membership.sales_role, _in_window(all_own, flow_start, week_end), available, flow)
-    motion = _FLOW_MOTION[flow]
+    flow_rows = _in_window(all_own, flow_start, week_end)
+    flow = resolve_flow(membership.sales_role, flow_rows, available, flow)
+    motion = motion_for_flow(flow, flow_rows, playbook_for)
     playbook = playbook_for(motion)
     own = (
         [r for r in _in_window(all_own, starts[0], week_end) if r["motion"] == motion]

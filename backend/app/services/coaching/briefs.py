@@ -33,6 +33,7 @@ def aggregate_brief(
     progress: list[float | None] | None = None,
     meeting_agreed: bool | None = None,
     next_step_agreed: bool | None = None,
+    coach: dict | None = None,
 ) -> dict:
     brief = _aggregate_brief_v1(
         screening=screening,
@@ -53,6 +54,7 @@ def aggregate_brief(
         progress=progress,
         meeting_agreed=meeting_agreed,
         next_step_agreed=next_step_agreed,
+        coach=coach,
     )
 
 
@@ -65,6 +67,7 @@ def _apply_debrief_v2(
     progress: list[float | None] | None,
     meeting_agreed: bool | None,
     next_step_agreed: bool | None,
+    coach: dict | None = None,
 ) -> dict:
     """T10/DEBRIEF_V2_ENABLED: what happened, in the rep's own flow, and how it compares."""
     missed = list(missed or [])
@@ -74,6 +77,8 @@ def _apply_debrief_v2(
         "phrases": build_phrases(missed),
         "highlights": build_highlights(evidence or []),
         "progress": list(progress or []),
+        # One thing kept, one thing to change: only for a conversation measured against a playbook.
+        "coach": coach if brief.get("status") in {"ready", "partial"} and _coach_has_content(coach) else None,
     }
     if flow == "sdr":
         extra["meeting_booked"] = meeting_agreed
@@ -115,8 +120,9 @@ def build_highlights(evidence: list[dict], *, limit: int = 5) -> list[str]:
 
 def label_missed_items(missed: list[dict], *, steps: list[dict], entries: list[dict]) -> list[dict]:
     """Attach the playbook's own label to a missed step or objection, and a separate phrase
-    when the playbook has one to say. `label` names what was missed; `guidance` (when present)
-    is the playbook's own words on it — never the same text twice. A category matches its
+    when the playbook has one to say (a step's `example`, an objection's answer). `label`
+    names what was missed; `guidance` (when present) is the playbook's own words to say —
+    never the same text twice. A category matches its
     entry case-insensitively. An id the playbook does not recognise anymore is dropped."""
     step_labels = {str(step.get("step_id")): step for step in steps if isinstance(step, dict)}
     entry_guidance: dict[str, str] = {}
@@ -139,7 +145,9 @@ def label_missed_items(missed: list[dict], *, steps: list[dict], entries: list[d
             if step is None:
                 continue
             label = str(step.get("label") or "").strip()
-            guidance = str(step.get("criterion") or "").strip()
+            # What to say is the step's literal phrase. The criterion is how it is judged,
+            # not something to say out loud.
+            guidance = str(step.get("example") or "").strip()
         elif kind == "qualification":
             # C04 v7: a criterion that never came out of the call. It carries its own label.
             label = str(item.get("label") or "").strip()
@@ -162,6 +170,101 @@ def label_missed_items(missed: list[dict], *, steps: list[dict], entries: list[d
     return labeled
 
 
+def _coach_has_content(coach: dict | None) -> bool:
+    return bool(coach and (coach.get("kept") or coach.get("fix")))
+
+
+def build_coach(
+    *,
+    observations: list[dict],
+    evidence_ids: list[str],
+    steps: list[dict],
+    entries: list[dict],
+    missed: list[dict],
+    focus_step_id: str | None = None,
+) -> dict:
+    """One step kept and one thing to change, in the playbook's own words.
+
+    kept: the week's focus step when the rep did it (progress worth naming), else the first
+    step done, with the rep's own quote. fix: the focus step when missed, else the first missed
+    step in playbook order, else an objection the playbook answers that stayed open. `say` is
+    the playbook's phrase for it (a step's example, an objection's answer), never the criterion.
+    Only cited observations count, so nothing here rests on a quote that is not in the call."""
+    known = set(evidence_ids)
+    step_by_id = {str(step.get("step_id")): step for step in steps if isinstance(step, dict)}
+    cited = [
+        obs for obs in observations
+        if isinstance(obs, dict)
+        and obs.get("status") in {"met", "missed"}
+        and any(ref in known for ref in (obs.get("evidence_refs") or []))
+    ]
+    focus = str(focus_step_id or "") or None
+
+    def label_of(obs: dict) -> str:
+        step = step_by_id.get(str(obs.get("step_id"))) or {}
+        return " ".join(str(step.get("label") or obs.get("label") or "").split())
+
+    met = [obs for obs in cited if obs.get("status") == "met" and label_of(obs)]
+    kept_obs = next((obs for obs in met if str(obs.get("step_id")) == focus), met[0] if met else None)
+    kept = None
+    if kept_obs is not None:
+        quote = " ".join(str(kept_obs.get("quote") or "").split()) or None
+        kept = {"step_id": str(kept_obs.get("step_id")), "label": label_of(kept_obs), "quote": quote}
+
+    fix = None
+    missed_steps = [obs for obs in cited if obs.get("status") == "missed" and label_of(obs)]
+    missed_steps.sort(key=lambda obs: str(obs.get("step_id")) != focus)  # stable: playbook order otherwise
+    if missed_steps:
+        obs = missed_steps[0]
+        step = step_by_id.get(str(obs.get("step_id"))) or {}
+        criterion = " ".join(str(step.get("criterion") or obs.get("criterion") or "").split())
+        label = label_of(obs)
+        fix = {
+            "kind": "step",
+            "id": str(obs.get("step_id")),
+            "label": label,
+            "criterion": criterion if criterion and criterion != label else None,
+            "say": " ".join(str(step.get("example") or "").split()) or None,
+            "focus": str(obs.get("step_id")) == focus,
+        }
+    else:
+        answers = {
+            str(entry.get("category") or "").strip().lower(): " ".join(str(entry.get("guidance") or "").split())
+            for entry in entries
+            if isinstance(entry, dict)
+        }
+        for item in missed:
+            if item.get("kind") != "objection":
+                continue
+            category = str(item.get("category") or item.get("label") or "").strip().lower()
+            if answers.get(category):
+                fix = {
+                    "kind": "objection",
+                    "id": str(item.get("id") or ""),
+                    "label": category,
+                    "category": category,
+                    "criterion": None,
+                    "say": answers[category],
+                    "focus": False,
+                }
+                break
+    return {"kept": kept, "fix": fix}
+
+
+def next_step_agreed(meeting: dict | None, commitments: list[dict] | None) -> bool | None:
+    """AE outcome: a meeting both sides accepted, or a dated call or meeting to talk again.
+    "I'll send you the deck" is a commitment, not a next step. None when nothing was read."""
+    meeting = meeting if isinstance(meeting, dict) else {}
+    if meeting.get("agreed") is True:
+        return True
+    if commitments is None:
+        return None if meeting.get("agreed") is None else False
+    for item in commitments:
+        if isinstance(item, dict) and item.get("kind") in {"call", "meeting"} and item.get("due_at"):
+            return True
+    return False
+
+
 def _aggregate_brief_v1(
     *,
     screening: str | None,
@@ -174,6 +277,7 @@ def _aggregate_brief_v1(
 ) -> dict:
     sections = _sections(patterns, input_revision)
     coaching = _coaching(score, input_revision)
+    cited_improvement = bool(score and score.get("input_revision") == input_revision and score.get("improvements_cited"))
     base = {
         "input_revision": input_revision,
         "sections": sections,
@@ -196,15 +300,19 @@ def _aggregate_brief_v1(
         if score.get("reason") == "insufficient_evidence" and sections:
             return _evidence_backed_coaching(
                 {**base, "status": "ready", "reason": None, "strength": None, "improvement": None},
+                cited=cited_improvement,
             )
-        return _evidence_backed_coaching({**base, "status": "partial", "reason": score.get("reason") or "score_pending"})
-    return _evidence_backed_coaching({**base, "status": "ready", "reason": None})
+        return _evidence_backed_coaching(
+            {**base, "status": "partial", "reason": score.get("reason") or "score_pending"}, cited=cited_improvement,
+        )
+    return _evidence_backed_coaching({**base, "status": "ready", "reason": None}, cited=cited_improvement)
 
 
-def _evidence_backed_coaching(brief: dict) -> dict:
-    """An improvement is only shown when objection evidence exists for this revision."""
+def _evidence_backed_coaching(brief: dict, *, cited: bool = False) -> dict:
+    """An improvement is only shown with evidence for this revision: objection sections, or
+    (`cited`) the score's own lines, which come from step observations quoted in the transcript."""
     sections = brief.get("sections") or []
-    has_evidence = any(section.get("evidence_refs") for section in sections)
+    has_evidence = cited or any(section.get("evidence_refs") for section in sections)
     if brief.get("improvement") and not has_evidence:
         return {**brief, "improvement": None}
     return brief
@@ -271,6 +379,7 @@ def materialize_brief(
     progress: list[float | None] | None = None,
     meeting_agreed: bool | None = None,
     next_step_agreed: bool | None = None,
+    coach: dict | None = None,
 ) -> dict:
     """Aggregate coaching sources into a persisted brief row (status + JSON body)."""
     aggregated = aggregate_brief(
@@ -288,6 +397,7 @@ def materialize_brief(
         progress=progress,
         meeting_agreed=meeting_agreed,
         next_step_agreed=next_step_agreed,
+        coach=coach,
     )
     status = aggregated["status"]
     body = {key: value for key, value in aggregated.items() if key != "status"}
@@ -388,10 +498,21 @@ def debrief_v2_context(
     score = score if isinstance(score, dict) else {}
     flow = flow_for_motion(memo.get("sales_motion_key"))
     steps, entries = _fetch_playbook_snapshot(supabase, score.get("playbook_version_id"))
-    missed = label_missed_items(list(score.get("missed_items") or []), steps=steps, entries=entries)
+    raw_missed = list(score.get("missed_items") or [])
+    missed = label_missed_items(raw_missed, steps=steps, entries=entries)
     evidence = list(intelligence.get("evidence") or [])
     meeting = intelligence.get("meeting") if isinstance(intelligence.get("meeting"), dict) else {}
     commitments = intelligence.get("commitments")
+    coach = build_coach(
+        observations=list(intelligence.get("playbook_observations") or []),
+        evidence_ids=[str(item.get("id")) for item in evidence if isinstance(item, dict) and item.get("id")],
+        steps=steps,
+        entries=entries,
+        missed=raw_missed,
+        focus_step_id=weekly_focus_step(supabase, memo),
+    )
+    # This call's own adherence closes the trend, only when it earned a mark (enough steps judged).
+    coach["adherence"] = score.get("adherence") if score.get("value") is not None else None
     progress = recent_progress(
         supabase,
         user_id=memo.get("user_id"),
@@ -405,5 +526,38 @@ def debrief_v2_context(
         "evidence": evidence,
         "progress": progress,
         "meeting_agreed": meeting.get("agreed"),
-        "next_step_agreed": bool(commitments) if commitments is not None else None,
+        "next_step_agreed": next_step_agreed(meeting, commitments if isinstance(commitments, list) else None),
+        "coach": coach,
     }
+
+
+def weekly_focus_step(supabase, memo: dict) -> str | None:
+    """The step the rep is working on this week (Coach), when it belongs to this call's type.
+    Best-effort: any failed read means no focus, never a broken brief."""
+    user_id = memo.get("user_id")
+    company_id = memo.get("company_id")
+    motion = memo.get("sales_motion_key")
+    if not user_id or not company_id or not motion:
+        return None
+    try:
+        from datetime import datetime, timezone
+
+        from app.services.coaching import rep_coaching_reads as reads
+        from app.services.coaching.rep_focus import flow_window_start, previous_week_start, rep_focus, rows_of
+        from app.services.company import sales_role_for_user
+        from app.services.team_insights.aggregate import madrid_week_bounds
+
+        week_start, _ = madrid_week_bounds(now=datetime.now(timezone.utc))
+        rows = rows_of(reads.load_memos(supabase, str(company_id), [str(user_id)], start=flow_window_start(week_start)))
+        found = rep_focus(
+            rows,
+            sales_role_for_user(supabase, str(user_id), company_id=str(company_id)),
+            lambda key: reads.load_published_playbook(supabase, str(company_id), key),
+            prev_start=previous_week_start(week_start),
+            week_start=week_start,
+        )
+    except Exception:
+        return None
+    if not found or found.get("motion") != motion or not found.get("focus"):
+        return None
+    return str(found["focus"].get("step_id") or "") or None

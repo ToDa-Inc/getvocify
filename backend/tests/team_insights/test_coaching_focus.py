@@ -122,3 +122,30 @@ def test_team_adherence_adds_the_field_only_with_a_period():
     with_period = team_adherence(**kwargs, previous_period_start=PREVIOUS.start, previous_period_end=PREVIOUS.end)
     by_id = {rep["userId"]: rep["coaching_focus"] for rep in with_period["reps"]}
     assert by_id == {ANA: {"step_id": "open", "label": "Apertura", "rate": 0.0}, LUIS: None}
+
+
+def test_motion_for_flow_picks_the_published_type_the_rep_runs_most():
+    from app.services.coaching.rep_focus import motion_for_flow
+
+    published = {"closing", "ae_discovery", "negotiation"}
+
+    def playbook_for(motion):
+        return {"published": motion in published, "steps": []}
+
+    rows = [{"motion": "ae_discovery"}] * 3 + [{"motion": "closing"}] * 2
+    assert motion_for_flow("ae", rows, playbook_for) == "ae_discovery"
+    # A tie, or no calls yet, goes to the flow's default type.
+    assert motion_for_flow("ae", [], playbook_for) == "closing"
+    # A type without a published playbook is never picked, however many calls it has.
+    published.discard("ae_discovery")
+    assert motion_for_flow("ae", rows, playbook_for) == "closing"
+
+
+def test_a_flow_with_only_a_non_default_type_published_still_counts():
+    from app.services.coaching.rep_focus import motion_for_flow, published_flows
+
+    def playbook_for(motion):
+        return {"published": motion == "inbound", "steps": []}
+
+    assert published_flows(playbook_for) == ["sdr"]
+    assert motion_for_flow("sdr", [], playbook_for) == "inbound"

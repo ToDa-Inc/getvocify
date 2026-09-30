@@ -138,5 +138,6 @@ def build_meeting_checklist(
         supabase,
         company_id=company_id,
         call_mode="meeting",
+        user_id=user_id,
     )
     return checklist_from_grounding(grounding, extraction={})

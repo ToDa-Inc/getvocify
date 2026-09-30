@@ -17,13 +17,15 @@ from app.services.llm.shared import extract_json
 logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+# Live help can't wait for hidden reasoning; models that don't reason ignore this.
+NO_REASONING = {"reasoning": {"enabled": False}}
 
 
 def _resolve_model(explicit: Optional[str] = None) -> str:
     return (
         (explicit or "").strip()
         or (settings.COPILOT_MODEL or "").strip()
-        or "google/gemini-3.5-flash-lite"
+        or "deepseek/deepseek-v4.1-flash"
     )
 
 
@@ -88,6 +90,7 @@ async def stream_objection_suggestion(
         "temperature": 0.35,
         "stream": True,
         "response_format": {"type": "json_object"},
+        **NO_REASONING,
     }
 
     import time
@@ -191,6 +194,7 @@ async def _fallback_non_stream(
         "model": model_used,
         "messages": messages,
         "temperature": 0.35,
+        **NO_REASONING,
     }
     resp = await client.post(
         OPENROUTER_URL,

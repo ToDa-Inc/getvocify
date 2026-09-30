@@ -10,6 +10,10 @@ _STATUS = frozenset({"met", "missed", "not_applicable", "unknown"})
 _QUALIFICATION_STATUS = {"found": "met", "missing": "missed", "not_applicable": "not_applicable", "unknown": "unknown"}
 _NOT_FOUND = {"es": "No salió", "en": "Not found out"}
 _BLOCKS = ("steps", "qualification", "objections")
+# Below this share of steps judged (met or missed among those that applied), a mark would
+# rest on one or two steps: 1 met + 4 unknown is not a 10. The call still gets its cited
+# lines, only without a number.
+MIN_STEP_COVERAGE = 0.5
 
 
 def _intelligence_block(extraction: dict, payload: dict | None) -> dict:
@@ -140,10 +144,15 @@ def score_blocks(step_statuses: list[str], qualification_statuses: list[str], ob
     return blocks
 
 
-def blocks_value(blocks: dict, *, screening: str | None = None) -> int | None:
+def blocks_value(
+    blocks: dict, *, screening: str | None = None, step_statuses: list[str] | None = None,
+) -> int | None:
     """round(10 x the mean of the block ratios), over the blocks that had something to judge.
-    None when no block did: there is nothing to grade."""
+    None when no block did: there is nothing to grade. Same step-coverage floor as the
+    adherence mark: too few steps judged and there is no number."""
     if screening in {"voicemail", "no_response"}:
+        return None
+    if _thin_step_coverage(step_statuses):
         return None
     ratios = [block["met"] / block["applicable"] for block in blocks.values() if block["applicable"] > 0]
     if not ratios:
@@ -152,7 +161,11 @@ def blocks_value(blocks: dict, *, screening: str | None = None) -> int | None:
 
 
 def _objection_handling(
-    intelligence: dict, *, evidence_ids: list[str], with_custom_id: bool = False,
+    intelligence: dict,
+    *,
+    evidence_ids: list[str],
+    with_custom_id: bool = False,
+    answered_categories: frozenset[str] | None = None,
 ) -> tuple[list[str], list[dict]]:
     """T10/SCORING_OBJECTION_CREDIT_ENABLED: one synthetic criterion per real, evidenced objection.
 
@@ -162,7 +175,11 @@ def _objection_handling(
     a free-text `response` with no evidence earns nothing. When we cannot tell whether the
     rep replied at all (`rep_replied_after` is None), that is `unknown`, never `missed` on
     missing data. Without objections this returns nothing, so an easy call neither gains nor
-    loses points."""
+    loses points.
+
+    `answered_categories`: the categories the pinned playbook has an answer for. An objection
+    the playbook says nothing about is not the rep's miss against the playbook, so it does not
+    count. None = not known (no playbook read), every category counts as before."""
     known = set(evidence_ids)
     statuses: list[str] = []
     missed: list[dict] = []
@@ -170,6 +187,8 @@ def _objection_handling(
         if not isinstance(obj, dict):
             continue
         if obj.get("kind", "objection") != "objection":
+            continue
+        if answered_categories is not None and str(obj.get("category") or "other") not in answered_categories:
             continue
         refs = [str(ref or "").strip() for ref in (obj.get("evidence_refs") or []) if str(ref or "").strip()]
         if not refs or not any(ref in known for ref in refs):
@@ -205,10 +224,22 @@ def _playbook_for_assembly(memo: dict, playbook_version_id: str | None) -> dict 
     return {"id": playbook_version_id, "ambiguous": ambiguous}
 
 
-def _proposed_value(criteria_statuses: list[str], *, screening: str | None) -> int | None:
+def _thin_step_coverage(step_statuses: list[str] | None) -> bool:
+    """True when fewer than MIN_STEP_COVERAGE of the steps were judged: a mark would rest on too little."""
+    if not step_statuses:
+        return False
+    coverage = compute_adherence(step_statuses).get("coverage")
+    return coverage is not None and coverage < MIN_STEP_COVERAGE
+
+
+def _proposed_value(
+    criteria_statuses: list[str], *, screening: str | None, step_statuses: list[str] | None = None,
+) -> int | None:
     if screening in {"voicemail", "no_response"}:
         return None
     if not criteria_statuses:
+        return None
+    if _thin_step_coverage(step_statuses):
         return None
     metrics = compute_adherence(criteria_statuses)
     adherence = metrics.get("adherence")
@@ -273,6 +304,7 @@ def build_score_from_extraction(
     objection_credit_enabled: bool = False,
     debrief_v2_enabled: bool = False,
     qualification_enabled: bool = False,
+    answered_categories: frozenset[str] | None = None,
 ) -> dict | None:
     """Return an assembled score dict, or None when there is nothing to score.
 
@@ -307,20 +339,22 @@ def build_score_from_extraction(
         # With the three blocks the objections the rep faced always count (they are a block of
         # the mark), whatever SCORING_OBJECTION_CREDIT_ENABLED says for the old adherence.
         objection_statuses, objection_missed = _objection_handling(
-            intelligence, evidence_ids=evidence_refs, with_custom_id=True,
+            intelligence, evidence_ids=evidence_refs, with_custom_id=True, answered_categories=answered_categories,
         )
         criteria_statuses = criteria_statuses + objection_statuses
         missed_items = missed_items + objection_missed
         blocks = score_blocks(step_statuses, qualification_statuses, objection_statuses)
     elif objection_credit_enabled:
-        objection_statuses, objection_missed = _objection_handling(intelligence, evidence_ids=evidence_refs)
+        objection_statuses, objection_missed = _objection_handling(
+            intelligence, evidence_ids=evidence_refs, answered_categories=answered_categories,
+        )
         criteria_statuses = criteria_statuses + objection_statuses
         missed_items = missed_items + objection_missed
     cited_refs = _cited_refs(intelligence, patterns, revision, qualification_enabled=qualification_enabled)
     if blocks is not None:
-        proposed_value = blocks_value(blocks, screening=screening)
+        proposed_value = blocks_value(blocks, screening=screening, step_statuses=step_statuses)
     else:
-        proposed_value = _proposed_value(criteria_statuses, screening=screening)
+        proposed_value = _proposed_value(criteria_statuses, screening=screening, step_statuses=step_statuses)
     score = assemble_score(
         playbook=playbook,
         criteria_statuses=criteria_statuses,
@@ -340,6 +374,10 @@ def build_score_from_extraction(
     score["improvements"] = improvements
     if blocks is not None:
         score["blocks"] = blocks
+    # coaching_lines only writes lines for observations whose quote is in the transcript, so
+    # these improvements carry their own evidence (the brief shows them without objections).
+    if improvements:
+        score["improvements_cited"] = True
     # Flag-off must stay byte-identical to pre-T10 output: missed_items is new surface, so it
     # only appears when a T10 flag actually needs it (objection credit, the v2 debrief or the
     # qualification blocks).
@@ -358,6 +396,7 @@ def attach_score_to_job_payload(
     objection_credit_enabled: bool = False,
     debrief_v2_enabled: bool = False,
     qualification_enabled: bool = False,
+    answered_categories: frozenset[str] | None = None,
 ) -> dict:
     """Ensure payload carries a deterministic score when extraction is scoreable."""
     if not isinstance(payload, dict):
@@ -376,6 +415,7 @@ def attach_score_to_job_payload(
         objection_credit_enabled=objection_credit_enabled,
         debrief_v2_enabled=debrief_v2_enabled,
         qualification_enabled=qualification_enabled,
+        answered_categories=answered_categories,
     )
     if score is None:
         return payload

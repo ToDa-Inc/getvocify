@@ -177,3 +177,38 @@ def test_capture_id_loads_memo_and_ignores_company_wide_shortcut():
     assert grounding.evidence_ids == frozenset({"ev-memo"})
     assert grounding.playbook_snapshot is not None
     assert grounding.playbook_snapshot["version_id"] == "pv-memo"
+
+
+def test_live_grounding_uses_the_playbook_the_reps_capture_would_be_pinned_to(monkeypatch):
+    """Two published playbooks no longer mean "no playbook": the rep's routing picks one."""
+    import app.services.captures as captures
+    import app.services.company as company
+
+    pb1, ver1 = _published_playbook(playbook_id="pb-1", motion="discovery", version_id="pv-1")
+    pb2, ver2 = _published_playbook(playbook_id="pb-2", motion="closing", version_id="pv-2")
+    fake = _FakeSupabase({"playbooks": [pb1, pb2], "playbook_versions": [ver1, ver2]})
+    seen = {}
+
+    def fake_fields(_supabase, company_id, **kwargs):
+        seen.update(kwargs, company_id=company_id)
+        return {"sales_motion_key": "closing", "playbook_version_id": "pv-2"}
+
+    monkeypatch.setattr(captures, "playbook_fields_for_capture", fake_fields)
+    monkeypatch.setattr(company, "sales_role_for_user", lambda *_a, **_k: "ae")
+    grounding = load_company_suggest_grounding(fake, company_id=COMPANY, call_mode="meeting", user_id=USER)
+    assert grounding is not None
+    assert grounding.playbook_version_id == "pv-2"
+    assert grounding.playbook_snapshot["sales_motion_key"] == "closing"
+    assert seen["sales_role"] == "ae"
+    assert seen["interaction_kind"] == "meeting"
+
+
+def test_live_grounding_without_a_routed_playbook_is_none(monkeypatch):
+    import app.services.captures as captures
+    import app.services.company as company
+
+    pb1, ver1 = _published_playbook(playbook_id="pb-1", motion="discovery", version_id="pv-1")
+    fake = _FakeSupabase({"playbooks": [pb1], "playbook_versions": [ver1]})
+    monkeypatch.setattr(captures, "playbook_fields_for_capture", lambda *_a, **_k: {})
+    monkeypatch.setattr(company, "sales_role_for_user", lambda *_a, **_k: None)
+    assert load_company_suggest_grounding(fake, company_id=COMPANY, call_mode="meeting", user_id=USER) is None

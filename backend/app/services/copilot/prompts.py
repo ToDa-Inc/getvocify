@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
-PLAYBOOK_USER_SUFFIX = (_PROMPTS_DIR / "copilot_suggest_v1.md").read_text(encoding="utf-8")
+# v2: the model reads each approved answer, not just its id, so a grounded card says what the team approved.
+PLAYBOOK_USER_SUFFIX = (_PROMPTS_DIR / "copilot_suggest_v2.md").read_text(encoding="utf-8")
 
 SYSTEM_PROMPT = """You are Vocify Call Copilot — a silent real-time sales coach for cold / outbound phone calls.
 
@@ -40,6 +41,7 @@ RULES
 - Prefer questions that advance the call over monologues.
 - If the latest turn is the rep talking / filler / noise, set is_objection=false and keep coaching light.
 - Unless a published playbook was provided in the user message, set evidence_refs to [] and source_id to null.
+- When the user message lists the team's approved answers, an approved answer for the objection's category wins over the frameworks above.
 
 OUTPUT
 Return ONLY valid JSON with this exact shape:
@@ -57,16 +59,19 @@ Return ONLY valid JSON with this exact shape:
 """
 
 
-def _published_entry_ids(snapshot: dict[str, Any]) -> list[str]:
-    entries = snapshot.get("entries") or []
-    ids: list[str] = []
-    for entry in entries:
+def _approved_answers(snapshot: dict[str, Any]) -> list[str]:
+    """One line per published answer: `id · category: answer`. An entry without an answer
+    has nothing to say out loud, so it is not offered."""
+    lines: list[str] = []
+    for entry in snapshot.get("entries") or []:
         if not isinstance(entry, dict):
             continue
         entry_id = str(entry.get("entry_id") or "").strip()
-        if entry_id:
-            ids.append(entry_id)
-    return ids
+        guidance = " ".join(str(entry.get("guidance") or "").split())
+        if entry_id and guidance:
+            category = str(entry.get("category") or "other").strip() or "other"
+            lines.append(f"- {entry_id} · {category}: {guidance}")
+    return lines
 
 
 COMPANY_KNOWLEDGE_MAX_CHARS = 2400
@@ -180,10 +185,10 @@ LATEST TURN (trigger):
 Coach the rep NOW. JSON only."""
 
     if playbook_snapshot:
-        entry_ids = _published_entry_ids(playbook_snapshot)
+        answers = _approved_answers(playbook_snapshot)
         suffix = PLAYBOOK_USER_SUFFIX.replace(
-            "{{entry_ids}}",
-            ", ".join(entry_ids) if entry_ids else "(none)",
+            "{{entries}}",
+            "\n".join(answers) if answers else "(no approved answers yet)",
         )
         return f"{base}\n\n{suffix.strip()}"
     return base

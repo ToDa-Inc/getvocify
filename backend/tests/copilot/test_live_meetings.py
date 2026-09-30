@@ -117,3 +117,31 @@ def test_non_meeting_mode_never_ships_live_assist_fields_as_ready():
     assert result["playbook_ready"] is False
     assert result["evidence_refs"] == []
     assert result["suggestion"]["say_this"] == ""
+
+
+def test_evidence_without_an_approved_answer_is_general_help_not_the_playbook():
+    suggestion = {
+        "is_objection": True,
+        "objection_type": "price",
+        "urgency": "medium",
+        "say_this": "¿Qué coste tiene mantener el proceso actual?",
+        "evidence_refs": ["ev-1"],
+        "source_id": None,
+    }
+    result = finalize_suggest_result(call_mode="meeting", suggestion=suggestion, grounding=_grounding())
+    assert result["playbook_ready"] is False
+    assert result["grounded"] is False
+    assert result["suggestion"]["say_this"] == ""
+
+
+def test_source_id_of_an_entry_without_an_answer_is_not_grounded():
+    snapshot = {**PLAYBOOK_SNAPSHOT, "entries": [{"entry_id": "entry-2", "category": "price", "guidance": ""}]}
+    grounding = SuggestGrounding(
+        interaction_kind="meeting",
+        playbook_version_id="pv-2",
+        evidence_ids=frozenset({"ev-1"}),
+        playbook_snapshot=snapshot,
+    )
+    suggestion = {"is_objection": True, "say_this": "x", "evidence_refs": ["ev-1"], "source_id": "entry-2"}
+    result = finalize_suggest_result(call_mode="meeting", suggestion=suggestion, grounding=grounding)
+    assert result["playbook_ready"] is False

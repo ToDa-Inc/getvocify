@@ -8,16 +8,38 @@ from datetime import datetime, timedelta, timezone
 
 from app.services.coaching import rep_coaching as engine
 from app.services.coaching import rep_coaching_reads as reads
-from app.services.playbooks.motion import flow_for_motion
+from app.services.playbooks.motion import MOTION_FLOW, flow_for_motion
 
 FLOW_MOTION = {"sdr": "discovery", "ae": "closing"}
+# Every catalog call type of a flow, its default first (a tie goes to it).
+FLOW_MOTIONS: dict[str, tuple[str, ...]] = {
+    flow: (default, *sorted(m for m, f in MOTION_FLOW.items() if f == flow and m != default))
+    for flow, default in FLOW_MOTION.items()
+}
 # Weeks of a rep's interactions that decide which flow a general/NULL rep is coached on.
 FLOW_WEEKS = 8
 
 
 def published_flows(playbook_for) -> list[str]:
-    """The flows (sdr, ae order) whose motion has a published playbook."""
-    return [flow for flow, motion in FLOW_MOTION.items() if playbook_for(motion)["published"]]
+    """The flows (sdr, ae order) with at least one call type that has a published playbook."""
+    return [
+        flow for flow, motions in FLOW_MOTIONS.items()
+        if any(playbook_for(motion)["published"] for motion in motions)
+    ]
+
+
+def motion_for_flow(flow: str, rows: list[dict], playbook_for) -> str:
+    """The call type a rep is coached on within their flow: of the flow's types with a
+    published playbook, the one they ran most in `rows` (the default wins a tie). An AE whose
+    meetings route to discovery or negotiation is coached on those, not on an empty demo."""
+    motions = FLOW_MOTIONS[flow]
+    published = [motion for motion in motions if playbook_for(motion)["published"]]
+    if not published:
+        return FLOW_MOTION[flow]
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row["motion"]] = counts.get(row["motion"], 0) + 1
+    return max(published, key=lambda motion: (counts.get(motion, 0), -motions.index(motion)))
 
 
 def resolve_flow(
@@ -84,7 +106,7 @@ def rep_focus(
     week_end = madrid_week_bounds(now=week_start)[1]
     flow_rows = in_window(rows, flow_window_start(week_start), week_end)
     resolved = resolve_flow(sales_role, flow_rows, published_flows(playbook_for), flow)
-    motion = FLOW_MOTION[resolved]
+    motion = motion_for_flow(resolved, flow_rows, playbook_for)
     playbook = playbook_for(motion)
     if not playbook["published"]:
         return None

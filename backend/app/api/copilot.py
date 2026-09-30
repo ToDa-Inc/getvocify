@@ -87,6 +87,7 @@ async def suggest_objection_handling(
             company_id=membership.company_id,
             call_mode=body.call_mode,
             context=context,
+            user_id=membership.user_id,
         )
 
     company_knowledge = load_company_knowledge(supabase, company_id=membership.company_id)
