@@ -16,19 +16,28 @@ import { getUserDisplayName, getUserInitials } from "@/features/auth/types";
 import { getImpersonation } from "@/lib/admin-impersonation";
 import { useLanguage, type Language } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { useThemeMode } from "@/lib/theme-store";
+import { parseThemeMode, type ThemeMode } from "@/lib/theme-mode";
 
 const LANGUAGES: { lang: Language; labelKey: "languageSpanish" | "languageEnglish" }[] = [
   { lang: "ES", labelKey: "languageSpanish" },
   { lang: "EN", labelKey: "languageEnglish" },
 ];
 
+const THEMES: { mode: ThemeMode; labelKey: "themeLight" | "themeDark" | "themeSystem" }[] = [
+  { mode: "light", labelKey: "themeLight" },
+  { mode: "dark", labelKey: "themeDark" },
+  { mode: "system", labelKey: "themeSystem" },
+];
+
 /**
- * The top bar's avatar: who is signed in, Perfil, Idioma and Cerrar sesión. While an admin is
+ * The top bar's avatar: who is signed in, Perfil, Idioma, Tema and Cerrar sesión. While an admin is
  * viewing as someone, Perfil is left out (the banner above carries "Return to admin").
  */
 export function AvatarMenu() {
   const { t, language, setLanguage } = useLanguage();
   const { user, logout } = useAuth();
+  const { mode, setMode } = useThemeMode();
   const p = t.product;
   const impersonating = !!getImpersonation();
 
@@ -70,6 +79,14 @@ export function AvatarMenu() {
         <DropdownMenuRadioGroup value={language} onValueChange={(value) => setLanguage(value as Language)}>
           {LANGUAGES.map(({ lang, labelKey }) => (
             <DropdownMenuRadioItem key={lang} value={lang}>
+              {p[labelKey]}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuLabel className={THEME_TOKENS.typography.capsLabel}>{p.navTheme}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={mode} onValueChange={(value) => setMode(parseThemeMode(value))}>
+          {THEMES.map(({ mode: option, labelKey }) => (
+            <DropdownMenuRadioItem key={option} value={option}>
               {p[labelKey]}
             </DropdownMenuRadioItem>
           ))}

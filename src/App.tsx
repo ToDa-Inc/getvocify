@@ -25,6 +25,7 @@ import BillingPage from "./pages/dashboard/BillingPage";
 import AdminCompaniesPage from "./pages/admin/AdminCompaniesPage";
 import AdminCompanyDetailPage from "./pages/admin/AdminCompanyDetailPage";
 import DashboardLayout from "./components/dashboard/DashboardLayout";
+import { DashboardThemeProvider } from "./components/ThemeProvider";
 import DashboardHome from "./pages/dashboard/DashboardHome";
 import OnboardingWizard from "./pages/dashboard/OnboardingWizard";
 import RecordPage from "./pages/dashboard/RecordPage";
@@ -167,9 +168,11 @@ const App = () => (
               <Route path="accounts/:userId" element={<AdminAccountDetailPage />} />
             </Route>
             <Route path="/dashboard" element={
-              <ProtectedRoute>
-                <DashboardLayout />
-              </ProtectedRoute>
+              <DashboardThemeProvider>
+                <ProtectedRoute>
+                  <DashboardLayout />
+                </ProtectedRoute>
+              </DashboardThemeProvider>
             }>
               <Route index element={<DashboardHome />} />
               <Route path="onboarding" element={<OnboardingWizard />} />
