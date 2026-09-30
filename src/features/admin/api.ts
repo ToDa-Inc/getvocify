@@ -149,6 +149,15 @@ function mapRuntime(raw: Record<string, unknown>): AdminRuntime {
   };
 }
 
+export type ReprocessRun = {
+  running: boolean;
+  total: number;
+  done: number;
+  failed: number;
+  started_at?: string;
+  finished_at?: string | null;
+};
+
 export const adminApi = {
   listAccounts: async (args: { skip?: number; limit?: number; search?: string }): Promise<AdminAccountListResponse> => {
     const params = new URLSearchParams();
@@ -279,6 +288,21 @@ export const adminApi = {
 
   revokeCompanyInvite: async (companyId: string, inviteId: string) => {
     return api.delete<void>(`/admin/companies/${companyId}/invites/${inviteId}`, {
+      headers: masterHeaders(),
+    });
+  },
+
+  /** Run the company's stored conversations through this backend's pipeline again. */
+  reprocessMemos: async (companyId: string, limit: number, onlyUnprocessed = true) => {
+    return api.post<ReprocessRun>(
+      `/admin/companies/${companyId}/reprocess-memos`,
+      { limit, only_unprocessed: onlyUnprocessed },
+      { headers: masterHeaders() },
+    );
+  },
+
+  reprocessProgress: async (companyId: string) => {
+    return api.get<ReprocessRun>(`/admin/companies/${companyId}/reprocess-memos`, {
       headers: masterHeaders(),
     });
   },

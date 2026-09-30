@@ -33,11 +33,28 @@ const AdminCompanyDetailPage = () => {
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [accessMode, setAccessMode] = useState<"open" | "paywalled" | "unlocked">("open");
+  const [reprocessLimit, setReprocessLimit] = useState(50);
+  const [reprocessOnlyNew, setReprocessOnlyNew] = useState(true);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: adminKeys.company(companyId),
     queryFn: () => adminApi.getCompany(companyId),
     enabled: !!companyId,
+  });
+
+  const { data: reprocess } = useQuery({
+    queryKey: [...adminKeys.company(companyId), "reprocess"],
+    queryFn: () => adminApi.reprocessProgress(companyId),
+    enabled: !!companyId,
+    refetchInterval: (query) => (query.state.data?.running ? 4000 : false),
+  });
+  const reprocessMutation = useMutation({
+    mutationFn: () => adminApi.reprocessMemos(companyId, reprocessLimit, reprocessOnlyNew),
+    onSuccess: (run) => {
+      queryClient.setQueryData([...adminKeys.company(companyId), "reprocess"], run);
+      toast.success(run.total ? `Reprocessing ${run.total} conversations` : "Nothing to reprocess");
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "Could not start reprocessing")),
   });
 
   const company = (data?.company as Record<string, unknown>) ?? {};
@@ -265,6 +282,56 @@ const AdminCompanyDetailPage = () => {
             )}
           </Button>
         </div>
+      </div>
+
+      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
+        <div className="mb-5">
+          <h2 className={THEME_TOKENS.typography.sectionTitle}>Reprocess conversations</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            Runs this company's stored conversations (not approved, with a transcript) through this
+            environment's pipeline again: playbook, extraction as the author, score and intelligence.
+            Nothing is written to the CRM.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Input
+            type="number"
+            min={1}
+            max={500}
+            value={reprocessLimit}
+            onChange={(e) => setReprocessLimit(Math.max(1, Math.min(500, Number(e.target.value) || 1)))}
+            className="w-24 rounded-full h-10"
+            aria-label="How many conversations"
+          />
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={reprocessOnlyNew}
+              onChange={(e) => setReprocessOnlyNew(e.target.checked)}
+            />
+            Only the ones not analysed yet
+          </label>
+          <Button
+            disabled={reprocessMutation.isPending || Boolean(reprocess?.running)}
+            onClick={() => reprocessMutation.mutate()}
+            className="rounded-full bg-beige text-cream px-6 h-10"
+          >
+            {reprocess?.running ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Reprocessing…
+              </>
+            ) : (
+              "Reprocess"
+            )}
+          </Button>
+        </div>
+        {reprocess && reprocess.total > 0 ? (
+          <p className="text-xs text-muted-foreground mt-3">
+            {reprocess.done} of {reprocess.total} done{reprocess.failed ? ` · ${reprocess.failed} failed` : ""}
+            {reprocess.running ? "" : " · finished"}
+          </p>
+        ) : null}
       </div>
 
       <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
