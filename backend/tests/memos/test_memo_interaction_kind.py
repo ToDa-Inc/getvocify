@@ -1,6 +1,13 @@
 """Memo responses carry the capture channel so the rep home can label a conversation."""
 
-from app.api.memos import _memo_from_row
+import os
+
+os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
+os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-memo-rows-32")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-memo-rows-32")
+
+from app.api.memos import _memo_from_row  # noqa: E402
 
 
 def _row(**extra):
@@ -29,3 +36,40 @@ def test_rows_from_before_the_column_are_classified_by_origin():
 def test_interaction_kind_is_in_the_json():
     body = _memo_from_row(_row(interaction_kind="call")).model_dump(mode="json")
     assert body["interactionKind"] == "call"
+
+
+def test_a_memo_with_no_measured_duration_still_loads():
+    # Some rows have audio_duration NULL; one of them used to fail the whole list (500).
+    assert _memo_from_row(_row(audio_duration=None)).audioDuration == 0.0
+
+
+def test_one_unreadable_row_does_not_empty_the_list(monkeypatch):
+    import asyncio
+
+    from app.api import memos as memos_api
+
+    class _Q:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def __getattr__(self, _name):
+            return lambda *a, **k: self
+
+        def execute(self):
+            return type("R", (), {"data": self.rows})()
+
+    good = _row()
+    broken = _row(id="00000000-0000-0000-0000-000000000002", created_at=None)
+
+    class _Supabase:
+        def table(self, _name):
+            return _Q([good, broken])
+
+    monkeypatch.setattr(memos_api, "load_viewer_scope", lambda *_a: (None, [], {}))
+    monkeypatch.setattr(memos_api, "effective_visibility", lambda *_a: "own")
+    monkeypatch.setattr(memos_api, "resolve_list_user_ids", lambda **_k: ["rep-1"])
+    result = asyncio.run(memos_api.list_memos(
+        supabase=_Supabase(), user_id="rep-1", limit=20, offset=0, hubspot_deal_id=None,
+        hubspot_contact_id=None, scope="me", author_user_id=None, memo_status=None, reached_only=False,
+    ))
+    assert [str(m.id) for m in result] == [good["id"]]

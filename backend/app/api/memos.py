@@ -237,7 +237,8 @@ def _memo_from_row(
             authorName=(author or {}).get("name"),
             authorEmail=(author or {}).get("email"),
             audioUrl=sign_memo_audio(memo_data, supabase) if supabase is not None else (memo_data.get("audio_url") or ""),
-            audioDuration=memo_data["audio_duration"],
+            # NULL on some rows (a capture that never measured its audio): 0, not a failed list.
+            audioDuration=memo_data.get("audio_duration") or 0.0,
             status=memo_data["status"],
             transcript=memo_data.get("transcript"),
             transcriptConfidence=memo_data.get("transcript_confidence"),
@@ -967,10 +968,13 @@ async def list_memos(
         q = q.or_(f"screening_outcome.is.null,screening_outcome.not.in.({unreached})")
 
     result = q.execute()
-    memos = [
-        _memo_from_row(memo_data, authors.get(str(memo_data.get("user_id"))))
-        for memo_data in (result.data or [])
-    ]
+    memos = []
+    for memo_data in result.data or []:
+        try:
+            memos.append(_memo_from_row(memo_data, authors.get(str(memo_data.get("user_id")))))
+        except HTTPException:
+            # One unreadable row (already logged with its id) must not empty the whole list.
+            continue
     return memos
 
 
