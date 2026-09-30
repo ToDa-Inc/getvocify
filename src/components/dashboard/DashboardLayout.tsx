@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
+import { isAskShortcut } from "@/lib/ask-shortcut";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { ReportBell } from "@/components/dashboard/ReportBell";
@@ -69,7 +70,7 @@ const DashboardLayout = () => {
   useEffect(() => {
     if (paywalled) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.isComposing || event.key.toLowerCase() !== "k" || !(event.metaKey || event.ctrlKey)) return;
+      if (!isAskShortcut(event)) return;
       event.preventDefault();
       setAskOpen(true);
     };
