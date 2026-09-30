@@ -1,5 +1,6 @@
 import { html } from '../html.js';
 import { strings } from '../i18n.js';
+import { renderAnimIcon } from './anim-icon.js';
 
 /**
  * @typedef {Object} FollowupView   Shape returned by GET /api/v1/memos/{id}/followup
@@ -48,7 +49,7 @@ export function renderFollowup(view, lang) {
   <footer class="v-followup__actions">
     ${view.to ? html`<button type="button" class="${pill('email')}" data-action="send" data-value="email">${t.openMail}</button>` : ''}
     ${view.phone ? html`<button type="button" class="${pill('whatsapp')}" data-action="send" data-value="whatsapp">${t.whatsapp}</button>` : ''}
-    <button type="button" class="v-text-action" data-action="copy">${t.copy}</button>
+    <button type="button" class="v-text-action v-text-action--icon" data-action="copy">${renderAnimIcon('copy', { size: 14, stroke: 1.75 })}<span data-v-label>${t.copy}</span></button>
   </footer>
 </section>`;
 }

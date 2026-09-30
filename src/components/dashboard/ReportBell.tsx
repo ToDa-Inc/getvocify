@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell } from "lucide-react";
+import { AnimIcon, type AnimIconHandle } from "@/components/ui/anim-icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useLanguage } from "@/lib/i18n";
 import { reportKeys, reportsApi } from "@/lib/api/reports";
@@ -26,6 +26,15 @@ export function ReportBell() {
     refetchInterval: POLL_MS,
   });
   const count = bellCount(query.isSuccess ? query.data.unread : null);
+  const bellRef = useRef<AnimIconHandle>(null);
+  const seenCount = useRef<number | null>(null);
+  // Rings once when a new report arrives; the first load only sets the baseline.
+  const unread = query.isSuccess ? (query.data.unread ?? 0) : null;
+  useEffect(() => {
+    if (unread === null) return;
+    if (seenCount.current !== null && unread > seenCount.current) bellRef.current?.play();
+    seenCount.current = unread;
+  }, [unread]);
   const items = query.data?.items ?? [];
   const activity = query.data?.activity ?? null;
   // BELL_TASKS_ENABLED: undefined (flag off) keeps the bell exactly as it was, no headers.
@@ -65,7 +74,7 @@ export function ReportBell() {
         aria-label={count ? t.product.reportUnread.replace("{count}", String(count)) : t.product.reportsLabel}
         className="relative inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
       >
-        <Bell className="h-4 w-4" />
+        <AnimIcon ref={bellRef} name="bell" />
         {count ? (
           <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-beige px-1 text-center text-[10px] text-cream">
             {count}

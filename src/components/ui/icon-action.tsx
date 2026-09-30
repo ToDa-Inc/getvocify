@@ -9,17 +9,20 @@ type IconActionProps = {
   pending?: boolean;
   tone?: "default" | "danger";
   disabled?: boolean;
+  /** Shown while pending instead of the spinner, e.g. `<AnimIcon name="refresh" state="busy" />`. */
+  pendingIcon?: React.ReactNode;
   onClick: () => void;
   children: React.ReactNode;
 };
 
-/** Icon button with tooltip, press scale, and VocifySpinner while the action is in flight. */
+/** Icon button with tooltip, press scale, and VocifySpinner (or `pendingIcon`) while the action is in flight. */
 export function IconAction({
   label,
   pendingLabel,
   pending = false,
   tone = "default",
   disabled = false,
+  pendingIcon,
   onClick,
   children,
 }: IconActionProps) {
@@ -40,7 +43,7 @@ export function IconAction({
               tone === "danger" && THEME_TOKENS.interaction.iconDanger,
             )}
           >
-            {pending ? <VocifySpinner size={12} /> : children}
+            {pending ? (pendingIcon ?? <VocifySpinner size={12} />) : children}
           </button>
         </span>
       </TooltipTrigger>

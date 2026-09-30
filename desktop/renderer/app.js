@@ -10,6 +10,8 @@ import {
 import { parseHubSpotRecordPage } from '../lib/hubspot-record-page.js';
 import { scrollFollow } from './shared/ui/transcript.js';
 import './shared/ui/components/v-followup.js';
+import { renderDoneMark } from './shared/ui/components/done-mark.js';
+import { flashCopied } from './shared/ui/components/anim-icon.js';
 import { composeTarget } from './shared/ui/compose.js';
 import {
   buildCopilotChecklistRequestBody,
@@ -937,6 +939,7 @@ function paintReviewNote(note) {
 function setReviewLoading(loading) {
   if (loading) reviewPanel.dataset.loading = 'true';
   else delete reviewPanel.dataset.loading;
+  if (loading) paintReviewDone(null);
   const summaryEl = document.getElementById('review-summary');
   const nextEl = document.getElementById('review-next');
   const fieldsEl = document.getElementById('review-fields');
@@ -966,6 +969,14 @@ function setReviewLoading(loading) {
   } else {
     dealEl.classList.remove('review-slot');
   }
+}
+
+/** The CRM mark beside "Guardado": plays on the write the rep just confirmed, rests on an older one. */
+function paintReviewDone(state) {
+  const el = document.getElementById('review-done');
+  if (!el) return;
+  el.hidden = !state;
+  el.innerHTML = state ? renderToString(renderDoneMark({ size: 28, animate: state === 'play' })) : '';
 }
 
 function hideReviewRetry() {
@@ -1484,6 +1495,7 @@ followupEl.addEventListener('v-action', async (event) => {
   try {
     if (action === 'copy') {
       await navigator.clipboard.writeText(body);
+      flashCopied(element.querySelector('[data-action="copy"]'), strings(uiLang()).copied);
       await record({ action: 'copied', channel: 'email', subject, body });
       return;
     }
@@ -1538,6 +1550,7 @@ async function populateReviewContext(memoId, { readOnly = false } = {}) {
   document.getElementById('review-status').textContent = readOnly
     ? copy().saved
     : copy().needsReview;
+  paintReviewDone(memo.status === 'approved' ? 'rest' : null);
   setReviewLoading(false);
   paintReviewChecklist(null);
   loadFollowup(memoId, token);
@@ -1675,6 +1688,7 @@ async function approveReview() {
     if (reviewContext !== approvingContext) return;
     reviewContext.readOnly = true;
     document.getElementById('review-status').textContent = copy().saved;
+    paintReviewDone('play');
     renderReview();
     void paintNotesList();
   } catch (err) {

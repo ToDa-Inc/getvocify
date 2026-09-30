@@ -5,8 +5,9 @@
  * Used when data fetching or operations fail.
  */
 
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AnimIcon } from "@/components/ui/anim-icon";
 
 interface ErrorStateProps {
   /** Error message to display */
@@ -34,7 +35,7 @@ export function ErrorState({
       <p className="text-sm text-muted-foreground mb-4 max-w-sm">{message}</p>
       {onRetry && (
         <Button variant="outline" onClick={onRetry}>
-          <RefreshCw className="h-4 w-4 mr-2" />
+          <AnimIcon name="refresh" className="mr-2" />
           Try Again
         </Button>
       )}

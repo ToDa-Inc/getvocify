@@ -14,6 +14,8 @@ import {
 import { paintBriefBox } from '../lib/contact-brief-box.js';
 import { noteOffsetMsFromReviewAudio, noteSaveBody } from '../shared/ui/note.js';
 import '../shared/ui/components/v-followup.js';
+import { renderDoneMark } from '../shared/ui/components/done-mark.js';
+import { flashCopied, hydrateAnimIcons } from '../shared/ui/components/anim-icon.js';
 import { composeTarget } from '../shared/ui/compose.js';
 import { isAuthFailure, screenForInitFailure, shouldEnterLoggedOut, shouldPaintMainUi } from '../lib/auth-session.js';
 import {
@@ -461,6 +463,7 @@ followupEl?.addEventListener('v-action', async (event) => {
   try {
     if (action === 'copy') {
       await navigator.clipboard.writeText(body);
+      flashCopied(element.querySelector('[data-action="copy"]'), strings(popupUiLang()).copied);
       await record({ action: 'copied', channel: 'email', subject, body });
       return;
     }
@@ -3440,8 +3443,7 @@ function renderSuccess(result) {
   const msg = document.getElementById('success-message');
   const btn = document.getElementById('view-in-hubspot');
   const titleEl = document.querySelector('#screen-success .title-large');
-  const iconEl = document.querySelector('#screen-success .success-checkmark');
-  const iconContainerEl = document.querySelector('#screen-success .success-icon-container');
+  const markEl = document.getElementById('success-mark');
 
   if (!msg || !btn) return;
   const contactName =
@@ -3516,8 +3518,8 @@ function renderSuccess(result) {
   const failedEl = document.getElementById('success-outcome-failed');
   const hasFailure = !!(result && result.outcome_failed);
   if (titleEl) titleEl.textContent = hasFailure ? 'Synced - outcome not saved' : 'Sync Successful';
-  if (iconEl) iconEl.textContent = hasFailure ? '!' : '✓';
-  if (iconContainerEl) iconContainerEl.classList.toggle('success-icon-container--warning', hasFailure);
+  // Repainting the mark replays it: every write the rep confirms gets its own moment.
+  if (markEl) markEl.innerHTML = renderToString(renderDoneMark({ tone: hasFailure ? 'failed' : 'success', size: 72 }));
   if (failedEl) {
     if (hasFailure) {
       failedEl.textContent = result.outcome_failed;
@@ -3760,6 +3762,13 @@ function renderCallSection() {
     keypad.hidden = true;
     document.getElementById('call-keypad-toggle')?.classList.remove('is-active');
     document.getElementById('call-keypad-toggle')?.setAttribute('aria-expanded', 'false');
+  }
+  const ring = document.getElementById('call-ring');
+  if (ring) {
+    // Rings until they pick up, so the rep sees the call is alive without reading the label.
+    const ringing = inCall && (call.state === CALL_STATES.RINGING || call.state === CALL_STATES.CONNECTING);
+    ring.hidden = !ringing;
+    ring.classList.toggle('is-ringing', ringing);
   }
   if (inCall) {
     ensureKeypad();
@@ -4531,6 +4540,7 @@ document.getElementById('loading-error-logout')?.addEventListener('click', signO
 async function init() {
   await loadPopupSavedLang();
   applyDataI18n(document, popupUiLang());
+  hydrateAnimIcons(document);
   showScreen('loading');
   authStatus = 'unknown';
 

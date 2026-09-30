@@ -67,7 +67,7 @@ test('ready state: email is primary, WhatsApp is ghost, copy always present', ()
   assert.doesNotMatch(out, />Enviar</);
   assert.doesNotMatch(out, /delivered/i);
   assert.match(out, /class="v-pill v-pill--ghost" data-action="send" data-value="whatsapp">WhatsApp</);
-  assert.match(out, /data-action="copy">Copiar</);
+  assert.match(out, /data-action="copy"><span class="v-ai v-ai--copy"[^>]*>.*?<\/span><span data-v-label>Copiar</);
   assert.doesNotMatch(out, /v-followup__hint/);
 });
 

@@ -5,9 +5,9 @@ import {
   MagnifyingGlass,
   Microphone,
   MicrophoneSlash,
-  Phone,
   PhoneDisconnect,
 } from "@phosphor-icons/react";
+import { AnimIcon } from "@/components/ui/anim-icon";
 import { toast } from "sonner";
 import { callsApi } from "@/features/calls/api";
 import type { CallerId } from "@/features/calls/types";
@@ -618,6 +618,9 @@ export const DashboardDialer = ({
         : state === CALL_STATES.IDLE
           ? outcome || callCopy.dialReadyToCall
           : callButtonLabel(state);
+    // Rings until they pick up, so the rep sees the call is alive without reading the label.
+    const ringing = state === CALL_STATES.RINGING || state === CALL_STATES.CONNECTING;
+    const ring = ringing ? <AnimIcon name="phone" size={11} stroke={1.5} state="ringing" /> : null;
 
     if (compact && inCall) {
       return (
@@ -628,7 +631,7 @@ export const DashboardDialer = ({
             </span>
             <div className="min-w-0 flex-1">
               <p className="truncate text-[13px] font-medium text-foreground">{selected?.name}</p>
-              <p className="mt-0.5 text-[11px] tabular-nums text-beige">{label}</p>
+              <p className="mt-0.5 flex items-center gap-1 text-[11px] tabular-nums text-beige">{ring}{label}</p>
             </div>
             <div className="flex items-center gap-2">
               {state === CALL_STATES.ACTIVE ? (
@@ -678,7 +681,7 @@ export const DashboardDialer = ({
             <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
               {selected ? formatCallerIdDisplay(selected.phone) : ""}
             </p>
-            <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{label}</p>
+            <p className="mt-1 flex items-center gap-1 text-[11px] tabular-nums text-muted-foreground">{ring}{label}</p>
           </div>
         </div>
 
@@ -729,7 +732,7 @@ export const DashboardDialer = ({
             {inCall ? (
               <PhoneDisconnect size={15} weight="light" />
             ) : (
-              <Phone size={15} weight="light" />
+              <AnimIcon name="phone" size={15} stroke={1.25} />
             )}
             {inCall ? "Colgar" : "Llamar"}
           </button>
@@ -808,7 +811,7 @@ export const DashboardDialer = ({
             onClick={() => callTypedNumber(typedNumber)}
             className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-beige/10 disabled:opacity-40"
           >
-            <Phone size={14} weight="light" className="shrink-0 text-beige" />
+            <AnimIcon name="phone" size={14} stroke={1.25} className="text-beige" />
             <span className="min-w-0">
               <span className="block truncate text-[13px] font-medium text-foreground">
                 Llamar a {formatCallerIdDisplay(typedNumber)}
