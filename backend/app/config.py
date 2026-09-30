@@ -161,6 +161,9 @@ class Settings(BaseSettings):
     HUBSPOT_CLIENT_ID: Optional[str] = None
     HUBSPOT_CLIENT_SECRET: Optional[str] = None
     HUBSPOT_REDIRECT_URI: Optional[str] = None
+    # Never write to HubSpot from this backend (staging on a customer's real portal):
+    # app/services/hubspot/read_only.py answers every non-read request with a 423.
+    HUBSPOT_READ_ONLY: bool = False
     HUBSPOT_APP_ID: Optional[str] = None
 
     # Salesforce Connected App (OAuth Web Server flow)

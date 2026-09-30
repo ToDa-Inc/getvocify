@@ -69,7 +69,9 @@ class CrmMeetingActivityWriter:
         self._deal_id = deal_id
         self._person_id = person_id
         self._remote: dict[str, str] = {}
-        self._client = httpx.Client(transport=transport, timeout=timeout)
+        from app.services.hubspot.read_only import sync_transport
+
+        self._client = httpx.Client(transport=sync_transport(transport), timeout=timeout)
 
     def create(self, operation_key: str, proposal: dict) -> str:
         cached = self._remote.get(operation_key)
