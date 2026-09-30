@@ -27,6 +27,12 @@ import {
 } from './lib/crm-page.js';
 import { pickContextTab } from './lib/review-targets.js';
 import {
+  buildLiveCallEventBody,
+  createLiveCallTracker,
+  parseCallingSdkMessage,
+  pickCallRecord,
+} from './lib/calling-sdk.js';
+import {
   hydrateFromIdentityCache,
   identityCacheFromEntries,
   identityCacheToEntries,
@@ -1358,10 +1364,46 @@ function hangupCallFlow() {
 // ============================================
 // MESSAGE HANDLERS
 // ============================================
+const liveCallTracker = createLiveCallTracker();
+let liveCallReports = Promise.resolve();
+
+async function reportLiveCallEvent(tracked, senderUrl) {
+  let hubspotTabs = [];
+  try {
+    hubspotTabs = await chrome.tabs.query({ url: 'https://*.hubspot.com/*' });
+  } catch (_) { /* the sender's own URL still applies */ }
+  const page = pickCallRecord({ senderUrl, hubspotTabs, parseUrl: parseCrmPageUrl });
+  try {
+    await api.reportLiveCallEvent(buildLiveCallEventBody(tracked, page));
+  } catch (err) {
+    if (!isAuthFailure(err)) console.warn('[Vocify] live call event not sent', err);
+  }
+}
+
+/**
+ * A dialer embedded in HubSpot reported a call step (content/hubspot-calling.js).
+ * Tell the backend which record the call is for so the rep's desktop app knows
+ * who they are talking to. Reports go out one at a time so the backend sees
+ * start, answer, end and completion in order.
+ */
+function handleCallingSdkMessage(message, sender) {
+  const tracked = liveCallTracker.accept(
+    parseCallingSdkMessage(message.message),
+    sender.tab?.id ?? 'default',
+  );
+  if (!tracked) return;
+  const senderUrl = sender.tab?.url || null;
+  liveCallReports = liveCallReports.then(() => reportLiveCallEvent(tracked, senderUrl));
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target === 'offscreen') return;
 
   switch (message.type) {
+    case 'CALLING_SDK_MESSAGE':
+      handleCallingSdkMessage(message, sender);
+      break;
+
     // State queries
     case 'GET_STATE': {
       (async () => {
