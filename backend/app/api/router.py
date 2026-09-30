@@ -20,6 +20,7 @@ from app.api import (
     annotations,
     briefs,
     meetings,
+    calendar,
     coaching,
     brief_preferences,
     team_insights,
@@ -69,6 +70,7 @@ api_router.include_router(today.router)
 api_router.include_router(annotations.router)
 api_router.include_router(briefs.router)
 api_router.include_router(meetings.router)
+api_router.include_router(calendar.router)
 api_router.include_router(coaching.router)
 api_router.include_router(brief_preferences.router)
 api_router.include_router(team_insights.router)

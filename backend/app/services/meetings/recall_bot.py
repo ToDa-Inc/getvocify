@@ -12,11 +12,15 @@ migration/column needed for this task.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from supabase import Client
 
+from app.config import settings
+from app.integrations.recall_client import RecallClient, RecallClientError
 from app.services.captures import CaptureIdentity, complete_capture, reserve_capture
+from app.services.company import CompanyService
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +51,37 @@ def reserve_recall_capture(
         source_type="recall_bot",
         hubspot_contact_id=contact_id,
     )
+
+
+async def reserve_calendar_bot_capture(supabase: Client, client: RecallClient, bot_id: str) -> Optional[dict]:
+    """A calendar-scheduled bot (Calendar V2) gets its capture once its meeting has
+    happened, from the user/company Vocify put in the bot's metadata - scheduling days
+    ahead must not leave "recording" memos for meetings that haven't started. The
+    metadata is read from Recall's API, never from the webhook body (which may be
+    unsigned). Any other bot without a reserved capture stays a no-op (None)."""
+    try:
+        detail = await client.get_bot(bot_id)
+    except RecallClientError:
+        logger.warning("Recall bot %s lookup failed; capture not reserved", bot_id, exc_info=True)
+        return None
+    metadata = detail.get("metadata") or {}
+    user_id, company_id = metadata.get("user_id"), metadata.get("company_id")
+    if metadata.get("source") != "calendar" or not user_id or not company_id:
+        return None
+    if metadata.get("environment") != settings.ENVIRONMENT:
+        # Staging and production share the Recall workspace: another environment's bot.
+        return None
+    started_at: Any = detail.get("join_at") or datetime.now(timezone.utc)
+    membership = CompanyService(supabase).get_membership(str(user_id))
+    reserve_recall_capture(
+        supabase,
+        user_id=str(user_id),
+        company_id=str(company_id),
+        started_at=started_at,
+        bot_id=bot_id,
+        sales_role=membership.sales_role if membership else None,
+    )
+    return find_capture_by_bot_id(supabase, bot_id)
 
 
 def find_capture_by_bot_id(supabase: Client, bot_id: str) -> Optional[dict]:

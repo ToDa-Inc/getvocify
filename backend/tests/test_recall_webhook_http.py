@@ -115,8 +115,9 @@ def teardown_function():
     settings.ENVIRONMENT = "development"
 
 
-def test_no_secret_is_403_outside_development():
+def test_no_secret_and_no_api_key_is_403():
     settings.RECALL_WEBHOOK_SECRET = None
+    settings.RECALL_API_KEY = None
     settings.ENVIRONMENT = "production"
     supabase = _Supabase({"memos": [_memo_row()]})
     body = json.dumps({"event": "bot.done", "data": {"bot": {"id": BOT_ID}}}).encode("utf-8")
@@ -200,7 +201,7 @@ def test_bot_done_downloads_and_completes_the_capture():
     body = json.dumps({"event": "bot.done", "data": {"bot": {"id": BOT_ID}}}).encode("utf-8")
     ts = str(int(time.time()))
 
-    respx.get(f"https://us-west-2.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+    respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -285,7 +286,7 @@ def test_bot_done_content_conflict_is_acked_not_500():
     body = json.dumps({"event": "bot.done", "data": {"bot": {"id": BOT_ID}}}).encode("utf-8")
     ts = str(int(time.time()))
 
-    respx.get(f"https://us-west-2.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+    respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -346,7 +347,7 @@ def _post_event(supabase, event: str):
 def test_bot_done_before_the_transcript_is_ready_waits_instead_of_failing():
     """Transcription can finish after the bot leaves; transcript.done completes it later."""
     supabase = _Supabase({"memos": [_memo_row()], "user_profiles": []})
-    respx.get(f"https://us-west-2.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+    respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/").mock(
         return_value=httpx.Response(200, json={"id": BOT_ID, "recordings": []})
     )
     response = _post_event(supabase, "bot.done")
@@ -359,7 +360,7 @@ def test_bot_done_before_the_transcript_is_ready_waits_instead_of_failing():
 @respx.mock
 def test_a_transcript_download_failure_marks_the_capture_failed_not_500():
     supabase = _Supabase({"memos": [_memo_row()], "user_profiles": []})
-    respx.get(f"https://us-west-2.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+    respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -381,7 +382,7 @@ def test_a_transcript_download_failure_marks_the_capture_failed_not_500():
 @respx.mock
 def test_transcript_done_completes_the_capture_like_bot_done():
     supabase = _Supabase({"memos": [_memo_row()], "user_profiles": []})
-    respx.get(f"https://us-west-2.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+    respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -421,3 +422,157 @@ def test_a_failure_event_never_overwrites_a_completed_capture():
     supabase = _Supabase({"memos": [row]})
     assert _post_event(supabase, "transcript.failed").status_code == 200
     assert supabase.tables["memos"][0]["status"] == "pending_review"
+
+
+def _post_payload(supabase, payload: dict):
+    body = json.dumps(payload).encode("utf-8")
+    ts = str(int(time.time()))
+    with patch("app.api.webhooks.get_supabase", return_value=supabase):
+        return _test_client().post(
+            "/webhooks/recall",
+            content=body,
+            headers={
+                "webhook-id": "msg-1",
+                "webhook-timestamp": ts,
+                "webhook-signature": _sign("msg-1", ts, body),
+                "content-type": "application/json",
+            },
+        )
+
+
+def test_calendar_sync_events_is_handed_to_the_scheduler_after_the_ack():
+    supabase = _Supabase({})
+    handler = AsyncMock()
+    with patch("app.services.meetings.calendar_bots.handle_calendar_webhook", handler):
+        response = _post_payload(
+            supabase,
+            {"event": "calendar.sync_events", "data": {"calendar_id": "cal-1", "last_updated_ts": "2026-10-01T08:00:00Z"}},
+        )
+    assert response.status_code == 200
+    handler.assert_awaited_once_with(supabase, "calendar.sync_events", "cal-1", "2026-10-01T08:00:00Z")
+
+
+@respx.mock
+def test_a_calendar_bot_gets_its_capture_when_the_meeting_is_done():
+    """Calendar bots are scheduled days ahead with no capture behind them; bot.done
+    reserves it from the bot's metadata, then completes it like any other bot."""
+    supabase = _Supabase({"memos": [], "user_profiles": []})
+    respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": BOT_ID,
+                "join_at": "2026-10-01T10:00:00Z",
+                "metadata": {
+                    "source": "calendar",
+                    "environment": settings.ENVIRONMENT,
+                    "user_id": "rep-1",
+                    "company_id": "co-1",
+                },
+                "recordings": [
+                    {"media_shortcuts": {"transcript": {"data": {"download_url": "https://cdn.example/t.json"}}}}
+                ],
+            },
+        )
+    )
+    respx.get("https://cdn.example/t.json").mock(
+        return_value=httpx.Response(200, json=[{"participant": {"name": "Marta"}, "words": [{"text": "Hola"}]}])
+    )
+
+    reserved = []
+
+    def fake_reserve(sb, **kwargs):
+        reserved.append(kwargs)
+        sb.tables["memos"].append({**_memo_row(), "user_id": kwargs["user_id"], "company_id": kwargs["company_id"]})
+
+    membership = SimpleNamespace(sales_role="closer")
+    with (
+        patch("app.services.meetings.recall_bot.reserve_capture", fake_reserve),
+        patch("app.services.meetings.recall_bot.CompanyService") as company_service,
+        patch("app.api.memos.start_extraction_from_transcript", AsyncMock()),
+    ):
+        company_service.return_value.get_membership.return_value = membership
+        response = _post_payload(
+            supabase,
+            {
+                "event": "bot.done",
+                "data": {
+                    "bot": {
+                        "id": BOT_ID,
+                        # Only a hint: what counts is the metadata Recall's API returns.
+                        "metadata": {"source": "calendar", "user_id": "someone-else", "company_id": "co-x"},
+                    }
+                },
+            },
+        )
+
+    assert response.status_code == 200
+    [call] = reserved
+    assert call["client_capture_id"] == f"recall:{BOT_ID}"
+    assert call["started_at"] == "2026-10-01T10:00:00Z"
+    assert call["sales_role"] == "closer"
+    assert call["source_type"] == "recall_bot"
+    assert supabase.tables["memos"][0]["transcript_complete"] is True
+
+
+@respx.mock
+def test_another_environments_calendar_bot_is_left_alone():
+    """Staging and production share the Recall workspace and both get every webhook."""
+    supabase = _Supabase({"memos": []})
+    respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+        return_value=httpx.Response(
+            200,
+            json={"id": BOT_ID, "metadata": {"source": "calendar", "environment": "somewhere-else", "user_id": "rep-1", "company_id": "co-1"}},
+        )
+    )
+    with patch("app.services.meetings.recall_bot.reserve_capture") as reserve:
+        response = _post_payload(
+            supabase,
+            {
+                "event": "bot.done",
+                "data": {
+                    "bot": {
+                        "id": BOT_ID,
+                        "metadata": {"source": "calendar", "environment": "somewhere-else", "user_id": "rep-1", "company_id": "co-1"},
+                    }
+                },
+            },
+        )
+    assert response.status_code == 200
+    reserve.assert_not_called()
+    assert supabase.tables["memos"] == []
+
+
+def _unsigned_post(supabase, payload: dict):
+    with patch("app.api.webhooks.get_supabase", return_value=supabase):
+        return _test_client().post(
+            "/webhooks/recall", content=json.dumps(payload).encode("utf-8"), headers={"content-type": "application/json"}
+        )
+
+
+@respx.mock
+def test_unsigned_fatal_is_only_applied_when_recall_confirms_it():
+    """No RECALL_WEBHOOK_SECRET: a failure webhook is checked against Recall's record."""
+    settings.RECALL_WEBHOOK_SECRET = None
+    settings.ENVIRONMENT = "production"
+    route = respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/")
+    payload = {"event": "bot.fatal", "data": {"bot": {"id": BOT_ID}}}
+
+    route.mock(return_value=httpx.Response(200, json={"id": BOT_ID, "status_changes": [{"code": "in_call_recording"}]}))
+    supabase = _Supabase({"memos": [_memo_row()]})
+    assert _unsigned_post(supabase, payload).status_code == 200
+    assert supabase.tables["memos"][0].get("status") != "failed"
+
+    route.mock(return_value=httpx.Response(200, json={"id": BOT_ID, "status_changes": [{"code": "joining_call"}, {"code": "fatal"}]}))
+    assert _unsigned_post(supabase, payload).status_code == 200
+    assert supabase.tables["memos"][0]["status"] == "failed"
+
+
+def test_failure_confirmation_reads_recalls_record():
+    from app.integrations.recall_client import bot_failure_confirmed
+
+    assert bot_failure_confirmed({"status_changes": [{"code": "fatal"}]}, "bot.fatal")
+    assert not bot_failure_confirmed({"status_changes": []}, "bot.fatal")
+    failed = {"recordings": [{"media_shortcuts": {"transcript": {"status": {"code": "failed"}}}}]}
+    assert bot_failure_confirmed(failed, "transcript.failed")
+    assert not bot_failure_confirmed(failed, "bot.fatal")

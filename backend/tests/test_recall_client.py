@@ -19,8 +19,8 @@ from app.integrations import recall_client as rc
 
 
 def test_base_url_for_region_defaults_to_us_west_2():
-    assert rc.base_url_for_region(None) == "https://us-west-2.recall.ai"
-    assert rc.base_url_for_region("") == "https://us-west-2.recall.ai"
+    assert rc.base_url_for_region(None) == "https://eu-central-1.recall.ai"
+    assert rc.base_url_for_region("") == "https://eu-central-1.recall.ai"
 
 
 def test_base_url_for_region_honors_region():
@@ -29,10 +29,10 @@ def test_base_url_for_region_honors_region():
 
 @respx.mock
 def test_create_bot_posts_meeting_url_and_streaming_transcript_config():
-    route = respx.post("https://us-west-2.recall.ai/api/v1/bot/").mock(
+    route = respx.post("https://eu-central-1.recall.ai/api/v1/bot/").mock(
         return_value=httpx.Response(201, json={"id": "bot-1", "status": "joining_call"})
     )
-    client = rc.RecallClient(api_key="key-1", region="us-west-2")
+    client = rc.RecallClient(api_key="key-1", region="eu-central-1")
     result = asyncio.run(client.create_bot("https://zoom.us/j/123"))
 
     assert result == {"id": "bot-1", "status": "joining_call"}
@@ -44,14 +44,14 @@ def test_create_bot_posts_meeting_url_and_streaming_transcript_config():
 
 
 def test_create_bot_without_api_key_raises():
-    client = rc.RecallClient(api_key=None, region="us-west-2")
+    client = rc.RecallClient(api_key=None, region="eu-central-1")
     with pytest.raises(rc.RecallClientError):
         asyncio.run(client.create_bot("https://zoom.us/j/123"))
 
 
 @respx.mock
 def test_create_bot_error_response_raises_recall_client_error():
-    respx.post("https://us-west-2.recall.ai/api/v1/bot/").mock(
+    respx.post("https://eu-central-1.recall.ai/api/v1/bot/").mock(
         return_value=httpx.Response(422, text="invalid meeting_url")
     )
     client = rc.RecallClient(api_key="key-1")
@@ -61,7 +61,7 @@ def test_create_bot_error_response_raises_recall_client_error():
 
 @respx.mock
 def test_get_bot_fetches_bot_detail():
-    respx.get("https://us-west-2.recall.ai/api/v1/bot/bot-1/").mock(
+    respx.get("https://eu-central-1.recall.ai/api/v1/bot/bot-1/").mock(
         return_value=httpx.Response(200, json={"id": "bot-1", "recordings": []})
     )
     client = rc.RecallClient(api_key="key-1")
