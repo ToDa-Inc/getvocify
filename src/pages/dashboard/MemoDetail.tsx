@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Play, Pause, Check, ExternalLink, AlertCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Play, Pause, ExternalLink, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { AuthorLabel } from "@/components/dashboard/AuthorLabel";
@@ -8,6 +8,7 @@ import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { authorChipLabel, canViewCompanyActivity } from "@/lib/activity-authors";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { FollowupCard } from "@/components/dashboard/FollowupCard";
+import { DoneMark } from "@/components/dashboard/DoneMark";
 import { MemoMeetingChecklist } from "@/components/dashboard/memos/MemoMeetingChecklist";
 import { CoachingScore } from "@/components/dashboard/memos/CoachingScore";
 import { MemoPlaybookLine } from "@/features/playbooks/components/MemoPlaybookLine";
@@ -18,7 +19,8 @@ import { PostInteractionBrief } from "@/components/dashboard/memos/PostInteracti
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { shouldPollMemo } from "@/lib/memo-poll";
-import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
+import { VocifyLoader } from "@/components/ui/vocify-loader";
+import { AnimIcon } from "@/components/ui/anim-icon";
 import { clearCachedPreview } from "@/lib/preview-cache";
 import { api } from "@/shared/lib/api-client";
 import { useAuth } from "@/features/auth";
@@ -339,8 +341,8 @@ const MemoDetail = () => {
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.container} p-16 relative overflow-hidden group`}>
           <div className="absolute inset-0 bg-gradient-to-br from-success/10 to-transparent" />
           <div className="relative z-10">
-            <div className={`w-20 h-20 mx-auto mb-8 ${THEME_TOKENS.radius.card} bg-success/10 flex items-center justify-center`}>
-              <Check className="h-10 w-10 text-success shadow-[0_0_15px_rgba(34,197,94,0.3)]" />
+            <div className="mb-8 flex justify-center">
+              <DoneMark size={80} label={`Synced to ${crmName}`} />
             </div>
             <h2 className="text-3xl font-normal tracking-tight text-foreground mb-4">Sync Successful</h2>
             <p className="text-muted-foreground mb-10 leading-relaxed mx-auto max-w-sm">
@@ -445,11 +447,7 @@ const MemoDetail = () => {
             variant="outline"
             className="rounded-full border-beige/40 hover:bg-beige/10 shrink-0"
           >
-            {isReExtracting ? (
-              <VocifySpinner size={16} className="mr-2" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
+            <AnimIcon name="refresh" state={isReExtracting && "busy"} className="mr-2" />
             {isReExtracting ? "Re-extracting..." : "Re-extract"}
           </Button>
         </div>
@@ -510,11 +508,7 @@ const MemoDetail = () => {
                     title="Re-transcribe from recording"
                     className="rounded-full border-beige/40 hover:bg-beige/10 h-8 w-8 shrink-0"
                   >
-                    {isReTranscribing ? (
-                      <VocifySpinner size={14} />
-                    ) : (
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    )}
+                    <AnimIcon name="refresh" size={14} state={isReTranscribing && "busy"} />
                   </Button>
                 ) : null}
                 {memo.transcriptConfidence ? (

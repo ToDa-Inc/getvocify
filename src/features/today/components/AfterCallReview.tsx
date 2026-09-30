@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { CopilotNote } from "@/components/dashboard/CopilotNote";
+import { DoneMark } from "@/components/dashboard/DoneMark";
 import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { memoKeys, memosApi } from "@/features/memos/api";
@@ -273,8 +274,10 @@ export function AfterCallReview({
     const step = followupStep(context, followupRevealed);
     return (
       <div className="space-y-2">
-        <p className="text-[14px] text-foreground">
-          {[savedLine, outcome ? productText(outcomeLabelKey(outcome), copy) : null, dateLine].filter(Boolean).join(" · ")}
+        <p className="flex items-center gap-2 text-[14px] text-foreground">
+          {/* Plays on the save the rep just confirmed; rests on one recorded earlier. */}
+          <DoneMark size={20} animate={Boolean(saved)} />
+          <span>{[savedLine, outcome ? productText(outcomeLabelKey(outcome), copy) : null, dateLine].filter(Boolean).join(" · ")}</span>
         </p>
         {done.crm?.status === "unsupported" && crmName ? (
           <p className="text-[12px] text-muted-foreground">{copy.after_call_crm_unsupported.replace("{crm}", crmName)}</p>

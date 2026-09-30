@@ -5,7 +5,7 @@ import { TodayCardActions } from "@/features/today/components/TodayCardActions";
 import { dialerAvailable } from "@/lib/ask-calls";
 import { isDesktopHost } from "@/lib/desktop-host";
 import { productText } from "@/lib/product-catalog";
-import { ArrowClockwise, Check, Copy } from "@phosphor-icons/react";
+import { AnimIcon } from "@/components/ui/anim-icon";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { useLanguage } from "@/lib/i18n";
@@ -105,7 +105,7 @@ export default function TurnView({ message, isLast, onRetry, onChoose, onConfirm
           <p className="text-[13px] text-muted-foreground">{t.product.askFailed}</p>
           {message.retryable && isLast ? (
             <Button size="sm" variant="outline" onClick={onRetry}>
-              <ArrowClockwise size={14} weight="light" aria-hidden="true" />
+              <AnimIcon name="refresh" size={14} stroke={1.25} />
               {t.product.askRetry}
             </Button>
           ) : null}
@@ -113,14 +113,14 @@ export default function TurnView({ message, isLast, onRetry, onChoose, onConfirm
       ) : null}
       {message.stopped && isLast ? (
         <Button size="sm" variant="outline" onClick={onRetry}>
-          <ArrowClockwise size={14} weight="light" aria-hidden="true" />
+          <AnimIcon name="refresh" size={14} stroke={1.25} />
           {t.product.askRetry}
         </Button>
       ) : null}
       {message.phase === "done" && hasText && !message.stopped ? (
         <div className="-ml-2.5 flex">
           <IconAction label={copied ? t.product.askCopied : t.product.askCopy} onClick={() => void copy()}>
-            {copied ? <Check size={16} weight="light" /> : <Copy size={16} weight="light" />}
+            <AnimIcon name="copy" stroke={1.25} state={copied && "done"} />
           </IconAction>
         </div>
       ) : null}

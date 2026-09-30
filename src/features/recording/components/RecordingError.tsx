@@ -4,10 +4,11 @@
  * Error display with retry option
  */
 
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getRecordingErrorMessage } from '../types';
 import type { RecordingError } from '../types';
+import { AnimIcon } from "@/components/ui/anim-icon";
 
 interface RecordingErrorProps {
   /** Error that occurred */
@@ -50,7 +51,7 @@ export function RecordingError({
           onClick={onRetry}
           className="flex-1"
         >
-          <RefreshCw className="h-4 w-4 mr-2" />
+          <AnimIcon name="refresh" className="mr-2" />
           Try Again
         </Button>
       </div>
