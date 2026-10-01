@@ -7,6 +7,8 @@ export type AssistContext = {
   latestTurn: string;
   /** "You: … / Them: …" lines, most recent last, capped for the prompt. */
   transcriptWindow: string;
+  /** The call's CRM contact, so help can use their earlier calls. */
+  contactId?: string;
 };
 
 /** One piece of live help, whatever produced it. */

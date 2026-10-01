@@ -16,6 +16,7 @@ const objectionSource: AssistSource = {
           latest_turn: context.latestTurn,
           call_mode: "meeting",
           speaker_role: "prospect",
+          ...(context.contactId && { contact_id: context.contactId }),
         },
         (event) => {
           if (event.type === "token" && !drafted && onDraft) {

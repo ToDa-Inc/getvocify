@@ -29,6 +29,8 @@ export interface SuggestRequest {
   language?: "auto" | "en" | "es";
   call_mode?: CallMode;
   speaker_role?: "prospect" | "rep" | "unknown";
+  /** HubSpot contact of the call: adds their history (earlier calls, objections, commitments). */
+  contact_id?: string;
 }
 
 export interface SuggestResultEvent {

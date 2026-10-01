@@ -109,6 +109,8 @@ export const memosApi = {
       speakersVerified?: boolean;
       /** What the rep typed while recording; steers the summary. */
       notes?: string;
+      /** The HubSpot contact the call was with, known live (desktop). */
+      hubspotContactId?: string;
     } = {},
   ): Promise<UploadMemoResponse> => {
     return api.post<UploadMemoResponse>('/memos/upload-and-extract', {
@@ -117,6 +119,7 @@ export const memosApi = {
       ...(options.interactionKind && { interaction_kind: options.interactionKind }),
       speakers_verified: Boolean(options.speakersVerified),
       notes: options.notes?.trim() || undefined,
+      hubspot_contact_id: options.hubspotContactId || undefined,
     });
   },
 
@@ -162,6 +165,14 @@ export const memosApi = {
    * Optionally accepts edited extraction data.
    * Backend will push the data to the connected CRM.
    */
+  /**
+   * One click right after a call (Mac notch island): exactly what auto-approve sends, for a
+   * memo that knows its contact. Anything that needs a choice is refused: use review.
+   */
+  approveForContact: (id: string): Promise<Memo> => {
+    return api.post<Memo>(`/memos/${id}/approve-contact`);
+  },
+
   approve: (id: string, payload?: ApproveMemoPayload): Promise<Memo> => {
     return api.post<Memo>(`/memos/${id}/approve`, payload);
   },

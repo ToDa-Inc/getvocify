@@ -40,7 +40,7 @@ export function MeetingLiveView() {
     setQuery("");
   };
   const [assistOn, setAssistOn] = useLiveAssistEnabled();
-  const assist = useLiveAssist(meeting.turns, assistOn && live && !meeting.paused);
+  const assist = useLiveAssist(meeting.turns, assistOn && live && !meeting.paused, meeting.contact?.hubspotId);
 
   // The floating pill shows the same live card while it is open.
   useEffect(() => {

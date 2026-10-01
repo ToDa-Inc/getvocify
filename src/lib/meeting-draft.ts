@@ -9,6 +9,8 @@ export type MeetingDraft = {
   transcript: MeetingTranscript;
   /** What the rep typed during the meeting. */
   notes?: string;
+  /** The CRM contact on screen when the call started; the memo is born with it. */
+  contact?: { hubspotId: string; name: string | null };
 };
 
 function isDraft(value: unknown): value is MeetingDraft {

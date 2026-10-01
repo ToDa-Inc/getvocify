@@ -13,6 +13,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { memosApi, memoKeys } from "@/features/memos/api";
+import { isProcessing } from "@/features/memos/types";
+import { crmApi } from "@/lib/api/crm";
 import { api } from "@/shared/lib/api-client";
 import { ROUTES } from "@/shared/lib/constants";
 import {
@@ -38,6 +40,7 @@ import { meetingStartedLabel, sortDrafts, type MeetingDraft } from "@/lib/meetin
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
 import { islandCallContact, latestOnly, type CallPreview } from "@/lib/call-contact";
+import { POST_CALL_GIVE_UP_MS, pollDelayMs, postCallFor, type PostCall } from "@/lib/post-call";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
 
@@ -60,6 +63,8 @@ type DesktopMeeting = {
   pending: MeetingDraft[];
   /** Whether unsent meetings survive a quit (the host keeps drafts on disk). */
   savedOnDevice: boolean;
+  /** The CRM contact of the call being recorded, when the island knew it. */
+  contact: MeetingDraft["contact"] | null;
   start: () => Promise<void>;
   stop: () => Promise<void>;
   retryPending: () => Promise<void>;
@@ -120,10 +125,15 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<MeetingDraft[]>([]);
   const [notes, setNotesState] = useState("");
   const notesRef = useRef("");
+  const [contact, setContact] = useState<MeetingDraft["contact"] | null>(null);
+  /** Who the call detected by the island is with; the next recording takes it. */
+  const callContactRef = useRef<MeetingDraft["contact"] | null>(null);
+  /** The memo the island is following after a call; `cancelled` stops an older follow. */
+  const postCallRef = useRef<{ run: { cancelled: boolean }; state: PostCall } | null>(null);
 
   const phaseRef = useRef<MeetingPhase>("idle");
   const transcriptRef = useRef<MeetingTranscript>(EMPTY_MEETING_TRANSCRIPT);
-  const draftRef = useRef<{ id: string; startedAt: number } | null>(null);
+  const draftRef = useRef<{ id: string; startedAt: number; contact?: MeetingDraft["contact"] } | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const recoveredForRef = useRef<string | null>(null);
   const userIdRef = useRef("");
@@ -207,10 +217,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const sendDraft = useCallback(
     async (draft: MeetingDraft): Promise<string> => {
       const res = await memosApi.uploadTranscriptAndExtract(meetingUploadText(draft.transcript), {
-        interactionKind: "meeting",
+        // A recording with the CRM contact on screen is that contact's call.
+        interactionKind: draft.contact ? "call" : "meeting",
         sourceType: "meeting_transcript",
         speakersVerified: true,
         notes: draft.notes,
+        hubspotContactId: draft.contact?.hubspotId,
       });
       await getDesktopBridge()?.drafts?.remove(draft.id);
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
@@ -334,6 +346,67 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     getDesktopBridge()?.shell.setState({ paused: false, clock: meetingClock() });
   }, [meetingClock]);
 
+  const showPostCall = useCallback((state: PostCall | null) => {
+    if (postCallRef.current && state) postCallRef.current.state = state;
+    getDesktopBridge()?.shell.setState({ postCall: state });
+  }, []);
+
+  const endPostCall = useCallback(() => {
+    if (postCallRef.current) postCallRef.current.run.cancelled = true;
+    postCallRef.current = null;
+    getDesktopBridge()?.shell.setState({ postCall: null });
+  }, []);
+
+  /** After a call: follow the memo until its CRM update is ready, for the island. */
+  const followPostCall = useCallback(
+    async (memoId: string, contactName: string | null) => {
+      endPostCall();
+      const run = { cancelled: false };
+      const first = postCallFor({ id: memoId, status: "extracting" }, contactName);
+      postCallRef.current = { run, state: first };
+      showPostCall(first);
+      const startedAt = Date.now();
+      for (let attempt = 0; Date.now() - startedAt < POST_CALL_GIVE_UP_MS; attempt++) {
+        await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs(attempt)));
+        if (run.cancelled) return;
+        const memo = await memosApi.get(memoId).catch(() => null);
+        if (run.cancelled) return;
+        if (!memo || isProcessing(memo.status)) continue;
+        let proposed: Parameters<typeof postCallFor>[2] = null;
+        if (memo.status === "pending_review") {
+          const contactId = memo.hubspotContactId || undefined;
+          const preview = (await crmApi.getPreview(memoId, undefined, contactId ? { contactId } : undefined).catch(() => null)) as
+            | { proposed_updates?: Parameters<typeof postCallFor>[2] }
+            | null;
+          if (run.cancelled) return;
+          proposed = preview?.proposed_updates ?? null;
+        }
+        showPostCall(postCallFor({ id: memoId, status: memo.status, hubspotContactId: memo.hubspotContactId }, contactName, proposed));
+        return;
+      }
+      if (!run.cancelled) {
+        showPostCall({ ...postCallFor({ id: memoId, status: "failed" }, contactName), note: "Still writing. Open it in Vocify" });
+      }
+    },
+    [endPostCall, showPostCall],
+  );
+
+  const approvePostCall = useCallback(async () => {
+    const current = postCallRef.current;
+    if (!current || current.state.stage !== "ready" || !current.state.canApprove) return;
+    const { run, state } = current;
+    showPostCall({ ...state, stage: "approving" });
+    try {
+      await memosApi.approveForContact(state.memoId);
+      queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
+      if (!run.cancelled) showPostCall({ ...state, stage: "done" });
+    } catch {
+      if (!run.cancelled) showPostCall({ ...state, stage: "review", canApprove: false, note: "Couldn't update. Review it in Vocify" });
+    }
+  }, [queryClient, showPostCall]);
+  const approvePostCallRef = useRef(approvePostCall);
+  approvePostCallRef.current = approvePostCall;
+
   const stop = useCallback(async () => {
     if (phaseRef.current !== "live") return;
     setPhase("stopping");
@@ -349,6 +422,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     transcriptRef.current = settleMeeting(transcriptRef.current);
     const draft = currentDraft();
     draftRef.current = null;
+    setContact(null);
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -369,6 +443,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       setPhase("idle");
       navigate(ROUTES.MEMO_DETAIL(memoId));
+      void followPostCall(memoId, draft.contact?.name ?? null);
     } catch {
       setPending((list) => [...list, draft]);
       clearNotes();
@@ -380,7 +455,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           : "Couldn't send the meeting. Retry before closing Vocify.",
       );
     }
-  }, [clearNotes, currentDraft, drainSocket, fail, navigate, releaseAudio, sendDraft, setPhase, updateTranscript]);
+  }, [clearNotes, currentDraft, drainSocket, fail, followPostCall, navigate, releaseAudio, sendDraft, setPhase, updateTranscript]);
 
   const start = useCallback(async () => {
     const bridge = getDesktopBridge();
@@ -425,7 +500,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       if (ctx.state === "suspended") await ctx.resume();
 
       const startedAt = Date.now();
-      draftRef.current = { id: newDraftId(), startedAt };
+      const callContact = callContactRef.current;
+      draftRef.current = { id: newDraftId(), startedAt, ...(callContact ? { contact: callContact } : {}) };
+      setContact(callContact);
+      endPostCall();
       clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       reconnectsRef.current = 0;
@@ -491,7 +569,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       void bridge.shell.hideOverlay();
       bridge.shell.command("show");
     }
-  }, [clearNotes, fail, meetingClock, navigate, openSocket, releaseAudio, setPhase, updateTranscript, user?.id]);
+  }, [clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, setPhase, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(
@@ -573,9 +651,25 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       } else if (name === "search") {
         navigate(ROUTES.RECORD);
         window.setTimeout(() => window.dispatchEvent(new CustomEvent(TRANSCRIPT_SEARCH_EVENT)), 0);
+      } else if (name === "postcall:approve") {
+        void approvePostCallRef.current();
+      } else if (name === "postcall:review") {
+        const memoId = postCallRef.current?.state.memoId;
+        endPostCall();
+        if (memoId) navigate(ROUTES.MEMO_DETAIL(memoId));
+      } else if (name === "postcall:dismiss") {
+        endPostCall();
       }
     });
-  }, [navigate]);
+  }, [endPostCall, navigate]);
+
+  // The island only offers Record when there's someone signed in to record for.
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge) return;
+    bridge.shell.setState({ recorderReady: Boolean(user?.id) });
+    return () => bridge.shell.setState({ recorderReady: false });
+  }, [user?.id]);
 
   // The island detected a call: name the CRM contact on screen for its call menu.
   useEffect(() => {
@@ -588,11 +682,27 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       api
         .post<CallPreview>("/live-calls/preview", { page_urls: urls })
         .then((preview) => {
-          if (lookups.isLatest(ticket)) bridge.shell.setState({ callContact: islandCallContact(preview) });
+          if (!lookups.isLatest(ticket)) return;
+          // Memos store HubSpot contacts; the next recording takes this one.
+          callContactRef.current =
+            preview.provider === "hubspot" && preview.contact_id
+              ? { hubspotId: preview.contact_id, name: preview.contact_name?.trim() || null }
+              : null;
+          bridge.shell.setState({ callContact: islandCallContact(preview) });
         })
         .catch(() => {
           // No name: the island keeps showing the app.
         });
+    });
+  }, []);
+
+  // The call ended: its contact must not stick to the next one.
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.crm?.onCallEnded) return;
+    return bridge.crm.onCallEnded(() => {
+      callContactRef.current = null;
+      bridge.shell.setState({ callContact: null });
     });
   }, []);
 
@@ -630,11 +740,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       setNotes,
       pending,
       savedOnDevice,
+      contact,
       start,
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, start, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, start, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

@@ -51,6 +51,8 @@ export type VocifyDesktopBridge = {
     openAutomationSettings(): Promise<unknown>;
     /** The notch island detected a call with these CRM pages on screen. */
     onCallPages(cb: (payload: { urls: string[] }) => void): () => void;
+    /** The detected call ended (the call app let go of the mic). */
+    onCallEnded?(cb: () => void): () => void;
   };
   /** Meeting drafts on disk. Missing in builds older than local recovery. */
   drafts?: {

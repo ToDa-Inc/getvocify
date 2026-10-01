@@ -21,7 +21,7 @@ const MIN_GAP_MS = 6000;
  * help is coming, a draft with a bridge line shows; the answer replaces it in place.
  * Display rules live in lib/live-assist (8–25s, stays while the rep answers).
  */
-export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean) {
+export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, contactId?: string | null) {
   const [active, setActive] = useState<AssistCard | null>(null);
   const [earlier, setEarlier] = useState<AssistCard[]>([]);
   const [thinking, setThinking] = useState(false);
@@ -33,7 +33,8 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean) {
   const repLastAtRef = useRef<number | null>(null);
   const repKeyRef = useRef("");
 
-  const context = enabled ? assistContext(turns) : null;
+  const found = enabled ? assistContext(turns) : null;
+  const context = found && contactId ? { ...found, contactId } : found;
   const key = context?.key ?? "";
   const repKey = repActivityKey(turns);
 
