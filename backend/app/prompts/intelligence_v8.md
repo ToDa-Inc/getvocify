@@ -92,8 +92,9 @@ If the day or time changed during the conversation, use the last one both sides 
     enough: not naming the company again is not a miss.
   - A step whose job was already done in an earlier conversation, or that this kind of call does
     not ask for (discovery questions in a meeting confirmation), is "not_applicable".
-  - In bad_moment, gatekeeper or wrong_person calls, only the opening can apply; every other
-    step is "not_applicable".
+  - In bad_moment, gatekeeper or wrong_person calls, only the opening is required: not doing the
+    other steps is never a miss ("not_applicable"), but a step the rep did anyway (asked who
+    decides and got an answer) is "met". Judge what was said first, then the call type.
   - A step that belongs after call.phase_reached, because the prospect ended the call or the
     conversation never got there through no fault of the rep, is "not_applicable".
   Example of an opening with a reason in a first contact: "soy Ana, te llamo de Acme, he visto
@@ -110,6 +111,11 @@ If the day or time changed during the conversation, use the last one both sides 
   "not_applicable" when the step could not or should not happen in this conversation (see
   above); quote is null.
   "unknown" when you cannot tell from the transcript; quote is null.
+  When the rep asked what the step asks but the prospect brushed it off ("no tenemos ningún
+  problema", "todo va bien") and the rep did not dig once more, it is "met" with quality
+  "improvable": the rep did their part, a better rep would have probed.
+  Likewise, confirming the prospect's role ("¿tú eres el fundador?") without asking who else takes
+  part in the decision is "met" with quality "improvable" for a step about who decides.
   A step is the rep's own action. When a criterion also names the prospect's reaction
   ("and the prospect accepts", "the prospect names a problem"), the step is "met" when the
   rep did their part as described, whatever the prospect answered; the prospect's answer is
@@ -118,10 +124,14 @@ If the day or time changed during the conversation, use the last one both sides 
   but it could clearly be better: only part of what the step asks (two of the three data points), a
   vague or late version of it, a question the prospect dodged and the rep did not try again. A step
   is not black or white: use "improvable" whenever a good sales lead would say "bien, pero…".
+  For an opening, read the whole opening (it may come a few turns in, after an interruption), and
+  make it "improvable" when the prospect shows they did not get why the rep was calling.
   reason is one short sentence in Spanish addressed to the rep as "tú" ("Te presentaste y…",
   "No preguntaste…"), never "el comercial" or "el SDR": what they did or did not do, in plain words.
   advice: when status is "missed", or "met" with quality "improvable"; one short sentence in Spanish, addressed to the rep
-  ("tú"; the prospect is "él"/"ella"), saying concretely what to do next time in a call like this one, using this call's
+  ("tú"; the prospect is "él"/"ella"), saying concretely what to do next time in a call like this one. It must point at
+  a moment of THIS call and give the words to try ("Cuando te dijo que hacen 30 demos al mes, pregúntale
+  el ticket medio"); restating the criterion ("pregunta quién decide") is not advice. Use this call's
   situation (for example "Antes de preguntar, di por qué le llamas: que viste que conectó con
   X en LinkedIn."). Never repeat the criterion word for word. null otherwise.
 

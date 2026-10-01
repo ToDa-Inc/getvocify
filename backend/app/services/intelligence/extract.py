@@ -918,6 +918,19 @@ def call_context(supabase: Any, memo: dict) -> dict:
     return context
 
 
+def _skipped_steps(raw: Any, messages: list[dict]) -> bool:
+    """Whether the reply misses a step it was asked to judge."""
+    try:
+        asked = {s["step_id"] for s in json.loads(messages[1]["content"]).get("playbook_steps") or []}
+    except (ValueError, KeyError, TypeError):
+        return False
+    got = {
+        str(item.get("step_id")) for item in (raw or {}).get("playbook_observations") or []
+        if isinstance(item, dict) and item.get("status")
+    } if isinstance(raw, dict) else set()
+    return bool(asked - got)
+
+
 def _mark_outcome_steps(observations: list[dict], steps: list[dict]) -> list[dict]:
     """A step the rep's declared outcome settles (a meeting booked) carries no model verdict:
     it waits, unknown, for `rep_outcome`."""
@@ -942,30 +955,31 @@ def _apply_call_reading(observations: list[dict], call: dict) -> list[dict]:
     from app.services.intelligence.call_reading import CONTINUES_EARLIER, NOT_JUDGED, OPENING_ONLY
 
     if not call.get("reached_conversation") or call.get("call_type") in NOT_JUDGED:
-        keep: set[str] = set()
-    elif call.get("call_type") in OPENING_ONLY:
-        keep = {observations[0]["step_id"]} if observations else set()
-    elif call.get("call_type") in CONTINUES_EARLIER:
-        # A follow-up is judged on its opening; the rest of the process was the earlier
-        # conversation's job. Doing it again still counts, not doing it is not a miss.
-        first = observations[0]["step_id"] if observations else None
+        # Nothing to judge: every step, including one the rep's outcome settles, is not applicable.
         return [
-            item if item["step_id"] == first or item["status"] != "missed" or item.get("judged_by")
-            else {**{k: v for k, v in item.items() if k != "advice"}, "status": "not_applicable", "quote": None, "evidence_refs": []}
+            item if item["status"] == "not_applicable"
+            else {**{k: v for k, v in item.items() if k not in ("advice", "judged_by", "outcome")},
+                  "status": "not_applicable", "quote": None, "evidence_refs": []}
             for item in observations
         ]
-    else:
-        return observations
-    out = []
-    for item in observations:
-        if item["step_id"] in keep or item["status"] == "not_applicable":
-            out.append(item)
-            continue
-        out.append({
-            **{k: v for k, v in item.items() if k != "advice"},
-            "status": "not_applicable", "quote": None, "evidence_refs": [],
-        })
-    return out
+    if call.get("call_type") in OPENING_ONLY | CONTINUES_EARLIER:
+        # Only the opening is required: a call stopped at the door, or a follow-up whose
+        # discovery was the earlier conversation's job. A step done anyway still counts as done;
+        # not doing it is never a miss.
+        first = observations[0]["step_id"] if observations else None
+        door = call.get("call_type") in OPENING_ONLY  # a follow-up can still book the meeting
+        out = []
+        for item in observations:
+            if item.get("judged_by") and door:
+                out.append({**{k: v for k, v in item.items() if k not in ("judged_by", "outcome")},
+                            "status": "not_applicable", "quote": None, "evidence_refs": []})
+            elif item["step_id"] == first or item["status"] != "missed" or item.get("judged_by"):
+                out.append(item)
+            else:
+                out.append({**{k: v for k, v in item.items() if k != "advice"},
+                            "status": "not_applicable", "quote": None, "evidence_refs": []})
+        return out
+    return observations
 
 
 async def extract_intelligence(
@@ -996,16 +1010,16 @@ async def extract_intelligence(
             captured_at=str(memo.get("capture_started_at") or memo.get("created_at") or ""),
             rep_name=rep_name, company_name=company_name, prior_conversations=prior_conversations,
         )
-    raw = await llm.chat_json(
-        build_messages(
-            memo, prompt_version=prompt_version, playbook_steps=playbook_steps,
-            playbook_qualification=playbook_qualification, playbook_objections=playbook_objections,
-            transcript=transcript, call=call,
-        ),
-        model=settings.INTELLIGENCE_MODEL,
-        temperature=0.0,
-        timeout=90.0 if call else 60.0,
+    messages = build_messages(
+        memo, prompt_version=prompt_version, playbook_steps=playbook_steps,
+        playbook_qualification=playbook_qualification, playbook_objections=playbook_objections,
+        transcript=transcript, call=call,
     )
+    raw = await llm.chat_json(messages, model=settings.INTELLIGENCE_MODEL, temperature=0.0, timeout=90.0 if call else 60.0)
+    if call and _skipped_steps(raw, messages):
+        # v8: a step the model left out would read as "no evidence" on a call where it is plain;
+        # one more read is cheaper than a wrong coaching line.
+        raw = await llm.chat_json(messages, model=settings.INTELLIGENCE_MODEL, temperature=0.0, timeout=90.0)
     meta = dict(getattr(llm, "last_call_meta", None) or {})
     if reading_meta:
         meta["call_reading"] = reading_meta

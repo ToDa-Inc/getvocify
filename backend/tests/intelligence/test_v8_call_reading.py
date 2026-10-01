@@ -43,7 +43,8 @@ class FakeLLM:
 
     async def chat_json(self, messages, **kwargs):
         self.calls.append(messages)
-        return self.responses.pop(0)
+        # A deterministic model answers a repeated question the same way.
+        return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
 
 
 def test_split_turns_numbers_speaker_blocks_and_label_lines():
@@ -234,3 +235,27 @@ def test_v8_a_quote_of_the_whole_exchange_counts_on_the_reps_part_and_carries_qu
     pain = {o["step_id"]: o for o in shaped["playbook_observations"]}["pain"]
     assert pain["status"] == "met" and pain["quote"] == "Cómo conseguís clientes hoy"
     assert pain["quality"] == "improvable" and pain["advice"] == "Repregunta qué le cuesta más."
+
+
+def test_v8_a_step_the_model_left_out_is_read_once_more():
+    memo = {"id": "m-1", "transcript": TRANSCRIPT, "created_at": "2026-09-28T10:00:00+02:00", "extraction": {"summary": "s"}}
+    partial = {"playbook_observations": [{"step_id": "apertura", "status": "met", "quote": "soy Ana, te llamo de Acme"}]}
+    full = {"playbook_observations": [
+        {"step_id": "apertura", "status": "met", "quote": "soy Ana, te llamo de Acme"},
+        {"step_id": "pain", "status": "met", "quote": "¿Cómo conseguís clientes hoy?"},
+    ]}
+    llm = FakeLLM({"call_type": "cold_first_contact", "phase_reached": "discovery", "rep_turns": [2, 4]}, partial, full)
+    shaped, _ = asyncio.run(extract_intelligence(memo, llm, prompt_version=CALL_READING_PROMPT_VERSION, playbook_steps=STEPS))
+    assert len(llm.calls) == 3
+    assert {o["step_id"]: o["status"] for o in shaped["playbook_observations"]}["pain"] == "met"
+
+
+def test_v8_a_step_done_in_a_call_stopped_at_the_door_still_counts():
+    shaped, _, _ = _run(
+        {"call_type": "wrong_person", "phase_reached": "discovery", "rep_turns": [2, 4]},
+        {"playbook_observations": [
+            {"step_id": "apertura", "status": "met", "quote": "soy Ana, te llamo de Acme"},
+            {"step_id": "pain", "status": "met", "quote": "¿Cómo conseguís clientes hoy?"},
+        ]},
+    )
+    assert {o["step_id"]: o["status"] for o in shaped["playbook_observations"]}["pain"] == "met"
