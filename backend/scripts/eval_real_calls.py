@@ -136,9 +136,21 @@ def _clean_name(value: str | None) -> str | None:
     return " ".join(value.split()) or None
 
 
+CALL_TIMEOUT_S = 240
+
+
 async def run_model(supabase, memos: dict[str, dict], ids: list[str], version: str, concurrency: int,
-                    overrides: dict[str, str] | None = None) -> dict[str, dict]:
+                    overrides: dict[str, str] | None = None, checkpoint: Path | None = None) -> dict[str, dict]:
+    """Every finished call is appended to `checkpoint` (JSONL) at once, and calls already there
+    are not run again: a killed run resumes where it stopped."""
     overrides = overrides or {}
+    done: dict[str, dict] = {}
+    if checkpoint and checkpoint.exists():
+        for line in checkpoint.read_text().splitlines():
+            row = json.loads(line)
+            done[row["memo_id"]] = row["output"]
+    ids = [memo_id for memo_id in ids if memo_id not in done]
+    print(f"  {len(done)} calls already in the checkpoint, {len(ids)} to run", flush=True)
     from app.services.intelligence.extract import call_context
     from app.services.llm import LLMClient
 
@@ -158,19 +170,22 @@ async def run_model(supabase, memos: dict[str, dict], ids: list[str], version: s
             context = {k: _clean_name(v) if isinstance(v, str) else v for k, v in context.items()}
             for attempt in range(2):
                 try:
-                    shaped, meta = await extract_intelligence(
+                    shaped, meta = await asyncio.wait_for(extract_intelligence(
                         memo, llm, prompt_version=version, playbook_steps=steps,
                         playbook_qualification=qualification, playbook_objections=objections, **context,
-                    )
+                    ), timeout=CALL_TIMEOUT_S)
                     out[memo_id] = {**(shaped or {}), "_meta": meta}
-                    print(f"  {memo_id[:8]} ok", flush=True)
+                    if checkpoint:
+                        with checkpoint.open("a") as handle:
+                            handle.write(json.dumps({"memo_id": memo_id, "output": out[memo_id]}, ensure_ascii=False, default=str) + "\n")
+                    print(f"  {memo_id[:8]} ok ({len(out) + len(done)}/{len(ids) + len(done)})", flush=True)
                     return
                 except Exception as exc:  # one retry, then the call counts as missing
                     print(f"  {memo_id[:8]} error {type(exc).__name__}: {str(exc)[:120]}", flush=True)
                     await asyncio.sleep(5)
 
     await asyncio.gather(*(one(i, memo_id) for i, memo_id in enumerate(ids)))
-    return out
+    return {**done, **out}
 
 
 def main() -> int:
@@ -183,6 +198,7 @@ def main() -> int:
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--refresh", action="store_true", help="re-read memos instead of the cache")
     parser.add_argument("--only", nargs="*", help="memo id prefixes to run")
+    parser.add_argument("--checkpoint", help="JSONL file: finished calls are saved there and skipped on a rerun")
     args = parser.parse_args()
 
     labels = json.loads(Path(args.labels).read_text())
@@ -202,7 +218,8 @@ def main() -> int:
             settings.INTELLIGENCE_MODEL = args.model
         name = f"{args.run}-{settings.INTELLIGENCE_MODEL.replace('/', '_')}"
         overrides = {lab["memo_id"]: lab["playbook_version_id"] for lab in labels if lab.get("playbook_version_id")}
-        outputs = asyncio.run(run_model(supabase, memos, ids, args.run, args.concurrency, overrides))
+        checkpoint = Path(args.checkpoint) if args.checkpoint else None
+        outputs = asyncio.run(run_model(supabase, memos, ids, args.run, args.concurrency, overrides, checkpoint))
 
     result = score(labels, outputs, memos)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")

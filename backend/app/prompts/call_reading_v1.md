@@ -64,12 +64,15 @@ phase_reached is the furthest point the conversation got to:
 or the rep explicitly closed that there is no fit).
 reached_conversation is false only when the rep never actually spoke with the prospect
 (no answer, voicemail, gatekeeper only, wrong number).
+ended_abruptly is true when the conversation stops in the middle, without a goodbye or an agreed
+next step: the line drops, the audio fails, the recording cuts, or the prospect hangs up mid-sentence.
+false when they said goodbye, agreed something, or the prospect clearly ended it ("no me interesa").
 
 ## Output
 
 Return JSON only:
 {"call_type": "...", "call_type_reason": "...", "phase_reached": "...",
- "reached_conversation": true,
+ "reached_conversation": true, "ended_abruptly": false,
  "rep_turns": [list every turn number the rep said; ranges like "12-18" are allowed],
  "other_turns": [turn numbers of third parties, usually empty]}
 Every turn not in rep_turns or other_turns is the prospect's. List ALL the rep's turns, not a sample.

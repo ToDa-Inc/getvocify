@@ -120,6 +120,7 @@ def shape_reading(raw: Any, turns: list[dict]) -> dict:
     return {
         "version": PROMPT_VERSION,
         "call_type": call_type,
+        "ended_abruptly": raw.get("ended_abruptly") is True,
         "call_type_reason": reason,
         "phase_reached": phase,
         "reached_conversation": reached,

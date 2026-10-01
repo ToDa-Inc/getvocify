@@ -257,3 +257,13 @@ def test_bad_moment_retry_card_says_they_could_not_talk():
     now = datetime(2026, 9, 26, 10, 0, tzinfo=timezone.utc)
     text = _callback_no_answer({"outcome": "bad_moment", "at": "2026-09-25T10:00:00+00:00"}, "es", now)
     assert text == "Le llamaste ayer y no podía hablar. Vuelve a intentarlo."
+
+
+def test_a_call_that_dropped_mid_conversation_asks_for_a_retry():
+    from datetime import datetime, timezone
+    from app.services.hoy.reasons import _callback_no_answer
+    from app.services.hoy.signals import screening_from_call
+    assert screening_from_call("connected", {"call": {"call_type": "cold_first_contact", "ended_abruptly": True}}) == "cut_off"
+    assert screening_from_call("connected", {"call": {"call_type": "cold_first_contact", "ended_abruptly": False}}) == "connected"
+    now = datetime(2026, 9, 26, 10, 0, tzinfo=timezone.utc)
+    assert _callback_no_answer({"outcome": "cut_off", "at": "2026-09-26T09:00:00+00:00"}, "es", now) == "Se cortó la llamada hoy. Vuelve a llamar."
