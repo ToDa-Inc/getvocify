@@ -62,6 +62,12 @@ def _duration(value) -> float | None:
     return float(value)
 
 
+def _outcome_line(intel: dict) -> str:
+    nxt = intel.get("next") if isinstance(intel.get("next"), dict) else {}
+    outcome = nxt.get("outcome") if isinstance(nxt.get("outcome"), dict) else {}
+    return " ".join(str(outcome.get("text") or "").split())
+
+
 def interaction_row(memo: dict) -> dict | None:
     """One interaction as coaching sees it, or None when it carries no step observations."""
     extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
@@ -113,7 +119,8 @@ def interaction_row(memo: dict) -> dict | None:
         # Booked is what the rep declared after the call, never read into the transcript.
         "meeting_agreed": rep_outcome == MEETING_BOOKED,
         "duration_s": duration,
-        "summary_line": _first_plain_line(str(extraction.get("summary") or ""))[:SUMMARY_MAX_CHARS],
+        # v8 says how the call ended, with who said what worked out; older calls keep the note's line.
+        "summary_line": (_outcome_line(intel) or _first_plain_line(str(extraction.get("summary") or "")))[:SUMMARY_MAX_CHARS],
         "steps": steps,
     }
 

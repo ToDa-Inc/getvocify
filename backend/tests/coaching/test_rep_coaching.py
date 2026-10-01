@@ -250,3 +250,10 @@ def test_an_improvable_step_counts_as_done_and_is_counted_apart():
     assert states["b"]["state"] == "done"
     [rate] = step_rates([row], [{"step_id": "a", "label": "A"}])
     assert (rate["done"], rate["improvable"], rate["applicable"], rate["rate"]) == (1, 1, 1, 1.0)
+
+
+def test_the_call_line_is_how_v8_says_it_ended():
+    memo = _memo([_obs("a", "met")])
+    memo["extraction"]["intelligence"]["next"] = {"outcome": {"text": "Aceptó una demo el viernes a las 9:30"}}
+    assert interaction_row(memo)["summary_line"] == "Aceptó una demo el viernes a las 9:30"
+    assert interaction_row(_memo([_obs("a", "met")]))["summary_line"] == "Primera frase real. Otra."
