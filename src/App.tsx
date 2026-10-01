@@ -19,7 +19,6 @@ import InviteAcceptPage from "./pages/auth/InviteAcceptPage";
 import TeamPage from "./pages/dashboard/TeamPage";
 import { InsightsRoute, ManagerOnly, RepOnly } from "./pages/dashboard/headOfSalesRoutes";
 import SalesProcessPage from "./pages/dashboard/SalesProcessPage";
-import HeadOfSalesSummaryPage from "./pages/dashboard/HeadOfSalesSummaryPage";
 import TeamRepDetailPage from "./pages/dashboard/TeamRepDetailPage";
 import PlaybookPage from "./pages/dashboard/PlaybookPage";
 import CoachPage from "./pages/dashboard/CoachPage";
@@ -195,8 +194,6 @@ const App = () => (
                 <Route path="usage" element={<UsagePage />} />
                 <Route path="billing" element={<BillingPage />} />
               </Route>
-              {/* Admin/Owner: Resumen used to be /dashboard; Inicio is there now. */}
-              <Route path="summary" element={<ManagerOnly><HeadOfSalesSummaryPage /></ManagerOnly>} />
               <Route path="insights" element={<InsightsRoute />} />
               <Route path="process" element={<ManagerOnly><SalesProcessPage /></ManagerOnly>} />
               {/* The playbook editor moved from Ajustes to Proceso de venta; outside the settings

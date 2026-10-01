@@ -1,6 +1,5 @@
 export type NavItemId =
   | "home"
-  | "summary"
   | "interactions"
   | "insights"
   | "coach"
@@ -10,7 +9,6 @@ export type NavItemId =
 
 export type NavLabelKey =
   | "navHome"
-  | "navSummary"
   | "navInteractions"
   | "navInsights"
   | "navCoach"
@@ -33,9 +31,6 @@ const INSIGHTS: NavItem = { id: "insights", labelKey: "navInsights", path: "/das
 const COACH: NavItem = { id: "coach", labelKey: "navCoach", path: "/dashboard/coach" };
 const PLAYBOOK: NavItem = { id: "playbook", labelKey: "navPlaybook", path: "/dashboard/playbook" };
 const SETTINGS: NavItem = { id: "settings", labelKey: "navSettings", path: "/dashboard/settings" };
-// Admin/Owner (docs/features/HEAD_OF_SALES_DASHBOARD_PLAN.md §2): Resumen keeps its page, now
-// beside Inicio instead of being /dashboard.
-const SUMMARY: NavItem = { id: "summary", labelKey: "navSummary", path: "/dashboard/summary" };
 const PROCESS: NavItem = { id: "process", labelKey: "navProcess", path: "/dashboard/process" };
 
 export function isManagerRole(role?: string | null): boolean {
@@ -44,7 +39,7 @@ export function isManagerRole(role?: string | null): boolean {
 
 // Inicio (/dashboard) is every role's home. A member (Llamadas, Reuniones, General) has
 // Inicio, Interacciones, Playbook, Coaching and Ajustes; their full Hoy is /dashboard/today,
-// reached from Inicio's rail. The Admin/Owner keeps Resumen, Equipo and Proceso de venta,
+// reached from Inicio's rail. The Admin/Owner keeps Equipo and Proceso de venta,
 // with Inicio and Interacciones added. Ask and Llamar sit in the top bar for every role.
 // Every other route still exists, just unlinked.
 export function navItemsFor({
@@ -58,7 +53,7 @@ export function navItemsFor({
 }): NavMenu {
   if (isManagerRole(role)) {
     // Billing is the owner's: the Plans card is not shown to an admin.
-    return { items: [HOME, SUMMARY, INTERACTIONS, INSIGHTS, PROCESS, SETTINGS], showPlans: role === "owner" };
+    return { items: [HOME, INTERACTIONS, INSIGHTS, PROCESS, SETTINGS], showPlans: role === "owner" };
   }
   // T11: the Playbook tab is for every company member.
   const playbook = playbookTabEnabled ? [PLAYBOOK] : [];

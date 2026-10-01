@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { isManagerRole, isNavActive, navItemsFor, usesRepHome, type NavItem } from "./nav.ts";
 
 const home: NavItem = { id: "home", labelKey: "navHome", path: "/dashboard" };
-const summary: NavItem = { id: "summary", labelKey: "navSummary", path: "/dashboard/summary" };
 const interactions: NavItem = { id: "interactions", labelKey: "navInteractions", path: "/dashboard/interactions" };
 const insights: NavItem = { id: "insights", labelKey: "navInsights", path: "/dashboard/insights" };
 const coach: NavItem = { id: "coach", labelKey: "navCoach", path: "/dashboard/coach" };
@@ -30,9 +29,9 @@ describe("navItemsFor for a member (Llamadas, Reuniones, General)", () => {
     assert.deepEqual(navItemsFor({ role: "member", repWorkspace: true }).items, [home, interactions, coach, settings]);
   });
 
-  it("never gives a member Equipo, Resumen or Proceso de venta", () => {
+  it("never gives a member Equipo or Proceso de venta", () => {
     const ids = navItemsFor({ role: "member", repWorkspace: true, playbookTabEnabled: true }).items.map((item) => item.id);
-    for (const id of ["insights", "summary", "process"]) assert.equal(ids.includes(id as NavItem["id"]), false);
+    for (const id of ["insights", "process"]) assert.equal(ids.includes(id as NavItem["id"]), false);
   });
 
   it("treats a missing or unknown role like a member", () => {
@@ -43,12 +42,12 @@ describe("navItemsFor for a member (Llamadas, Reuniones, General)", () => {
 });
 
 describe("navItemsFor for the Admin/Owner", () => {
-  it("adds Inicio and Interacciones to Resumen, Equipo, Proceso de venta and Ajustes, whatever the flags", () => {
+  it("adds Inicio and Interacciones to Equipo, Proceso de venta and Ajustes, whatever the flags", () => {
     for (const role of ["owner", "admin"]) {
       for (const repWorkspace of [false, true]) {
         for (const playbookTabEnabled of [false, true]) {
           assert.deepEqual(navItemsFor({ role, repWorkspace, playbookTabEnabled }), {
-            items: [home, summary, interactions, insights, process, settings],
+            items: [home, interactions, insights, process, settings],
             showPlans: role === "owner",
           });
         }
@@ -81,7 +80,7 @@ describe("isNavActive", () => {
   it("lights Inicio on /dashboard and on the full Hoy, nowhere else", () => {
     assert.equal(isNavActive("/dashboard", home), true);
     assert.equal(isNavActive("/dashboard/today", home), true);
-    assert.equal(isNavActive("/dashboard/summary", home), false);
+    assert.equal(isNavActive("/dashboard/insights", home), false);
     assert.equal(isNavActive("/dashboard/interactions", home), false);
   });
 
