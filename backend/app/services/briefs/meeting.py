@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app.services.briefs.v2 import _as_dt, _day_label, missing_steps, plain_sentence
+from app.services.followup_logic import pain_quote
 
 MAX_INTERACTIONS = 5
 
@@ -31,11 +32,17 @@ def company_summary(profile: dict | None) -> dict | None:
 
 
 def _one_phrase(memo: dict) -> str | None:
+    """How that conversation ended (C04 v8), else the pain the prospect confirmed in their own
+    words, else the note's first sentence."""
     extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
     intelligence = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
-    quote = _clean(intelligence.get("pain_quote") if isinstance(intelligence, dict) else None)
+    nxt = intelligence.get("next") if isinstance(intelligence.get("next"), dict) else {}
+    outcome = nxt.get("outcome") if isinstance(nxt.get("outcome"), dict) else {}
+    if _clean(outcome.get("text")):
+        return _clean(outcome.get("text"))
+    quote = _clean(pain_quote(intelligence)) if intelligence else ""
     if quote:
-        return quote
+        return f"«{quote}»"
     return plain_sentence(extraction.get("summary"))
 
 
@@ -72,8 +79,8 @@ def _open_objections(memos: list[dict]) -> list[dict]:
         extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
         intelligence = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
         for item in intelligence.get("objections") or []:
-            if not isinstance(item, dict):
-                continue
+            if not isinstance(item, dict) or item.get("kind") == "obstacle":
+                continue  # "me pillas en una reunión" is not something the AE has to answer
             resolution = item.get("resolution") or item.get("state") or "unknown"
             if resolution not in {"open", "unknown"}:
                 continue
