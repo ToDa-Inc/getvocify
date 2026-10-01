@@ -167,13 +167,14 @@ def patterns_from_extraction(
     return rows
 
 
-def objection_view(*, notes: list[dict], patterns: list[dict], readable: bool) -> dict:
-    """A failed read is not an empty analysis. A superseded row is not a current objection."""
+def objection_view(*, notes: list[dict], patterns: list[dict], readable: bool, analysed: bool = False) -> dict:
+    """A failed read is not an empty analysis. A superseded row is not a current objection.
+    A call the intelligence read and found no objection in is complete, with none."""
     if not readable:
         return {"coverage": "unavailable", "patterns": [], "notes": []}
     active = [row for row in patterns if not row.get("superseded")]
     return {
-        "coverage": "complete" if patterns else "unavailable",
+        "coverage": "complete" if patterns or analysed else "unavailable",
         "patterns": [
             {
                 "pattern_id": row["pattern_id"],
