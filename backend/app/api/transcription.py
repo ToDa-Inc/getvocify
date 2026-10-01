@@ -46,9 +46,11 @@ from fastapi import APIRouter, WebSocket
 from app.config import settings
 from app.deps import get_supabase
 from app.services.glossary import GlossaryService
+from app.services.live_channel_sessions import ChannelSessions
 from app.services.usage import record_stt_usage, usage_scope
 from app.services.stt_channels import (
     COPILOT_CHANNEL_MODE,
+    speechmatics_words as _extract_words,
     accepts_client_pcm_bytes,
     client_text_to_sm_item,
     parse_channel_labels,
@@ -68,46 +70,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/transcription", tags=["transcription"])
 
 VALID_MODES = {"default", "memo", "enroll", "copilot", COPILOT_CHANNEL_MODE}
-
-
-def _offset_ms(value: Any) -> int | None:
-    if value is None:
-        return None
-    return int(round(float(value) * 1000))
-
-
-def _extract_words(data: dict) -> list[dict[str, Any]]:
-    """Pull word-level content + speaker from Speechmatics results[]."""
-    words: list[dict[str, Any]] = []
-    for item in data.get("results") or []:
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") not in (None, "word"):
-            # Keep punctuation attached as text without speaker votes
-            if item.get("type") == "punctuation":
-                alts = item.get("alternatives") or []
-                content = (alts[0] or {}).get("content") if alts else None
-                if content:
-                    words.append({"text": str(content), "speaker": None, "is_punct": True})
-            continue
-        alts = item.get("alternatives") or []
-        if not alts:
-            continue
-        alt = alts[0] if isinstance(alts[0], dict) else {}
-        content = alt.get("content")
-        if not content:
-            continue
-        speaker = alt.get("speaker")
-        words.append(
-            {
-                "text": str(content),
-                "speaker": str(speaker) if speaker else None,
-                "is_punct": False,
-                "start_ms": _offset_ms(item.get("start_time")),
-                "end_ms": _offset_ms(item.get("end_time")),
-            }
-        )
-    return words
 
 
 def _identifiers_from_speakers_result(data: dict) -> list[str]:
@@ -573,6 +535,24 @@ async def live_transcription(websocket: WebSocket):
                 )
         except Exception as e:
             logger.error("Failed to load voice enrollment: %s", e)
+
+    if mode == COPILOT_CHANNEL_MODE and websocket.query_params.get("detect") == "1":
+        # Clients that understand ChannelReset: one stream per side, each in its own language.
+        sessions = ChannelSessions(
+            websocket,
+            labels=channel_labels or ["prospect", "rep"],
+            language=resolve_speechmatics_rt_language(language, profile_languages=profile_languages),
+            profile_languages=profile_languages,
+            glossary=glossary,
+            detect=True,
+        )
+        with usage_scope(
+            "live_stt",
+            user_id=user_id if user_id and user_id != "anonymous" else None,
+            capture_id=websocket.query_params.get("capture_id"),
+        ):
+            await sessions.run()
+        return
 
     proxy = SpeechmaticsOnlyProxy(
         language=language,
