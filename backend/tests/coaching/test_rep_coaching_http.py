@@ -228,7 +228,7 @@ def test_examples_need_three_distinct_peers_for_moments_and_best_response():
     body = _client(_winning_memos(two), patterns=patterns, peers=two).get("/api/v1/coaching/examples").json()
     opening = next(s for s in body["steps"] if s["step_id"] == "open")
     assert opening["moments"] == []
-    assert body["objections"] == [{"category": "price", "guidance": "Habla de valor", "best_response": None}]
+    assert body["objections"] == [{"category": "price", "label": None, "guidance": "Habla de valor", "best_response": None}]
 
 
 def test_examples_one_peer_with_many_memos_is_still_one_peer():
