@@ -9,6 +9,8 @@ from app.services.live_calls.crm_url import CrmRecord, Provider
 
 ContactSource = Literal["page", "picked"]
 CallStatus = Literal["live", "ended"]
+# Decided on the rep's Mac from the app holding the mic and the tabs on screen.
+InteractionKind = Literal["call", "meeting"]
 
 
 @dataclass(frozen=True)
@@ -16,14 +18,13 @@ class LiveCall:
     id: str
     status: CallStatus
     started_at: float
+    kind: InteractionKind = "call"
     provider: Optional[Provider] = None
     contact_id: Optional[str] = None
     contact_source: Optional[ContactSource] = None
     # The record on screen when the call started (also a deal or company, where
     # the rep still has to pick the contact).
     record: Optional[CrmRecord] = None
-    # The desktop capture memo recording this call, when one was reserved.
-    memo_id: Optional[str] = None
     ended_at: Optional[float] = None
 
     @property
@@ -41,6 +42,7 @@ def start_call(
     record: Optional[CrmRecord],
     now: float,
     *,
+    kind: InteractionKind = "call",
     connected_account_id: Optional[str] = None,
 ) -> LiveCall:
     """Open a call with the contact on screen, when that is knowable.
@@ -49,12 +51,13 @@ def start_call(
     company record is kept so the client can offer its contacts.
     """
     if record is None or not _same_account(record, connected_account_id):
-        return LiveCall(id=call_id, status="live", started_at=now)
+        return LiveCall(id=call_id, status="live", started_at=now, kind=kind)
     is_contact = record.object_type == "contact"
     return LiveCall(
         id=call_id,
         status="live",
         started_at=now,
+        kind=kind,
         provider=record.provider,
         contact_id=record.record_id if is_contact else None,
         contact_source="page" if is_contact else None,
@@ -64,10 +67,6 @@ def start_call(
 
 def pick_contact(call: LiveCall, provider: Provider, contact_id: str) -> LiveCall:
     return replace(call, provider=provider, contact_id=contact_id, contact_source="picked")
-
-
-def attach_memo(call: LiveCall, memo_id: str) -> LiveCall:
-    return replace(call, memo_id=memo_id)
 
 
 def end_call(call: LiveCall, now: float) -> LiveCall:

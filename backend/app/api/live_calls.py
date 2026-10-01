@@ -1,10 +1,10 @@
 """Live call awareness API.
 
-When the rep's desktop app starts a call it sends the CRM pages open in the
-rep's browsers (front window first). The record on screen is the contact, and
-the desktop capture memo is reserved with it, so extraction, the review target
-and live help know who the call is with. Clients follow the call on a per-user
-event stream.
+The rep's Mac app reads the CRM pages open in the rep's browsers (front window
+first) and decides call vs meeting. /preview names the contact for the notch
+island before anything records; /start opens the live call with that contact.
+The recorder then puts the contact on the memo it uploads at hang-up. Clients
+follow the call on a per-user event stream.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import asyncio
 import json
 import time
 import uuid
-from datetime import datetime, timezone
 from typing import AsyncIterator, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,13 +21,13 @@ from pydantic import BaseModel, Field
 from supabase import Client
 
 from app.deps import get_membership, get_supabase
-from app.services.captures import reserve_capture
+from app.api.crm import get_contact_context_for_extension
+from app.api.crm_pipedrive import get_pipedrive_person_context
 from app.services.company import Membership
 from app.services.company_scope import get_crm_connection
 from app.services.live_calls.crm_url import record_on_screen
 from app.services.live_calls.hub import LiveCallHub, live_call_hub
-from app.services.live_calls.state import LiveCall, attach_memo, end_call, pick_contact, start_call
-from app.services.playbooks.live import live_version_id
+from app.services.live_calls.state import InteractionKind, LiveCall, end_call, pick_contact, start_call
 
 router = APIRouter(prefix="/api/v1/live-calls", tags=["live-calls"])
 
@@ -36,12 +35,13 @@ HEARTBEAT_SECONDS = 15.0
 _ACCOUNT_KEY = {"hubspot": "portal_id", "pipedrive": "company_domain"}
 
 
-class StartCallIn(BaseModel):
+class PagesIn(BaseModel):
     # Active tab URL of each browser window showing the CRM, front-most first.
     page_urls: list[str] = Field(default_factory=list, max_length=20)
-    # When set, the desktop capture memo is reserved for this call with its contact.
-    client_capture_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
-    started_at: Optional[datetime] = None
+
+
+class StartCallIn(PagesIn):
+    kind: InteractionKind = "call"
 
 
 class PickContactIn(BaseModel):
@@ -59,6 +59,18 @@ def _connected_account_id(supabase: Client, user_id: str, provider: str) -> Opti
     return str(value) if value else None
 
 
+async def _contact_name(supabase: Client, user_id: str, provider: str, contact_id: str) -> Optional[str]:
+    """Same name the extension shows for the record (cached CRM context reads)."""
+    try:
+        if provider == "hubspot":
+            context = await get_contact_context_for_extension(contact_id, supabase=supabase, user_id=user_id)
+        else:
+            context = await get_pipedrive_person_context(contact_id, supabase=supabase, user_id=user_id)
+    except Exception:
+        return None
+    return (context or {}).get("contactName") or None
+
+
 def _state(call: Optional[LiveCall]) -> dict:
     return {"call": call.to_dict() if call else None}
 
@@ -68,13 +80,34 @@ async def current_live_call(membership: Membership = Depends(get_membership)):
     return _state(live_call_hub.current(membership.user_id))
 
 
+@router.post("/preview")
+async def preview_live_call(
+    body: PagesIn,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+):
+    """Who a call would be with, for the notch island. Starts nothing."""
+    user_id = membership.user_id
+    record = record_on_screen(url[:2048] for url in body.page_urls)
+    account = _connected_account_id(supabase, user_id, record.provider) if record else None
+    call = start_call("preview", record, time.time(), connected_account_id=account)
+    name = await _contact_name(supabase, user_id, call.provider, call.contact_id) if call.contact_id else None
+    return {
+        "provider": call.provider,
+        "contact_id": call.contact_id,
+        "contact_name": name,
+        "record": call.to_dict()["record"],
+        "needs_contact": call.contact_id is None,
+    }
+
+
 @router.post("/start")
 async def start_live_call(
     body: StartCallIn,
     membership: Membership = Depends(get_membership),
     supabase: Client = Depends(get_supabase),
 ):
-    """The desktop: a call started. Returns the call with the contact on screen.
+    """The desktop: a call or meeting started. Returns it with the contact on screen.
 
     Idempotent while a call is live, so a retried start never opens a second call.
     """
@@ -85,42 +118,19 @@ async def start_live_call(
 
     record = record_on_screen(url[:2048] for url in body.page_urls)
     account = _connected_account_id(supabase, user_id, record.provider) if record else None
-    call = start_call(str(uuid.uuid4()), record, time.time(), connected_account_id=account)
-
-    if body.client_capture_id:
-        identity = reserve_capture(
-            supabase,
-            user_id=user_id,
-            company_id=membership.company_id,
-            client_capture_id=body.client_capture_id,
-            started_at=body.started_at or datetime.now(timezone.utc),
-            interaction_kind="call",
-            resolved_version_id=live_version_id(supabase, membership.company_id, None),
-            sales_role=membership.sales_role,
-            hubspot_contact_id=call.contact_id if call.provider == "hubspot" else None,
-        )
-        call = attach_memo(call, identity.memo_id)
-
+    call = start_call(str(uuid.uuid4()), record, time.time(), kind=body.kind, connected_account_id=account)
     live_call_hub.publish(user_id, call)
     return _state(call)
 
 
 @router.patch("/current")
-async def pick_live_call_contact(
-    body: PickContactIn,
-    membership: Membership = Depends(get_membership),
-    supabase: Client = Depends(get_supabase),
-):
+async def pick_live_call_contact(body: PickContactIn, membership: Membership = Depends(get_membership)):
     """The rep corrected who the call is with (or picked one of a deal's contacts)."""
     user_id = membership.user_id
     call = live_call_hub.current(user_id)
     if call is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No call")
     call = pick_contact(call, body.provider, body.contact_id)
-    if call.memo_id and body.provider == "hubspot":
-        supabase.table("memos").update({"hubspot_contact_id": body.contact_id}).eq(
-            "id", call.memo_id
-        ).eq("user_id", user_id).execute()
     live_call_hub.publish(user_id, call)
     return _state(call)
 

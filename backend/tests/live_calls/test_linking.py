@@ -88,8 +88,11 @@ class _Query:
     def limit(self, _n):
         return self
 
-    def neq(self, col, val):
-        self.neqs[col] = val
+    def or_(self, expression):
+        # Only the shape linking uses: "<col>.is.null,<col>.neq.<value>".
+        is_null, not_equal = expression.split(",")
+        col = is_null.split(".")[0]
+        self.neqs[col] = not_equal.split(".neq.")[1]
         return self
 
     def _rows(self):
@@ -101,7 +104,7 @@ class _Query:
                 continue
             if any(row.get(k) is not None for k in self.nulls):
                 continue
-            if any(row.get(k) is None or row.get(k) == v for k, v in self.neqs.items()):
+            if any(row.get(k) is not None and row.get(k) == v for k, v in self.neqs.items()):
                 continue
             if any(str(row.get(k) or "") < v for k, v in self.gte_.items()):
                 continue
@@ -159,6 +162,12 @@ def test_only_the_reps_own_desktop_call_memos_are_candidates():
         _row("still-recording", start, 300, capture_status="recording"),
     ])
     assert link_desktop_calls_for_contact(db, "rep-1", "901", [_call("hs-1", start, 300)]) == {}
+
+
+def test_recorder_uploads_without_capture_status_link():
+    start = _recent()
+    db = _DB([_row("upload", start, 300, capture_status=None)])
+    assert link_desktop_calls_for_contact(db, "rep-1", "901", [_call("hs-1", start + 2, 300)]) == {"hs-1": "upload"}
 
 
 def test_a_call_that_already_has_a_memo_is_left_alone():

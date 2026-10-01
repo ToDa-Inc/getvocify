@@ -1,9 +1,8 @@
-"""/api/v1/live-calls: the desktop starts a call with the CRM pages on screen."""
+"""/api/v1/live-calls: the Mac app sends the CRM pages on screen."""
 
 import asyncio
 import json
 import time
-from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -20,50 +19,11 @@ HS = "https://app-eu1.hubspot.com/contacts/147506535"
 CONTACT = f"{HS}/record/0-1/901"
 
 
-class _Memos:
-    def __init__(self):
-        self.updates = []
-
-    def table(self, name):
-        assert name == "memos"
-        return self
-
-    def update(self, payload):
-        self._payload, self._filters = payload, {}
-        return self
-
-    def eq(self, col, val):
-        self._filters[col] = val
-        return self
-
-    def execute(self):
-        self.updates.append((self._payload, dict(self._filters)))
-        return SimpleNamespace(data=[{}])
-
-
 @pytest.fixture
 def hub(monkeypatch):
     fresh = LiveCallHub()
     monkeypatch.setattr(api, "live_call_hub", fresh)
     return fresh
-
-
-@pytest.fixture
-def db():
-    return _Memos()
-
-
-@pytest.fixture
-def reserved(monkeypatch):
-    calls = []
-
-    def fake_reserve(_sb, **kwargs):
-        calls.append(kwargs)
-        return SimpleNamespace(memo_id="memo-1", capture_id="memo-1")
-
-    monkeypatch.setattr(api, "reserve_capture", fake_reserve)
-    monkeypatch.setattr(api, "live_version_id", lambda *_a, **_k: "pv-1")
-    return calls
 
 
 @pytest.fixture
@@ -74,27 +34,81 @@ def connections(monkeypatch):
 
 
 @pytest.fixture
-def client(hub, db, reserved, connections):
+def names(monkeypatch):
+    seen = []
+
+    async def hubspot(contact_id, *, supabase, user_id):
+        seen.append(("hubspot", contact_id, user_id))
+        return {"contactName": "zadarma test"}
+
+    async def pipedrive(person_id, *, supabase, user_id):
+        seen.append(("pipedrive", person_id, user_id))
+        return {"contactName": "Ana Pérez"}
+
+    monkeypatch.setattr(api, "get_contact_context_for_extension", hubspot)
+    monkeypatch.setattr(api, "get_pipedrive_person_context", pipedrive)
+    return seen
+
+
+@pytest.fixture
+def client(hub, connections, names):
     app = FastAPI()
     app.include_router(api.router)
     app.dependency_overrides[get_membership] = lambda: MEMBERSHIP
-    app.dependency_overrides[get_supabase] = lambda: db
+    app.dependency_overrides[get_supabase] = lambda: object()
     return TestClient(app)
 
 
-def _start(client, *urls, capture="cap-1"):
+def _start(client, *urls, kind=None):
     body = {"page_urls": list(urls)}
-    if capture:
-        body["client_capture_id"] = capture
+    if kind:
+        body["kind"] = kind
     return client.post("/api/v1/live-calls/start", json=body)
 
 
-def test_contact_on_screen_is_the_contact_and_on_the_memo(client, reserved):
-    call = _start(client, CONTACT).json()["call"]
-    assert (call["contact_id"], call["contact_source"], call["memo_id"]) == ("901", "page", "memo-1")
-    assert reserved[0]["hubspot_contact_id"] == "901"
-    assert reserved[0]["interaction_kind"] == "call"
-    assert reserved[0]["client_capture_id"] == "cap-1"
+def _preview(client, *urls):
+    return client.post("/api/v1/live-calls/preview", json={"page_urls": list(urls)}).json()
+
+
+def test_preview_names_the_contact_and_starts_nothing(client, hub, names):
+    preview = _preview(client, CONTACT)
+    assert preview == {
+        "provider": "hubspot",
+        "contact_id": "901",
+        "contact_name": "zadarma test",
+        "record": {"provider": "hubspot", "object_type": "contact", "record_id": "901", "account_id": "147506535"},
+        "needs_contact": False,
+    }
+    assert names == [("hubspot", "901", "rep-1")]
+    assert hub.current("rep-1") is None
+
+
+def test_preview_without_a_contact_asks(client, names):
+    assert _preview(client, f"{HS}/objects/0-1/views/all/list")["needs_contact"] is True
+    deal = _preview(client, f"{HS}/record/0-3/55")
+    assert deal["needs_contact"] is True and deal["record"]["object_type"] == "deal" and deal["contact_name"] is None
+    assert names == []
+
+
+def test_preview_pipedrive_name(client, connections):
+    connections["pipedrive"] = {"metadata": {"company_domain": "acme"}}
+    preview = _preview(client, "https://acme.pipedrive.com/person/42")
+    assert (preview["provider"], preview["contact_id"], preview["contact_name"]) == ("pipedrive", "42", "Ana Pérez")
+
+
+def test_preview_survives_a_failed_name_lookup(client, monkeypatch):
+    async def broken(*_a, **_k):
+        raise RuntimeError("HubSpot down")
+
+    monkeypatch.setattr(api, "get_contact_context_for_extension", broken)
+    preview = _preview(client, CONTACT)
+    assert (preview["contact_id"], preview["contact_name"]) == ("901", None)
+
+
+def test_start_takes_the_contact_on_screen_and_the_kind(client):
+    call = _start(client, CONTACT, kind="meeting").json()["call"]
+    assert (call["contact_id"], call["contact_source"], call["kind"]) == ("901", "page", "meeting")
+    assert _start(client).json()["call"]["id"] == call["id"]
 
 
 def test_calling_window_in_front_is_skipped(client):
@@ -102,47 +116,22 @@ def test_calling_window_in_front_is_skipped(client):
     assert _start(client, calling, CONTACT).json()["call"]["contact_id"] == "901"
 
 
-def test_list_in_front_means_no_contact(client, reserved):
+def test_list_in_front_means_no_contact(client):
     call = _start(client, f"{HS}/objects/0-1/views/all/list", CONTACT).json()["call"]
     assert call["contact_id"] is None and call["needs_contact"] is True
-    assert reserved[0]["hubspot_contact_id"] is None
 
 
-def test_start_is_idempotent_while_live(client, reserved):
-    first = _start(client, CONTACT).json()["call"]
-    second = _start(client, f"{HS}/record/0-1/902", capture="cap-2").json()["call"]
-    assert first["id"] == second["id"] and second["contact_id"] == "901"
-    assert len(reserved) == 1
+def test_other_portal_is_ignored(client):
+    assert _start(client, "https://app.hubspot.com/contacts/999/record/0-1/901").json()["call"]["contact_id"] is None
 
 
-def test_other_portal_is_ignored(client, reserved):
-    call = _start(client, "https://app.hubspot.com/contacts/999/record/0-1/901").json()["call"]
-    assert call["contact_id"] is None
-    assert reserved[0]["hubspot_contact_id"] is None
-
-
-def test_deal_page_needs_a_pick_and_the_pick_reaches_the_memo(client, db):
+def test_pick_end_and_restart(client):
     call = _start(client, f"{HS}/record/0-3/55").json()["call"]
-    assert call["needs_contact"] is True and call["record"]["object_type"] == "deal"
+    assert call["needs_contact"] is True and call["kind"] == "call"
     picked = client.patch("/api/v1/live-calls/current", json={"provider": "hubspot", "contact_id": "77"}).json()["call"]
     assert (picked["contact_id"], picked["contact_source"]) == ("77", "picked")
-    assert db.updates == [({"hubspot_contact_id": "77"}, {"id": "memo-1", "user_id": "rep-1"})]
-
-
-def test_pipedrive_contact_is_live_only(client, reserved, db, connections):
-    connections["pipedrive"] = {"metadata": {"company_domain": "acme"}}
-    call = _start(client, "https://acme.pipedrive.com/person/42").json()["call"]
-    assert (call["provider"], call["contact_id"]) == ("pipedrive", "42")
-    assert reserved[0]["hubspot_contact_id"] is None
-    client.patch("/api/v1/live-calls/current", json={"provider": "pipedrive", "contact_id": "5"})
-    assert db.updates == []
-
-
-def test_no_pages_no_capture_and_end(client, reserved):
-    call = _start(client, capture=None).json()["call"]
-    assert call["contact_id"] is None and call["memo_id"] is None and reserved == []
     assert client.post("/api/v1/live-calls/current/end").json()["call"]["status"] == "ended"
-    assert _start(client, capture=None).json()["call"]["id"] != call["id"]
+    assert _start(client).json()["call"]["id"] != call["id"]
 
 
 def test_end_and_pick_without_a_call_are_404(client):
@@ -152,6 +141,7 @@ def test_end_and_pick_without_a_call_are_404(client):
 
 def test_validation(client):
     assert client.post("/api/v1/live-calls/start", json={"page_urls": ["x"] * 21}).status_code == 422
+    assert client.post("/api/v1/live-calls/start", json={"kind": "visit"}).status_code == 422
     assert client.patch("/api/v1/live-calls/current", json={"provider": "hubspot", "contact_id": "1 OR 1"}).status_code == 422
 
 

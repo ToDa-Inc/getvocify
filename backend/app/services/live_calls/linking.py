@@ -96,10 +96,12 @@ def unlinked_desktop_call_memos(
     user_id: str,
     contact_ids: list[str],
 ) -> list[dict]:
-    """The rep's recent, finished desktop call captures on these contacts not yet tied to a HubSpot call.
+    """The rep's recent, finished desktop call memos on these contacts not yet tied to a HubSpot call.
 
-    A capture still recording is left out: if the desktop app died mid-call it
-    never finishes, and HubSpot's recording must then be processed as usual.
+    The recorder uploads its memo at hang-up, so it exists only once finished. A
+    capture reserved at start and still recording is left out: if the desktop
+    app died mid-call it never finishes, and HubSpot's recording must then be
+    processed as usual.
     """
     if not contact_ids:
         return []
@@ -112,7 +114,8 @@ def unlinked_desktop_call_memos(
         .eq("interaction_kind", "call")
         .in_("hubspot_contact_id", contact_ids)
         .is_("hubspot_engagement_id", "null")
-        .neq("capture_status", "recording")
+        # Recorder uploads have no capture_status; a reserved capture still recording is skipped.
+        .or_("capture_status.is.null,capture_status.neq.recording")
         .gte("capture_started_at", since)
         .execute()
     )

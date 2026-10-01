@@ -1,7 +1,7 @@
 """The record on screen becomes the contact of the call."""
 
 from app.services.live_calls.crm_url import CrmRecord
-from app.services.live_calls.state import attach_memo, end_call, pick_contact, start_call
+from app.services.live_calls.state import end_call, pick_contact, start_call
 
 
 def _record(object_type="contact", record_id="901", provider="hubspot", account_id="147506535"):
@@ -41,9 +41,15 @@ def test_nothing_on_screen_means_no_contact():
     assert call.contact_id is None and call.is_live
 
 
-def test_pick_memo_and_end():
+def test_kind_is_kept_with_or_without_a_record():
+    assert start_call("c1", _record(), 1.0, kind="meeting").kind == "meeting"
+    assert start_call("c1", None, 1.0, kind="meeting").kind == "meeting"
+    assert start_call("c1", None, 1.0).kind == "call"
+
+
+def test_pick_and_end():
     call = pick_contact(start_call("c1", _record(object_type="deal"), 1010.0), "hubspot", "77")
     assert (call.contact_id, call.contact_source) == ("77", "picked")
-    ended = end_call(attach_memo(call, "m1"), 1100.0)
-    assert (ended.status, ended.ended_at, ended.memo_id) == ("ended", 1100.0, "m1")
+    ended = end_call(call, 1100.0)
+    assert (ended.status, ended.ended_at) == ("ended", 1100.0)
     assert end_call(ended, 2000.0).ended_at == 1100.0
