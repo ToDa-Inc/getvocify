@@ -66,7 +66,7 @@ export type CoachProcess = {
 };
 export type CoachExamples = {
   steps: { step_id: string; label: string; criterion: string; example: string; moments: { quote: string }[] }[];
-  objections: { category: string; guidance: string; best_response: string }[];
+  objections: { category: string; label?: string | null; guidance: string; best_response: string }[];
 };
 
 type Product = ProductTranslations;

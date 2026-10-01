@@ -537,6 +537,11 @@ async def get_coaching_examples(
     )
     memo_users = {r["memo_id"]: r["user_id"] for r in peer_rows}
     contributors = _peer_objection_contributors(patterns, memo_users, start=window_start, end=ctx["week_end"])
+    # The company's own objection ("Mándame un email") shows by its name, not as "custom".
+    own_labels = [
+        " ".join(str(entry.get("label")).split()) for entry in ctx["playbook"]["entries"]
+        if str(entry.get("category") or "").strip().lower() == "custom" and entry.get("label")
+    ]
     seen = set()
     for item in counted:
         seen.add(item["name"])
@@ -545,6 +550,7 @@ async def get_coaching_examples(
         body["objections"].append(
             {
                 "category": item["name"],
+                "label": own_labels[0] if item["name"] == "custom" and len(own_labels) == 1 else None,
                 "guidance": item["how_to"],
                 "best_response": item["best_example"] if enough else None,
             }
@@ -553,7 +559,10 @@ async def get_coaching_examples(
         category = str(entry.get("category") or "").strip().lower()
         if category and category not in seen and entry.get("guidance"):
             seen.add(category)
-            body["objections"].append(
-                {"category": category, "guidance": " ".join(str(entry["guidance"]).split()), "best_response": None}
-            )
+            body["objections"].append({
+                "category": category,
+                "label": " ".join(str(entry.get("label")).split()) if category == "custom" and entry.get("label") else None,
+                "guidance": " ".join(str(entry["guidance"]).split()),
+                "best_response": None,
+            })
     return body
