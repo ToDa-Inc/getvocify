@@ -277,7 +277,7 @@ def test_flag_on_commitment_due_today_wins_over_no_reply_and_task():
         signals=[NO_REPLY_ROW],
     ))
     body = _get(db)
-    assert body["lines"][1]["text"] == "Pidió que le llamaras hoy."
+    assert body["lines"][1]["text"] == "Pidió que le llamaras hoy a las 09:00."
 
 
 def test_flag_on_reads_the_published_playbook_for_say_and_label():

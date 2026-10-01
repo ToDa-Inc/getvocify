@@ -120,7 +120,7 @@ def test_why_prefers_commitment_over_no_reply_and_task():
         crm_task={"text": "Llamar el jueves", "source_ref": "task-1"},
     )
     assert [line["type"] for line in brief["lines"][:2]] == ["hook", "why"]
-    assert brief["lines"][1]["text"] == "Pidió que le llamaras hoy."
+    assert brief["lines"][1]["text"] == "Pidió que le llamaras hoy a las 09:00."
 
 
 def test_why_uses_no_reply_when_flag_data_present_and_no_commitment():
@@ -396,7 +396,7 @@ def test_sdr_two_line_why_uses_call_commitment_and_pain_quote_as_gancho():
     types = [line["type"] for line in brief["lines"]]
     assert "why" in types
     why = next(line for line in brief["lines"] if line["type"] == "why")
-    assert why["text"] == 'Llama porque pidió que le llamaras hoy. Gancho: "se nos quedan leads sin llamar los viernes"'
+    assert why["text"] == 'Pidió que le llamaras hoy a las 09:00. Gancho: "se nos quedan leads sin llamar los viernes"'
 
 
 def test_sdr_two_line_omits_pending_when_no_commitment():
@@ -437,7 +437,7 @@ def test_sdr_two_line_why_falls_back_to_no_reply_when_no_call_commitment():
     )
     why = next((line for line in brief["lines"] if line["type"] == "why"), None)
     assert why is not None
-    assert why["text"] == "Llama porque le escribiste y no ha respondido."
+    assert why["text"] == "Le escribiste y no ha respondido."
 
 
 def test_sdr_two_line_why_omitted_when_no_porque_and_no_quote():
@@ -471,4 +471,71 @@ def test_three_line_format_unchanged_when_sdr_two_line_false():
     memo = _memo(extraction={"summary": "Hablaron del almacén.", "intelligence": intel})
     brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, sdr_two_line=False)
     assert [line["type"] for line in brief["lines"]] == ["hook", "why"]
-    assert brief["lines"][1]["text"] == "Pidió que le llamaras hoy."
+    assert brief["lines"][1]["text"] == "Pidió que le llamaras hoy a las 09:00."
+
+
+# --- The prospect could not talk: date, why (their words), and when to call back ---
+
+def _bad_moment_intel(*, origin="prospect_request", due_at="2026-09-26T12:30:00+02:00", precision="time"):
+    return _current_intelligence(
+        pain_confirmed=None,
+        evidence=[
+            {"id": "ev-obs", "quote": "estoy recogiendo a los niños del cole", "source_type": "transcript", "source_id": "memo-1"},
+            {"id": "ev-com", "quote": "llámame a las doce y media", "source_type": "transcript", "source_id": "memo-1"},
+        ],
+        objections=[{
+            "id": "obj-obs", "kind": "obstacle", "category": "bad_moment", "resolution": "open",
+            "quote": "estoy recogiendo a los niños del cole", "evidence_refs": ["ev-obs"],
+        }],
+        commitments=[{
+            "id": "com-com", "kind": "call", "origin": origin, "text": "llamar a las 12:30",
+            "due_at": due_at, "temporal_precision": precision, "evidence_refs": ["ev-com"],
+        }],
+    )
+
+
+def test_sdr_bad_moment_brief_is_date_reason_and_callback_time():
+    memo = _memo(
+        capture_started_at="2026-09-26T09:05:00+02:00",
+        created_at="2026-09-26T09:06:00+02:00",
+        extraction={"summary": "Breve presentación por parte del representante comercial.", "intelligence": _bad_moment_intel()},
+    )
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, sdr_two_line=True)
+    assert [line["text"] for line in brief["lines"]] == [
+        "Llamada el 26 sep",
+        "No pudo atenderte: «estoy recogiendo a los niños del cole»",
+        "Pidió que le llamaras hoy a las 12:30.",
+    ]
+    assert all(line["source_ref"] == "memo-1" for line in brief["lines"])
+
+
+def test_sdr_bad_moment_overdue_callback_names_the_day_and_time():
+    memo = _memo(
+        capture_started_at="2026-09-24T09:05:00+02:00",
+        extraction={"summary": "Breve presentación.", "intelligence": _bad_moment_intel(
+            origin="rep_promise", due_at="2026-09-24T12:30:00+02:00",
+        )},
+    )
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, sdr_two_line=True)
+    assert [line["text"] for line in brief["lines"]] == [
+        "Llamada el 24 sep",
+        "No pudo atenderte: «estoy recogiendo a los niños del cole»",
+        "Quedaste en llamarle el 24 sep a las 12:30.",
+    ]
+
+
+def test_sdr_callback_without_a_said_time_shows_no_time():
+    memo = _memo(
+        capture_started_at="2026-09-25T09:05:00+02:00",
+        extraction={"summary": "Breve presentación.", "intelligence": _bad_moment_intel(
+            due_at="2026-09-26T00:00:00+02:00", precision="date",
+        )},
+    )
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, sdr_two_line=True)
+    assert brief["lines"][-1]["text"] == "Pidió que le llamaras hoy."
+
+
+def test_ae_brief_keeps_the_summary_hook_on_a_bad_moment():
+    memo = _memo(extraction={"summary": "Breve presentación.", "intelligence": _bad_moment_intel()})
+    brief = prepare_brief_v2(coverage="complete", memos=[memo], tz_name=TZ, now=NOW, sdr_two_line=False)
+    assert "obstacle" not in [line["type"] for line in brief["lines"]]

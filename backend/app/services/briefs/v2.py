@@ -75,19 +75,44 @@ def hook_line(*, memo: dict, intelligence: dict, tz_name: str) -> dict | None:
     return _line("hook", text, source_ref=memo.get("id"), observed_at=when)
 
 
-def _commitment_why(commitment: Commitment, *, now: datetime, tz_name: str) -> str | None:
+def _commitment_why(commitment: Commitment, *, now: datetime, tz_name: str, timed: bool = False) -> str | None:
+    """`timed`: the prospect or rep said a clock time, so the call line carries it («a las 12:30»)."""
     local_now = now.astimezone(_zone(tz_name))
     due_local = commitment.due_at.astimezone(_zone(tz_name))
     if due_local.date() > local_now.date():
         return None
     if commitment.kind == "call":
-        if due_local.date() == local_now.date():
-            return "Pidió que le llamaras hoy." if commitment.origin == "prospect_request" else "Quedaste en llamarle hoy."
-        return "Pidió que le llamaras." if commitment.origin == "prospect_request" else "Quedaste en llamarle."
+        when = " hoy" if due_local.date() == local_now.date() else f" el {_day_label(due_local, tz_name)}"
+        if timed:
+            when = f"{when} a las {due_local:%H:%M}"
+        if commitment.origin == "prospect_request":
+            return f"Pidió que le llamaras{when}."
+        return f"Quedaste en llamarle{when}."
     what = commitment.text[:1].lower() + commitment.text[1:] if commitment.text else commitment.text
     if due_local.date() == local_now.date():
         return f"Quedó pendiente para hoy: {what}."
     return f"Quedó pendiente: {what}."
+
+
+def _timed(intelligence: dict, commitment: Commitment) -> bool:
+    """Whether C04 read a clock time for this commitment. The Hoy signal drops `temporal_precision`."""
+    for item in intelligence.get("commitments") or []:
+        if not isinstance(item, dict) or item.get("kind") != commitment.kind or item.get("text") != commitment.text:
+            continue
+        if _as_dt(item.get("due_at")) == commitment.due_at:
+            return item.get("temporal_precision") == "time"
+    return False
+
+
+def _bad_moment(intelligence: dict) -> str | None:
+    """The prospect's own words when the call caught them at a bad moment (C04 obstacle)."""
+    for item in intelligence.get("objections") or []:
+        if not isinstance(item, dict) or item.get("kind") != "obstacle" or item.get("category") != "bad_moment":
+            continue
+        quote = " ".join(str(item.get("quote") or "").split())
+        if quote:
+            return quote
+    return None
 
 
 def _due_commitment(*, memo: dict, intelligence: dict, now: datetime, tz_name: str) -> Commitment | None:
@@ -132,7 +157,7 @@ def why_line(
 ) -> dict | None:
     commitment = _due_commitment(memo=memo, intelligence=intelligence, now=now, tz_name=tz_name)
     if commitment is not None:
-        text = _commitment_why(commitment, now=now, tz_name=tz_name)
+        text = _commitment_why(commitment, now=now, tz_name=tz_name, timed=_timed(intelligence, commitment))
         if text:
             return _line("why", text, source_ref=memo.get("id"), observed_at=commitment.due_at)
     if no_reply and no_reply.get("text"):
@@ -163,7 +188,9 @@ def _strip_final_period(text: str) -> str:
 
 def sdr_hook_line(*, memo: dict, intelligence: dict, tz_name: str, now: datetime) -> dict | None:
     """T7: SDR/general two-line format, L1 - «{fecha}: {qué se habló}. Pendiente: {pendiente}.»
-    Only C04 facts; a missing summary or pending action just drops that clause."""
+    Only C04 facts; a missing summary or pending action just drops that clause. When the
+    prospect could not talk (bad_moment), the summary only recaps the rep's opener, so the
+    line is just «Llamada el {fecha}» and `sdr_obstacle_line` says why."""
     when = next(
         (value for value in (memo.get("capture_started_at"), memo.get("created_at")) if _as_dt(value)),
         None,
@@ -171,14 +198,17 @@ def sdr_hook_line(*, memo: dict, intelligence: dict, tz_name: str, now: datetime
     day = _day_label(when, tz_name)
     if not day:
         return None
-    summary = plain_sentence((memo.get("extraction") or {}).get("summary"))
+    bad_moment = _bad_moment(intelligence) is not None
+    summary = None if bad_moment else plain_sentence((memo.get("extraction") or {}).get("summary"))
     commitment = _due_commitment(memo=memo, intelligence=intelligence, now=now, tz_name=tz_name)
     pending = None
     if commitment is not None and commitment.kind != "call" and commitment.text:
         pending = _lower_first(commitment.text)
-    if not summary and not pending:
+    if bad_moment:
+        text = f"Llamada el {day}." if pending else f"Llamada el {day}"
+    elif not summary and not pending:
         return None
-    if summary:
+    elif summary:
         text = f"{day}: {summary}"
     else:
         text = f"{day}."
@@ -196,24 +226,24 @@ def sdr_why_line(
     no_reply: dict | None,
     crm_task: dict | None,
 ) -> dict | None:
-    """T7: SDR/general two-line format, L2 - «Llama porque {porqué}. Gancho: "{cita}".»
-    `porqué` is the same reason `why_line` uses (a due call commitment, then no_reply, then
-    a CRM task); `cita` is the pain quote `hook_line` shows the AE. Either half can be
-    missing on its own; both missing drops the line entirely."""
+    """T7: SDR/general two-line format, L2 - «{porqué}. Gancho: "{cita}".»
+    `porqué` is the same reason `why_line` uses (a due call commitment, with its time when
+    one was said, then no_reply, then a CRM task); `cita` is the pain quote `hook_line`
+    shows the AE. Either half can be missing on its own; both missing drops the line."""
     porque = None
     source_ref = None
     observed_at = None
     commitment = _due_commitment(memo=memo, intelligence=intelligence, now=now, tz_name=tz_name)
     if commitment is not None and commitment.kind == "call":
-        reason = _commitment_why(commitment, now=now, tz_name=tz_name)
+        reason = _commitment_why(commitment, now=now, tz_name=tz_name, timed=_timed(intelligence, commitment))
         if reason:
-            porque = _lower_first(_strip_final_period(reason))
+            porque = _strip_final_period(reason)
             source_ref, observed_at = memo.get("id"), commitment.due_at
     if porque is None and no_reply and no_reply.get("text"):
-        porque = _lower_first(_strip_final_period(str(no_reply["text"])))
+        porque = _strip_final_period(str(no_reply["text"]))
         source_ref, observed_at = no_reply.get("source_ref"), no_reply.get("observed_at")
     if porque is None and crm_task and crm_task.get("text"):
-        porque = _lower_first(_strip_final_period(str(crm_task["text"])))
+        porque = _strip_final_period(str(crm_task["text"]))
         source_ref, observed_at = crm_task.get("source_ref"), crm_task.get("observed_at")
 
     quote = " ".join(str(pain_quote(intelligence) or "").split())
@@ -222,12 +252,21 @@ def sdr_why_line(
         return None
     parts = []
     if porque:
-        parts.append(f"Llama porque {porque}.")
+        parts.append(f"{porque[:1].upper()}{porque[1:]}.")
     if quote:
         parts.append(f'Gancho: "{quote}"')
         if source_ref is None:
             source_ref = memo.get("id")
     return _line("why", " ".join(parts), source_ref=source_ref, observed_at=observed_at)
+
+
+def sdr_obstacle_line(*, memo: dict, intelligence: dict) -> dict | None:
+    """T7: when the prospect could not talk, why, in their own words. It is the opener for
+    the callback, so it sits between the date and the reason to call."""
+    quote = _bad_moment(intelligence)
+    if not quote:
+        return None
+    return _line("obstacle", f"No pudo atenderte: «{quote}»", source_ref=memo.get("id"))
 
 
 def _open_objections(intelligence: dict) -> list[dict]:
@@ -393,6 +432,9 @@ def prepare_brief_v2(
         hook = sdr_hook_line(memo=latest, intelligence=intelligence, tz_name=tz_name, now=now)
         if hook:
             lines.append(hook)
+        obstacle = sdr_obstacle_line(memo=latest, intelligence=intelligence)
+        if obstacle:
+            lines.append(obstacle)
         why = sdr_why_line(
             intelligence=intelligence,
             memo=latest,
