@@ -1,18 +1,16 @@
 /**
- * Follow the rep's CRM presence and live call (GET /live-calls/stream).
+ * Follow the rep's live call (GET /live-calls/stream).
  *
- * The Chrome extension reports the record the rep has open; when the desktop
- * starts a call, that record is the contact. No `@/` imports: this file runs
- * under node --test.
+ * The desktop starts a call with the CRM pages on screen; the backend resolves
+ * the contact and streams the call here. No `@/` imports: this file runs under
+ * node --test.
  */
 
-export interface RecordPresence {
+export interface CrmRecord {
   provider: "hubspot" | "pipedrive";
-  /** Null on a CRM page that is not a record (list, sequence, inbox). */
-  object_type: "contact" | "company" | "deal" | null;
-  record_id: string | null;
+  object_type: "contact" | "company" | "deal";
+  record_id: string;
   account_id: string | null;
-  seen_at: number;
 }
 
 export interface LiveCall {
@@ -23,15 +21,14 @@ export interface LiveCall {
   provider: "hubspot" | "pipedrive" | null;
   contact_id: string | null;
   contact_source: "page" | "picked" | null;
-  /** The record the call was started from; a deal or company still needs a contact pick. */
-  record: RecordPresence | null;
+  /** The record on screen at call start; a deal or company still needs a contact pick. */
+  record: CrmRecord | null;
   /** The desktop capture memo reserved for this call. */
   memo_id: string | null;
   needs_contact: boolean;
 }
 
 export interface LiveState {
-  presence: RecordPresence | null;
   call: LiveCall | null;
 }
 
@@ -131,7 +128,7 @@ export async function followLiveCalls({
             const { done, value } = await reader.read();
             if (done) break;
             buffer = parseLiveCallSse(buffer, decoder.decode(value, { stream: true }), (event) =>
-              onState({ presence: event.presence ?? null, call: event.call ?? null }),
+              onState({ call: event.call ?? null }),
             );
           }
         }

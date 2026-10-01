@@ -26,7 +26,6 @@ import {
   providerFromConnections,
 } from './lib/crm-page.js';
 import { pickContextTab } from './lib/review-targets.js';
-import { createPresenceReporter, presenceFromUrl } from './lib/presence.js';
 import {
   hydrateFromIdentityCache,
   identityCacheFromEntries,
@@ -2122,14 +2121,8 @@ function reevaluateTabContext(tabId, url) {
   }).catch(() => {});
 }
 
-// Where the rep is in the CRM, so their desktop app knows who a call is with.
-const presenceReporter = createPresenceReporter({
-  send: (presence) => api.reportPresence(presence),
-});
-
 function reevaluateTabContextAuthenticated(tabId, url) {
   const ctx = parseCrmPageUrl(url);
-  presenceReporter.report(presenceFromUrl(url, ctx));
   const activityTypes = ['deal', 'contact', 'company'];
   const recordType = ctx?.objectType;
   const recordId = activityTypes.includes(recordType) ? ctx.recordId : null;
@@ -2176,18 +2169,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (url !== lastSeenUrlByTab.get(tabId) || changeInfo.status === 'complete') {
     reevaluateTabContext(tabId, url);
   }
-});
-
-// The worker sleeps when idle; the alarm wakes it so a rep who stays on one
-// record keeps it current (the reporter only resends once per heartbeat).
-chrome.alarms.create('vocify-presence', { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name !== 'vocify-presence' || !lastActiveTabId) return;
-  chrome.tabs.get(lastActiveTabId, async (tab) => {
-    if (chrome.runtime.lastError || !tab?.url) return;
-    const { accessToken } = await api.getTokens().catch(() => ({}));
-    if (accessToken) presenceReporter.report(presenceFromUrl(tab.url, parseCrmPageUrl(tab.url)));
-  });
 });
 
 chrome.windows.onFocusChanged.addListener(() => seedActiveTab());

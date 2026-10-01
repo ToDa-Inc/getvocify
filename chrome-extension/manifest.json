@@ -4,7 +4,7 @@
   "name": "Vocify - Voice to CRM",
   "version": "1.0.23",
   "description": "Update your CRM by speaking. Press Alt+Shift+V to open Vocify.",
-  "permissions": ["storage", "tabs", "activeTab", "tabCapture", "offscreen", "notifications", "sidePanel", "alarms"],
+  "permissions": ["storage", "tabs", "activeTab", "tabCapture", "offscreen", "notifications", "sidePanel"],
   "host_permissions": [
     "https://*.hubspot.com/*",
     "https://*.pipedrive.com/*",

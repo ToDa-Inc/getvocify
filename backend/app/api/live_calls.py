@@ -1,9 +1,9 @@
 """Live call awareness API.
 
-The Chrome extension reports the CRM record the rep has open. When the rep's
-desktop app starts a call, the contact is the record they were on, and the
-desktop capture memo is reserved with it so extraction, the review target and
-live help all know who the call is with. Clients follow changes on a per-user
+When the rep's desktop app starts a call it sends the CRM pages open in the
+rep's browsers (front window first). The record on screen is the contact, and
+the desktop capture memo is reserved with it, so extraction, the review target
+and live help know who the call is with. Clients follow the call on a per-user
 event stream.
 """
 
@@ -18,45 +18,27 @@ from typing import AsyncIterator, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from supabase import Client
 
 from app.deps import get_membership, get_supabase
 from app.services.captures import reserve_capture
 from app.services.company import Membership
 from app.services.company_scope import get_crm_connection
+from app.services.live_calls.crm_url import record_on_screen
 from app.services.live_calls.hub import LiveCallHub, live_call_hub
-from app.services.live_calls.state import (
-    RecordPresence,
-    attach_memo,
-    end_call,
-    pick_contact,
-    start_call,
-)
+from app.services.live_calls.state import LiveCall, attach_memo, end_call, pick_contact, start_call
 from app.services.playbooks.live import live_version_id
 
 router = APIRouter(prefix="/api/v1/live-calls", tags=["live-calls"])
 
 HEARTBEAT_SECONDS = 15.0
-_RECORD_ID = r"^\d{1,32}$"
 _ACCOUNT_KEY = {"hubspot": "portal_id", "pipedrive": "company_domain"}
 
 
-class PresenceIn(BaseModel):
-    provider: Literal["hubspot", "pipedrive"]
-    # Both absent: the rep is in the CRM but not on a record.
-    object_type: Optional[Literal["contact", "company", "deal"]] = None
-    record_id: Optional[str] = Field(default=None, pattern=_RECORD_ID)
-    account_id: Optional[str] = Field(default=None, max_length=64)
-
-    @model_validator(mode="after")
-    def _record_is_whole(self) -> "PresenceIn":
-        if (self.object_type is None) != (self.record_id is None):
-            raise ValueError("object_type and record_id go together")
-        return self
-
-
 class StartCallIn(BaseModel):
+    # Active tab URL of each browser window showing the CRM, front-most first.
+    page_urls: list[str] = Field(default_factory=list, max_length=20)
     # When set, the desktop capture memo is reserved for this call with its contact.
     client_capture_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
     started_at: Optional[datetime] = None
@@ -64,7 +46,7 @@ class StartCallIn(BaseModel):
 
 class PickContactIn(BaseModel):
     provider: Literal["hubspot", "pipedrive"]
-    contact_id: str = Field(..., pattern=_RECORD_ID)
+    contact_id: str = Field(..., pattern=r"^\d{1,32}$")
 
 
 def _connected_account_id(supabase: Client, user_id: str, provider: str) -> Optional[str]:
@@ -77,31 +59,13 @@ def _connected_account_id(supabase: Client, user_id: str, provider: str) -> Opti
     return str(value) if value else None
 
 
-def _set_memo_contact(supabase: Client, user_id: str, memo_id: str, contact_id: str) -> None:
-    supabase.table("memos").update({"hubspot_contact_id": contact_id}).eq("id", memo_id).eq(
-        "user_id", user_id
-    ).execute()
-
-
-@router.put("/presence")
-async def report_presence(body: PresenceIn, membership: Membership = Depends(get_membership)):
-    """The extension: where the rep is in the CRM (a record, or a page that is not one)."""
-    live_call_hub.set_presence(
-        membership.user_id,
-        RecordPresence(
-            provider=body.provider,
-            object_type=body.object_type,
-            record_id=body.record_id,
-            account_id=body.account_id,
-            seen_at=time.time(),
-        ),
-    )
-    return {"ok": True}
+def _state(call: Optional[LiveCall]) -> dict:
+    return {"call": call.to_dict() if call else None}
 
 
 @router.get("/current")
-async def current_live_state(membership: Membership = Depends(get_membership)):
-    return live_call_hub.state(membership.user_id).to_dict()
+async def current_live_call(membership: Membership = Depends(get_membership)):
+    return _state(live_call_hub.current(membership.user_id))
 
 
 @router.post("/start")
@@ -110,18 +74,18 @@ async def start_live_call(
     membership: Membership = Depends(get_membership),
     supabase: Client = Depends(get_supabase),
 ):
-    """The desktop: a call started. Returns the call with the contact the rep had open.
+    """The desktop: a call started. Returns the call with the contact on screen.
 
     Idempotent while a call is live, so a retried start never opens a second call.
     """
     user_id = membership.user_id
-    current = live_call_hub.state(user_id)
-    if current.call and current.call.is_live:
-        return current.to_dict()
+    current = live_call_hub.current(user_id)
+    if current and current.is_live:
+        return _state(current)
 
-    presence = current.presence
-    account = _connected_account_id(supabase, user_id, presence.provider) if presence else None
-    call = start_call(str(uuid.uuid4()), presence, time.time(), connected_account_id=account)
+    record = record_on_screen(url[:2048] for url in body.page_urls)
+    account = _connected_account_id(supabase, user_id, record.provider) if record else None
+    call = start_call(str(uuid.uuid4()), record, time.time(), connected_account_id=account)
 
     if body.client_capture_id:
         identity = reserve_capture(
@@ -137,8 +101,8 @@ async def start_live_call(
         )
         call = attach_memo(call, identity.memo_id)
 
-    live_call_hub.set_call(user_id, call)
-    return live_call_hub.state(user_id).to_dict()
+    live_call_hub.publish(user_id, call)
+    return _state(call)
 
 
 @router.patch("/current")
@@ -149,29 +113,32 @@ async def pick_live_call_contact(
 ):
     """The rep corrected who the call is with (or picked one of a deal's contacts)."""
     user_id = membership.user_id
-    call = live_call_hub.state(user_id).call
+    call = live_call_hub.current(user_id)
     if call is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No call")
     call = pick_contact(call, body.provider, body.contact_id)
     if call.memo_id and body.provider == "hubspot":
-        _set_memo_contact(supabase, user_id, call.memo_id, body.contact_id)
-    live_call_hub.set_call(user_id, call)
-    return live_call_hub.state(user_id).to_dict()
+        supabase.table("memos").update({"hubspot_contact_id": body.contact_id}).eq(
+            "id", call.memo_id
+        ).eq("user_id", user_id).execute()
+    live_call_hub.publish(user_id, call)
+    return _state(call)
 
 
 @router.post("/current/end")
 async def end_live_call(membership: Membership = Depends(get_membership)):
     """The desktop: the call is over. The capture itself completes via /captures."""
     user_id = membership.user_id
-    call = live_call_hub.state(user_id).call
+    call = live_call_hub.current(user_id)
     if call is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No call")
-    live_call_hub.set_call(user_id, end_call(call, time.time()))
-    return live_call_hub.state(user_id).to_dict()
+    call = end_call(call, time.time())
+    live_call_hub.publish(user_id, call)
+    return _state(call)
 
 
-def _sse(kind: str, state: dict) -> str:
-    return f"data: {json.dumps({'type': kind, **state}, ensure_ascii=False)}\n\n"
+def _sse(kind: str, call: Optional[LiveCall]) -> str:
+    return f"data: {json.dumps({'type': kind, **_state(call)}, ensure_ascii=False)}\n\n"
 
 
 async def live_call_stream(
@@ -183,14 +150,14 @@ async def live_call_stream(
     """Snapshot first, then every change. Subscribes before the snapshot so
     nothing published in between is lost."""
     async with hub.subscribe(user_id) as queue:
-        yield _sse("snapshot", hub.state(user_id).to_dict())
+        yield _sse("snapshot", hub.current(user_id))
         while True:
             try:
-                state = await asyncio.wait_for(queue.get(), timeout=heartbeat_s)
+                call = await asyncio.wait_for(queue.get(), timeout=heartbeat_s)
             except asyncio.TimeoutError:
                 yield ": keepalive\n\n"
                 continue
-            yield _sse("update", state.to_dict())
+            yield _sse("update", call)
 
 
 @router.get("/stream")

@@ -29,7 +29,7 @@ const sse = (event: unknown) => `data: ${JSON.stringify(event)}\n\n`;
 describe("parseLiveCallSse", () => {
   it("emits complete events and keeps the partial tail", () => {
     const got: LiveCallStreamEvent[] = [];
-    const text = sse({ type: "snapshot", presence: null, call: null }) + ": keepalive\n\n" + sse({ type: "update", presence: null, call: call() });
+    const text = sse({ type: "snapshot", call: null }) + ": keepalive\n\n" + sse({ type: "update", call: call() });
     const rest = parseLiveCallSse("", text.slice(0, 20), (e) => got.push(e));
     assert.equal(got.length, 0);
     const left = parseLiveCallSse(rest, text.slice(20), (e) => got.push(e));
@@ -46,7 +46,7 @@ describe("parseLiveCallSse", () => {
 
   it("handles CRLF line endings", () => {
     const got: LiveCallStreamEvent[] = [];
-    parseLiveCallSse("", sse({ type: "snapshot", presence: null, call: null }).replace(/\n/g, "\r\n"), (e) => got.push(e));
+    parseLiveCallSse("", sse({ type: "snapshot", call: null }).replace(/\n/g, "\r\n"), (e) => got.push(e));
     assert.equal(got.length, 1);
   });
 });
@@ -89,10 +89,10 @@ describe("followLiveCalls", () => {
     const fetchImpl = (async (_url: string, init: RequestInit) => {
       auths.push((init.headers as Record<string, string>).Authorization);
       n += 1;
-      if (n === 1) return streamResponse([sse({ type: "snapshot", presence: null, call: null }), sse({ type: "update", presence: null, call: call() })]);
+      if (n === 1) return streamResponse([sse({ type: "snapshot", call: null }), sse({ type: "update", call: call() })]);
       if (n === 2) return new Response("nope", { status: 401 });
       ctrl.abort();
-      return streamResponse([sse({ type: "snapshot", presence: null, call: call({ status: "ended" }) })]);
+      return streamResponse([sse({ type: "snapshot", call: call({ status: "ended" }) })]);
     }) as typeof fetch;
 
     await followLiveCalls({
