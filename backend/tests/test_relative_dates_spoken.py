@@ -1,8 +1,12 @@
 """Spoken follow-up timing resolved by code, so the CRM task date never depends on the model."""
 
+import os
 from datetime import date
 
 import pytest
+
+os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 
 from app.services.relative_dates import resolve_schedule
 
@@ -28,6 +32,8 @@ CALL = date(2026, 9, 30)  # a Wednesday
     ("a partir del 15 de enero", "2027-01-15"),
     ("el 9 de octubre", "2026-10-09"),
     ("más adelante", None),
+    ("ahora", "2026-09-30"),
+    ("en un rato", "2026-09-30"),
 ])
 def test_spoken_timing(phrase, expected):
     assert resolve_schedule(phrase, CALL) == expected

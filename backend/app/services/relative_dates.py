@@ -146,7 +146,7 @@ def _resolve_spoken(blob: str, ref: date) -> Optional[str]:
         return (ref + timedelta(days=2)).isoformat()
     if re.search(r"\b(?:manana|tomorrow)\b", re.sub(r"\bpor la manana\b", "", blob)):
         return (ref + timedelta(days=1)).isoformat()
-    if re.search(r"\b(?:hoy|today|esta tarde|this afternoon)\b", blob):
+    if re.search(r"\b(?:hoy|today|esta tarde|this afternoon|ahora|ya|ahora mismo|en un rato|now|right away)\b", blob):
         return ref.isoformat()
     span = re.search(rf"\b(?:en|dentro de|in|within)\s+(?:unos?\s+|unas?\s+)?({_COUNT_RE}|\d{{1,2}})\s+{_UNIT}\b", blob)
     if span:

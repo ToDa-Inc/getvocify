@@ -517,8 +517,9 @@ def _grounded_source_hint(call_reading: dict) -> str:
         "the salesperson telling what happened in an earlier conversation."
     )
     short = (
-        "\nThis call never became a sales conversation: the note is 1–3 bullets with what happened "
-        "and any next step; fill only fields the prospect literally gave (a name, an email, a referral)."
+        "\nThis call never became a sales conversation: the note is 1–3 bullets with what happened; "
+        "fill only fields the prospect literally gave (a name, an email, a referral). A callback or "
+        "anything else agreed still goes in nextSteps with what was said about when (\"a las 12:30\")."
         if kind in SHORT_NOTE_CALL_TYPES else ""
     )
     seller = str(call_reading.get("rep_company") or "").strip()
@@ -1050,6 +1051,12 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 for name in generative_lead_status_to_drop(field_specs, jev_patch):
                     if name not in abstained:
                         abstained.append(name)
+            elif call_reading:
+                # One retry on an unparseable reply: a failed extraction leaves the memo failed.
+                try:
+                    extracted = await self.llm.chat_json(messages, temperature=0.0)
+                except ValueError:
+                    extracted = await self.llm.chat_json(messages, temperature=0.0)
             else:
                 extracted = await self.llm.chat_json(messages, temperature=0.0)
             # Post-process: coerce to schema types (number, enum value, etc.)
