@@ -120,10 +120,13 @@ If the day or time changed during the conversation, use the last one both sides 
   ("and the prospect accepts", "the prospect names a problem"), the step is "met" when the
   rep did their part as described, whatever the prospect answered; the prospect's answer is
   the call's outcome (meeting, interest), never a missed step.
-  quality: only when status is "met". "solid" when the rep did it well; "improvable" when they did it
-  but it could clearly be better: only part of what the step asks (two of the three data points), a
-  vague or late version of it, a question the prospect dodged and the rep did not try again. A step
-  is not black or white: use "improvable" whenever a good sales lead would say "bien, pero…".
+  quality: only when status is "met". "solid" when the rep did it well; "improvable" when what the
+  criterion asks was done, but weakly: a vague or late version of it, a question the prospect dodged
+  and the rep did not try again. A step is not black or white: use "improvable" whenever a good sales
+  lead would say "bien, pero…" about what the criterion asks — never about something it does not ask
+  (the prospect not remembering a LinkedIn connection does not make a valid opening weak).
+  A minimum the criterion sets is a line, not a grade: "at least three data points" with two asked
+  is "missed", not "improvable".
   For an opening, read the whole opening (it may come a few turns in, after an interruption), and
   make it "improvable" when the prospect shows they did not get why the rep was calling.
   reason is one short sentence in Spanish addressed to the rep as "tú" ("Te presentaste y…",
