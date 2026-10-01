@@ -24,15 +24,14 @@ KNOWLEDGE = {
     "pricing": "PRECIOS QUE NO VAN AL PROMPT",
     "differentiators": ["Lee la llamada y no solo la transcribe", "Se conecta a HubSpot en un día"],
     "proofs": [
-        {"customer": "Logística Norte", "situation": "Perdían leads", "change": "Subió la conversión", "number": "+18 %"},
-        {"customer": "Clínica Sur", "situation": "Sin seguimiento", "change": "Citas +30 %", "number": ""},
-        {"customer": "Talleres Vega", "situation": "s", "change": "c", "number": "2 semanas"},
-        {"customer": "CUARTO CASO", "situation": "s", "change": "c", "number": "x"},
+        {"customer": "Logística Norte", "change": "Subió la conversión"},
+        {"customer": "Clínica Sur", "change": "Citas +30 %"},
+        {"customer": "Talleres Vega", "change": "c"},
+        {"customer": "CUARTO CASO", "change": "c"},
     ],
     "competitors": [
-        {"name": "Ringover", "how_to_talk": "Reconoce que es buena telefonía; nosotros leemos la llamada.",
-         "landmines": "No digas que su telefonía es mala.", "win_when": "NO VA", "lose_when": "NO VA"},
-        {"name": "Gong", "how_to_talk": "GONG HOW", "landmines": "GONG LANDMINE"},
+        {"name": "Ringover", "how_to_talk": "Reconoce que es buena telefonía; nosotros leemos la llamada."},
+        {"name": "Gong", "how_to_talk": "GONG HOW"},
     ],
 }
 
@@ -50,7 +49,7 @@ def test_the_block_is_marked_as_the_only_allowed_proof():
     assert "ONLY proof" in text
     assert "Value in one line: Vocify prepara cada llamada" in text
     assert "- Lee la llamada y no solo la transcribe" in text
-    assert "Logística Norte" in text and "+18 %" in text
+    assert "Logística Norte" in text and "Subió la conversión" in text
     assert "COMPANY KNOWLEDGE block" in SYSTEM_PROMPT  # the rule against inventing proof points at it
 
 
@@ -64,8 +63,7 @@ def test_only_three_proofs_and_no_unrelated_fields():
 def test_a_competitor_is_included_only_when_named_in_the_call():
     text = format_company_knowledge(KNOWLEDGE, call_text="Them: ya usamos ringover para llamar")
     assert "Competitor named in the call: Ringover" in text
-    assert "How to talk about it: Reconoce que es buena telefonía" in text
-    assert "Do not say: No digas que su telefonía es mala." in text
+    assert "How to win against it: Reconoce que es buena telefonía" in text
     assert "Gong" not in text and "GONG" not in text
     assert "Competitor named" not in format_company_knowledge(KNOWLEDGE, call_text="Them: es caro")
 

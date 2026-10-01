@@ -11,6 +11,7 @@ from google.genai import types
 from app.config import settings
 from app.logging_config import DOMAIN_LLM, log_domain
 from app.metrics import inc_llm_request, inc_pipeline_error
+from app.services.usage import record_llm_usage
 from app.services.llm.base import BaseLLMProvider
 from app.services.llm.compliance import get_compliance_info
 from app.services.llm.shared import (
@@ -106,8 +107,15 @@ class VertexAIProvider(BaseLLMProvider):
                 if content is None or not str(content).strip():
                     raise ValueError("Empty model response")
                 elapsed_ms = (time.perf_counter() - t0) * 1000
-                self.last_call_meta = {"model": model_used}
+                meta = getattr(response, "usage_metadata", None)
+                self.last_call_meta = {
+                    "model": model_used,
+                    "prompt_tokens": getattr(meta, "prompt_token_count", None),
+                    "completion_tokens": getattr(meta, "candidates_token_count", None),
+                    "total_tokens": getattr(meta, "total_token_count", None),
+                }
                 inc_llm_request("success", PROVIDER_NAME, model_used)
+                record_llm_usage(PROVIDER_NAME, self.last_call_meta, duration_ms=round(elapsed_ms))
                 logger.info(
                     "LLM chat success",
                     extra=log_domain(

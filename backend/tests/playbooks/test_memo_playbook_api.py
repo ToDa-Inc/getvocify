@@ -228,6 +228,8 @@ def test_get_lists_the_published_types_and_says_the_author_can_change_it():
             {"key": "discovery", "label": None},
             {"key": "closing", "label": None},
             {"key": "renewal", "label": "Renovación"},
+            # Interna last, as on the list chip: it needs no published playbook.
+            {"key": "internal", "label": None},
         ],
     }
 

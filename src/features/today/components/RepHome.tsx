@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Microphone } from "@phosphor-icons/react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { afterActionError, composeHome, itemKey, type HomeRow, type HomeView } from "@shared/ui/home.js";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
@@ -15,6 +16,8 @@ import { useLanguage } from "@/lib/i18n";
 import { productText, type ProductTranslations } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { dealItems, type TodayItem } from "@/lib/today";
+import { focusCounts, focusShows, parseTodayFocus, type TodayFocus } from "@/lib/home-rail";
+import { dayChipClass, focusLabel } from "@/features/home/day-chips";
 import { useContactPriorities } from "../hooks/useContactPriorities";
 import { useHomeReads } from "../hooks/useHomeReads";
 import { useHomeSelection } from "../hooks/useHomeSelection";
@@ -62,6 +65,10 @@ function StateCard({ title, detail, children }: { title: string; detail?: string
 
 export function RepHome() {
   const navigate = useNavigate();
+  // Inicio's chips open Hoy on one part of the day (?focus=); the chips over Hoy switch it in place.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focus = parseTodayFocus(searchParams.get("focus"));
+  const setFocus = (next: TodayFocus | null) => setSearchParams(next ? { focus: next } : {}, { replace: true });
   const { t } = useLanguage();
   const copy = t.product;
   const { user } = useAuth();
@@ -224,6 +231,9 @@ export function RepHome() {
   const pulse = pulseLine(home.pulse, copy);
   const section = <Id extends HomeView["sections"][number]["id"]>(id: Id) =>
     home.sections.find((entry) => entry.id === id) as SectionOf<Id> | undefined;
+  const shows = (id: string) => focusShows(focus, id);
+  const chips = focusCounts(home);
+  const focusEmpty = focus !== null && home.state === "day" && !chips.some((chip) => chip.focus === focus);
   const meetings = section("meetings");
   const demos = section("demos");
   const needsOk = section("needs_ok");
@@ -242,7 +252,8 @@ export function RepHome() {
       {copy.home_folded.replace("{count}", String(home.folded.count))}
     </p>
   ) : null;
-  const foldedUnder = (id: NonNullable<HomeView["folded"]>["after"]) => (home.folded?.after === id ? foldedLine : null);
+  const foldedUnder = (id: NonNullable<HomeView["folded"]>["after"]) =>
+    home.folded?.after === id && (id === null ? focus === null : shows(id)) ? foldedLine : null;
   const recordText = (
     <button type="button" className={textAction} onClick={record}>{copy.today_record}</button>
   );
@@ -329,19 +340,46 @@ export function RepHome() {
   return (
     <>
       <div className={`mx-auto max-w-[680px] ${THEME_TOKENS.motion.fadeIn}`} aria-busy={home.state === "loading"}>
-        <header className="mb-7">
+        <header className="mb-6 space-y-4">
           <div className="flex items-center justify-between gap-3">
-            <h1 className={THEME_TOKENS.typography.pageTitle}>
-              {copy.todayTitle}
-              <span className="ml-2.5 text-[15px] tracking-normal text-muted-foreground">{longDate(now, copy.hourLocale)}</span>
-            </h1>
-            <IconAction label={copy.today_capture} onClick={() => setCaptureOpen((open) => !open)}>
-              <Microphone size={16} weight="light" />
-            </IconAction>
+            <Link
+              to="/dashboard"
+              className="-ml-2 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[13.5px] text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
+            >
+              <ArrowLeft aria-hidden className="h-4 w-4" />
+              {copy.navHome}
+            </Link>
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] capitalize text-muted-foreground">{longDate(now, copy.hourLocale)}</span>
+              <IconAction label={copy.today_capture} onClick={() => setCaptureOpen((open) => !open)}>
+                <Microphone size={16} weight="light" />
+              </IconAction>
+            </div>
           </div>
-          {pulse ? <p className={`mt-1.5 ${THEME_TOKENS.typography.body}`}>{pulse}</p> : null}
-          {home.incompleteAt ? (
-            <p className={`mt-1.5 ${THEME_TOKENS.typography.body}`}>{copy.today_incomplete} · {home.incompleteAt}</p>
+          {chips.length ? (
+            <nav aria-label={copy.todayTitle} className="flex flex-wrap gap-2">
+              <button type="button" aria-pressed={focus === null} className={dayChipClass(focus === null)} onClick={() => setFocus(null)}>
+                {copy.today_focus_all}
+              </button>
+              {chips.map((chip) => (
+                <button
+                  key={chip.focus}
+                  type="button"
+                  aria-pressed={focus === chip.focus}
+                  className={dayChipClass(focus === chip.focus)}
+                  onClick={() => setFocus(focus === chip.focus ? null : chip.focus)}
+                >
+                  <span>{focusLabel(chip.focus, copy)}</span>
+                  <span className="tabular-nums text-muted-foreground">{chip.count}</span>
+                </button>
+              ))}
+            </nav>
+          ) : null}
+          {pulse || home.incompleteAt ? (
+            <div className={`space-y-1 ${THEME_TOKENS.typography.body}`}>
+              {pulse ? <p>{pulse}</p> : null}
+              {home.incompleteAt ? <p>{copy.today_incomplete} · {home.incompleteAt}</p> : null}
+            </div>
           ) : null}
         </header>
 
@@ -388,9 +426,17 @@ export function RepHome() {
             </StateCard>
           ) : null}
           {home.state === "clear" ? <p className={THEME_TOKENS.typography.body}>{copy.today_clear}</p> : null}
+          {focusEmpty ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <p className={THEME_TOKENS.typography.body}>{copy.today_focus_empty}</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => setFocus(null)}>
+                {copy.today_focus_see_all}
+              </Button>
+            </div>
+          ) : null}
 
           <HomeSection title={copy.home_demos}>
-            {demos ? (
+            {demos && shows("demos") ? (
               <>
                 <Meetings section={demos} copy={copy} {...selectionProps} />
                 {foldedUnder("demos")}
@@ -398,7 +444,7 @@ export function RepHome() {
             ) : null}
           </HomeSection>
           <HomeSection title={copy.home_meetings}>
-            {meetings ? (
+            {meetings && shows("meetings") ? (
               <>
                 <Meetings section={meetings} copy={copy} {...selectionProps} />
                 {foldedUnder("meetings")}
@@ -407,18 +453,18 @@ export function RepHome() {
           </HomeSection>
           {sectioned ? (
             <>
-              <HomeSection title={copy.home_tasks}>{cardSection(tasks?.items, "tasks")}</HomeSection>
-              {needsOkSection}
-              <HomeSection title={copy.home_followups}>{cardSection(followups?.items, "followups")}</HomeSection>
-              <HomeSection title={copy.home_new}>{cardSection(fresh?.items, "new")}</HomeSection>
+              <HomeSection title={copy.home_tasks}>{shows("tasks") ? cardSection(tasks?.items, "tasks") : null}</HomeSection>
+              {shows("needs_ok") ? needsOkSection : null}
+              <HomeSection title={copy.home_followups}>{shows("followups") ? cardSection(followups?.items, "followups") : null}</HomeSection>
+              <HomeSection title={copy.home_new}>{shows("new") ? cardSection(fresh?.items, "new") : null}</HomeSection>
             </>
           ) : (
             <>
-              {needsOkSection}
-              <HomeSection title={copy.home_calls}>{cardSection(calls?.items, "calls")}</HomeSection>
+              {shows("needs_ok") ? needsOkSection : null}
+              <HomeSection title={copy.home_calls}>{shows("calls") ? cardSection(calls?.items, "calls") : null}</HomeSection>
             </>
           )}
-          {dealsEnabled && deals.length > 0 ? (
+          {focus === null && dealsEnabled && deals.length > 0 ? (
             <HomeSection title={copy.home_deals}>
               <TodayItemList
                 items={deals}
@@ -430,13 +476,13 @@ export function RepHome() {
               />
             </HomeSection>
           ) : null}
-          {home.folded?.after === null ? foldedLine : null}
+          {foldedUnder(null)}
           <HomeSection title={copy.home_upcoming}>
-            {upcoming ? <Upcoming section={upcoming} copy={copy} /> : null}
+            {upcoming && focus === null ? <Upcoming section={upcoming} copy={copy} /> : null}
           </HomeSection>
         </div>
 
-        {done ? <Done section={done} copy={copy} /> : null}
+        {done && focus === null ? <Done section={done} copy={copy} /> : null}
       </div>
 
       <ContactPanel

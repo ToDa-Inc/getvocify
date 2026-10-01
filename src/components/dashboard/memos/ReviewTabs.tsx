@@ -9,7 +9,8 @@ import { useVElement, type VAction } from "@/hooks/use-v-element";
 import { useLanguage } from "@/lib/i18n";
 import { htmlLang } from "@/lib/app-language";
 
-/** Coaching earns a tab once there is a score, an unscored read, or a setup the viewer can do. */
+/** Coaching earns a tab once there is a score, an unscored read, or a setup the viewer can do. An
+ * internal memo keeps it too: it says the memo is not scored and holds the way back to a real type. */
 function scoreReadable(score: ScoreView | undefined, role: string): boolean {
   if (!score) return false;
   if (score.reason === "missing_playbook") return role === "owner" || role === "admin";

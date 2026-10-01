@@ -255,6 +255,9 @@ final class Bridge: NSObject, WKScriptMessageHandlerWithReply {
             guard let url = URL(string: raw) else { continue }
             if NSWorkspace.shared.open(url) { break }
         }
+        if type != "microphone" {
+            Task { @MainActor [weak self] in self?.host?.permissionGuide.show() }
+        }
     }
 
     private func startSystemAudio() async -> [String: Any] {

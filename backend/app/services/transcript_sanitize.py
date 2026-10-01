@@ -17,6 +17,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
 
+from app.services.usage import scoped
 from app.services.session_entities import (
     EntityTerm,
     build_page_terms,
@@ -951,6 +952,7 @@ async def sanitize_user_transcript(
     return cleaned
 
 
+@scoped("sanitize")
 async def polish_memo_transcript(
     memo_id: str,
     user_id: str,

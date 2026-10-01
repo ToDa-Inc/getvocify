@@ -48,7 +48,7 @@ function EvidenceChip({ n, evidence }: { n: number; evidence?: AskEvidence }) {
         <p className="text-[13.5px] leading-relaxed text-foreground">“{evidence.quote}”</p>
         {playbook ? (
           <Link
-            to={isManagerRole(user?.company?.role) ? "/dashboard/process#playbooks" : "/dashboard/playbook"}
+            to={isManagerRole(user?.company?.role) ? "/dashboard/settings/playbooks" : "/dashboard/coach?tab=playbook"}
             className="inline-block text-[13px] text-primary underline-offset-4 hover:underline"
           >
             {p.navPlaybook}

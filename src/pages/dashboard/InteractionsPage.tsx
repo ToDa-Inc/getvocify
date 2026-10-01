@@ -1,0 +1,148 @@
+import { useRef } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight, Mic } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
+import { useAuth } from "@/features/auth";
+import { companyApi, companyKeys } from "@/features/company/api";
+import { InteractionFilters } from "@/features/interactions/components/InteractionFilters";
+import { InteractionList, InteractionSkeleton } from "@/features/interactions/components/InteractionRow";
+import { useInteractionFeed } from "@/features/interactions/hooks/useInteractionFeed";
+import { useTypeOptions } from "@/features/interactions/hooks/useTypeOptions";
+import type { Memo } from "@/features/memos/types";
+import { authorDisplayName, canViewCompanyActivity } from "@/lib/activity-authors";
+import { interactionsAuthor } from "@/lib/interactions";
+import { useLanguage } from "@/lib/i18n";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { cn } from "@/lib/utils";
+import { PAGINATION } from "@/shared/lib/constants";
+
+const listClass = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} overflow-hidden`;
+
+/** Every capture — calls, meetings, visits, voice notes — in one paginated list, by channel and type. */
+const InteractionsPage = () => {
+  const { user } = useAuth();
+  const { t } = useLanguage();
+  const copy = t.product.interactions;
+  // A member always lists their own; a manager lists the whole company, or the person `?author=`
+  // names (rep detail links here).
+  const canViewCompany = canViewCompanyActivity(user?.company?.role);
+  const [searchParams] = useSearchParams();
+
+  const { data: membersData } = useQuery({
+    queryKey: companyKeys.members(),
+    queryFn: companyApi.listMembers,
+    enabled: canViewCompany,
+  });
+  const authors = (membersData?.members ?? [])
+    .filter((member) => member.status === "active")
+    .map((member) => ({ userId: member.userId, label: authorDisplayName(member.fullName, member.email), email: member.email }));
+
+  const feed = useInteractionFeed({
+    scope: canViewCompany ? "company" : "me",
+    pageSize: PAGINATION.DEFAULT_PAGE_SIZE,
+    defaultAuthorUserId: interactionsAuthor(canViewCompany, searchParams.get("author")),
+  });
+  const { options, labelOf } = useTypeOptions();
+  // Your own list with nothing in it is an empty account, not a filter: offer to record.
+  const filtered =
+    feed.channel !== "all" || feed.typeKey !== "all" || Boolean(feed.authorUserId && feed.authorUserId !== user?.id);
+
+  const listRef = useRef<HTMLDivElement>(null);
+  const goTo = (page: number) => {
+    feed.setPage(page);
+    // Back to the top of the list, not of the page, and only when it has scrolled out of view.
+    const list = listRef.current;
+    const viewTop = list?.closest("main")?.getBoundingClientRect().top ?? 0;
+    if (list && list.getBoundingClientRect().top < viewTop) list.scrollIntoView({ block: "start" });
+  };
+  const clearFilters = () => {
+    feed.setChannel("all");
+    feed.setTypeKey("all");
+    feed.setAuthorUserId(null);
+  };
+  // Who recorded it, for a manager looking at more than one person; a single author is already the filter.
+  const authorOf = (memo: Memo) =>
+    canViewCompany && !feed.authorUserId && memo.userId !== user?.id ? memo.authorName?.trim() || null : null;
+
+  return (
+    <div className={cn("mx-auto max-w-4xl space-y-6", THEME_TOKENS.motion.fadeIn, "motion-reduce:animate-none")}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <h1 className={THEME_TOKENS.typography.pageTitle}>{copy.title}</h1>
+        <InteractionFilters
+          channel={feed.channel}
+          onChannel={feed.setChannel}
+          typeKey={feed.typeKey}
+          onType={feed.setTypeKey}
+          options={options}
+          authors={canViewCompany ? authors : null}
+          authorUserId={feed.authorUserId}
+          onAuthor={feed.setAuthorUserId}
+          currentUserId={user?.id}
+        />
+      </div>
+
+      <div ref={listRef} className="scroll-mt-6">
+        {feed.isLoading ? (
+          <InteractionSkeleton rows={6} />
+        ) : feed.isError && feed.items.length === 0 ? (
+          <div className={cn(listClass, "flex flex-col items-center gap-3 px-6 py-12 text-center")}>
+            <p className={THEME_TOKENS.typography.body}>{copy.loadFailed}</p>
+            <Button variant="outline" size="sm" onClick={feed.retry}>
+              {copy.retry}
+            </Button>
+          </div>
+        ) : feed.items.length === 0 ? (
+          <div className={cn(listClass, "flex flex-col items-center gap-4 px-6 py-14 text-center")}>
+            <p className={THEME_TOKENS.typography.sectionTitle}>{filtered ? copy.emptyFiltered : copy.empty}</p>
+            {filtered ? (
+              <Button variant="outline" size="sm" onClick={clearFilters}>
+                {copy.clearFilters}
+              </Button>
+            ) : (
+              <Button asChild variant="outline" size="sm">
+                <Link to="/dashboard/record">
+                  <Mic aria-hidden />
+                  {copy.record}
+                </Link>
+              </Button>
+            )}
+          </div>
+        ) : (
+          <InteractionList
+            items={feed.items}
+            options={options}
+            labelOf={labelOf}
+            authorOf={authorOf}
+            stale={feed.isPlaceholderData}
+          />
+        )}
+      </div>
+
+      {feed.page > 0 || feed.hasMore ? (
+        <Pagination aria-label={copy.pages}>
+          <PaginationContent className="gap-3">
+            <PaginationItem>
+              <Button variant="outline" size="sm" disabled={feed.page === 0 || feed.isPlaceholderData} onClick={() => goTo(feed.page - 1)}>
+                <ChevronLeft aria-hidden />
+                {copy.previous}
+              </Button>
+            </PaginationItem>
+            <PaginationItem aria-current="page" className="text-[13px] tabular-nums text-muted-foreground">
+              {copy.page.replace("{n}", String(feed.page + 1))}
+            </PaginationItem>
+            <PaginationItem>
+              <Button variant="outline" size="sm" disabled={!feed.hasMore || feed.isPlaceholderData} onClick={() => goTo(feed.page + 1)}>
+                {copy.next}
+                <ChevronRight aria-hidden />
+              </Button>
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      ) : null}
+    </div>
+  );
+};
+
+export default InteractionsPage;

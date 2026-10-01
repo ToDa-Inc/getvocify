@@ -20,6 +20,7 @@ from app.services.playbooks.api_support import MANAGE_ROLES
 from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
 from app.services.playbooks.catalog import (
+    INTERNAL_KEY,
     RuleError,
     catalog_order,
     catalog_types,
@@ -54,7 +55,8 @@ async def get_catalog(membership: Membership = Depends(get_membership)):
 
 @router.get("/qualification-templates")
 async def get_qualification_templates(membership: Membership = Depends(get_membership)):
-    """BANT, MEDDIC and MEDDPICC as ready-made "what has to come out of the call" criteria (es/en)."""
+    """Ready-made "what has to come out of the call" methods (BANT, CHAMP, ANUM, GPCT for SDRs; MEDDIC,
+    MEDDPICC, SPICED, BANT for AEs), each with the roles it is offered for and its criteria (es/en)."""
     del membership
     return {"templates": qualification_templates()}
 
@@ -179,7 +181,8 @@ async def get_memo_playbook(
         "sales_motion_key": memo.get("sales_motion_key") or None,
         "playbook_version_id": memo.get("playbook_version_id") or None,
         "can_change": bool(can_edit and routing_enabled(supabase, membership.company_id)),
-        "options": _published_options(membership),
+        # Interna last, as on the list chip: it has no playbook, so it needs no published one.
+        "options": [*_published_options(membership), {"key": INTERNAL_KEY, "label": None}],
     }
 
 
@@ -219,16 +222,20 @@ async def change_memo_playbook(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo el autor o un manager pueden cambiar el playbook")
     key = body.sales_motion_key.strip()
     company_id = str(memo.get("company_id") or membership.company_id)
-    version = live_version_id(supabase, company_id, key) if key else None
-    if not version:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "not_published"})
+    # `internal` has no playbook: it is never scored, so it needs no live version.
+    version: Optional[str] = None
+    if key != INTERNAL_KEY:
+        live = live_version_id(supabase, company_id, key) if key else None
+        if not live:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "not_published"})
+        version = str(live)
     update: dict[str, Any] = {
         "sales_motion_key": key,
-        "playbook_version_id": str(version),
+        "playbook_version_id": version,
         "pipeline_meta": merge_pin_meta(
             memo.get("pipeline_meta"), "manual", changed_from=memo.get("sales_motion_key"), changed_by=str(membership.user_id),
         ),
     }
     supabase.table("memos").update(update).eq("id", str(memo["id"])).execute()
     _requeue(supabase, {**memo, **update})
-    return {"sales_motion_key": key, "playbook_version_id": str(version), "status": "requeued"}
+    return {"sales_motion_key": key, "playbook_version_id": version, "status": "requeued"}

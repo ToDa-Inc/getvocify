@@ -1,3 +1,4 @@
+import { FilterMenu } from "@/features/interactions/components/FilterMenu";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { HOS_PERIODS, type HosPeriod, type HosSalesRole } from "@/lib/head-of-sales";
@@ -27,28 +28,22 @@ export function HosFilters({
   const p = t.product;
   return (
     <div className="flex flex-wrap items-center gap-3" data-testid="hos-filters">
-      <select
-        aria-label={p.hosPeriodLabel}
-        className="rounded-full border border-border bg-card px-4 py-1.5 text-sm text-foreground"
+      <FilterMenu
+        label={p.hosPeriodLabel}
         value={period}
-        onChange={(event) => onPeriod(event.target.value as HosPeriod)}
-      >
-        {HOS_PERIODS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {String(p[option.labelKey])}
-          </option>
-        ))}
-      </select>
+        choices={HOS_PERIODS.map((option) => ({ value: option.value, label: String(p[option.labelKey]) }))}
+        onChange={(next) => onPeriod(next as HosPeriod)}
+      />
       {showRoles ? (
-        <div role="group" aria-label={p.hosRoleLabel} className="inline-flex rounded-full border border-border bg-card p-1">
+        <div role="group" aria-label={p.hosRoleLabel} className="inline-flex rounded-full border border-border/50 bg-secondary/30 p-1">
           {ROLE_FILTERS.map((option) => (
             <button
               key={option.value}
               type="button"
               aria-pressed={salesRole === option.value}
               onClick={() => onSalesRole(option.value)}
-              className={`rounded-full px-3.5 py-1 text-xs transition-colors ${
-                salesRole === option.value ? "bg-beige text-cream" : "text-muted-foreground hover:text-foreground"
+              className={`rounded-full border px-3.5 py-1 text-xs transition-colors duration-150 motion-reduce:transition-none ${
+                salesRole === option.value ? "glass-nav font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
               {p[option.key]}

@@ -19,6 +19,7 @@ from app.services.crm_copilot import brain_tools, crm_analytics, crm_query, tool
 from app.services.crm_copilot.actor import AskActor, ScopeError, current_actor, visible_user_ids
 from app.services.hoy.materialize import day_end, fresh_signals
 from app.services.hoy.signals import rank_cards
+from app.services.playbooks.catalog import INTERNAL_KEY
 
 from app.services.hubspot.exceptions import (  # noqa: E402
     HubSpotAuthError,
@@ -267,7 +268,11 @@ def team_roster(ctx, actor: AskActor) -> dict[str, str]:
         return {}
 
 
-def _load_memos(ctx, actor: AskActor, user_ids: list[str], *, since=None, contact_id=None, limit=60) -> list[dict]:
+def _load_memos(
+    ctx, actor: AskActor, user_ids: list[str], *, since=None, contact_id=None, limit=60, include_internal: bool = False,
+) -> list[dict]:
+    """Usable, extracted memos, newest first. `internal` memos (no customer in the conversation) are
+    left out unless asked for, so a meeting agreed with a colleague never counts as a customer's."""
     query = (
         ctx.supabase.table("memos")
         .select(MEMO_COLUMNS)
@@ -279,7 +284,11 @@ def _load_memos(ctx, actor: AskActor, user_ids: list[str], *, since=None, contac
     if since is not None:
         query = query.gte("created_at", since.isoformat())
     rows = query.order("created_at", desc=True).limit(limit).execute().data or []
-    return [m for m in rows if m.get("status") in _USABLE and _extraction(m)]
+    return [
+        m for m in rows
+        if m.get("status") in _USABLE and _extraction(m)
+        and (include_internal or m.get("sales_motion_key") != INTERNAL_KEY)
+    ]
 
 
 def _first_line(text: str) -> str:

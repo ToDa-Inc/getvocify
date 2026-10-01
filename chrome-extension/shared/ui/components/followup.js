@@ -51,14 +51,18 @@ export function renderFollowup(view, lang) {
 </section>`;
   }
 
-  if (view.status === 'sent') {
+  const done = view.channel === 'whatsapp' ? t.openedWhatsapp : t.openedMail;
+
+  // A sent draft with nothing to show back stays a one-line receipt.
+  if (view.status === 'sent' && !view.body) {
     return html`<section class="v-paper v-followup is-sent">
   <p class="v-followup__title">${title}</p>
-  <p class="v-followup__done" role="status">${view.channel === 'whatsapp' ? t.openedWhatsapp : t.openedMail}</p>
+  <p class="v-followup__done" role="status">${done}</p>
 </section>`;
   }
 
-  if (view.status !== 'ready') return html``;
+  if (view.status !== 'ready' && view.status !== 'sent') return html``;
+  const sent = view.status === 'sent';
 
   // The draft opens in the rep's mail even without an address: they type the "To" there.
   const client = mailClientOf(view.mailClient);
@@ -66,11 +70,13 @@ export function renderFollowup(view, lang) {
     (id) => html`<button type="button" class="v-mail-client" data-action="client" data-value="${id}" aria-pressed="${id === client ? 'true' : 'false'}" aria-label="${mailClientName(id, lang)}" title="${mailClientName(id, lang)}">${raw(MAIL_ICONS[id])}</button>`,
   );
 
-  return html`<section class="v-paper v-followup">
+  // Once opened, the draft stays on screen so the rep can read it back or open it again.
+  return html`<section class="v-paper v-followup${sent ? ' is-sent' : ''}">
   <header class="v-followup__head">
     <p class="v-followup__title">${title}</p>
     ${view.to ? html`<span class="v-chip">${view.to}</span>` : ''}
   </header>
+  ${sent ? html`<p class="v-followup__done" role="status">${done}</p>` : ''}
   <p class="v-followup__subject" data-role="subject" contenteditable="plaintext-only" spellcheck="true">${view.subject}</p>
   <div class="v-followup__body" data-role="body" contenteditable="plaintext-only" spellcheck="true">${view.body}</div>
   <footer class="v-followup__actions">

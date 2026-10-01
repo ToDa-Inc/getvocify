@@ -10,6 +10,9 @@ description: >
 
 # Debug Vocify
 
+**Global install:** `~/.agents/skills/debug-vocify/` (Claude, Codex, Cursor).
+Repo copy: `getvocify/.cursor/skills/debug-vocify/`.
+
 Vocify-specific ops pipeline. **Run only when the user requests a debug.**
 Not SignalCore, not other repos, not everyday coding.
 

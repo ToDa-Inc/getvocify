@@ -18,18 +18,20 @@ from typing import Any, Optional
 
 MAX_LONG = 1500   # the free-text blocks: icp, value story, pricing, notes...
 MAX_SHORT = 300   # every field inside a list item, and each differentiator
-MAX_TAG = 60
 MAX_ITEMS = 12    # per list
 
 TEXT_FIELDS: tuple[str, ...] = ("icp", "bad_fit", "value_short", "value_long", "pricing", "notes")
 
 # list -> (its fields in order, the field that identifies an item: an item without it is dropped
-# and two items with the same one (case-insensitive) are the same item).
+# and two items with the same one (case-insensitive) are the same item). Each item is its name and
+# ONE line, the one the copilot and briefs use: what a persona cares about, what to do on a buying
+# signal, what a customer achieved, how to win against a competitor. Older extra fields (language,
+# number, landmines...) are dropped on read and on the next save.
 LIST_FIELDS: dict[str, tuple[tuple[str, ...], str]] = {
-    "personas": (("name", "cares_about", "language", "measured_on"), "name"),
+    "personas": (("name", "cares_about"), "name"),
     "triggers": (("signal", "how_to_use"), "signal"),
-    "proofs": (("customer", "situation", "change", "number", "tags"), "customer"),
-    "competitors": (("name", "win_when", "lose_when", "they_like", "landmines", "how_to_talk"), "name"),
+    "proofs": (("customer", "change"), "customer"),
+    "competitors": (("name", "how_to_talk"), "name"),
 }
 # Order of `sections` and of the keys in the stored data: how the company page reads.
 SECTION_ORDER: tuple[str, ...] = (
@@ -76,21 +78,10 @@ def _long(value: Any) -> str:
     return _clip(text, MAX_LONG)
 
 
-def _tags(value: Any) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
-    for raw in value if isinstance(value, list) else []:
-        tag = _short(raw, MAX_TAG)
-        if tag and tag.casefold() not in seen:
-            seen.add(tag.casefold())
-            out.append(tag)
-    return out[:MAX_ITEMS]
-
-
 def _item(raw: Any, fields: tuple[str, ...], identity: str) -> Optional[dict]:
     if not isinstance(raw, dict):
         return None
-    item = {name: (_tags(raw.get(name)) if name == "tags" else _short(raw.get(name))) for name in fields}
+    item = {name: _short(raw.get(name)) for name in fields}
     return item if item[identity] else None
 
 

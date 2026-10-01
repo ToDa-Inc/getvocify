@@ -258,6 +258,9 @@ class Settings(BaseSettings):
     # Lista 3 (roles, flujos SDR/AE y Head of Sales). All per company, off by default.
     # T1: company_members.sales_role/handoff_ae_user_id/visibility, exposed via /company and /auth/me.
     SALES_ROLES_ENABLED: bool = False
+    # The AI tags a memo `internal` when extraction reports customerPresent=false. Per company,
+    # off until real transcripts are checked; a manual retag to `internal` works either way.
+    INTERNAL_DETECTION_ENABLED: bool = False
     # T3: SDR->AE handoff on meeting booked (deal_handoffs).
     HANDOFF_ENABLED: bool = False
     # T3: writes the CRM owner (deal/contact) to the AE on handoff.
@@ -346,6 +349,18 @@ class Settings(BaseSettings):
     # only genuine Unipile events are processed - without it, anyone who finds
     # the webhook URL can POST fake WhatsApp messages.
     UNIPILE_WEBHOOK_SECRET: Optional[str] = None
+
+    # Cost ledger (usage_events). STT is billed by audio time, so cost = seconds x rate.
+    # Rates are list prices (speechmatics.com/pricing); override here if the contract differs.
+    # A provider/mode with no rate is recorded unpriced (NULL), never guessed.
+    USAGE_LEDGER_ENABLED: bool = True
+    STT_RATE_SPEECHMATICS_REALTIME_ENHANCED_USD_HR: Optional[float] = 0.43
+    STT_RATE_SPEECHMATICS_REALTIME_STANDARD_USD_HR: Optional[float] = 0.24
+    STT_RATE_SPEECHMATICS_BATCH_ENHANCED_USD_HR: Optional[float] = 0.40
+    STT_RATE_SPEECHMATICS_BATCH_STANDARD_USD_HR: Optional[float] = 0.24
+    STT_RATE_DEEPGRAM_BATCH_USD_HR: Optional[float] = None
+    # Unverified whether Speechmatics bills each channel of a multi-channel session separately.
+    STT_BILL_PER_CHANNEL: bool = False
 
     # Metrics (optional - required for Grafana Cloud Metrics Endpoint integration)
     METRICS_TOKEN: Optional[str] = None  # Bearer token; if set, /metrics requires Authorization

@@ -10,6 +10,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.services.coaching.metrics import aggregate_adherence
+from app.services.playbooks.catalog import INTERNAL_KEY
 from app.services.team_insights.aggregate import _parse_instant, assert_team_reader, load_team_reps
 
 FLAG = "TEAM_ADHERENCE_TREND_ENABLED"
@@ -152,6 +153,8 @@ def build_adherence_trend(
             continue
         if memo.get("screening_outcome") in _NOT_CONVERSATIONS or memo.get("status") == "failed":
             continue
+        if memo.get("sales_motion_key") == INTERNAL_KEY:
+            continue  # no customer in it: not a sales conversation, whatever score it once had
         instant = _parse_instant(memo.get("capture_started_at")) or _parse_instant(memo.get("created_at"))
         if instant is None:
             continue

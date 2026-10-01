@@ -109,6 +109,30 @@ def interaction_kind_of(memo: dict[str, Any]) -> str:
     return interaction_kind_for(memo.get("source"), memo.get("source_type"), memo.get("interaction_kind"))
 
 
+_MEETING_SOURCE_TYPES = ("meeting_transcript", "recall_bot")
+
+
+def interaction_kind_filter(kind: str) -> str:
+    """PostgREST `or` expression selecting memos of one channel, unstamped rows included.
+
+    Mirrors interaction_kind_for: a stored kind matches by itself; a NULL one is classified by
+    origin, so the legacy rows need no backfill. `source` and `source_type` can be NULL and
+    `not.in` never matches NULL, hence the explicit `is.null` alternatives."""
+    stored = f"interaction_kind.eq.{kind}"
+    unstamped = "interaction_kind.is.null"
+    calls = ",".join(sorted(_CALL_SOURCES))
+    other_origin = f"or(source.is.null,source.not.in.({calls},whatsapp))"
+    meeting_types = ",".join(_MEETING_SOURCE_TYPES)
+    if kind == "visit":
+        return f"{stored},and({unstamped},source.eq.whatsapp)"
+    if kind == "meeting":
+        return f"{stored},and({unstamped},{other_origin},source_type.in.({meeting_types}))"
+    if kind == "call":
+        not_meeting = f"or(source_type.is.null,source_type.not.in.({meeting_types}))"
+        return f"{stored},and({unstamped},or(source.in.({calls}),and({other_origin},{not_meeting})))"
+    return stored
+
+
 def _is_unique_violation(exc: BaseException) -> bool:
     text = str(exc).lower()
     return "duplicate key" in text or "23505" in text

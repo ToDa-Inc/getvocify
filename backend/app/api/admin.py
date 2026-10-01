@@ -7,7 +7,7 @@ import re
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 
 from app.api.auth import AuthResponse, _user_response
@@ -21,6 +21,7 @@ from app.services.admin_accounts import (
 from app.services.admin_session import mint_session_for_email
 from app.services.company import CompanyService
 from app.services.recovery import RecoveryService
+from app.services.usage import report as usage_report
 from pydantic import BaseModel, EmailStr, Field
 
 logger = logging.getLogger(__name__)
@@ -316,6 +317,35 @@ async def recover_stuck_memos_admin(
     result = await recovery.recover_all_stuck_memos()
     _write_audit(supabase, "recover_stuck_memos", metadata=result)
     return {"status": "completed", **result}
+
+
+@router.get("/memos/{memo_id}/cost")
+async def admin_memo_cost(
+    memo_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    _: str = Depends(require_master_key),
+):
+    """What one memo cost us: STT audio time plus every LLM call, from the usage ledger."""
+    report = usage_report.memo_cost_report(supabase, str(memo_id))
+    if report is None:
+        raise HTTPException(status_code=404, detail="Memo not found")
+    return report
+
+
+@router.get("/usage/summary")
+async def admin_usage_summary(
+    days: int = Query(default=7, ge=1, le=90),
+    group_by: Literal["purpose", "model", "provider", "user_id", "kind"] = "purpose",
+    supabase: Client = Depends(get_supabase),
+    _: str = Depends(require_master_key),
+):
+    events = usage_report.period_events(supabase, days)
+    return {
+        "days": days,
+        "total_cost_usd": usage_report.total_cost(events),
+        "group_by": group_by,
+        "groups": usage_report.summarize(events, group_by),
+    }
 
 
 @router.get("/runtime")
