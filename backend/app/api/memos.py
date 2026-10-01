@@ -1339,9 +1339,15 @@ async def approve_memo(
         ) from e
 
 
+class ApproveContactRequest(BaseModel):
+    # Built like the review screen builds it when the rep unticked fields; absent = as extracted.
+    extraction: Optional[MemoExtraction] = None
+
+
 @router.post("/{memo_id}/approve-contact", response_model=Union[Memo, SyncResult])
 async def approve_memo_for_contact(
     memo_id: UUID,
+    body: Optional[ApproveContactRequest] = None,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
@@ -1365,6 +1371,8 @@ async def approve_memo_for_contact(
         contact_id=contact_id,
         deal_id=memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id"),
     )
+    if body and body.extraction:
+        payload.extraction = body.extraction
     return await approve_memo(memo_id, payload, supabase, user_id)
 
 

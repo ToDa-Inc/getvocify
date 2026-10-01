@@ -223,6 +223,21 @@ def apply_action(current: dict, *, action: Literal["sent", "copied"], channel: s
     return updated
 
 
+def skip_followup(current: dict, now: datetime) -> dict:
+    """The rep won't send this one: it leaves every pending list and is never regenerated."""
+    if current.get("status") != "ready":
+        raise ValueError("only a ready draft can be skipped")
+    return {**current, "status": "skipped", "skipped_at": now.isoformat()}
+
+
+def unskip_followup(current: dict) -> dict:
+    if current.get("status") != "skipped":
+        raise ValueError("only a skipped draft can be restored")
+    restored = {key: value for key, value in current.items() if key != "skipped_at"}
+    restored["status"] = "ready"
+    return restored
+
+
 def followup_view(memo: dict, *, scheduled: bool = False) -> dict:
     """What every surface renders — the FollowupView of shared/ui/components/followup.js."""
     current = memo.get("followup") or {}

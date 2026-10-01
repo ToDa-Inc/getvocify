@@ -25,3 +25,13 @@ class FollowupSendRequest(BaseModel):
 
 class WritingSamplesRequest(BaseModel):
     samples: list[Annotated[str, Field(max_length=RAW_SAMPLE_MAX)]] = Field(default_factory=list, max_length=10)
+
+
+class FollowupSkipRequest(BaseModel):
+    """The rep doesn't want to send this draft; undo puts it back while they still can."""
+    undo: bool = False
+
+
+class FollowupPreference(BaseModel):
+    """Whether Vocify drafts follow-up emails for this rep at all."""
+    suggest: bool

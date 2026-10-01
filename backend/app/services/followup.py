@@ -205,6 +205,23 @@ async def _draft(supabase: Any, memo: dict, llm: Any, *, prompt_version: str, by
     return await compose(llm, messages)
 
 
+def read_followup_preference(supabase: Any, user_id: str) -> bool:
+    """Whether this rep wants drafts. A missing row or column (before migration 073) means yes."""
+    try:
+        rows = (
+            supabase.table("user_profiles").select("followup_suggestions").eq("id", user_id).limit(1).execute().data
+            or []
+        )
+    except Exception:
+        return True
+    value = (rows[0] if rows else {}).get("followup_suggestions")
+    return value is not False
+
+
+def write_followup_preference(supabase: Any, user_id: str, suggest: bool) -> None:
+    supabase.table("user_profiles").update({"followup_suggestions": bool(suggest)}).eq("id", user_id).execute()
+
+
 @scoped("followup")
 async def ensure_followup(supabase: Any, memo_id: str, *, llm: Any = None) -> None:
     """Idempotent. Safe to call from every path that completes an extraction."""
@@ -223,6 +240,8 @@ async def ensure_followup(supabase: Any, memo_id: str, *, llm: Any = None) -> No
         company_id = memo.get("company_id")
         if not is_enabled(supabase, company_id, FLAG):
             return
+        if memo.get("user_id") and not read_followup_preference(supabase, str(memo["user_id"])):
+            return  # the rep turned email drafts off
         by_flow = is_enabled(supabase, company_id, BY_FLOW_FLAG)
         prompt_version = PROMPT_VERSION_BY_FLOW if by_flow else PROMPT_VERSION
         acquired = _acquire(supabase, memo_id, run_id, now, prompt_version)

@@ -167,6 +167,13 @@ class EnsureFollowup(unittest.TestCase):
         self.assertFalse(asyncio.run(schedule()), "switched off, the GET must not promise a draft")
         self.assertEqual(llm.calls, 0)
 
+    def test_a_rep_who_turned_drafts_off_gets_none(self):
+        llm = FakeLLM()
+        memo = memo_row()
+        client = FakeClient({"memos": [memo], "user_profiles": [{"id": "u1", "followup_suggestions": False}]})
+        asyncio.run(svc.ensure_followup(client, "m1", llm=llm))
+        self.assertEqual((llm.calls, memo["followup"]), (0, None))
+
     def test_failures_mark_unavailable_and_never_raise(self):
         errored = memo_row()
         extraction_before = dict(errored["extraction"])

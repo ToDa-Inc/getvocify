@@ -7,7 +7,8 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api import memos
-from app.api.memos import UploadTranscriptRequest, approve_memo_for_contact, upload_transcript_and_extract
+from app.api.memos import ApproveContactRequest, UploadTranscriptRequest, approve_memo_for_contact, upload_transcript_and_extract
+from app.models.memo import MemoExtraction
 
 
 def _upload(**fields):
@@ -44,13 +45,13 @@ def test_only_hubspot_ids_are_accepted():
         UploadTranscriptRequest(transcript="x", hubspot_contact_id="https://evil")
 
 
-def _approve(memo: dict, user_id: str = "user-1"):
+def _approve(memo: dict, user_id: str = "user-1", body=None):
     approve = AsyncMock(return_value={"ok": True})
     with (
         patch.object(memos, "_require_readable_memo", return_value=memo),
         patch.object(memos, "approve_memo", approve),
     ):
-        result = asyncio.run(approve_memo_for_contact(uuid4(), supabase=MagicMock(), user_id=user_id))
+        result = asyncio.run(approve_memo_for_contact(uuid4(), body, supabase=MagicMock(), user_id=user_id))
     return result, approve
 
 
@@ -84,3 +85,14 @@ def test_anything_that_needs_a_choice_goes_to_review(memo, user_id, code):
     with pytest.raises(HTTPException) as error:
         _approve(memo, user_id=user_id)
     assert error.value.status_code == code
+
+
+def test_the_fields_the_rep_kept_are_what_gets_written():
+    kept = MemoExtraction(summary="Llamada", contactName="Zadarma test")
+    _, approve = _approve(READY, body=ApproveContactRequest(extraction=kept))
+    assert approve.call_args.args[1].extraction == kept
+
+
+def test_without_choices_the_extraction_is_written_as_extracted():
+    _, approve = _approve(READY, body=ApproveContactRequest())
+    assert approve.call_args.args[1].extraction is None

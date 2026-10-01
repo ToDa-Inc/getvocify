@@ -122,6 +122,7 @@ CREATE TABLE user_profiles (
   stt_languages TEXT[] NOT NULL DEFAULT ARRAY['es'],
   company_id UUID,
   writing_samples JSONB NOT NULL DEFAULT '[]'::jsonb,
+  followup_suggestions BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
