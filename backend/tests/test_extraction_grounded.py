@@ -217,3 +217,21 @@ def test_a_bare_yes_or_number_backs_a_field_only_next_to_the_question_it_answere
         "numberofemployees": None, "sector": None, "industry": None,
         "crm": "hubspot",
     }
+
+
+def test_decision_makers_need_the_prospect_saying_who_decides():
+    from app.services.extraction import require_prospect_evidence
+    transcript = (
+        "You: ¿Tú eres el fundador?\n\nThem: Sí, soy Oriol, el fundador.\n\n"
+        "You: ¿Y lo veríais solo tú?\n\nThem: No, eso lo tengo que hablar con mi socio Pablo."
+    )
+    kept = require_prospect_evidence({
+        "decisionMakers": ["Oriol", "Pablo"],
+        "evidence": {"decisionMakers": "eso lo tengo que hablar con mi socio Pablo"},
+    }, transcript)
+    assert kept["decisionMakers"] == ["Oriol", "Pablo"]
+    dropped = require_prospect_evidence({
+        "decisionMakers": ["Oriol"],
+        "evidence": {"decisionMakers": "Sí, soy Oriol, el fundador"},
+    }, transcript)
+    assert dropped["decisionMakers"] == []

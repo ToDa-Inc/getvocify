@@ -569,6 +569,12 @@ def _plain_yes(reply: str) -> bool:
     return bool(_YES.match(reply)) and not _HEDGE.search(reply[:60])
 
 
+def _fold_text(text) -> str:
+    from app.services.intelligence.extract import _fold
+
+    return _fold(str(text or ""))[0]
+
+
 def _bare_yes(quote: str) -> bool:
     """Nothing but a yes ("Sí, sí, correcto.", "Sí, más o menos [a lo que preguntó]"): it says
     nothing on its own, unlike "Sí, HubSpot"."""
@@ -643,6 +649,13 @@ def _answered(value, quote: str, turns: list[tuple[str, str]]) -> bool:
     return False
 
 
+# Words that put someone in a decision ("lo decide mi socio", "tengo que hablarlo con mi jefe").
+_DECIDES = re.compile(
+    r"decid|decis|aprob|aprueb|firm|socio|socia|jefe|jefa|director|responsable|dueno|duena|"
+    r"consultarlo|hablarlo con|approv|decide|sign off|boss|partner|owner"
+)
+
+
 def require_prospect_evidence(extracted: dict, transcript: str, *, roles_marked: bool = True) -> dict:
     """Every CRM fact the grounded pass fills needs the prospect's own words behind it: its
     `evidence` quote must be found (ignoring case, accents and punctuation) in a "Them:" turn, or be
@@ -702,6 +715,11 @@ def require_prospect_evidence(extracted: dict, transcript: str, *, roles_marked:
                 out[key] = [item for item in value if said(item)]
             else:
                 out[key] = None
+    # Being on the call or founding the company does not put someone in the decision: the quote has to.
+    if out.get("decisionMakers"):
+        quotes = [q for q in evidence.get("decisionMakers") or [] if said(q) or (turns and _answered(None, q, turns))]
+        if not any(_DECIDES.search(_fold_text(q)) for q in quotes):
+            out["decisionMakers"] = []
     return out
 
 
@@ -745,15 +763,19 @@ def _grounded_rules(json_structure: str) -> str:
    `date` → YYYY-MM-DD only. Never 0, "", "unknown" or a placeholder for "not said".
 3. **Enumerations and lists**: choose an option only when the prospect clearly described it; a vague
    hint, the salesperson's own framing or a topic that never came up is null.
-   - pains / painPoints: only a difficulty, cost or frustration the prospect says THEY have. How they
-     work today (referrals, a channel, a tool) is not a pain; if they say it is not a problem, null.
+   - pains / painPoints: only a difficulty, cost or frustration the prospect says THEY have, in words
+     that name it as a problem ("nos cuesta", "perdemos", "no llegamos", "es un lío"). How they work
+     today (referrals, a channel, a tool, "el 80% nos viene por boca a boca") is not a pain, nor is a
+     problem the salesperson described and the prospect only heard; if they say it is not a problem, null.
    - objections: the prospect's reasons not to move forward. "Estoy en una reunión" or "no soy yo" are
      not objections (they go in the note).
    - products/services offered: what the prospect says their company sells, never the salesperson's
      reading of it, nor partners or tools they use.
    - competitors: only alternatives to what the salesperson sells that the prospect names.
    - An option only when its name or a clear synonym was said: "Drive" is not Pipedrive, "Excel" or
-     "no tenemos CRM" is not any CRM option.
+     "no tenemos CRM" is not any CRM option. A catch-all option ("Otros", "Other", "Interno") only
+     when they named a tool that is not in the list; "lo hacemos internamente" or "tenemos nuestro
+     sistema" without naming it is null.
    - Numbers whose unit was not said (thousands? clients? employees?) stay null, and so does a range
      ("entre 1 y 2 millones"): never pick one end of it. A different thing is not the field's thing
      (an ERP is not a CRM; "solo estoy yo" is not a headcount of the company unless they say so).
@@ -764,9 +786,12 @@ def _grounded_rules(json_structure: str) -> str:
    The contact is the prospect on the call: the salesperson is never the contact, and a person or
    address they were referred to goes in the note and tasks, not in the contact fields. If the
    prospect no longer works at the company the salesperson called about, do not write that company
-   as theirs. decisionMakers only when someone's role in the decision was said ("lo decide mi
-   socio", "yo decido"); being on the call, a founder, or joining a meeting is not enough. Identity
-   fields with a CURRENT VALUE → null if the spoken person is different.
+   as theirs. The company is the one the prospect works for, said in that sense ("soy de X", "en X
+   hacemos"); a shop they are in, a client, a supplier or a brand they mention is not their company,
+   and an email or domain is never built from it. decisionMakers only when someone's role in the
+   decision was said ("lo decide mi socio", "yo decido", "lo tengo que hablar con mi jefe"); being
+   on the call, a founder, or joining a meeting is not enough. Identity fields with a CURRENT VALUE →
+   null if the spoken person is different.
 5. **summary**: the CRM note a colleague reads before the next touch. Same language as the transcript.
    Markdown. First line: `**Resultado:** <how the call ended, decision first, max 20 words>`.
    Then only headings that carry concrete facts the prospect gave: their situation, figures with units,
@@ -774,7 +799,9 @@ def _grounded_rules(json_structure: str) -> str:
    time, and what the prospect said THEY will do ("reenviará el correo a su socia"). Every bullet a
    fact (numbers, dates, times, names, roles); no heading without facts, no "se habló de", never the
    salesperson's pitch, never next steps (that is nextSteps). Do not dress the outcome up ("tras
-   superar fuertes objeciones"): say what was agreed, as tentatively as it was agreed.
+   superar fuertes objeciones"): say what was agreed, as tentatively as it was agreed. A meeting is
+   "agreed" only when the prospect said yes to it; one the salesperson proposed and the prospect did
+   not confirm is "propuesta, sin confirmar".
 6. **nextSteps**: only actions the SALESPERSON (or their team) must do, promised or agreed in this
    call: send X, prepare the proposal, send the calendar invite, call back (also when the salesperson
    said "te vuelvo a llamar" without a day), contact the person they were referred to. Never the prospect's own actions (those go in the note) and never "Reunión"
