@@ -22,6 +22,7 @@ from app.services.activity_scope import (
     visible_recordings_for_viewer,
 )
 from app.services.company_scope import require_company_id, require_crm_write_access, require_crm_connection, get_crm_connection
+from app.services.live_calls.linking import link_desktop_calls_for_contact
 from app.services.hubspot import (
     HubSpotClient,
     HubSpotValidationService,
@@ -295,6 +296,10 @@ async def _recordings_for_record(
 ) -> list[dict]:
     client = get_hubspot_client_from_connection(user_id, supabase)
     items = await list_recordings_for_record(client, from_object_type, record_id)
+    if from_object_type == "contacts":
+        # A call the rep recorded on the desktop shows as that memo, not as a
+        # recording to transcribe again.
+        link_desktop_calls_for_contact(supabase, user_id, record_id, items)
     return await _present_recordings(user_id, supabase, items, author_user_id)
 
 

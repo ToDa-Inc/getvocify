@@ -10,8 +10,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from supabase import Client
 
+from app.api.briefs import _handoff_restricted_user_ids
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
+from app.services.copilot.contact_history import load_contact_history
 from app.services.copilot.context import resolve_suggest_context
 from app.services.copilot.checklist import build_meeting_checklist
 from app.services.copilot.load_grounding import (
@@ -97,6 +99,17 @@ async def suggest_objection_handling(
         )
 
     company_knowledge = load_company_knowledge(supabase, company_id=membership.company_id)
+    contact_history = None
+    if context.contact_id:
+        contact_history = await load_contact_history(
+            supabase,
+            company_id=membership.company_id,
+            contact_id=context.contact_id,
+            # Same memo visibility as the pre-call brief for this contact.
+            allowed_user_ids=_handoff_restricted_user_ids(
+                supabase, membership, connection_id=None, contact_id=context.contact_id,
+            ),
+        )
 
     async def event_gen():
         async for event in stream_objection_suggestion(
@@ -109,6 +122,7 @@ async def suggest_objection_handling(
             grounding=grounding,
             context=context,
             company_knowledge=company_knowledge,
+            contact_history=contact_history,
         ):
             if event.get("type") == "result":
                 if body.capture_id:

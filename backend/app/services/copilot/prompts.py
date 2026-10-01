@@ -204,6 +204,7 @@ def build_user_prompt(
     speaker_role: str = "unknown",
     playbook_snapshot: Optional[dict[str, Any]] = None,
     company_knowledge: Optional[dict[str, Any]] = None,
+    contact_history: str | None = None,
 ) -> str:
     context = (product_context or "").strip() or "(none provided — stay generic and ask discovery questions)"
     role = (speaker_role or "unknown").strip().lower()
@@ -216,6 +217,13 @@ def build_user_prompt(
     }[role]
     knowledge = format_company_knowledge(company_knowledge, call_text=f"{transcript_window}\n{latest_turn}")
     knowledge_block = f"\n{knowledge}\n" if knowledge else ""
+    history = (contact_history or "").strip()
+    history_block = (
+        "\nTHIS CONTACT BEFORE (earlier calls; use it to anticipate and stay consistent, "
+        f"never claim it was said in this call):\n{history}\n"
+        if history
+        else ""
+    )
     base = f"""CALL MODE: {call_mode}
 PREFERRED LANGUAGE HINT: {language}
 SPEAKER ROLE: {role}
@@ -223,7 +231,7 @@ SPEAKER HINT: {role_hint}
 
 PRODUCT / OFFER CONTEXT:
 {context}
-{knowledge_block}
+{knowledge_block}{history_block}
 ROLLING TRANSCRIPT (recent):
 {transcript_window.strip() or "(empty)"}
 
