@@ -182,6 +182,9 @@ class SpeechmaticsProxy:
             # Speechmatics voice-agent guidance ~1.5s; keep enroll a bit snappier.
             "max_delay": 1.2 if self.mode == "enroll" else (1.8 if use_speaker else 1.5),
             "max_delay_mode": "flexible",
+            # Spanish reps take calls in English too: the bilingual pack transcribes both,
+            # mixed or not, and Spanish-only calls are unchanged. Verified in realtime.
+            **({"domain": "bilingual-en"} if target_lang == "es" else {}),
             "conversation_config": {
                 "end_of_utterance_silence_trigger": 0.8 if use_speaker else 0.6,
             },
