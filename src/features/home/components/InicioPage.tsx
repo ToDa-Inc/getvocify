@@ -27,8 +27,8 @@ function greetingKey(hour: number) {
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
- * Inicio (/dashboard), one page for every role: ask on top, the latest interactions under it, the
- * day (rep) or the team (Head of Sales) on the side. Sending a question turns the main column into
+ * Inicio (/dashboard), one page for every role: ask on top, the latest interactions under it. A rep's
+ * day sits under the composer as a row of chips; the Admin/Owner's team signals sit on the side. Sending a question turns the main column into
  * the conversation; Esc or "Nuevo" brings the home back. At home the page scrolls as one piece (the
  * side column stays put); in the chat only the thread scrolls.
  */
@@ -72,7 +72,8 @@ export function InicioPage() {
 
   // A rep without the rep workspace has no Hoy to condense (its reads and /dashboard/today 404
   // server-side): composer and feed only.
-  const rail = manager ? <SignalsRail onAsk={prefill} /> : usesRepHome(user?.company) ? <RepRail /> : null;
+  const repDay = !manager && usesRepHome(user?.company);
+  const rail = manager ? <SignalsRail onAsk={prefill} /> : null;
 
   // The composer glides from the middle of the page to the bottom of the thread, which fades in.
   useLayoutEffect(() => {
@@ -104,6 +105,7 @@ export function InicioPage() {
               <span className="ml-2.5 hidden whitespace-nowrap text-[15px] tracking-normal text-muted-foreground xl:inline">{date}</span>
             </h1>
             <HomeComposer ref={composer} onSend={send} autoFocus={wide && !inChat} />
+            {repDay ? <RepRail /> : null}
           </div>
           <LatestInteractions manager={manager} />
         </div>

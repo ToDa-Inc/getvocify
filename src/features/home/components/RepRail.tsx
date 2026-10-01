@@ -1,5 +1,4 @@
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight } from "lucide-react";
 import { composeHome } from "@shared/ui/home.js";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,8 +13,8 @@ import type { ProductTranslations } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 
 const TODAY = "/dashboard/today";
-const rowClass =
-  "flex items-baseline gap-3 rounded-lg px-2 py-1.5 text-[14px] text-foreground transition-colors duration-150 hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none";
+const chipClass =
+  "inline-flex max-w-full items-baseline gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-[13.5px] text-foreground transition-colors duration-150 hover:border-beige/40 hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none";
 
 /** `undefined` while the first read is in flight, `null` once it failed without data (as on Hoy). */
 function settled<T>(query: { data: T | undefined; isError: boolean }): T | null | undefined {
@@ -36,8 +35,9 @@ function countRows(counts: RailCounts, copy: ProductTranslations) {
  * Only for a company with the rep workspace (REP_WORKSPACE_ENABLED): /followups, /today/upcoming and
  * /today/done 404 without it, and so does the Hoy these rows link to.
  *
- * The rep's day, condensed: today's meetings and how much waits in each part of Hoy. Built from the
- * same reads and the same composition as /dashboard/today, so the numbers match what Hoy shows there.
+ * The rep's day, condensed under Inicio's composer: today's meetings and how much waits in each part
+ * of Hoy, one chip each in a row, every chip opening /dashboard/today. Built from the same reads and
+ * the same composition as /dashboard/today, so the numbers match what Hoy shows there.
  */
 export function RepRail() {
   const { t } = useLanguage();
@@ -72,29 +72,30 @@ export function RepRail() {
     for (const read of Object.values(reads)) void read.refetch();
   };
 
-  let body;
   if (state === "loading") {
-    body = (
-      <div className="space-y-2" aria-busy="true">
+    return (
+      <div className="flex flex-wrap justify-center gap-2" aria-busy="true">
         {[0, 1, 2].map((key) => (
-          <Skeleton key={key} className="h-7 w-full motion-reduce:animate-none" />
+          <Skeleton key={key} className="h-8 w-28 rounded-full motion-reduce:animate-none" />
         ))}
       </div>
     );
-  } else if (state === "error" || state === "partial") {
-    body = (
-      <div className="space-y-3" role="alert">
+  }
+  if (state === "error" || state === "partial") {
+    return (
+      <div className="flex flex-wrap items-center justify-center gap-3" role="alert">
         <p className={THEME_TOKENS.typography.body}>{state === "error" ? copy.today_prepare_failed : copy.today_incomplete}</p>
         <Button type="button" variant="outline" size="sm" onClick={retryAll}>
           {copy.retry}
         </Button>
       </div>
     );
-  } else if (state === "connect" || state === "no_assigned") {
+  }
+  if (state === "connect" || state === "no_assigned") {
     // The same card Hoy shows: whoever can fix it gets the button, a rep is told who can.
     const connect = state === "connect";
-    body = (
-      <div className="space-y-3">
+    return (
+      <div className="flex flex-wrap items-center justify-center gap-3 text-center">
         <p className="text-[14px] text-foreground">{connect ? copy.today_connect_title : copy.title_no_assigned}</p>
         {view.canManage ? (
           <Button type="button" variant="outline" size="sm" onClick={() => navigate("/dashboard/settings/integrations")}>
@@ -105,63 +106,44 @@ export function RepRail() {
         )}
       </div>
     );
-  } else if (state === "clear") {
-    body = <p className={THEME_TOKENS.typography.body}>{copy.home.allClear}</p>;
-  } else {
-    body = (
-      <div className="space-y-3">
-        {incomplete ? (
-          <p className="text-[13px] text-muted-foreground">
-            {copy.today_incomplete}
-            {view.incompleteAt ? ` · ${view.incompleteAt}` : ""}
-          </p>
-        ) : null}
-        {counts.meetings.length ? (
-          <ul aria-label={copy.home_meetings} className="-mx-2">
-            {counts.meetings.map(({ item, time, past }) => {
-              const name = item.reason || item.contact_name || copy.today_unknown_contact;
-              return (
-                <li key={item.id ?? item.dedupe_key ?? name}>
-                  <Link to={TODAY} className={`${rowClass} ${past ? "opacity-60" : ""}`}>
-                    <span className="w-11 shrink-0 tabular-nums">{time ?? copy.home_meeting_no_time}</span>
-                    <span className="min-w-0 truncate" title={item.company_name ? `${name} · ${item.company_name}` : name}>
-                      {name}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        ) : null}
-        {rows.length ? (
-          <ul className={counts.meetings.length ? "-mx-2 border-t border-[hsl(var(--hairline))] pt-2" : "-mx-2"}>
-            {rows.map((row) => (
-              <li key={row.key}>
-                <Link to={TODAY} className={rowClass}>
-                  <span className="min-w-0 flex-1 truncate">{row.label}</span>
-                  <span className="tabular-nums text-muted-foreground">{row.count}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-    );
+  }
+  if (state === "clear") {
+    return <p className={`${THEME_TOKENS.typography.body} text-center`}>{copy.home.allClear}</p>;
   }
 
   return (
-    <section aria-labelledby="home-rail-today" className="space-y-3">
-      <h2 id="home-rail-today" className={THEME_TOKENS.typography.sectionTitle}>
-        {copy.todayTitle}
-      </h2>
-      {body}
-      <Link
-        to={TODAY}
-        className="inline-flex items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
-      >
-        {copy.home.seeMyDay}
-        <ArrowRight aria-hidden className="h-3.5 w-3.5" />
-      </Link>
+    <section aria-label={copy.todayTitle} className="space-y-2">
+      {incomplete ? (
+        <p className="text-center text-[13px] text-muted-foreground">
+          {copy.today_incomplete}
+          {view.incompleteAt ? ` · ${view.incompleteAt}` : ""}
+        </p>
+      ) : null}
+      <ul className="flex flex-wrap justify-center gap-2">
+        {counts.meetings.map(({ item, time, past }) => {
+          const name = item.reason || item.contact_name || copy.today_unknown_contact;
+          return (
+            <li key={item.id ?? item.dedupe_key ?? name} className="max-w-full">
+              <Link
+                to={TODAY}
+                className={`${chipClass} ${past ? "opacity-60" : ""}`}
+                title={item.company_name ? `${name} · ${item.company_name}` : name}
+              >
+                <span className="shrink-0 tabular-nums text-muted-foreground">{time ?? copy.home_meeting_no_time}</span>
+                <span className="min-w-0 truncate">{name}</span>
+              </Link>
+            </li>
+          );
+        })}
+        {rows.map((row) => (
+          <li key={row.key}>
+            <Link to={TODAY} className={chipClass}>
+              <span>{row.label}</span>
+              <span className="tabular-nums text-muted-foreground">{row.count}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
