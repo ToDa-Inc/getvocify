@@ -72,14 +72,30 @@ def test_is_conversation_rules():
     assert interaction_row(_memo(obs, audio_duration=None))["is_conversation"] is True
 
 
-def test_meeting_from_intelligence_or_rep_outcome():
+def test_meeting_comes_only_from_the_rep_outcome():
     obs = [_obs("a", "met")]
     assert interaction_row(_memo(obs))["meeting_agreed"] is False
     assert interaction_row(_memo(obs, rep_outcome="meeting_booked"))["meeting_agreed"] is True
     assert interaction_row(_memo(obs, rep_outcome="other"))["meeting_agreed"] is False
     memo = _memo(obs)
     memo["extraction"]["intelligence"]["meeting"] = {"agreed": True}
-    assert interaction_row(memo)["meeting_agreed"] is True
+    assert interaction_row(memo)["meeting_agreed"] is False  # never read into the transcript
+
+
+def test_a_meeting_step_is_settled_by_what_the_rep_declared():
+    obs = [_obs("a", "met"), {"step_id": "cierre", "label": "Cerrar la meeting", "status": "unknown",
+                              "judged_by": "rep_outcome", "outcome": "meeting_booked"}]
+    def state(**over):
+        return {s["step_id"]: s["state"] for s in interaction_row(_memo(obs, **over))["steps"]}["cierre"]
+    assert state() == "no_evidence"
+    assert state(rep_outcome="meeting_booked") == "done"
+    assert state(rep_outcome="follow_up") == "missing"
+
+
+def test_a_call_with_no_conversation_is_not_evaluated():
+    memo = _memo([_obs("a", "missed")])
+    memo["extraction"]["intelligence"]["call"] = {"call_type": "no_conversation", "reached_conversation": False}
+    assert interaction_row(memo)["is_conversation"] is False
 
 
 def test_step_rates_ignore_no_evidence_and_not_reached():

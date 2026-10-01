@@ -5,12 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
+from difflib import SequenceMatcher
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.config import settings
+from app.services.playbooks.outcome_steps import step_outcome
 from app.services.intelligence.worker import revision_for_memo
 
 PROMPT_VERSION = "intelligence_v5"
@@ -28,8 +31,18 @@ OBSERVATIONS_FLAG = "PLAYBOOK_OBSERVATIONS_ENABLED"
 # ever downgraded when the flag goes off.
 QUALIFICATION_PROMPT_VERSION = "intelligence_v7"
 QUALIFICATION_FLAG = "PLAYBOOK_QUALIFICATION_ENABLED"
-CURRENT_PROMPT_VERSIONS = frozenset({PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION})
-_READS_STEPS = frozenset({OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION})
+# v8 = v7 read after a first pass (call_reading.py) that says who spoke in each turn by what they
+# said, what kind of call it was and how far it got. Steps are judged by their purpose and
+# adapted to the call type, each with a reason and, when missed, advice for the rep
+# (INTELLIGENCE_CALL_READING_ENABLED, per company). Same shape as v7 plus `call`.
+CALL_READING_PROMPT_VERSION = "intelligence_v8"
+CALL_READING_FLAG = "INTELLIGENCE_CALL_READING_ENABLED"
+CURRENT_PROMPT_VERSIONS = frozenset({
+    PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION, CALL_READING_PROMPT_VERSION,
+})
+_READS_STEPS = frozenset({OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION, CALL_READING_PROMPT_VERSION})
+_READS_QUALIFICATION = frozenset({QUALIFICATION_PROMPT_VERSION, CALL_READING_PROMPT_VERSION})
+_REASON_MAX = 240
 _MAX_CRITERIA = 8
 _MAX_CUSTOM_OBJECTIONS = 12
 _CUSTOM_ENTRY_PREFIX = "objection:custom:"
@@ -68,9 +81,51 @@ def _speaker(transcript: str, quote: str) -> str | None:
     return "rep" if rep > prospect else "prospect"
 
 
-def _evidence(memo_id: str, quote: str, transcript: str) -> dict | None:
+def _fold(text: str) -> tuple[str, list[int]]:
+    """Lowercase, no accents, no punctuation, single spaces; and where each kept character
+    came from in `text`, so a match can be cut back out of the original."""
+    out: list[str] = []
+    where: list[int] = []
+    for index, char in enumerate(text):
+        base = unicodedata.normalize("NFKD", char)
+        base = "".join(c for c in base if not unicodedata.combining(c)).lower()
+        for c in base:
+            if c.isalnum():
+                out.append(c)
+                where.append(index)
+            elif out and out[-1] != " ":
+                out.append(" ")
+                where.append(index)
+    while out and out[-1] == " ":
+        out.pop()
+        where.pop()
+    return "".join(out), where
+
+
+def _locate(quote: str, transcript: str) -> str | None:
+    """The transcript's own words for a quote. Exact first; then ignoring case, accents and
+    punctuation, which ASR and models never copy the same way. A quote shorter than three
+    words must match exactly: folded, it could land anywhere."""
     text = " ".join(str(quote or "").split())
-    if not text or text not in " ".join(transcript.split()):
+    flat = " ".join(str(transcript or "").split())
+    if not text:
+        return None
+    if text in flat:
+        return text
+    folded_quote, _ = _fold(text)
+    if len(folded_quote.split()) < 3:
+        return None
+    folded, where = _fold(flat)
+    at = folded.find(folded_quote)
+    if at < 0:
+        return None
+    start, end = where[at], where[at + len(folded_quote) - 1]
+    return flat[start:end + 1].strip()
+
+
+def _evidence(memo_id: str, quote: str, transcript: str) -> dict | None:
+    text = _locate(quote, transcript)
+    if not text:
         return None
     digest = hashlib.sha256(f"{memo_id}:{text}".encode()).hexdigest()[:16]
     ref = {"id": f"ev-{digest}", "source_type": "transcript", "source_id": memo_id, "quote": text}
@@ -98,17 +153,39 @@ def _turns(transcript: str) -> list[tuple[str, str]] | None:
     return turns
 
 
+def _own_words(memo_id: str, quote: str, transcript: str, speaker: str) -> dict | None:
+    """The speaker's quote when the other side cut in ("Sí.", "Vale.") halfway through it: the
+    quote is found across that speaker's turns, and the evidence is its longest piece inside a
+    single turn, so it is still the transcript's own contiguous words."""
+    turns = _turns(transcript)
+    if turns is None:
+        return None
+    own = [" ".join(text.split()) for who, text in turns if who == speaker]
+    matched = _locate(quote, " ".join(own))
+    if not matched:
+        return None
+    best = ""
+    for text in own:
+        hit = SequenceMatcher(None, text, matched, autojunk=False).find_longest_match(0, len(text), 0, len(matched))
+        piece = text[hit.a:hit.a + hit.size].strip(" ,.;:¿?¡!")
+        if len(piece) > len(best):
+            best = piece
+    if len(best.split()) < 3:
+        return None
+    return _evidence(memo_id, best, transcript)
+
+
 def _rep_evidence(memo_id: str, quote: str, transcript: str) -> dict | None:
     """T10: an objection's response only counts when it is the rep's own words. When the
     transcript has no speaker markers, fall back to the plain substring check."""
     ref = _evidence(memo_id, quote, transcript)
     if ref is None:
-        return None
+        return _own_words(memo_id, quote, transcript, "You")
     turns = _turns(transcript)
     if turns is None:
         return ref
     rep_text = " ".join(" ".join(text.split()) for speaker, text in turns if speaker == "You")
-    if ref["quote"] not in rep_text:
+    if _locate(ref["quote"], rep_text) is None:
         return None
     return ref
 
@@ -119,12 +196,12 @@ def _prospect_evidence(memo_id: str, quote: str, transcript: str) -> dict | None
     plain substring match, as a rep quote does."""
     ref = _evidence(memo_id, quote, transcript)
     if ref is None:
-        return None
+        return _own_words(memo_id, quote, transcript, "Them")
     turns = _turns(transcript)
     if turns is None:
         return ref
     prospect_text = " ".join(" ".join(text.split()) for speaker, text in turns if speaker == "Them")
-    if ref["quote"] not in prospect_text:
+    if _locate(ref["quote"], prospect_text) is None:
         return None
     return ref
 
@@ -181,6 +258,69 @@ def _commitment_due(value: Any, tz_name: Any) -> tuple[str | None, str]:
         return day, precision
     start = datetime.combine(date.fromisoformat(day), time(), tzinfo=_zone(tz_name))
     return start.isoformat(), "date"
+
+
+_EMAIL_KIND = frozenset({"info", "proposal", "calendar_invite", "recap", "other"})
+_WHO_ASKED = frozenset({"prospect", "rep"})
+
+
+def _short(value: Any, limit: int) -> str | None:
+    text = " ".join(str(value or "").split())
+    return text[:limit].rstrip() or None
+
+
+def _backed(memo_id: str, quote: Any, transcript: str, evidence: dict[str, dict]) -> list[str]:
+    ref = _evidence(memo_id, quote, transcript) if quote else None
+    if ref is None:
+        return []
+    evidence[ref["id"]] = ref
+    return [ref["id"]]
+
+
+def _next_actions(memo_id: str, raw: Any, transcript: str, evidence: dict[str, dict], tz_name: Any) -> dict:
+    """v8: what the call leads to, ready for the brief, Hoy and the follow-up email. Texts are
+    the model's short Spanish; a part whose `needed` the transcript does not back is dropped."""
+    raw = raw if isinstance(raw, dict) else {}
+    outcome_raw = raw.get("outcome") if isinstance(raw.get("outcome"), dict) else {}
+    outcome = None
+    if _short(outcome_raw.get("text"), 200):
+        outcome = {"text": _short(outcome_raw.get("text"), 200),
+                   "evidence_refs": _backed(memo_id, outcome_raw.get("quote"), transcript, evidence)}
+
+    cb = raw.get("callback") if isinstance(raw.get("callback"), dict) else {}
+    callback = {"needed": False}
+    if cb.get("needed") is True:
+        due, precision = (None, "unknown")
+        if cb.get("when"):
+            due, precision = _commitment_due(cb.get("when"), tz_name)
+        callback = {
+            "needed": True,
+            "who_asked": cb.get("who_asked") if cb.get("who_asked") in _WHO_ASKED else None,
+            "when": due,
+            "temporal_precision": precision if due else "unknown",
+            "when_text": _short(cb.get("when_text"), 60),
+            "reason": _short(cb.get("reason"), 120),
+            "evidence_refs": _backed(memo_id, cb.get("quote"), transcript, evidence),
+        }
+
+    em = raw.get("followup_email") if isinstance(raw.get("followup_email"), dict) else {}
+    email = {"needed": False}
+    if em.get("needed") is True:
+        email = {
+            "needed": True,
+            "kind": em.get("kind") if em.get("kind") in _EMAIL_KIND else "other",
+            "content": _short(em.get("content"), 160),
+            "to": _short(em.get("to"), 80),
+            "evidence_refs": _backed(memo_id, em.get("quote"), transcript, evidence),
+        }
+
+    ref_raw = raw.get("referral") if isinstance(raw.get("referral"), dict) else None
+    referral = None
+    if ref_raw and (_short(ref_raw.get("name"), 60) or _short(ref_raw.get("role"), 60)):
+        referral = {"name": _short(ref_raw.get("name"), 60), "role": _short(ref_raw.get("role"), 60),
+                    "evidence_refs": _backed(memo_id, ref_raw.get("quote"), transcript, evidence)}
+    return {"outcome": outcome, "callback": callback, "followup_email": email,
+            "referral": referral, "hook": _short(raw.get("hook"), 120)}
 
 
 def _meeting(memo_id: str, raw: Any, transcript: str, evidence: dict[str, dict]) -> dict:
@@ -246,14 +386,21 @@ def _playbook_observations(
             else:
                 evidence[ref["id"]] = ref
                 refs = [ref["id"]]
-        out.append({
+        entry = {
             "step_id": step_id,
             "label": " ".join(str(step.get("label") or step_id).split()),
             "criterion": " ".join(str(step.get("criterion") or "").split()),
             "status": status,
             "quote": evidence[refs[0]]["quote"] if refs else None,
             "evidence_refs": refs,
-        })
+        }
+        reason = " ".join(str(item.get("reason") or "").split())[:_REASON_MAX] or None
+        advice = " ".join(str(item.get("advice") or "").split())[:_REASON_MAX] or None
+        if reason:
+            entry["reason"] = reason
+        if advice and status == "missed":
+            entry["advice"] = advice
+        out.append(entry)
     return out
 
 
@@ -363,7 +510,7 @@ def shape_intelligence(
             "response_evidence_refs": response_evidence_refs,
             "rep_replied_after": _rep_replied_after(transcript, ref["quote"]),
         }
-        if prompt_version == QUALIFICATION_PROMPT_VERSION:
+        if prompt_version in _READS_QUALIFICATION:
             # v7: the id of the company's own objection this one clearly is; an id the playbook
             # does not have (or one on an obstacle) is dropped, the category stays a fixed one.
             matched = str(item.get("objection_id") or "").strip()
@@ -401,7 +548,7 @@ def shape_intelligence(
             observations = _playbook_observations(
                 memo_id, raw.get("playbook_observations"), transcript, evidence, playbook_steps,
             )
-        if prompt_version == QUALIFICATION_PROMPT_VERSION and playbook_qualification:
+        if prompt_version in _READS_QUALIFICATION and playbook_qualification:
             qualification = _qualification_observations(
                 memo_id, raw.get("qualification_observations"), transcript, evidence, playbook_qualification,
             )
@@ -420,8 +567,11 @@ def shape_intelligence(
         "evidence": list(evidence.values()),
         "prompt_version": prompt_version,
     }
-    if prompt_version == QUALIFICATION_PROMPT_VERSION:
+    if prompt_version in _READS_QUALIFICATION:
         shaped["qualification_observations"] = qualification
+    if prompt_version == CALL_READING_PROMPT_VERSION:
+        shaped["next"] = _next_actions(memo_id, raw.get("next"), transcript, evidence, memo.get("timezone"))
+        shaped["evidence"] = list(evidence.values())
     return shaped
 
 
@@ -432,25 +582,40 @@ def build_messages(
     playbook_steps: list[dict] | None = None,
     playbook_qualification: list[dict] | None = None,
     playbook_objections: list[dict] | None = None,
+    transcript: str | None = None,
+    call: dict | None = None,
 ) -> list[dict]:
+    """`transcript` (v8) is the You:/Them: copy the call reading produced; `call` its verdict."""
     extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
     payload = {
         "captured_at": str(memo.get("capture_started_at") or memo.get("created_at") or ""),
         "timezone": str(memo.get("timezone") or _DEFAULT_TZ),
         "summary": str((extraction or {}).get("summary") or ""),
-        "transcript": str(memo.get("transcript") or ""),
     }
+    if call:
+        payload["call"] = {
+            "call_type": call.get("call_type"),
+            "phase_reached": call.get("phase_reached"),
+            "reached_conversation": call.get("reached_conversation"),
+        }
+    payload["transcript"] = str(transcript if transcript is not None else memo.get("transcript") or "")
     if prompt_version in _READS_STEPS and playbook_steps:
-        payload["playbook_steps"] = [
-            {
+        payload["playbook_steps"] = []
+        for step in playbook_steps:
+            if not step.get("step_id"):
+                continue
+            if prompt_version == CALL_READING_PROMPT_VERSION and step_outcome(step):
+                continue  # the rep declares it after the call; the model never judges it
+            row = {
                 "step_id": str(step.get("step_id") or ""),
                 "label": str(step.get("label") or ""),
                 "criterion": str(step.get("criterion") or ""),
             }
-            for step in playbook_steps
-            if step.get("step_id")
-        ]
-    if prompt_version == QUALIFICATION_PROMPT_VERSION:
+            example = " ".join(str(step.get("example") or "").split())
+            if example and prompt_version == CALL_READING_PROMPT_VERSION:
+                row["example"] = example
+            payload["playbook_steps"].append(row)
+    if prompt_version in _READS_QUALIFICATION:
         if playbook_qualification:
             payload["playbook_qualification"] = [
                 {
@@ -585,6 +750,8 @@ def _needs_upgrade(memo: dict, planned_version: str) -> bool:
     the company's own objections). A newer block is never downgraded when the flag goes off."""
     extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
     stored = ((extraction or {}).get("intelligence") or {}).get("prompt_version")
+    if planned_version == CALL_READING_PROMPT_VERSION:
+        return stored in (PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION)
     if planned_version == QUALIFICATION_PROMPT_VERSION:
         return stored in (PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION)
     return planned_version == OBSERVATIONS_PROMPT_VERSION and stored == PROMPT_VERSION
@@ -594,6 +761,8 @@ def extraction_plan(supabase: Any, memo: dict) -> tuple[str, list[dict]]:
     """(prompt version, playbook steps) for this memo's company."""
     from app.services.feature_flags import is_enabled
 
+    if is_enabled(supabase, memo.get("company_id"), CALL_READING_FLAG):
+        return CALL_READING_PROMPT_VERSION, pinned_playbook_steps(supabase, memo)
     if is_enabled(supabase, memo.get("company_id"), QUALIFICATION_FLAG):
         return QUALIFICATION_PROMPT_VERSION, pinned_playbook_steps(supabase, memo)
     if not is_enabled(supabase, memo.get("company_id"), OBSERVATIONS_FLAG):
@@ -617,11 +786,12 @@ async def ensure_intelligence(supabase: Any, memo_id: str, *, llm: Any = None) -
         llm = LLMClient()
     qualification: list[dict] = []
     objections: list[dict] = []
-    if prompt_version == QUALIFICATION_PROMPT_VERSION:
+    if prompt_version in _READS_QUALIFICATION:
         qualification, objections = pinned_qualification_inputs(supabase, memo)
+    context = call_context(supabase, memo) if prompt_version == CALL_READING_PROMPT_VERSION else {}
     shaped, meta = await extract_intelligence(
         memo, llm, prompt_version=prompt_version, playbook_steps=playbook_steps,
-        playbook_qualification=qualification, playbook_objections=objections,
+        playbook_qualification=qualification, playbook_objections=objections, **context,
     )
     if shaped is None:
         return {"status": "no_transcript"}
@@ -683,6 +853,91 @@ def schedule_intelligence(supabase: Any, memo_id: str, company_id: str | None = 
     return True
 
 
+def call_context(supabase: Any, memo: dict) -> dict:
+    """What the call reading needs to tell the rep from the prospect: the rep's name, the
+    company they sell for, and how many earlier conversations exist with this contact.
+    Each read is best effort; a missing value only makes the reading less sure."""
+    context: dict[str, Any] = {}
+    try:
+        rows = (
+            supabase.table("user_profiles").select("full_name").eq("id", str(memo.get("user_id") or "")).limit(1).execute().data
+            or []
+        )
+        if rows and rows[0].get("full_name"):
+            context["rep_name"] = str(rows[0]["full_name"])
+    except Exception:
+        pass
+    try:
+        rows = supabase.table("companies").select("name").eq("id", str(memo.get("company_id") or "")).limit(1).execute().data or []
+        if rows and rows[0].get("name"):
+            context["company_name"] = str(rows[0]["name"])
+    except Exception:
+        pass
+    contact_id = memo.get("hubspot_contact_id")
+    if contact_id:
+        try:
+            rows = (
+                supabase.table("memos").select("id")
+                .eq("company_id", str(memo.get("company_id") or "")).eq("hubspot_contact_id", str(contact_id))
+                .lt("created_at", str(memo.get("created_at") or "")).limit(20).execute().data
+                or []
+            )
+            context["prior_conversations"] = len(rows)
+        except Exception:
+            pass
+    return context
+
+
+def _mark_outcome_steps(observations: list[dict], steps: list[dict]) -> list[dict]:
+    """A step the rep's declared outcome settles (a meeting booked) carries no model verdict:
+    it waits, unknown, for `rep_outcome`."""
+    outcomes = {str(step.get("step_id")): step_outcome(step) for step in steps if step.get("step_id")}
+    out = []
+    for item in observations:
+        outcome = outcomes.get(item["step_id"])
+        if not outcome:
+            out.append(item)
+            continue
+        out.append({
+            **{k: v for k, v in item.items() if k not in ("advice", "reason")},
+            "status": "unknown", "quote": None, "evidence_refs": [],
+            "judged_by": "rep_outcome", "outcome": outcome,
+        })
+    return out
+
+
+def _apply_call_reading(observations: list[dict], call: dict) -> list[dict]:
+    """What the call type settles on its own: no conversation means nothing to judge, and a
+    call that stopped at the door (bad moment, gatekeeper, wrong person) only had an opening."""
+    from app.services.intelligence.call_reading import CONTINUES_EARLIER, NOT_JUDGED, OPENING_ONLY
+
+    if not call.get("reached_conversation") or call.get("call_type") in NOT_JUDGED:
+        keep: set[str] = set()
+    elif call.get("call_type") in OPENING_ONLY:
+        keep = {observations[0]["step_id"]} if observations else set()
+    elif call.get("call_type") in CONTINUES_EARLIER:
+        # A follow-up is judged on its opening; the rest of the process was the earlier
+        # conversation's job. Doing it again still counts, not doing it is not a miss.
+        first = observations[0]["step_id"] if observations else None
+        return [
+            item if item["step_id"] == first or item["status"] != "missed" or item.get("judged_by")
+            else {**{k: v for k, v in item.items() if k != "advice"}, "status": "not_applicable", "quote": None, "evidence_refs": []}
+            for item in observations
+        ]
+    else:
+        return observations
+    out = []
+    for item in observations:
+        if item["step_id"] in keep or item["status"] == "not_applicable":
+            out.append(item)
+            continue
+        out.append({
+            **{k: v for k, v in item.items() if k != "advice"},
+            "status": "not_applicable", "quote": None, "evidence_refs": [],
+        })
+    return out
+
+
 async def extract_intelligence(
     memo: dict,
     llm: Any,
@@ -691,22 +946,47 @@ async def extract_intelligence(
     playbook_steps: list[dict] | None = None,
     playbook_qualification: list[dict] | None = None,
     playbook_objections: list[dict] | None = None,
+    rep_name: str | None = None,
+    company_name: str | None = None,
+    prior_conversations: int | None = None,
 ) -> tuple[dict | None, dict]:
-    """None when there is nothing to read. Metadata carries model and tokens for cost."""
+    """None when there is nothing to read. Metadata carries model and tokens for cost.
+    v8 reads the call first (roles, type, phase) and judges the You:/Them: transcript."""
     if not str(memo.get("transcript") or "").strip():
         return None, {}
+    call = None
+    transcript = None
+    reading_meta: dict = {}
+    if prompt_version == CALL_READING_PROMPT_VERSION:
+        from app.services.intelligence.call_reading import read_call
+
+        call, transcript, reading_meta = await read_call(
+            str(memo.get("transcript") or ""), llm,
+            model=settings.INTELLIGENCE_MODEL,
+            captured_at=str(memo.get("capture_started_at") or memo.get("created_at") or ""),
+            rep_name=rep_name, company_name=company_name, prior_conversations=prior_conversations,
+        )
     raw = await llm.chat_json(
         build_messages(
             memo, prompt_version=prompt_version, playbook_steps=playbook_steps,
             playbook_qualification=playbook_qualification, playbook_objections=playbook_objections,
+            transcript=transcript, call=call,
         ),
         model=settings.INTELLIGENCE_MODEL,
         temperature=0.0,
-        timeout=60.0,
+        timeout=90.0 if call else 60.0,
     )
     meta = dict(getattr(llm, "last_call_meta", None) or {})
+    if reading_meta:
+        meta["call_reading"] = reading_meta
+    read_memo = {**memo, "transcript": transcript} if transcript is not None else memo
     shaped = shape_intelligence(
-        memo, raw if isinstance(raw, dict) else {}, prompt_version=prompt_version, playbook_steps=playbook_steps,
+        read_memo, raw if isinstance(raw, dict) else {}, prompt_version=prompt_version, playbook_steps=playbook_steps,
         playbook_qualification=playbook_qualification, playbook_objections=playbook_objections,
     )
+    if call:
+        shaped["call"] = call
+        shaped["playbook_observations"] = _apply_call_reading(
+            _mark_outcome_steps(shaped["playbook_observations"], playbook_steps or []), call,
+        )
     return shaped, meta

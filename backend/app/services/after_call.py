@@ -150,7 +150,11 @@ def lead_status_options(config: Any) -> dict[str, Optional[str]]:
 
 def promised_email(intelligence: Optional[dict]) -> bool:
     """Did the call end with an email owed to the prospect? A C04 email/send commitment the rep
-    made, or any commitment whose text is clearly about sending something by mail."""
+    made, or any commitment whose text is clearly about sending something by mail. v8 says it
+    outright (`next.followup_email`), including what the prospect asked for and calendar invites."""
+    nxt = (intelligence or {}).get("next")
+    if isinstance(nxt, dict) and isinstance(nxt.get("followup_email"), dict):
+        return nxt["followup_email"].get("needed") is True
     for item in (intelligence or {}).get("commitments") or []:
         if not isinstance(item, dict):
             continue

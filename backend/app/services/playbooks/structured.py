@@ -11,6 +11,8 @@ module is the one place that turns an edited playbook into that shape, determini
 
 from __future__ import annotations
 
+from app.services.playbooks.outcome_steps import STEP_OUTCOMES
+
 import re
 import unicodedata
 from typing import Any, Iterable, Optional
@@ -114,6 +116,9 @@ def normalize_steps(steps: Iterable[dict]) -> list[dict]:
         step = {"step_id": step_id, "label": label, "criterion": criterion or label}
         if example:
             step["example"] = example
+        outcome = str(raw.get("outcome") or "").strip()
+        if outcome in STEP_OUTCOMES:
+            step["outcome"] = outcome
         out.append(step)
     if not out:
         raise PlaybookDraftError("no_steps")

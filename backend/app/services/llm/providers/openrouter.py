@@ -119,6 +119,9 @@ class OpenRouterProvider(BaseLLMProvider):
             "model": model or self.model,
             "messages": messages,
             "temperature": temperature,
+            # Without a cap OpenRouter reserves the model's whole output window (65k on Gemini)
+            # against the account balance, so a low balance fails calls that need a few k.
+            "max_tokens": settings.LLM_MAX_OUTPUT_TOKENS,
         }
         if response_format:
             payload["response_format"] = response_format

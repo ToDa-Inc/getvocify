@@ -1,0 +1,1626 @@
+[
+ {
+  "memo_id": "98b0879d-1466-45d2-8a1d-da752002d219",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   10,
+   152,
+   228
+  ],
+  "prospect_turns_sample": [
+   3,
+   101,
+   221
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "missed",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "met",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "met",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "4ae6c8c4-11ed-4658-9f59-30031de4ed3a",
+  "call_type": "follow_up",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   18,
+   24
+  ],
+  "prospect_turns_sample": [
+   11,
+   15,
+   17
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "b42814e0-f655-406c-a751-e301ccab7b2c",
+  "call_type": "wrong_person",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   12,
+   30
+  ],
+  "prospect_turns_sample": [
+   7,
+   17,
+   31
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "met",
+    "doubt": true
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "338a91a0-e12f-4b8a-87ff-d5d4f7fef7b0",
+  "call_type": "follow_up",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   5,
+   17,
+   25
+  ],
+  "prospect_turns_sample": [
+   10,
+   14,
+   26
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "a4925501-a606-43cc-ba6b-462d8fbe5e6a",
+  "call_type": "bad_moment",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   8,
+   16
+  ],
+  "prospect_turns_sample": [
+   9,
+   11,
+   17
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "5be9c7fc-fc7a-43bd-b60f-500d353aa03d",
+  "call_type": "bad_moment",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   8,
+   10
+  ],
+  "prospect_turns_sample": [
+   3,
+   11,
+   13
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "11400bcf-77f6-4f16-98f7-1fb2877555a6",
+  "call_type": "meeting_reschedule",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   8,
+   18
+  ],
+  "prospect_turns_sample": [
+   7,
+   9,
+   13
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "ae7a7a43-75cd-497b-a949-ab2b8e640450",
+  "call_type": "follow_up",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   8,
+   10
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   11
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "9232f46c-708f-4e6a-aa8f-a3286c8481ab",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   10,
+   14
+  ],
+  "prospect_turns_sample": [
+   5,
+   7,
+   13
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "0e156749-07a1-4834-a289-9621d3d6a4da",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   8,
+   44,
+   182
+  ],
+  "prospect_turns_sample": [
+   9,
+   49,
+   125
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "met",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "met",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "9cb9c3e3-3bc7-43c2-acaa-65d2fc53d20c",
+  "call_type": "wrong_person",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   18,
+   34
+  ],
+  "prospect_turns_sample": [
+   15,
+   17,
+   31
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "met",
+    "doubt": true
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "met",
+    "doubt": true
+   }
+  }
+ },
+ {
+  "memo_id": "14e35ecc-409f-427c-8e79-f23ac00b482e",
+  "call_type": "wrong_person",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   26,
+   34
+  ],
+  "prospect_turns_sample": [
+   29,
+   31,
+   37
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "met",
+    "doubt": true
+   },
+   "datos_de_la_empresa": {
+    "status": "missed",
+    "doubt": true
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "efb5059c-e9bb-4c88-8959-e8c3a2a126ff",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   8,
+   14,
+   18
+  ],
+  "prospect_turns_sample": [
+   9,
+   13,
+   23
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "0b3b2b28-fa16-41df-8ee7-d87eab9db9ad",
+  "call_type": "follow_up",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   18,
+   20,
+   22
+  ],
+  "prospect_turns_sample": [
+   19,
+   21,
+   31
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "27726de3-a6f5-461f-9949-e5e485d51e7b",
+  "call_type": "follow_up",
+  "phase_reached": "closing",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   5,
+   19,
+   27
+  ],
+  "prospect_turns_sample": [
+   10,
+   20,
+   30
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "3ba7754a-8722-4f2c-a341-5232c498152c",
+  "call_type": "wrong_person",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   10,
+   16,
+   20
+  ],
+  "prospect_turns_sample": [
+   13,
+   17,
+   21
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "7602f46d-4039-41f8-a746-7391e2e15e94",
+  "call_type": "meeting_confirmation",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   9,
+   11,
+   19
+  ],
+  "prospect_turns_sample": [
+   14,
+   18,
+   20
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "d5ae8bdb-18e8-4647-bcb7-f9d1370d542e",
+  "call_type": "meeting_confirmation",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   7,
+   9,
+   13
+  ],
+  "prospect_turns_sample": [
+   8,
+   10,
+   14
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "5eb7c3a9-ea34-4892-99cb-f259870f2ab7",
+  "call_type": "not_a_sales_call",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "345d7fd1-51f4-4d81-87cd-178e853ec4cd",
+  "call_type": "meeting_confirmation",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   10,
+   12
+  ],
+  "prospect_turns_sample": [
+   5,
+   9
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "09ad6515-48f2-4427-9208-a3a8e7f460dd",
+  "call_type": "follow_up",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   62,
+   124
+  ],
+  "prospect_turns_sample": [
+   13,
+   27,
+   143
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "met",
+    "doubt": true
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "bc1f4484-47c5-423e-9def-d34baecc9589",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   7,
+   25,
+   49
+  ],
+  "prospect_turns_sample": [
+   14,
+   26,
+   50
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "missed",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "met",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "missed",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "29e698c2-03e6-4b6c-a8a0-3e1885f80cc3",
+  "call_type": "follow_up",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   8,
+   26
+  ],
+  "prospect_turns_sample": [
+   7,
+   19,
+   27
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "met",
+    "doubt": true
+   }
+  }
+ },
+ {
+  "memo_id": "09a173a7-cc3e-4f52-9768-56761602c41e",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   9,
+   27,
+   59
+  ],
+  "prospect_turns_sample": [
+   8,
+   28,
+   52
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "missed",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "met",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "missed",
+    "doubt": true
+   },
+   "detectar_urgencia": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "f73f0f4b-d5c5-4eb6-affa-0d0afb4fff65",
+  "call_type": "follow_up",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   10,
+   28,
+   32
+  ],
+  "prospect_turns_sample": [
+   13,
+   31,
+   35
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "2de1d0e1-6d3a-4c92-9bcb-1255fdaa04fb",
+  "call_type": "wrong_person",
+  "phase_reached": "opening",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   6,
+   17,
+   19
+  ],
+  "prospect_turns_sample": [
+   11,
+   18,
+   20
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "1926a8a0-f7f9-4672-93c1-91ad79be4f38",
+  "call_type": "follow_up",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   8,
+   12,
+   20
+  ],
+  "prospect_turns_sample": [
+   9,
+   11,
+   17
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "5caa4822-deb1-4c21-a3f3-9d3be9a5089b",
+  "call_type": "follow_up",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   8,
+   12,
+   14
+  ],
+  "prospect_turns_sample": [
+   11,
+   13,
+   17
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "met",
+    "doubt": true
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "d3c04718-308b-42ee-b79c-60575b037dc7",
+  "call_type": "follow_up",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   7,
+   11,
+   13
+  ],
+  "prospect_turns_sample": [
+   10,
+   14,
+   16
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "1264f0af-53f9-4f15-8384-49f38ba394a9",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   8,
+   10
+  ],
+  "prospect_turns_sample": [
+   7,
+   9,
+   11
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "cff789e6-a0e6-4d7f-8626-b7f165329a69",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "62f74bd6-3f54-4d04-80bd-45d16e6d90fd",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   57,
+   63,
+   67
+  ],
+  "prospect_turns_sample": [
+   42,
+   58,
+   64
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "met",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "met",
+    "doubt": true
+   },
+   "detectar_urgencia": {
+    "status": "met",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "2bda3562-20aa-4005-ad21-8cc64477acee",
+  "call_type": "follow_up",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   8,
+   22,
+   94
+  ],
+  "prospect_turns_sample": [
+   9,
+   33,
+   97
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "e3754981-1478-4b8b-896b-e6ee434b8e44",
+  "call_type": "follow_up",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   30,
+   42
+  ],
+  "prospect_turns_sample": [
+   13,
+   31,
+   35
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "met",
+    "doubt": true
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "24d77830-1622-43dd-ac3b-73b1327e45ad",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   8,
+   14,
+   24
+  ],
+  "prospect_turns_sample": [
+   15,
+   25,
+   31
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "missed",
+    "doubt": true
+   },
+   "datos_de_la_empresa": {
+    "status": "missed",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": true
+   }
+  }
+ },
+ {
+  "memo_id": "0aae3ca1-dbc8-41f7-adf3-8baa884557d2",
+  "call_type": "wrong_person",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   8,
+   24,
+   48
+  ],
+  "prospect_turns_sample": [
+   11,
+   19,
+   49
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "87b7d86c-f30d-40d4-86c1-9fe553dc791f",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   20,
+   26
+  ],
+  "prospect_turns_sample": [
+   11,
+   19,
+   25
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "6904f26a-6a8e-4f06-8c7f-d7fdd7cafc06",
+  "call_type": "wrong_person",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   8,
+   10,
+   12
+  ],
+  "prospect_turns_sample": [
+   11,
+   13,
+   15
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "4c837a37-b34d-4e17-a31a-72ae8480bd77",
+  "call_type": "follow_up",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   18,
+   22
+  ],
+  "prospect_turns_sample": [
+   9,
+   11,
+   23
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "4a33d342-ff24-40a7-91a2-a311a0db546d",
+  "call_type": "follow_up",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   8,
+   10
+  ],
+  "prospect_turns_sample": [
+   7,
+   9,
+   11
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "met",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "9ce7cb62-c0b7-4b88-b1e7-e7868762eb1d",
+  "call_type": "meeting_confirmation",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   10,
+   12
+  ],
+  "prospect_turns_sample": [
+   3,
+   9,
+   11
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "13281213-ac7e-4dce-840c-cb7c57f8742a",
+  "call_type": "no_conversation",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   10,
+   14
+  ],
+  "prospect_turns_sample": [
+   7,
+   11,
+   15
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "93df8687-ee6e-4ebe-9117-25194f78632c",
+  "call_type": "no_conversation",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   12,
+   14
+  ],
+  "prospect_turns_sample": [
+   3,
+   9,
+   13
+  ],
+  "steps": {
+   "apertura_con_motivo": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "confirmar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "datos_de_la_empresa": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "detectar_urgencia": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ }
+]

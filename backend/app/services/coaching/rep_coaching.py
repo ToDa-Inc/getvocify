@@ -6,6 +6,8 @@ from datetime import date, datetime, timedelta, timezone
 from statistics import median
 from zoneinfo import ZoneInfo
 
+from app.services.playbooks.outcome_steps import MEETING_BOOKED, status_from_rep_outcome
+
 _MADRID = ZoneInfo("Europe/Madrid")
 
 _STATE = {"met": "done", "missed": "missing", "unknown": "no_evidence", "not_applicable": "not_reached"}
@@ -71,7 +73,10 @@ def interaction_row(memo: dict) -> dict | None:
     conversation = memo.get("screening_outcome") not in _NOT_A_CONVERSATION and (
         duration is None or duration >= MIN_CONVERSATION_SECONDS
     )
-    meeting = intel.get("meeting") if isinstance(intel.get("meeting"), dict) else {}
+    call = intel.get("call") if isinstance(intel.get("call"), dict) else {}
+    if call.get("reached_conversation") is False:
+        conversation = False
+    rep_outcome = memo.get("rep_outcome")
     steps: list[dict] = []
     seen_steps: set[str] = set()
     for item in observations:
@@ -81,11 +86,15 @@ def interaction_row(memo: dict) -> dict | None:
         if step_id in seen_steps:  # a step is observed once per interaction: keep the first
             continue
         seen_steps.add(step_id)
+        status = item.get("status")
+        if item.get("judged_by") == "rep_outcome" and status == "unknown":
+            status = status_from_rep_outcome(str(item.get("outcome") or ""), rep_outcome)
         steps.append({
             "step_id": step_id,
             "label": str(item.get("label") or step_id),
-            "state": _STATE.get(item.get("status"), "no_evidence"),
+            "state": _STATE.get(status, "no_evidence"),
             "quote": item.get("quote") or None,
+            "advice": item.get("advice") or None,
         })
     return {
         "memo_id": str(memo.get("id") or ""),
@@ -93,7 +102,8 @@ def interaction_row(memo: dict) -> dict | None:
         "observed_at": observed.isoformat(),
         "motion": memo.get("sales_motion_key"),
         "is_conversation": conversation,
-        "meeting_agreed": meeting.get("agreed") is True or memo.get("rep_outcome") == "meeting_booked",
+        # Booked is what the rep declared after the call, never read into the transcript.
+        "meeting_agreed": rep_outcome == MEETING_BOOKED,
         "duration_s": duration,
         "summary_line": _first_plain_line(str(extraction.get("summary") or ""))[:SUMMARY_MAX_CHARS],
         "steps": steps,

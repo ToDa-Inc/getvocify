@@ -42,7 +42,8 @@ def _memo(memo_id, user, statuses, *, days_ago=0, motion="discovery", agreed=Fal
     ]
     memo = {
         "id": memo_id, "user_id": user, "company_id": COMPANY, "sales_motion_key": motion,
-        "screening_outcome": "connected", "audio_duration": 90, "rep_outcome": None,
+        # `agreed`: the rep declared the meeting booked after the call (the only source of it).
+        "screening_outcome": "connected", "audio_duration": 90, "rep_outcome": "meeting_booked" if agreed else None,
         "capture_started_at": at, "created_at": at,
         "extraction": {"summary": f"Resumen {memo_id}", "intelligence": {
             "playbook_observations": obs, "meeting": {"agreed": agreed}}},
@@ -169,7 +170,7 @@ def test_interactions_filters_and_order():
     assert ids("?meeting=false") == ["c", "a"]
     assert client.get("/api/v1/coaching/me/interactions?state=bogus").status_code == 422
     item = client.get("/api/v1/coaching/me/interactions").json()["items"][0]
-    assert item["steps"][0] == {"step_id": "open", "label": "open", "state": "missing", "quote": None}
+    assert item["steps"][0] == {"step_id": "open", "label": "open", "state": "missing", "quote": None, "advice": None}
 
 
 def test_process_by_week_and_objections():

@@ -287,8 +287,13 @@ def coaching_lines(intelligence: dict, *, evidence_ids: list[str]) -> tuple[list
             quote = " ".join(str(obs.get("quote") or "").split())
             strengths.append(f"{label}: «{quote}»" if quote else label)
         elif status == "missed":
+            # v8 says what to do next time in this call's terms; older blocks only have the criterion.
+            advice = " ".join(str(obs.get("advice") or "").split())
             criterion = " ".join(str(obs.get("criterion") or "").split())
-            improvements.append(f"{label}: {criterion}" if criterion and criterion != label else label)
+            if advice:
+                improvements.append(f"{label}: {advice}")
+            else:
+                improvements.append(f"{label}: {criterion}" if criterion and criterion != label else label)
     return strengths, improvements
 
 
