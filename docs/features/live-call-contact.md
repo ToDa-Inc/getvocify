@@ -1,114 +1,120 @@
 # Live call contact: who the rep is calling, as the call starts
 
-Branch `feat/live-call-contact` (on top of local `staging`, 2026-10-01).
+Branch `feat/live-call-contact` (on top of local `staging`).
 
-## What it does
+## The model
 
-When a rep clicks Call on a HubSpot record and a dialer embedded in HubSpot
-(Aircall, Ringover, any app built on HubSpot's Calling Extensions SDK) places
-the call, Vocify knows within about a second which HubSpot contact the call is
-with. Any client of that rep (the desktop app) receives it live, and
-`/copilot/suggest` can coach with what earlier calls with that contact left
-behind.
+**The contact of a call is the CRM record the rep had open when it started.**
+An SDR calls from the contact's page, so nothing needs to listen to dialers:
+it works with any dialer (Aircall, Ringover, HubSpot calling, a softphone).
 
 ```
-HubSpot page (+ embedded dialer iframe)
-  dialer ──postMessage──▶ page   OUTGOING_CALL_STARTED {externalCallId, toNumber}
-                                 CALL_ANSWERED / CALL_ENDED {callEndStatus, engagementId} / CALL_COMPLETED
-  content/hubspot-calling.js (all HubSpot frames) forwards those messages
+Chrome extension — on every CRM page the rep opens (and a 1-min heartbeat)
+  PUT /api/v1/live-calls/presence  {provider, object_type, record_id, account_id}
+  (a list/sequence page sends {provider} only: "in the CRM, not on a record";
+   HubSpot's calling window is ignored so the record the rep came from stays)
         ▼
-extension service worker (lib/calling-sdk.js)
-  call id (synthetic for old SDKs), de-dupe, record = dialer tab's record or
-  the HubSpot record tab used last (calling window), reports in order
+Desktop app — call starts (rep presses record, later: mic detection)
+  POST /api/v1/live-calls/start {client_capture_id}
+    contact = presence if it is a contact record, < 30 min old, same portal
+    reserves the desktop capture memo WITH hubspot_contact_id + start time
         ▼
-POST /api/v1/live-calls/events
-  folds events into one call per rep (app/services/live_calls/state.py)
-  contact = contact record the rep was on, else HubSpot phone lookup
+  shows the contact (or asks, when needs_contact) → PATCH /live-calls/current
+  live help: /copilot/suggest with contact_id (adds the contact's history)
+  hang-up: POST /live-calls/current/end, POST /captures/{id}/complete with the
+  live transcript → extraction starts at once (fields, note, coaching, email)
         ▼
-GET /api/v1/live-calls/stream (SSE: snapshot, then every change) + /current
-        ▼
-desktop / web: useLiveCall()  (src/features/calls/useLiveCall.ts)
+HubSpot logs the dialer's call later → linked to that memo, never re-transcribed
 ```
 
-## Why this mechanism
+Clients follow presence + call on `GET /api/v1/live-calls/stream` (SSE:
+snapshot, then every update); `src/features/calls/useLiveCall.ts` wraps it
+with `start`, `pickContact`, `end`.
 
-- Dialers never send Vocify a webhook, and every dialer differs. But every
-  dialer inside HubSpot talks to the HubSpot page with the same SDK messages
-  (`@hubspot/calling-extensions-sdk` `src/Constants.ts`, `src/types.ts`; the
-  dialer posts to `window.parent`, `IFrameManager.ts`). The extension already
-  runs on HubSpot pages, so it can listen without per-dialer code.
-- HubSpot's own "call created" webhook (already subscribed in
-  `backend/scripts/setup_hubspot_webhooks.py`) is not documented to fire at
-  dial time, and HubSpot only links the call to the contact at completion. It
-  stays the after-call source of truth.
+## No double processing (desktop memo ↔ HubSpot call)
+
+`memos.hubspot_engagement_id` is how every HubSpot call path knows a call
+already has a memo (unique index, migration 009): the recordings list shows
+that memo and processing reuses it. `app/services/live_calls/linking.py` sets
+it on the desktop memo when the HubSpot call shows up:
+
+- **where:** the contact's recordings list (the extension polls it) and
+  `initiate_hubspot_call_memo` (auto-sync webhook and the Transcribe button).
+- **match:** the rep's own finished (not still recording) `source=desktop`,
+  `interaction_kind=call` memo on the same contact, not yet linked, capture
+  start within 5 min of the call's
+  `hs_timestamp`; duration breaks ties so an answered call beats a no-answer
+  redial. A near-tie links nothing (the old behaviour stays).
+- A desktop memo that failed is retried by the normal path with HubSpot's
+  recording, so the recording becomes the fallback instead of a duplicate.
+
+No migration: it only uses existing columns.
+
+## Edge cases
+
+| Case | Behaviour |
+|---|---|
+| Calling window / rep switched tabs | HubSpot calling URLs are ignored; the last record stands |
+| Several HubSpot tabs | The active tab's record (last one reported) |
+| Deal or company page | `record` kept, `needs_contact: true` → desktop offers its contacts |
+| List view, sequence, inbox | Presence cleared to "not on a record" → `needs_contact` |
+| Rep opens other records mid-call | Contact fixed at start; presence changes do not move it |
+| Record from another portal | Not assigned (compared with the connected `portal_id`) |
+| Extension missing / signed out / laptop slept | No or stale (> 30 min) presence → `needs_contact` |
+| Retried or double start | `start` is idempotent while a call is live |
+| Pipedrive | Contact shown live; memos only store HubSpot contact ids, so not on the memo |
+| Inbound calls, calls from a phone | Not known live; HubSpot's call record links after the call |
+| Desktop app dies mid-call | The capture never finishes, so it is never linked; HubSpot's recording is processed as today (worst case a duplicate, never a lost call) |
 
 ## Verified
 
-- Backend: `tests/live_calls/*` (state folding, hub, HTTP, stream),
-  `tests/copilot/test_contact_history.py`. Full suite green (3652 passed).
-- Extension: `lib/calling-sdk.test.js`; full suite green (451).
-- Client: `src/lib/live-call.test.ts` (SSE parsing, reconnect/backoff).
-- End to end, `scripts/e2e-live-call-hubspot.mjs` (setup in the header): the
-  real SDK (HubSpot host side + dialer side, full handshake), the unpacked
-  extension in Chromium and this backend. 9/9 on every run:
-  dialer on a contact record; dialer nested in a HubSpot frame; legacy SDK
-  payload without `externalCallId`; HubSpot's separate calling window (record
-  taken from the record tab used last); stream delivers
-  dialing → connected → ended → completed in order.
-- Contact history in suggestions: a real model call (meeting mode) with and
-  without history. With history the card used the CFO decision-maker and the
-  repeated price objection from the earlier call, and invented nothing.
+- Backend `tests/live_calls/*`: state, hub, HTTP (presence, start with capture
+  reservation, portal check, picks reaching the memo, Pipedrive), stream,
+  matching (window, redial, ties, races), both linking hooks. Full suite green.
+- Extension `lib/presence.test.js`; full suite green.
+- Client `src/lib/live-call.test.ts`.
+- Real unpacked extension in Chromium against fake HubSpot/Pipedrive pages and
+  a stub API (no database): contact, deal, list clears, calling window ignored,
+  Pipedrive, non-CRM pages ignored, no resend before heartbeat, alarm
+  registered, nothing sent signed out — 10/10.
+- On a real HubSpot portal: a call placed with HubSpot calling from a contact
+  record runs entirely on that record's page, with the contact id in the URL.
 
-**Not verified:** a real Aircall or Ringover account inside a real HubSpot
-portal. The SDK source says they must send these messages, but whether they
-fill `toNumber` / `externalCallId` is theirs to decide (both are handled:
-legacy ids are synthesized; a missing number just skips the phone lookup). To
-check in 10 minutes, open HubSpot, DevTools console:
-
-```js
-window.addEventListener('message', e => e.data?.type && console.log(e.origin, e.data))
-```
-
-Then place one call from a contact and look for `OUTGOING_CALL_STARTED`.
+**Not verified:** the desktop side (below) and the linking against a real
+HubSpot call record — `hs_timestamp` is documented as the call's time of
+creation; dialers that log late would fall outside the 5-min window and keep
+today's behaviour.
 
 ## Hooking it into the desktop recorder (`feat/desktop-meeting-recorder`)
 
-That branch is 500+ commits behind staging and has uncommitted work on the
-same files, so it was not edited. After it is rebased:
+That branch is far behind staging and has uncommitted work on the same files,
+so it was not edited. After it is rebased, in `DesktopMeetingProvider`:
 
-1. Know the call: in `DesktopMeetingProvider`, `const { call } = useLiveCall();`
-   and keep `call?.contact_id` (open or just-ended calls only, via
-   `isLiveCallOpen`) as the session contact. Optionally start recording, or
-   offer to, when a call opens.
-2. Show the contact: `GET /briefs?connection_id=…&contact_id=…` already
-   returns the pre-call brief (last conversation, what is pending, what to
-   say). `contact_name` is on the live call when it came from the phone lookup;
-   otherwise `GET /crm/hubspot/contacts/{id}/context` has name and company.
-3. Coach with it: in `assist/sources.ts` add `contact_id` to the
-   `streamObjectionSuggestion` body (`SuggestRequest.contact_id`, added on
-   this branch). The backend adds the contact's history to the prompt.
+1. `const live = useLiveCall();` On record start: `live.start(draftId)` and use
+   the returned `call.memo_id` as the capture (instead of a later
+   upload-transcript-and-extract); show `call.contact_id` (name from
+   `GET /crm/hubspot/contacts/{id}/context`, brief from `GET /briefs`) with a
+   "Change" action → `live.pickContact`. When `call.needs_contact`, ask.
+2. Live help: pass `contact_id` in `assist/sources.ts`
+   (`SuggestRequest.contact_id`).
+3. On stop: `POST /captures/{memo_id}/complete` with the transcript and real
+   `audio_duration`, then `live.end()`.
 
 ## Limits and open items
 
-- **HubSpot only.** Pipedrive's app SDK has no call messages at all (checked
-  `@pipedrive/app-extensions-sdk` 0.16.1). Salesforce Open CTI has no "call
-  started" method, and it is being retired in Feb 2028. For both, the signal
-  would be the open record plus desktop mic detection, confirmed by the rep.
-- Calls started outside HubSpot (the dialer's own app or keypad, the Aircall
-  click-to-dial extension) are not seen. Desktop mic detection would be the
-  fallback; it is not built.
-- The live call hub is in process memory: correct for the single production
-  instance, and it needs a shared broker if the API ever runs more than one.
-- Anyone who can script the HubSpot page can post fake call messages; the
-  worst case is a wrong live call for that same signed-in rep.
-- `/copilot/suggest` strips advice text in call modes (`speakerphone`,
-  `softphone`) by design (`finalize_suggest_result`). Contact history
-  improves full cards only in `meeting` mode, which the desktop recorder uses.
+- Call start comes from the desktop (record button). Automatic mic detection
+  is not built.
+- Salesforce has no URL parser in the extension yet.
+- The hub is in process memory: correct for the single production instance;
+  more than one API process needs a shared broker.
+- `/copilot/suggest` strips advice text in call modes by design
+  (`finalize_suggest_result`); contact history improves full cards in
+  `meeting` mode, which the desktop recorder uses.
 
 ## Found along the way (not changed here)
 
 - `/transcription/live` accepts websocket connections with no auth and trusts
   the `user_id` query param.
-- Local `backend/.env` sets `COPILOT_MODEL=google/gemini-3.5-flash-lite`,
-  which rejects `reasoning: disabled`, so live suggestions fail locally with
-  OpenRouter 400. Production logs show no such errors.
+- Local `backend/.env` points at the production Supabase (so a local backend
+  writes to prod) and sets `COPILOT_MODEL=google/gemini-3.5-flash-lite`, which
+  rejects `reasoning: disabled`, so live suggestions fail locally.

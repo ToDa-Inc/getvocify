@@ -1,9 +1,9 @@
-"""/api/v1/live-calls: extension reports dialer events, clients read the call."""
+"""/api/v1/live-calls: the extension reports the open record, the desktop starts calls."""
 
 import asyncio
 import json
-from dataclasses import replace
-from unittest.mock import AsyncMock
+import time
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -13,9 +13,29 @@ from app.api import live_calls as api
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.live_calls.hub import LiveCallHub
-from app.services.live_calls.resolve import ResolvedContact
 
 MEMBERSHIP = Membership(id="member-1", company_id="co-1", user_id="rep-1", role="member", status="active")
+
+
+class _Memos:
+    def __init__(self):
+        self.updates = []
+
+    def table(self, name):
+        assert name == "memos"
+        return self
+
+    def update(self, payload):
+        self._payload, self._filters = payload, {}
+        return self
+
+    def eq(self, col, val):
+        self._filters[col] = val
+        return self
+
+    def execute(self):
+        self.updates.append((self._payload, dict(self._filters)))
+        return SimpleNamespace(data=[{}])
 
 
 @pytest.fixture
@@ -26,124 +46,124 @@ def hub(monkeypatch):
 
 
 @pytest.fixture
-def lookup(monkeypatch):
-    mock = AsyncMock(return_value=None)
-    monkeypatch.setattr(api, "hubspot_contact_by_phone", mock)
-    return mock
+def db():
+    return _Memos()
 
 
 @pytest.fixture
-def client(hub, lookup):
+def reserved(monkeypatch):
+    calls = []
+
+    def fake_reserve(_sb, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(memo_id="memo-1", capture_id="memo-1")
+
+    monkeypatch.setattr(api, "reserve_capture", fake_reserve)
+    monkeypatch.setattr(api, "live_version_id", lambda *_a, **_k: "pv-1")
+    return calls
+
+
+@pytest.fixture
+def portal(monkeypatch):
+    connections = {"hubspot": {"metadata": {"portal_id": 147506535}}}
+    monkeypatch.setattr(api, "get_crm_connection", lambda _sb, _u, provider: connections.get(provider))
+    return connections
+
+
+@pytest.fixture
+def client(hub, db, reserved, portal):
     app = FastAPI()
     app.include_router(api.router)
     app.dependency_overrides[get_membership] = lambda: MEMBERSHIP
-    app.dependency_overrides[get_supabase] = lambda: object()
+    app.dependency_overrides[get_supabase] = lambda: db
     return TestClient(app)
 
 
-def _post(client, **body):
-    return client.post("/api/v1/live-calls/events", json=body)
+def _presence(client, **over):
+    body = {"provider": "hubspot", "object_type": "contact", "record_id": "901", "account_id": "147506535", **over}
+    return client.put("/api/v1/live-calls/presence", json=body)
 
 
-def test_started_on_contact_page_is_assigned_without_lookup(client, lookup):
-    res = _post(
-        client,
-        event="started",
-        external_call_id="ext-1",
-        to_number="+34600111222",
-        page_object_type="contact",
-        page_record_id="901",
-    )
-    assert res.status_code == 200
+def test_call_started_on_a_contact_reserves_the_capture_with_that_contact(client, reserved):
+    assert _presence(client).status_code == 200
+    res = client.post("/api/v1/live-calls/start", json={"client_capture_id": "cap-1"})
     call = res.json()["call"]
-    assert call["contact_id"] == "901"
-    assert call["contact_source"] == "page"
-    assert call["status"] == "dialing"
-    lookup.assert_not_awaited()
+    assert (call["contact_id"], call["contact_source"], call["memo_id"]) == ("901", "page", "memo-1")
+    assert reserved[0]["hubspot_contact_id"] == "901"
+    assert reserved[0]["interaction_kind"] == "call"
+    assert reserved[0]["client_capture_id"] == "cap-1"
 
 
-def test_started_without_contact_page_resolves_by_phone(client, lookup):
-    lookup.return_value = ResolvedContact(contact_id="77", name="María López")
-    res = _post(
-        client,
-        event="started",
-        external_call_id="ext-2",
-        to_number="+34600111222",
-        page_object_type="deal",
-        page_record_id="55",
-    )
-    assert res.status_code == 200
-    assert res.json()["call"]["contact_id"] is None
-    lookup.assert_awaited_once()
-    assert lookup.await_args.args[1:] == ("rep-1", "+34600111222")
-
-    current = client.get("/api/v1/live-calls/current").json()["call"]
-    assert current["contact_id"] == "77"
-    assert current["contact_name"] == "María López"
-    assert current["contact_source"] == "phone"
-    assert current["page_object_type"] == "deal"
+def test_start_is_idempotent_while_live(client, reserved):
+    _presence(client)
+    first = client.post("/api/v1/live-calls/start", json={"client_capture_id": "cap-1"}).json()["call"]
+    second = client.post("/api/v1/live-calls/start", json={"client_capture_id": "cap-2"}).json()["call"]
+    assert first["id"] == second["id"]
+    assert len(reserved) == 1
 
 
-def test_lookup_is_only_run_once_per_call(client, lookup):
-    _post(client, event="started", external_call_id="ext-3", to_number="+34600111222")
-    _post(client, event="answered", external_call_id="ext-3")
-    _post(client, event="ended", external_call_id="ext-3", end_status="COMPLETED")
-    assert lookup.await_count == 1
-    current = client.get("/api/v1/live-calls/current").json()["call"]
-    assert current["status"] == "ended"
-    assert current["end_status"] == "COMPLETED"
+def test_record_from_another_portal_is_ignored(client, reserved):
+    _presence(client, account_id="999")
+    call = client.post("/api/v1/live-calls/start", json={"client_capture_id": "cap-1"}).json()["call"]
+    assert call["contact_id"] is None
+    assert reserved[0]["hubspot_contact_id"] is None
 
 
-def test_lookup_result_is_dropped_when_another_call_started(hub, client, lookup):
-    async def slow_lookup(_supabase, _user, _phone):
-        # Simulate the rep dialing again before the first lookup returns.
-        hub.publish("rep-1", replace(hub.current("rep-1"), external_call_id="ext-newer"))
-        return ResolvedContact(contact_id="77")
+def test_deal_page_needs_a_pick_and_the_pick_reaches_the_memo(client, db):
+    _presence(client, object_type="deal", record_id="55")
+    call = client.post("/api/v1/live-calls/start", json={"client_capture_id": "cap-1"}).json()["call"]
+    assert call["needs_contact"] is True and call["record"]["object_type"] == "deal"
 
-    lookup.side_effect = slow_lookup
-    _post(client, event="started", external_call_id="ext-4", to_number="+34600111222")
-    current = client.get("/api/v1/live-calls/current").json()["call"]
-    assert current["external_call_id"] == "ext-newer"
-    assert current["contact_id"] is None
+    picked = client.patch("/api/v1/live-calls/current", json={"provider": "hubspot", "contact_id": "77"}).json()["call"]
+    assert (picked["contact_id"], picked["contact_source"]) == ("77", "picked")
+    assert db.updates == [({"hubspot_contact_id": "77"}, {"id": "memo-1", "user_id": "rep-1"})]
 
 
-def test_current_is_null_without_a_call(client):
-    assert client.get("/api/v1/live-calls/current").json() == {"call": None}
+def test_pipedrive_contact_is_live_only(client, reserved, db, portal):
+    portal["pipedrive"] = {"metadata": {"company_domain": "acme"}}
+    _presence(client, provider="pipedrive", account_id="acme")
+    call = client.post("/api/v1/live-calls/start", json={"client_capture_id": "cap-1"}).json()["call"]
+    assert (call["provider"], call["contact_id"]) == ("pipedrive", "901")
+    assert reserved[0]["hubspot_contact_id"] is None
+    client.patch("/api/v1/live-calls/current", json={"provider": "pipedrive", "contact_id": "5"})
+    assert db.updates == []
 
 
-def test_rejects_non_numeric_record_id(client):
-    res = _post(client, event="started", external_call_id="x", page_object_type="contact", page_record_id="1 OR 1")
-    assert res.status_code == 422
+def test_start_without_capture_and_end(client, reserved):
+    call = client.post("/api/v1/live-calls/start", json={}).json()["call"]
+    assert call["memo_id"] is None and reserved == []
+    ended = client.post("/api/v1/live-calls/current/end").json()["call"]
+    assert ended["status"] == "ended"
+    again = client.post("/api/v1/live-calls/start", json={}).json()["call"]
+    assert again["id"] != call["id"]
 
 
-def test_rejects_unknown_event(client):
-    assert _post(client, event="ringing", external_call_id="x").status_code == 422
+def test_end_and_pick_without_a_call_are_404(client):
+    assert client.post("/api/v1/live-calls/current/end").status_code == 404
+    assert client.patch("/api/v1/live-calls/current", json={"provider": "hubspot", "contact_id": "1"}).status_code == 404
 
 
-async def test_stream_sends_snapshot_then_changes(hub):
-    from app.services.live_calls.state import LiveCallEvent, apply_event
+def test_presence_validation(client):
+    assert _presence(client, record_id="1 OR 1").status_code == 422
+    assert _presence(client, object_type="ticket").status_code == 422
+    assert _presence(client, provider="salesforce").status_code == 422
+
+
+def test_current_shows_presence_and_call(client):
+    assert client.get("/api/v1/live-calls/current").json() == {"presence": None, "call": None}
+    _presence(client)
+    assert client.get("/api/v1/live-calls/current").json()["presence"]["record_id"] == "901"
+
+
+async def test_stream_sends_snapshot_then_updates(hub):
+    from app.services.live_calls.state import RecordPresence
 
     stream = api.live_call_stream(hub, "rep-1", heartbeat_s=5)
-    first = await asyncio.wait_for(stream.__anext__(), timeout=1)
-    assert json.loads(first.removeprefix("data: ")) == {"type": "snapshot", "call": None}
-
-    call = apply_event(
-        None,
-        LiveCallEvent(
-            provider="hubspot",
-            source="hubspot_calling_sdk",
-            event="started",
-            external_call_id="ext-9",
-            occurred_at=1.0,
-            page_object_type="contact",
-            page_record_id="5",
-        ),
-    )
-    hub.publish("rep-1", call)
-    second = await asyncio.wait_for(stream.__anext__(), timeout=1)
-    payload = json.loads(second.removeprefix("data: "))
-    assert payload["type"] == "call"
-    assert payload["call"]["contact_id"] == "5"
+    first = json.loads((await asyncio.wait_for(stream.__anext__(), timeout=1)).removeprefix("data: "))
+    assert first == {"type": "snapshot", "presence": None, "call": None}
+    hub.set_presence("rep-1", RecordPresence("hubspot", "contact", "5", None, time.time()))
+    second = json.loads((await asyncio.wait_for(stream.__anext__(), timeout=1)).removeprefix("data: "))
+    assert second["type"] == "update" and second["presence"]["record_id"] == "5"
     await stream.aclose()
     assert hub.subscriber_count("rep-1") == 0
 
@@ -155,10 +175,14 @@ async def test_stream_heartbeat_when_idle(hub):
     await stream.aclose()
 
 
-def test_lookup_runs_when_a_late_start_brings_the_number(client, lookup):
-    lookup.return_value = ResolvedContact(contact_id="31")
-    _post(client, event="answered", external_call_id="ext-5")
-    lookup.assert_not_awaited()
-    _post(client, event="started", external_call_id="ext-5", to_number="+34600111222")
-    lookup.assert_awaited_once()
-    assert client.get("/api/v1/live-calls/current").json()["call"]["contact_id"] == "31"
+def test_list_page_after_a_record_clears_the_contact(client, reserved):
+    _presence(client)
+    assert client.put("/api/v1/live-calls/presence", json={"provider": "hubspot"}).status_code == 200
+    call = client.post("/api/v1/live-calls/start", json={"client_capture_id": "cap-1"}).json()["call"]
+    assert call["contact_id"] is None
+    assert reserved[0]["hubspot_contact_id"] is None
+
+
+def test_half_a_record_is_rejected(client):
+    assert client.put("/api/v1/live-calls/presence", json={"provider": "hubspot", "object_type": "contact"}).status_code == 422
+    assert client.put("/api/v1/live-calls/presence", json={"provider": "hubspot", "record_id": "5"}).status_code == 422

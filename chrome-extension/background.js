@@ -26,12 +26,7 @@ import {
   providerFromConnections,
 } from './lib/crm-page.js';
 import { pickContextTab } from './lib/review-targets.js';
-import {
-  buildLiveCallEventBody,
-  createLiveCallTracker,
-  parseCallingSdkMessage,
-  pickCallRecord,
-} from './lib/calling-sdk.js';
+import { createPresenceReporter, presenceFromUrl } from './lib/presence.js';
 import {
   hydrateFromIdentityCache,
   identityCacheFromEntries,
@@ -1364,46 +1359,10 @@ function hangupCallFlow() {
 // ============================================
 // MESSAGE HANDLERS
 // ============================================
-const liveCallTracker = createLiveCallTracker();
-let liveCallReports = Promise.resolve();
-
-async function reportLiveCallEvent(tracked, senderUrl) {
-  let hubspotTabs = [];
-  try {
-    hubspotTabs = await chrome.tabs.query({ url: 'https://*.hubspot.com/*' });
-  } catch (_) { /* the sender's own URL still applies */ }
-  const page = pickCallRecord({ senderUrl, hubspotTabs, parseUrl: parseCrmPageUrl });
-  try {
-    await api.reportLiveCallEvent(buildLiveCallEventBody(tracked, page));
-  } catch (err) {
-    if (!isAuthFailure(err)) console.warn('[Vocify] live call event not sent', err);
-  }
-}
-
-/**
- * A dialer embedded in HubSpot reported a call step (content/hubspot-calling.js).
- * Tell the backend which record the call is for so the rep's desktop app knows
- * who they are talking to. Reports go out one at a time so the backend sees
- * start, answer, end and completion in order.
- */
-function handleCallingSdkMessage(message, sender) {
-  const tracked = liveCallTracker.accept(
-    parseCallingSdkMessage(message.message),
-    sender.tab?.id ?? 'default',
-  );
-  if (!tracked) return;
-  const senderUrl = sender.tab?.url || null;
-  liveCallReports = liveCallReports.then(() => reportLiveCallEvent(tracked, senderUrl));
-}
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target === 'offscreen') return;
 
   switch (message.type) {
-    case 'CALLING_SDK_MESSAGE':
-      handleCallingSdkMessage(message, sender);
-      break;
-
     // State queries
     case 'GET_STATE': {
       (async () => {
@@ -2163,8 +2122,14 @@ function reevaluateTabContext(tabId, url) {
   }).catch(() => {});
 }
 
+// Where the rep is in the CRM, so their desktop app knows who a call is with.
+const presenceReporter = createPresenceReporter({
+  send: (presence) => api.reportPresence(presence),
+});
+
 function reevaluateTabContextAuthenticated(tabId, url) {
   const ctx = parseCrmPageUrl(url);
+  presenceReporter.report(presenceFromUrl(url, ctx));
   const activityTypes = ['deal', 'contact', 'company'];
   const recordType = ctx?.objectType;
   const recordId = activityTypes.includes(recordType) ? ctx.recordId : null;
@@ -2211,6 +2176,18 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (url !== lastSeenUrlByTab.get(tabId) || changeInfo.status === 'complete') {
     reevaluateTabContext(tabId, url);
   }
+});
+
+// The worker sleeps when idle; the alarm wakes it so a rep who stays on one
+// record keeps it current (the reporter only resends once per heartbeat).
+chrome.alarms.create('vocify-presence', { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== 'vocify-presence' || !lastActiveTabId) return;
+  chrome.tabs.get(lastActiveTabId, async (tab) => {
+    if (chrome.runtime.lastError || !tab?.url) return;
+    const { accessToken } = await api.getTokens().catch(() => ({}));
+    if (accessToken) presenceReporter.report(presenceFromUrl(tab.url, parseCrmPageUrl(tab.url)));
+  });
 });
 
 chrome.windows.onFocusChanged.addListener(() => seedActiveTab());

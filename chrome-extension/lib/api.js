@@ -299,8 +299,8 @@ export const api = {
     return request('/calls/config');
   },
 
-  async reportLiveCallEvent(body) {
-    return request('/live-calls/events', { method: 'POST', body: JSON.stringify(body) });
+  async reportPresence(body) {
+    return request('/live-calls/presence', { method: 'PUT', body: JSON.stringify(body) });
   },
 
   async createVoiceToken() {

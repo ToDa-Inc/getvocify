@@ -1,39 +1,44 @@
 /**
- * Follow the rep's live call (GET /live-calls/stream).
+ * Follow the rep's CRM presence and live call (GET /live-calls/stream).
  *
- * The Chrome extension reports calls placed from HubSpot; the backend streams
- * the rep's current call here with the contact already resolved. No `@/`
- * imports: this file runs under node --test.
+ * The Chrome extension reports the record the rep has open; when the desktop
+ * starts a call, that record is the contact. No `@/` imports: this file runs
+ * under node --test.
  */
 
-export type LiveCallStatus = "dialing" | "connected" | "ended" | "completed";
-
-export interface LiveCall {
-  external_call_id: string;
-  provider: string;
-  source: string;
-  status: LiveCallStatus;
-  direction: "outbound" | "inbound";
-  remote_number: string | null;
-  started_at: number;
-  updated_at: number;
-  contact_id: string | null;
-  contact_name: string | null;
-  contact_source: "page" | "phone" | null;
-  page_object_type: "contact" | "company" | "deal" | null;
-  page_record_id: string | null;
-  answered_at: number | null;
-  ended_at: number | null;
-  end_status: string | null;
-  engagement_id: string | null;
+export interface RecordPresence {
+  provider: "hubspot" | "pipedrive";
+  /** Null on a CRM page that is not a record (list, sequence, inbox). */
+  object_type: "contact" | "company" | "deal" | null;
+  record_id: string | null;
+  account_id: string | null;
+  seen_at: number;
 }
 
-export type LiveCallStreamEvent =
-  | { type: "snapshot"; call: LiveCall | null }
-  | { type: "call"; call: LiveCall };
+export interface LiveCall {
+  id: string;
+  status: "live" | "ended";
+  started_at: number;
+  ended_at: number | null;
+  provider: "hubspot" | "pipedrive" | null;
+  contact_id: string | null;
+  contact_source: "page" | "picked" | null;
+  /** The record the call was started from; a deal or company still needs a contact pick. */
+  record: RecordPresence | null;
+  /** The desktop capture memo reserved for this call. */
+  memo_id: string | null;
+  needs_contact: boolean;
+}
+
+export interface LiveState {
+  presence: RecordPresence | null;
+  call: LiveCall | null;
+}
+
+export type LiveCallStreamEvent = { type: "snapshot" | "update" } & LiveState;
 
 export function isLiveCallOpen(call: LiveCall | null | undefined): call is LiveCall {
-  return call?.status === "dialing" || call?.status === "connected";
+  return call?.status === "live";
 }
 
 /**
@@ -58,7 +63,7 @@ export function parseLiveCallSse(
     if (data) {
       try {
         const event = JSON.parse(data) as LiveCallStreamEvent;
-        if (event?.type === "snapshot" || (event?.type === "call" && event.call)) onEvent(event);
+        if (event?.type === "snapshot" || event?.type === "update") onEvent(event);
       } catch {
         /* skip */
       }
@@ -76,7 +81,7 @@ export function liveCallReconnectDelay(attempt: number): number {
 export interface FollowLiveCallsOptions {
   url: string;
   getToken: () => string | null;
-  onCall: (call: LiveCall | null) => void;
+  onState: (state: LiveState) => void;
   onConnectedChange?: (connected: boolean) => void;
   signal: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -101,7 +106,7 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
 export async function followLiveCalls({
   url,
   getToken,
-  onCall,
+  onState,
   onConnectedChange,
   signal,
   fetchImpl = fetch,
@@ -126,7 +131,7 @@ export async function followLiveCalls({
             const { done, value } = await reader.read();
             if (done) break;
             buffer = parseLiveCallSse(buffer, decoder.decode(value, { stream: true }), (event) =>
-              onCall(event.call),
+              onState({ presence: event.presence ?? null, call: event.call ?? null }),
             );
           }
         }
