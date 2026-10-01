@@ -48,7 +48,9 @@ call_type is one of:
   wrong. Pick it even when the conversation went on for a while before that came out, and even if
   the rep then pitched something else to them.
 - "no_conversation": voicemail, no answer, ringing, a recorded message, or only greetings.
-- "not_a_sales_call": personal, internal or test call.
+- "not_a_sales_call": personal, internal or test call, only with explicit evidence: there is no
+  prospect at all, it is a personal chat, or someone says it is a test. A strange date, a joking
+  tone, garbled audio or a prospect who is not interested do not make a real call a test.
 - "dictated_note": a single voice, the rep dictating notes about a conversation that already
   happened (no prospect speaking).
 - "other".

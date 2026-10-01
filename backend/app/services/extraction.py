@@ -475,12 +475,18 @@ _CALL_TYPE_ES = {
 }
 # The call reading says nothing was said worth a CRM write: one line, no fields, no tasks.
 NO_CRM_CALL_TYPES = frozenset({"no_conversation", "not_a_sales_call"})
+# Past this length a "no conversation" reading may be wrong: the CRM pass still runs, in short-note
+# mode, so a real call is never left without its note.
+NO_CRM_MAX_CHARS = 400
 # Where the deal stands is the rep's to declare after the call (with lead status), not inferred.
 REP_DECLARED_FIELDS = frozenset({"dealstage"})
 SHORT_NOTE_CALL_TYPES = frozenset({"bad_moment", "gatekeeper", "wrong_person"})
 
 
 _ROLE_TOKENS = frozenset({"you", "them", "rep", "prospect", "s1", "s2"})
+_PLACEHOLDER = re.compile(r"^(?:desconocid[oa]s?|unknown|n/?a|no especificad[oa]|sin especificar|ninguno|none|null)\b", re.I)
+_EMAIL = re.compile(r"^[^@\s]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$", re.I)
+_DOMAIN = re.compile(r"^(?:[a-z0-9-]+\.)+[a-z]{2,}$", re.I)
 
 
 def grounded_cleanup(extracted: dict) -> dict:
@@ -489,17 +495,31 @@ def grounded_cleanup(extracted: dict) -> dict:
     out = dict(extracted or {})
 
     def is_role(value) -> bool:
-        return isinstance(value, str) and value.strip().strip(".:").lower() in _ROLE_TOKENS
+        if not isinstance(value, str):
+            return False
+        text = value.strip()
+        return text.strip(".:").lower() in _ROLE_TOKENS or bool(_PLACEHOLDER.match(text)) or "desconocid" in text.lower()
+
+    def bad_identity(key: str, value) -> bool:
+        if not isinstance(value, str) or not value.strip():
+            return False
+        if "email" in key.lower():
+            return not _EMAIL.match(value.strip())  # a garbled address is worse than none
+        if "domain" in key.lower():
+            return not _DOMAIN.match(value.strip().removeprefix("www."))
+        return False
 
     for key in ("contactName", "companyName"):
         if is_role(out.get(key)):
             out[key] = None
+    if bad_identity("contactEmail", out.get("contactEmail")):
+        out["contactEmail"] = None
     if isinstance(out.get("decisionMakers"), list):
         out["decisionMakers"] = [v for v in out["decisionMakers"] if not is_role(v)]
     for nested in ("contact_properties", "company_properties"):
         props = out.get(nested)
         if isinstance(props, dict):
-            out[nested] = {k: (None if is_role(v) else v) for k, v in props.items()}
+            out[nested] = {k: (None if is_role(v) or bad_identity(k, v) else v) for k, v in props.items()}
     schedules = out.get("nextStepSchedules")
     if isinstance(schedules, list) and not any(str(v or "").strip() for v in schedules):
         out["nextStepSchedules"] = []
@@ -517,10 +537,12 @@ def _grounded_source_hint(call_reading: dict) -> str:
         "the salesperson telling what happened in an earlier conversation."
     )
     short = (
-        "\nThis call never became a sales conversation: the note is 1–3 bullets with what happened; "
-        "fill only fields the prospect literally gave (a name, an email, a referral). A callback or "
-        "anything else agreed still goes in nextSteps with what was said about when (\"a las 12:30\")."
-        if kind in SHORT_NOTE_CALL_TYPES else ""
+        "\nThis call never became a sales conversation: the note is 1–3 bullets with what happened (why "
+        "they could not talk, what they asked for). Still fill the contact's name and company when they "
+        "said or confirmed them, and any email or referral they gave. A callback or anything else agreed "
+        "goes in nextSteps with what was said about when (\"a las 12:30\", \"el lunes\"). Never leave "
+        "the note empty when someone answered."
+        if kind in SHORT_NOTE_CALL_TYPES | NO_CRM_CALL_TYPES else ""
     )
     seller = str(call_reading.get("rep_company") or "").strip()
     seller_line = (
@@ -551,6 +573,8 @@ def _grounded_rules(json_structure: str) -> str:
    - products/services offered: what the prospect says their company sells, never the salesperson's
      reading of it, nor partners or tools they use.
    - competitors: only alternatives to what the salesperson sells that the prospect names.
+   - An option only when its name or a clear synonym was said: "Drive" is not Pipedrive, "Excel" or
+     "no tenemos CRM" is not any CRM option.
    - Numbers whose unit was not said (thousands? clients? employees?) stay null, and so does a range
      ("entre 1 y 2 millones"): never pick one end of it. A different thing is not the field's thing
      (an ERP is not a CRM; "solo estoy yo" is not a headcount of the company unless they say so).
@@ -582,6 +606,9 @@ def _grounded_rules(json_structure: str) -> str:
 6b. **Deal amounts and line items**: only a price or volume the prospect accepted or proposed; a price the
    salesperson quoted and the prospect rejected or did not answer goes in the note, never in a field.
 7. **contactEmail**: only a real address spoken or spelled; never invented.
+7b. **Fields agree with the note**: whatever the note states about the agreed meeting or callback day,
+   the objection, the company's name, its revenue or a pain the prospect owned also goes in its
+   field (nextStepSchedules, objections, the company and contact fields); a field never contradicts the note.
 8. **Format**: Return JSON in this structure:
 
 {json_structure}
@@ -988,7 +1015,11 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 confidence={"overall": 0.0, "fields": {}}
             )
         
-        if call_reading and call_reading.get("call_type") in NO_CRM_CALL_TYPES:
+        if (
+            call_reading
+            and call_reading.get("call_type") in NO_CRM_CALL_TYPES
+            and len(" ".join(str(transcript or "").split())) < NO_CRM_MAX_CHARS
+        ):
             reason = str(call_reading.get("call_type_reason") or "").strip()
             label = "Sin conversación" if call_reading.get("call_type") == "no_conversation" else "No es una llamada de venta"
             return MemoExtraction(

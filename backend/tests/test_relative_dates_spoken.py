@@ -34,6 +34,9 @@ CALL = date(2026, 9, 30)  # a Wednesday
     ("más adelante", None),
     ("ahora", "2026-09-30"),
     ("en un rato", "2026-09-30"),
+    ("el divendres", "2026-10-02"),
+    ("dilluns", "2026-10-05"),
+    ("demà", "2026-10-01"),
 ])
 def test_spoken_timing(phrase, expected):
     assert resolve_schedule(phrase, CALL) == expected

@@ -30,12 +30,14 @@ _WEEKDAY = {
     "viernes": 4, "friday": 4,
     "sabado": 5, "sábado": 5, "saturday": 5,
     "domingo": 6, "sunday": 6,
+    # Catalan
+    "dilluns": 0, "dimarts": 1, "dimecres": 2, "dijous": 3, "divendres": 4, "dissabte": 5, "diumenge": 6,
 }
 
 
 def _fold(text: str) -> str:
     raw = (text or "").strip().lower()
-    repl = str.maketrans("áéíóúü", "aeiouu")
+    repl = str.maketrans("áéíóúüàèòï", "aeiouuaeoi")
     return raw.translate(repl)
 
 
@@ -144,9 +146,9 @@ def _resolve_spoken(blob: str, ref: date) -> Optional[str]:
     blob = blob.replace("ñ", "n")
     if re.search(r"\bpasado manana\b", blob):
         return (ref + timedelta(days=2)).isoformat()
-    if re.search(r"\b(?:manana|tomorrow)\b", re.sub(r"\bpor la manana\b", "", blob)):
+    if re.search(r"\b(?:manana|tomorrow|dema)\b", re.sub(r"\bpor la manana\b", "", blob)):
         return (ref + timedelta(days=1)).isoformat()
-    if re.search(r"\b(?:hoy|today|esta tarde|this afternoon|ahora|ya|ahora mismo|en un rato|now|right away)\b", blob):
+    if re.search(r"\b(?:hoy|today|esta tarde|this afternoon|ahora|ya|ahora mismo|en un rato|now|right away|avui|ara)\b", blob):
         return ref.isoformat()
     span = re.search(rf"\b(?:en|dentro de|in|within)\s+(?:unos?\s+|unas?\s+)?({_COUNT_RE}|\d{{1,2}})\s+{_UNIT}\b", blob)
     if span:

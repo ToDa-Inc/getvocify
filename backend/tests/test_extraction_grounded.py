@@ -81,3 +81,22 @@ def test_grounded_cleanup_drops_role_tokens_and_empty_schedules():
     assert out["nextStepSchedules"] == [] and out["contact_properties"] == {"firstname": None, "email": "a@b.es"}
     kept = grounded_cleanup({"nextStepSchedules": ["2026-10-02", ""]})
     assert kept["nextStepSchedules"] == ["2026-10-02", ""]  # parallel to nextSteps
+
+
+def test_grounded_cleanup_drops_placeholders_and_garbled_identity():
+    from app.services.extraction import grounded_cleanup
+    out = grounded_cleanup({
+        "contactEmail": "abantio.comsiesoes.me",
+        "company_properties": {"crm": "CRM Desconocido", "domain": "ltk grupo", "name": "Acme"},
+        "contact_properties": {"email": "ana@acme.es"},
+    })
+    assert out["contactEmail"] is None
+    assert out["company_properties"] == {"crm": None, "domain": None, "name": "Acme"}
+    assert out["contact_properties"] == {"email": "ana@acme.es"}
+
+
+def test_a_long_transcript_read_as_no_conversation_still_gets_a_note():
+    service = _service({"summary": "**Resultado:** Pidió que le llamaras.", "nextSteps": []})
+    long_call = "You: hola, soy Ana de Acme\n\nThem: " + "estoy de vacaciones, llámame el lunes. " * 20
+    out = asyncio.run(service.extract(long_call, SPECS, call_reading={"call_type": "not_a_sales_call"}))
+    assert len(service.llm.calls) == 1 and out.summary.startswith("**Resultado:** Pidió")
