@@ -1,4 +1,5 @@
 import { BriefHighlightSettings } from "@/components/dashboard/settings/BriefHighlightSettings";
+import { FollowupSuggestSettings } from "@/components/dashboard/settings/FollowupSuggestSettings";
 import { ReportPreferencesSettings } from "@/components/dashboard/settings/ReportPreferencesSettings";
 import { WritingSamplesSettings } from "@/components/dashboard/settings/WritingSamplesSettings";
 import { useAuth } from "@/features/auth";
@@ -13,6 +14,7 @@ const BriefHighlightSection = () => {
   return (
     <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8 space-y-6`}>
       {!isManager && <BriefHighlightSettings />}
+      {!isManager && <FollowupSuggestSettings />}
       {!isManager && <WritingSamplesSettings />}
       <ReportPreferencesSettings />
     </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
 import { ArrowLeft, Play, Pause, ExternalLink, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -82,6 +83,7 @@ const MemoDetail = () => {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const dealIdFromUrl = searchParams.get("deal_id");
+  const tabFromUrl = searchParams.get("tab");
   const [memo, setMemo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +101,19 @@ const MemoDetail = () => {
     memoId: id ?? "",
     own: Boolean(memo) && (!memo.userId || memo.userId === user?.id),
     role: user?.company?.role ?? "member",
+    initialTab: tabFromUrl,
   });
+
+  // Approved or skipped from the Mac island while this page was open: show what is true now.
+  useEffect(() => {
+    if (!id) return;
+    const onChanged = (event: Event) => {
+      if ((event as CustomEvent<{ memoId?: string }>).detail?.memoId !== id) return;
+      api.get<any>(`/memos/${id}`).then(setMemo).catch(() => {});
+    };
+    window.addEventListener(MEMO_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(MEMO_CHANGED_EVENT, onChanged);
+  }, [id]);
 
   /** Session keep-alive when extraction exists (long review sessions) */
   useEffect(() => {

@@ -216,6 +216,9 @@ export const productCatalog = {
     briefHighlightSaveFailed: "The preference could not be saved",
     briefHighlightLoadFailed:
       "The preference could not be loaded. Try again later.",
+    followupSuggestHeading: "Follow-up emails",
+    followupSuggestHelper: "Draft an email after each call for you to review and send.",
+    followupSuggestSaveFailed: "Couldn't save. Try again.",
     writingSamplesHeading: "Your writing style",
     writingSamplesHelper: "Paste up to 3 of your emails so the draft sounds like you.",
     writingSamplesCountOne: "1 example",
@@ -1530,6 +1533,9 @@ export const productCatalog = {
     briefHighlightSaveFailed: "No se pudo guardar la preferencia",
     briefHighlightLoadFailed:
       "No se pudo cargar la preferencia. Inténtalo de nuevo más tarde.",
+    followupSuggestHeading: "Emails de seguimiento",
+    followupSuggestHelper: "Prepara un email tras cada llamada para que lo revises y envíes.",
+    followupSuggestSaveFailed: "No se pudo guardar. Inténtalo de nuevo.",
     writingSamplesHeading: "Tu forma de escribir",
     writingSamplesHelper: "Pega hasta 3 emails tuyos para que el borrador suene a ti.",
     writingSamplesCountOne: "1 ejemplo",

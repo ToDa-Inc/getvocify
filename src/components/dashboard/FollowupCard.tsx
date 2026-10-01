@@ -132,7 +132,7 @@ export function FollowupCard({
     return () => onSendReady(null);
   }, [onSendReady, canSend]);
 
-  if (!data || data.status === "unavailable") return null;
+  if (!data || data.status === "unavailable" || data.status === "skipped") return null;
   return (
     <div className={`mb-4${isSending ? " opacity-60 pointer-events-none" : ""}`} aria-busy={isSending}>
       <v-followup ref={bindRef} lang={uiLang} />

@@ -320,7 +320,8 @@ export interface FieldEditState {
   confidence: number;
 }
 
-export type FollowupStatus = "generating" | "ready" | "sent" | "unavailable";
+/** skipped: the rep chose not to send it; it leaves every pending list. */
+export type FollowupStatus = "generating" | "ready" | "sent" | "unavailable" | "skipped";
 
 export interface FollowupView {
   status: FollowupStatus;

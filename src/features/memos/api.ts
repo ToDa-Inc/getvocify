@@ -169,8 +169,8 @@ export const memosApi = {
    * One click right after a call (Mac notch island): exactly what auto-approve sends, for a
    * memo that knows its contact. Anything that needs a choice is refused: use review.
    */
-  approveForContact: (id: string): Promise<Memo> => {
-    return api.post<Memo>(`/memos/${id}/approve-contact`);
+  approveForContact: (id: string, extraction?: Record<string, unknown>): Promise<Memo> => {
+    return api.post<Memo>(`/memos/${id}/approve-contact`, extraction ? { extraction } : {});
   },
 
   approve: (id: string, payload?: ApproveMemoPayload): Promise<Memo> => {
@@ -231,6 +231,16 @@ export const memosApi = {
   /**
    * Record the hand-off (sent or copied) with the rep's final text
    */
+  /** The rep won't send this draft (undo: they will after all). Author only. */
+  skipFollowup: (id: string, undo = false): Promise<FollowupView> => {
+    return api.post<FollowupView>(`/memos/${id}/followup/skip`, { undo });
+  },
+
+  /** Whether Vocify drafts follow-up emails for this rep at all. */
+  followupPreference: (): Promise<{ suggest: boolean }> => api.get<{ suggest: boolean }>(`/followup-preference`),
+  setFollowupPreference: (suggest: boolean): Promise<{ suggest: boolean }> =>
+    api.put<{ suggest: boolean }>(`/followup-preference`, { suggest }),
+
   followupAction: (id: string, payload: FollowupActionPayload): Promise<FollowupView> => {
     return api.post<FollowupView>(`/memos/${id}/followup`, payload);
   },

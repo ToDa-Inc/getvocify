@@ -1,61 +1,103 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { pollDelayMs, postCallFor, summarizeUpdates } from "./post-call.ts";
+import {
+  changesFrom,
+  crmFor,
+  defaultKept,
+  emailFrom,
+  meetingFrom,
+  pendingItems,
+  pollDelayMs,
+  type PostCall,
+} from "./post-call.ts";
 
-describe("summarizeUpdates", () => {
-  it("names only real changes, first three, with the total", () => {
-    const { updates, total } = summarizeUpdates([
-      { field_label: "Lead status", current_value: "New", new_value: "Interested" },
-      { field_label: "Phone", current_value: "+34 600", new_value: "+34 600" },
-      { field_label: "Next step", new_value: "Call back Tuesday 10:00" },
-      { field_label: "Budget", new_value: "" },
-      { field_name: "notes", new_value: "Six reps, notes by hand after every call, CRM half empty" },
-      { field_label: "Decision maker", new_value: "Sales director" },
+describe("changesFrom", () => {
+  it("lists real changes with the review screen's field keys", () => {
+    const changes = changesFrom([
+      { field_name: "hs_lead_status", field_label: "Lead status", object_type: "contacts", current_value: "NEW", new_value: "IN_PROGRESS", extraction_confidence: 0.9 },
+      { field_name: "phone", field_label: "Phone", object_type: "contacts", current_value: "+34 600", new_value: "+34 600" },
+      { field_name: "amount", field_label: "Amount", new_value: 196, extraction_confidence: 0.55 },
+      { field_name: "notes", field_label: "Notes", new_value: "" },
     ]);
-    assert.equal(total, 4);
-    assert.deepEqual(updates, [
-      { label: "Lead status", value: "Interested" },
-      { label: "Next step", value: "Call back Tuesday 10:00" },
-      { label: "notes", value: "Six reps, notes by hand after every call,…" },
+    assert.deepEqual(changes, [
+      { key: "contacts:hs_lead_status", label: "Lead status", from: "NEW", to: "IN_PROGRESS", check: false },
+      { key: "deals:amount", label: "Amount", from: null, to: "196", check: true },
     ]);
   });
 
-  it("is empty when nothing would change", () => {
-    assert.deepEqual(summarizeUpdates(undefined), { updates: [], total: 0 });
+  it("only flags what the extraction scored under 'needs review'; unknown confidence is not a flag", () => {
+    const [unknown, sure] = changesFrom([
+      { field_name: "a", field_label: "A", new_value: "x" },
+      { field_name: "b", field_label: "B", new_value: "y", extraction_confidence: 0.7 },
+    ]);
+    assert.equal(unknown.check, false);
+    assert.equal(sure.check, false);
+  });
+
+  it("ticks only what isn't flagged", () => {
+    const changes = changesFrom([
+      { field_name: "a", field_label: "A", new_value: "x", extraction_confidence: 0.95 },
+      { field_name: "b", field_label: "B", new_value: "y", extraction_confidence: 0.4 },
+    ]);
+    assert.deepEqual(defaultKept(changes), ["deals:a"]);
   });
 });
 
-describe("postCallFor", () => {
-  const memo = { id: "m1", status: "pending_review", hubspotContactId: "879829962968" };
-
-  it("writes while extraction runs", () => {
-    assert.equal(postCallFor({ ...memo, status: "extracting" }, "Zadarma test").stage, "writing");
+describe("crmFor", () => {
+  const ready = { status: "pending_review", hubspotContactId: "879829962968" };
+  it("writes while extraction runs, then offers one click only with a contact", () => {
+    assert.equal(crmFor({ status: "extracting" }).stage, "writing");
+    assert.equal(crmFor(ready, [{ field_name: "a", field_label: "A", new_value: "x" }]).canApprove, true);
+    assert.equal(crmFor({ ...ready, hubspotContactId: null }, [{ field_name: "a", field_label: "A", new_value: "x" }]).canApprove, false);
   });
 
-  it("offers one click when the memo knows its contact", () => {
-    const state = postCallFor(memo, "Zadarma test", [{ field_label: "Lead status", new_value: "Interested" }]);
-    assert.equal(state.stage, "ready");
-    assert.equal(state.canApprove, true);
-    assert.equal(state.total, 1);
+  it("is done when auto-approve already wrote it, and sends failures and empty proposals to review", () => {
+    assert.equal(crmFor({ status: "approved" }).stage, "done");
+    assert.equal(crmFor({ status: "failed" }).stage, "review");
+    assert.equal(crmFor(ready, []).stage, "review");
+  });
+});
+
+describe("emailFrom", () => {
+  it("only shows a draft that exists", () => {
+    assert.deepEqual(emailFrom({ status: "ready", recipientName: "Marta" }), { state: "ready", to: "Marta" });
+    assert.equal(emailFrom({ status: "generating" }), null);
+    assert.equal(emailFrom({ status: "unavailable" }), null);
+    assert.equal(emailFrom(null), null);
+  });
+});
+
+describe("meetingFrom", () => {
+  const agreed = { proposal_id: "p1", agreement: "agreed", starts_at: "2026-10-07T08:00:00Z", timezone: "Europe/Madrid", decision: "pending", needs_review: false };
+
+  it("offers only a meeting the call agreed, in its own time zone", () => {
+    const meeting = meetingFrom(agreed, "en-GB");
+    assert.equal(meeting?.state, "pending");
+    assert.match(meeting?.when ?? "", /Wed.*7 Oct.*10:00/);
   });
 
-  it("only offers review without a contact", () => {
-    const state = postCallFor({ ...memo, hubspotContactId: null }, null, [{ field_label: "X", new_value: "y" }]);
-    assert.equal(state.stage, "ready");
-    assert.equal(state.canApprove, false);
+  it("asks for a look when the time isn't clear, and stays quiet when nothing was agreed", () => {
+    assert.equal(meetingFrom({ ...agreed, needs_review: true })?.state, "check");
+    assert.equal(meetingFrom({ ...agreed, agreement: "unknown" }), null);
+    assert.equal(meetingFrom({ ...agreed, decision: "omitted" }), null);
+    assert.equal(meetingFrom({ ...agreed, decision: "accepted" })?.state, "added");
+    assert.equal(meetingFrom(null), null);
   });
+});
 
-  it("is done when auto-approve already wrote it, and sends failures to review", () => {
-    assert.equal(postCallFor({ ...memo, status: "approved" }, null).stage, "done");
-    assert.equal(postCallFor({ ...memo, status: "failed" }, null).stage, "review");
+describe("pendingItems", () => {
+  const base: PostCall = { memoId: "m", contactName: null, stage: "done", changes: [], canApprove: false, email: null, meeting: null, notes: true };
+  it("counts what still needs the rep", () => {
+    assert.equal(pendingItems(base), 0);
+    assert.equal(
+      pendingItems({ ...base, stage: "ready", email: { state: "ready", to: null }, meeting: { proposalId: "p", state: "pending", when: null } }),
+      3,
+    );
+    assert.equal(pendingItems({ ...base, email: { state: "skipped", to: null }, meeting: { proposalId: "p", state: "added", when: null } }), 0);
   });
+});
 
-  it("has nothing to approve when nothing changes", () => {
-    const state = postCallFor(memo, "Zadarma test", []);
-    assert.equal(state.stage, "review");
-    assert.equal(state.canApprove, false);
-  });
-
+describe("pollDelayMs", () => {
   it("checks quickly at first, then gently", () => {
     assert.equal(pollDelayMs(0), 1500);
     assert.equal(pollDelayMs(30), 4000);

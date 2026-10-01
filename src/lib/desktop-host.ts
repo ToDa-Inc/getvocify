@@ -33,6 +33,8 @@ export type VocifyDesktopBridge = {
     command(name: string): void;
     onCommand(cb: (name: string) => void): () => void;
     onOverlayState?(cb: (state: Record<string, unknown>) => void): () => void;
+    /** A choice made in the island's post-call card: { type, ...details }. */
+    onPostCallAction?(cb: (action: { type: string; [key: string]: unknown }) => void): () => void;
   };
   saas: {
     request(payload: Record<string, unknown>): Promise<{
@@ -85,6 +87,9 @@ export function isDesktopHost(): boolean {
 export function getDesktopBridge(): VocifyDesktopBridge | null {
   return isDesktopHost() ? window.vocifyDesktop! : null;
 }
+
+/** A memo changed outside its page (e.g. approved from the island): its page reloads it. */
+export const MEMO_CHANGED_EVENT = "vocify:memo-changed";
 
 /** Opens transcript search on the meeting screen (e.g. from the floating pill). */
 export const TRANSCRIPT_SEARCH_EVENT = "vocify:transcript-search";

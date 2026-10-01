@@ -38,9 +38,19 @@ import {
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type MeetingDraft } from "@/lib/meeting-draft";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
-import { getDesktopBridge, isDesktopHost, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
+import { getDesktopBridge, isDesktopHost, MEMO_CHANGED_EVENT, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
 import { islandCallContact, latestOnly, type CallPreview } from "@/lib/call-contact";
-import { POST_CALL_GIVE_UP_MS, pollDelayMs, postCallFor, type PostCall } from "@/lib/post-call";
+import {
+  POST_CALL_GIVE_UP_MS,
+  SKIPS_BEFORE_ASKING,
+  UNDO_MS,
+  crmFor,
+  emailFrom,
+  meetingFrom,
+  pollDelayMs,
+  type PostCall,
+} from "@/lib/post-call";
+import { buildApproveExtraction, proposedFieldKey, type ProposedUpdate } from "@/lib/extraction-omit";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
 
@@ -129,7 +139,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   /** Who the call detected by the island is with; the next recording takes it. */
   const callContactRef = useRef<MeetingDraft["contact"] | null>(null);
   /** The memo the island is following after a call; `cancelled` stops an older follow. */
-  const postCallRef = useRef<{ run: { cancelled: boolean }; state: PostCall } | null>(null);
+  const postCallRef = useRef<{
+    run: { cancelled: boolean };
+    state: PostCall;
+    proposed: ProposedUpdate[];
+    undoTimer?: number;
+  } | null>(null);
 
   const phaseRef = useRef<MeetingPhase>("idle");
   const transcriptRef = useRef<MeetingTranscript>(EMPTY_MEETING_TRANSCRIPT);
@@ -346,66 +361,226 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     getDesktopBridge()?.shell.setState({ paused: false, clock: meetingClock() });
   }, [meetingClock]);
 
-  const showPostCall = useCallback((state: PostCall | null) => {
-    if (postCallRef.current && state) postCallRef.current.state = state;
-    getDesktopBridge()?.shell.setState({ postCall: state });
+  const showPostCall = useCallback((patch: Partial<PostCall>) => {
+    const current = postCallRef.current;
+    if (!current) return;
+    current.state = { ...current.state, ...patch };
+    getDesktopBridge()?.shell.setState({ postCall: current.state });
   }, []);
 
   const endPostCall = useCallback(() => {
-    if (postCallRef.current) postCallRef.current.run.cancelled = true;
+    const current = postCallRef.current;
+    if (current) {
+      current.run.cancelled = true;
+      window.clearTimeout(current.undoTimer);
+    }
     postCallRef.current = null;
     getDesktopBridge()?.shell.setState({ postCall: null });
   }, []);
 
-  /** After a call: follow the memo until its CRM update is ready, for the island. */
+  const memoChanged = useCallback(
+    (memoId: string) => {
+      queryClient.invalidateQueries({ queryKey: memoKeys.all });
+      queryClient.invalidateQueries({ queryKey: ["memo-followup", memoId] });
+      queryClient.invalidateQueries({ queryKey: ["meeting-proposal", memoId] });
+      window.dispatchEvent(new CustomEvent(MEMO_CHANGED_EVENT, { detail: { memoId } }));
+    },
+    [queryClient],
+  );
+
+  /**
+   * After a call: follow the memo until its CRM changes are ready, then the email draft and
+   * meeting proposal as they arrive. Each row only appears once it exists for this call.
+   */
   const followPostCall = useCallback(
     async (memoId: string, contactName: string | null) => {
       endPostCall();
       const run = { cancelled: false };
-      const first = postCallFor({ id: memoId, status: "extracting" }, contactName);
-      postCallRef.current = { run, state: first };
-      showPostCall(first);
+      const state: PostCall = {
+        memoId,
+        contactName,
+        stage: "writing",
+        changes: [],
+        canApprove: false,
+        email: null,
+        meeting: null,
+        notes: false,
+      };
+      postCallRef.current = { run, state, proposed: [] };
+      getDesktopBridge()?.shell.setState({ postCall: state });
       const startedAt = Date.now();
+      const sleep = (attempt: number) => new Promise((resolve) => window.setTimeout(resolve, pollDelayMs(attempt)));
+
+      let memo: Awaited<ReturnType<typeof memosApi.get>> | null = null;
       for (let attempt = 0; Date.now() - startedAt < POST_CALL_GIVE_UP_MS; attempt++) {
-        await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs(attempt)));
+        await sleep(attempt);
         if (run.cancelled) return;
-        const memo = await memosApi.get(memoId).catch(() => null);
+        memo = await memosApi.get(memoId).catch(() => null);
         if (run.cancelled) return;
-        if (!memo || isProcessing(memo.status)) continue;
-        let proposed: Parameters<typeof postCallFor>[2] = null;
-        if (memo.status === "pending_review") {
-          const contactId = memo.hubspotContactId || undefined;
-          const preview = (await crmApi.getPreview(memoId, undefined, contactId ? { contactId } : undefined).catch(() => null)) as
-            | { proposed_updates?: Parameters<typeof postCallFor>[2] }
-            | null;
-          if (run.cancelled) return;
-          proposed = preview?.proposed_updates ?? null;
-        }
-        showPostCall(postCallFor({ id: memoId, status: memo.status, hubspotContactId: memo.hubspotContactId }, contactName, proposed));
+        if (memo && !isProcessing(memo.status)) break;
+        memo = null;
+      }
+      if (!memo) {
+        showPostCall({ stage: "review", note: "Still writing. Open it in Vocify" });
         return;
       }
-      if (!run.cancelled) {
-        showPostCall({ ...postCallFor({ id: memoId, status: "failed" }, contactName), note: "Still writing. Open it in Vocify" });
+
+      const contactId = memo.hubspotContactId || undefined;
+      const [preview, proposal] = await Promise.all([
+        memo.status === "pending_review"
+          ? (crmApi.getPreview(memoId, undefined, contactId ? { contactId } : undefined).catch(() => null) as Promise<
+              { proposed_updates?: ProposedUpdate[] } | null
+            >)
+          : Promise.resolve(null),
+        api.get<{ proposal: Record<string, unknown> | null }>(`/memos/${memoId}/meeting-proposal`).catch(() => null),
+      ]);
+      if (run.cancelled || !postCallRef.current) return;
+      postCallRef.current.proposed = preview?.proposed_updates ?? [];
+      showPostCall({
+        ...crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, preview?.proposed_updates),
+        meeting: meetingFrom(proposal?.proposal ?? null),
+        notes: Boolean(memo.extraction?.summary?.trim() || memo.userNotes?.trim()),
+      });
+
+      // The email draft is written after the CRM changes; it joins the card when it's ready.
+      for (let attempt = 0; Date.now() - startedAt < POST_CALL_GIVE_UP_MS; attempt++) {
+        const view = await memosApi.getFollowup(memoId).catch(() => null);
+        if (run.cancelled) return;
+        if (view && view.status !== "generating") {
+          showPostCall({ email: emailFrom(view) });
+          return;
+        }
+        await sleep(attempt + 10);
+        if (run.cancelled) return;
       }
     },
     [endPostCall, showPostCall],
   );
 
-  const approvePostCall = useCallback(async () => {
-    const current = postCallRef.current;
-    if (!current || current.state.stage !== "ready" || !current.state.canApprove) return;
-    const { run, state } = current;
-    showPostCall({ ...state, stage: "approving" });
+  const skipStreakKey = "vocify_followup_skips";
+  const readSkipStreak = () => {
     try {
-      await memosApi.approveForContact(state.memoId);
-      queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
-      if (!run.cancelled) showPostCall({ ...state, stage: "done" });
+      return Number(localStorage.getItem(skipStreakKey) || "0") || 0;
     } catch {
-      if (!run.cancelled) showPostCall({ ...state, stage: "review", canApprove: false, note: "Couldn't update. Review it in Vocify" });
+      return 0;
     }
-  }, [queryClient, showPostCall]);
-  const approvePostCallRef = useRef(approvePostCall);
-  approvePostCallRef.current = approvePostCall;
+  };
+  const writeSkipStreak = (value: number) => {
+    try {
+      localStorage.setItem(skipStreakKey, String(Math.max(0, value)));
+    } catch {
+      /* the nudge is a per-Mac convenience */
+    }
+  };
+
+  /** What the rep chose in the island's card. Every write goes through the same API Vocify uses. */
+  const onPostCallAction = useCallback(
+    async (action: { type: string; [key: string]: unknown }) => {
+      const current = postCallRef.current;
+      if (!current) return;
+      const { memoId } = current.state;
+      const fail = (patch: Partial<PostCall>) => !current.run.cancelled && showPostCall(patch);
+
+      switch (action.type) {
+        case "approve": {
+          if (current.state.stage !== "ready" || !current.state.canApprove) return;
+          const omit = (Array.isArray(action.omit) ? action.omit : []).map(String);
+          const kept = current.state.changes.length - omit.filter((key) => current.state.changes.some((c) => c.key === key)).length;
+          if (kept <= 0) return;
+          showPostCall({ stage: "applying", undoUntil: Date.now() + UNDO_MS });
+          current.undoTimer = window.setTimeout(async () => {
+            if (current.run.cancelled) return;
+            try {
+              const memo = await memosApi.get(memoId);
+              const extraction = buildApproveExtraction({
+                // The same record the review screen hands to buildApproveExtraction.
+                memoExtraction: (memo.extraction ?? null) as unknown as Record<string, unknown> | null,
+                updates: current.proposed.filter((update) => !omit.includes(proposedFieldKey(update) ?? "")),
+                omittedKeys: omit,
+                summary: memo.extraction?.summary ?? "",
+                nextSteps: memo.extraction?.nextSteps ?? [],
+              });
+              await memosApi.approveForContact(memoId, extraction);
+              if (current.run.cancelled) return;
+              showPostCall({ stage: "done", applied: kept, undoUntil: undefined });
+              memoChanged(memoId);
+            } catch {
+              fail({ stage: "review", canApprove: false, undoUntil: undefined, note: "Couldn't update HubSpot. Review it in Vocify" });
+            }
+          }, UNDO_MS);
+          return;
+        }
+        case "undo":
+          window.clearTimeout(current.undoTimer);
+          if (current.state.stage === "applying") showPostCall({ stage: "ready", undoUntil: undefined });
+          return;
+        case "review":
+          // Vocify's memo page has the CRM review, the email and the meeting: the card hands over.
+          endPostCall();
+          navigate(ROUTES.MEMO_DETAIL(memoId));
+          return;
+        case "notes":
+          navigate(ROUTES.MEMO_DETAIL(memoId));
+          return;
+        case "openEmail":
+          navigate(`${ROUTES.MEMO_DETAIL(memoId)}?tab=email`);
+          return;
+        case "skipEmail": {
+          if (current.state.email?.state !== "ready") return;
+          const view = await memosApi.skipFollowup(memoId).catch(() => null);
+          if (!view) return;
+          const streak = readSkipStreak() + 1;
+          writeSkipStreak(streak);
+          showPostCall({ email: emailFrom(view), offerStopEmails: streak >= SKIPS_BEFORE_ASKING });
+          memoChanged(memoId);
+          return;
+        }
+        case "unskipEmail": {
+          if (current.state.email?.state !== "skipped") return;
+          const view = await memosApi.skipFollowup(memoId, true).catch(() => null);
+          if (!view) return;
+          writeSkipStreak(readSkipStreak() - 1);
+          showPostCall({ email: emailFrom(view), offerStopEmails: false });
+          memoChanged(memoId);
+          return;
+        }
+        case "stopEmails": {
+          const saved = await memosApi.setFollowupPreference(false).then(() => true, () => false);
+          if (!saved) {
+            showPostCall({ offerStopEmails: false });
+            toast.error("Couldn't turn off email drafts. Try again in Settings.");
+            return;
+          }
+          writeSkipStreak(0);
+          queryClient.invalidateQueries({ queryKey: ["followup-preference"] });
+          showPostCall({ offerStopEmails: false, email: null });
+          return;
+        }
+        case "keepEmails":
+          writeSkipStreak(0);
+          showPostCall({ offerStopEmails: false });
+          return;
+        case "addMeeting": {
+          const meeting = current.state.meeting;
+          if (!meeting || meeting.state !== "pending") return;
+          try {
+            await api.post(`/memos/${memoId}/meeting-proposal/accept`, { decision: "accept", proposal_id: meeting.proposalId });
+            showPostCall({ meeting: { ...meeting, state: "added" } });
+            memoChanged(memoId);
+          } catch {
+            fail({ meeting: { ...meeting, state: "check" } });
+          }
+          return;
+        }
+        case "dismiss":
+          endPostCall();
+          return;
+      }
+    },
+    [endPostCall, memoChanged, navigate, queryClient, showPostCall],
+  );
+  const onPostCallActionRef = useRef(onPostCallAction);
+  onPostCallActionRef.current = onPostCallAction;
 
   const stop = useCallback(async () => {
     if (phaseRef.current !== "live") return;
@@ -651,17 +826,15 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       } else if (name === "search") {
         navigate(ROUTES.RECORD);
         window.setTimeout(() => window.dispatchEvent(new CustomEvent(TRANSCRIPT_SEARCH_EVENT)), 0);
-      } else if (name === "postcall:approve") {
-        void approvePostCallRef.current();
-      } else if (name === "postcall:review") {
-        const memoId = postCallRef.current?.state.memoId;
-        endPostCall();
-        if (memoId) navigate(ROUTES.MEMO_DETAIL(memoId));
-      } else if (name === "postcall:dismiss") {
-        endPostCall();
       }
     });
-  }, [endPostCall, navigate]);
+  }, [navigate]);
+
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.shell.onPostCallAction) return;
+    return bridge.shell.onPostCallAction((action) => void onPostCallActionRef.current(action));
+  }, []);
 
   // The island only offers Record when there's someone signed in to record for.
   useEffect(() => {
