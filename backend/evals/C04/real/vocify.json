@@ -1,0 +1,2728 @@
+[
+ {
+  "memo_id": "f6884c2b-5e44-4b06-a096-a3096409826f",
+  "call_type": "no_conversation",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4
+  ],
+  "prospect_turns_sample": [
+   1,
+   3,
+   5
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "96f52e11-fc33-4c2c-ab7a-d3b9970f7179",
+  "call_type": "dictated_note",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "aa86db0b-b9a5-476e-b174-6d434436bb8f",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   2,
+   5,
+   7
+  ],
+  "prospect_turns_sample": [
+   4,
+   6,
+   8
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "8127b852-a536-4691-8b73-863cb7d69f4e",
+  "call_type": "wrong_person",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   6,
+   14
+  ],
+  "prospect_turns_sample": [
+   5,
+   9,
+   19
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "3b1d3f22-5d71-4e4f-aa3d-d64fc418cad6",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   12,
+   30
+  ],
+  "prospect_turns_sample": [
+   5,
+   17,
+   37
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "missed",
+    "doubt": true
+   },
+   "descubrir_el_problema": {
+    "status": "missed",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "e6462f30-03cb-4190-8131-a3aa14264d5a",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   10
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   11
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "missed",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "missed",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "missed",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": true
+   }
+  }
+ },
+ {
+  "memo_id": "eff38d65-7902-4431-a2bf-a023357cb9fc",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   8,
+   20,
+   56
+  ],
+  "prospect_turns_sample": [
+   9,
+   21,
+   57
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "met",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "f785d8e6-1338-4d43-b539-886af67385ca",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   2,
+   4,
+   26
+  ],
+  "prospect_turns_sample": [
+   14,
+   18,
+   31
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "c81a0557-a949-471a-be6b-88be86e08211",
+  "call_type": "follow_up",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   10
+  ],
+  "prospect_turns_sample": [
+   1,
+   5,
+   7
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "b53d99e8-fa9a-4536-b430-a440cec39584",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   10,
+   36
+  ],
+  "prospect_turns_sample": [
+   5,
+   13,
+   35
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "missed",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "missed",
+    "doubt": true
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "24fd0c2d-e0db-43bc-bc2e-da0e16a7b155",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   4,
+   14,
+   19
+  ],
+  "prospect_turns_sample": [
+   5,
+   9,
+   20
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "bb74707c-d9ae-462b-be32-64e50b578e7a",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   6,
+   8
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "870afe1d-9c55-4e1e-a7c9-4e204da4660b",
+  "call_type": "wrong_person",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   6,
+   8
+  ],
+  "prospect_turns_sample": [
+   1,
+   5,
+   7
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "691c10eb-f500-40ff-bc27-3b670f1bbe1b",
+  "call_type": "wrong_person",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   3,
+   5
+  ],
+  "prospect_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "2f6762fe-25e0-4fa6-ba26-c10cd3ff9bb2",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   6,
+   8
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   9
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "de947185-311d-4d43-b305-0023f5dee45c",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   1,
+   5,
+   11
+  ],
+  "prospect_turns_sample": [
+   2,
+   6,
+   14
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "1314e8a2-1a7b-4edc-b754-1c7bee439ec1",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   4,
+   7,
+   14
+  ],
+  "prospect_turns_sample": [
+   3,
+   6,
+   15
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": true
+   }
+  }
+ },
+ {
+  "memo_id": "7d233a16-2006-4d02-a600-1e5c9c43146f",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   3,
+   5,
+   11
+  ],
+  "prospect_turns_sample": [
+   4,
+   6,
+   8
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "e22c282a-0502-4e51-a0ad-23cb6bccb7d5",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   22,
+   38
+  ],
+  "prospect_turns_sample": [
+   5,
+   15,
+   57
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "met",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "0e5b45ce-bf13-4965-8c54-d5c160152bac",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "a9f042d6-92f2-4cd1-b60a-85007ca79a8c",
+  "call_type": "not_a_sales_call",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   3,
+   7
+  ],
+  "prospect_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "339e8ef2-7b9e-40b6-8b3e-7fa487f6cc4f",
+  "call_type": "not_a_sales_call",
+  "phase_reached": "none",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   3,
+   5,
+   10
+  ],
+  "prospect_turns_sample": [
+   6,
+   9,
+   11
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "f6550464-691d-4d98-8214-a1eb921b1620",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   3,
+   9,
+   15
+  ],
+  "prospect_turns_sample": [
+   2,
+   4,
+   8
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "88ee6e5e-b84b-48ff-8a26-d683cbaff9b0",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   1,
+   5,
+   23
+  ],
+  "prospect_turns_sample": [
+   2,
+   22,
+   24
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "c70322a6-e39f-4452-ae90-d85bc4aac2dd",
+  "call_type": "dictated_note",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "4fdfae9b-a551-4a9f-b854-189acdcc6c57",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   8,
+   10
+  ],
+  "prospect_turns_sample": [
+   5,
+   7,
+   9
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "4cfc1c11-813a-4b97-b142-42aa763e4e6a",
+  "call_type": "not_a_sales_call",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "prospect_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "12130927-42a0-44c6-89b4-8d0c0905bd27",
+  "call_type": "follow_up",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   8,
+   14
+  ],
+  "prospect_turns_sample": [
+   3,
+   9,
+   15
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "44a6530f-419e-4942-8d54-1106783c9527",
+  "call_type": "dictated_note",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "d2a3ebd0-2403-48d1-a005-491ff0afbb20",
+  "call_type": "dictated_note",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "9151029c-823a-4976-aaaf-99de924857a5",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   4,
+   6,
+   12
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   13
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": true
+   }
+  }
+ },
+ {
+  "memo_id": "c6852b3b-60e7-4f12-91cd-71b75b8d7851",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   14,
+   44
+  ],
+  "prospect_turns_sample": [
+   3,
+   7,
+   53
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": true
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "8bd11972-ea49-4957-bcb1-59453624d3b3",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   8
+  ],
+  "prospect_turns_sample": [
+   1,
+   3,
+   7
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "9803d63d-9438-4e34-bba7-e280bf56fe44",
+  "call_type": "no_conversation",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "d7c832fb-3b45-444a-8243-b159bfc78622",
+  "call_type": "other",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "prospect_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "missed",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "met",
+    "doubt": true
+   }
+  }
+ },
+ {
+  "memo_id": "6fc61636-b06e-473e-8ac0-535c8638ab15",
+  "call_type": "follow_up",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   8
+  ],
+  "prospect_turns_sample": [
+   1,
+   5,
+   19
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "dba2c28b-79df-4e06-844a-5e390ae6a419",
+  "call_type": "dictated_note",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "b57fe10b-272d-499e-a863-e932371cae8d",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   8
+  ],
+  "prospect_turns_sample": [
+   1,
+   5,
+   9
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "05b94fa6-de76-4cda-861f-edff5a2f5131",
+  "call_type": "not_a_sales_call",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   1,
+   3,
+   11
+  ],
+  "prospect_turns_sample": [],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "1e14c751-72e1-4f66-b76a-97bbfca9f599",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   10,
+   24
+  ],
+  "prospect_turns_sample": [
+   11,
+   17,
+   29
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": true
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "f0ac0f91-a056-4404-b5b3-a81e8f3dd592",
+  "call_type": "wrong_person",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   3,
+   5,
+   9
+  ],
+  "prospect_turns_sample": [
+   2,
+   6,
+   8
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "0e60cf15-add2-4af3-a449-b7209ec398e5",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   10,
+   16
+  ],
+  "prospect_turns_sample": [
+   7,
+   17,
+   23
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "tamano_del_equipo": {
+    "status": "met",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "b97183d3-9319-4115-ac50-4ddf2d5aa9b0",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   1,
+   9,
+   19
+  ],
+  "prospect_turns_sample": [
+   8,
+   16,
+   30
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "met",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "5e564bd2-9a6b-4aa4-ae47-c568c0db0ab5",
+  "call_type": "follow_up",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   1,
+   5,
+   7
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "7ce4dad3-fb1f-4074-85d1-7c46cac40910",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   1,
+   9,
+   17
+  ],
+  "prospect_turns_sample": [
+   6,
+   16,
+   20
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "missed",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "b3aafff5-0056-4695-8f83-e44e4f379892",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   1,
+   5,
+   9
+  ],
+  "prospect_turns_sample": [
+   2,
+   6,
+   10
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "missed",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "56306855-aae6-4747-8339-a7fe8d17814c",
+  "call_type": "cold_first_contact",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   1,
+   3,
+   5
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "be04778f-4ae1-4d06-a3e2-0ac111508bcd",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   1,
+   5,
+   9
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "missed",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "210f4606-3712-4d88-a776-5163c336c3ad",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "fb5a1df5-54ec-4410-9f7b-5e05c6cc59f2",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   5,
+   7,
+   9
+  ],
+  "prospect_turns_sample": [
+   8,
+   10,
+   12
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "missed",
+    "doubt": true
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "4590eb14-f0af-4301-b8a4-a5719c262aba",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   1,
+   5,
+   11
+  ],
+  "prospect_turns_sample": [
+   2,
+   6,
+   10
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "4556cb97-7dd3-4ac5-be96-415fb3281b48",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   3,
+   5,
+   9
+  ],
+  "prospect_turns_sample": [
+   6,
+   8,
+   10
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "a206b210-2b86-4345-bce3-40536afe6482",
+  "call_type": "follow_up",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   8
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   9
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "40fc6c4f-126a-4f79-950f-980bb9387cf4",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "bdb34268-0a33-4251-94ca-6aed57c1b07f",
+  "call_type": "cold_first_contact",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   8
+  ],
+  "prospect_turns_sample": [
+   1,
+   5,
+   7
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "4118ad30-4601-4151-9374-ab6ea31e0727",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   2,
+   5,
+   7
+  ],
+  "prospect_turns_sample": [
+   6,
+   8,
+   10
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "ee3cb820-4110-4ff9-85be-5e256b0e7210",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   26
+  ],
+  "prospect_turns_sample": [
+   1,
+   13,
+   31
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "22fc0558-03e2-43c4-8da4-ea28271c25e8",
+  "call_type": "follow_up",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   14
+  ],
+  "prospect_turns_sample": [
+   1,
+   11,
+   25
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "3dca1cf3-6518-4263-ba42-7a0cf82a9c38",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   1,
+   3,
+   9
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "e8d8bee8-fa4b-4619-bcad-df5d68826419",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   3,
+   7,
+   11
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "missed",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "missed",
+    "doubt": true
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "cc6f5a17-8794-48f8-8245-916c097002d2",
+  "call_type": "cold_first_contact",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   1,
+   3,
+   5
+  ],
+  "prospect_turns_sample": [
+   2,
+   4
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": true
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "cb0d4346-f149-40a4-bb9d-a273ee504397",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   1,
+   5,
+   7
+  ],
+  "prospect_turns_sample": [
+   2,
+   8,
+   16
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "e9003fe3-196c-4b09-abc2-1056096a7920",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   8,
+   14
+  ],
+  "prospect_turns_sample": [
+   3,
+   7,
+   9
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "5c63ad48-d9df-4712-b171-8a6db0aa5562",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   3,
+   7,
+   11
+  ],
+  "prospect_turns_sample": [
+   4,
+   8,
+   22
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "f752a035-3f3c-4854-945b-7572dd4fd829",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   8,
+   30
+  ],
+  "prospect_turns_sample": [
+   1,
+   9,
+   23
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "12b26fab-cfd0-4bb3-8645-31c183040e18",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   1,
+   3,
+   5
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "missed",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "82232b14-4697-4201-b538-244d6d5ed7bf",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   1,
+   3
+  ],
+  "prospect_turns_sample": [
+   2,
+   4
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "8b160a20-232b-459a-86a3-72c868ce3d05",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   1,
+   3,
+   9
+  ],
+  "prospect_turns_sample": [
+   2,
+   10,
+   12
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "cc85965a-2e87-42da-944b-f6cde60c419b",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   10
+  ],
+  "prospect_turns_sample": [
+   1,
+   5,
+   11
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "met",
+    "doubt": true
+   },
+   "descubrir_el_problema": {
+    "status": "met",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "missed",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "8310fd9e-c142-45c0-843d-69147362d6e6",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "met",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "met",
+    "doubt": true
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "bde7a8b4-dbf1-4544-aca6-e9fbd160e4f1",
+  "call_type": "not_a_sales_call",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "1a2ff30e-8cbc-4079-b7bb-a48de33d00f8",
+  "call_type": "no_conversation",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "playbook_version_id": "5c4d4479-880f-44e1-b5d5-5d1c0de44cda",
+  "steps": {
+   "presentarse_y_pedir_permiso": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "motivo_de_la_llamada": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "como_trabajan_hoy": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "descubrir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "tamano_del_equipo": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ }
+]

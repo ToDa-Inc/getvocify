@@ -84,6 +84,16 @@ If the day or time changed during the conversation, use the last one both sides 
   differ. A rep who achieves what the step is for has met it, even with different words.
   When a criterion lists several parts, the step is met when the rep did the part that carries
   its purpose; note what was weaker in reason, never fail the step over a detail.
+  When the rep did one part of a step and skipped another (introduced themselves and the company
+  but did not check whether it was a good moment), the step is "met" with quality "improvable",
+  and the advice is the part that was missing. "missed" is for a step the rep did none of.
+  A closed or leading question that names the answer for the prospect ("¿seguís teniendo el
+  problema de rellenar el CRM?") still asks what the step asks: "met" with quality "improvable",
+  and the advice is the open version of the question.
+  What a criterion lists in parentheses or after "como" / "e.g." are examples of how to do it,
+  not a checklist: one of them, or another question with the same purpose, is enough ("¿usáis
+  CRM y los comerciales lo rellenan bien?" meets "pregunta cómo registran las llamadas (qué CRM,
+  si lo apuntan a mano, quién lo rellena)"). Only an explicit count ("al menos tres") is a line.
   Adapt the step to the call type:
   - In a follow_up, meeting_confirmation or meeting_reschedule, the "reason for the call" is the
     earlier contact or the meeting: "soy Ana, te llamo de Acme, que estuvimos hablando en junio y
@@ -114,6 +124,12 @@ If the day or time changed during the conversation, use the last one both sides 
   In a first contact that went on into a conversation, a step the rep did not do is "missed" even
   if the prospect was cold or said there was no fit: "not_applicable" needs the call to have ended
   before that point or the call type to exempt the step, never "no procedía".
+  The call "ended before that point" when the prospect closed it before the rep had a real chance:
+  said no and hung up or wrapped up within a turn or two, had to go, or the line dropped. Steps
+  that belong after that moment are "not_applicable". "missed" needs the conversation to have
+  gone on past the moment the step belonged to, with room for the rep to do it.
+  When the recording starts in the middle of the conversation (no greeting, the rep is already
+  explaining or asking), the opening was not recorded: opening steps are "not_applicable".
   When the rep asked what the step asks but the prospect brushed it off ("no tenemos ningún
   problema", "todo va bien") and the rep did not dig once more, it is "met" with quality
   "improvable": the rep did their part, a better rep would have probed.
