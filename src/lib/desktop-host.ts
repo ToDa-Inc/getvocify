@@ -1,6 +1,9 @@
 /** The Vocify Mac app's WKWebView bridge, injected by the native shell's bridge.js. */
 export type DesktopPermissionStatus = "authorized" | "denied" | "never_requested";
 
+/** `label` is null when the shortcut is off. */
+export type RecordShortcutState = { label: string | null; defaultLabel: string };
+
 export type VocifyDesktopBridge = {
   platform: "darwin";
   systemAudio: {
@@ -55,6 +58,26 @@ export type VocifyDesktopBridge = {
     onCallPages(cb: (payload: { urls: string[] }) => void): () => void;
     /** The detected call ended (the call app let go of the mic). */
     onCallEnded?(cb: () => void): () => void;
+  };
+  /** The global record shortcut. Missing in older builds. */
+  shortcut?: {
+    get(): Promise<RecordShortcutState>;
+    set(combo: { code: string; meta: boolean; alt: boolean; ctrl: boolean; shift: boolean }): Promise<
+      RecordShortcutState & { ok: boolean; reason?: "invalid" | "taken" }
+    >;
+    clear(): Promise<RecordShortcutState>;
+  };
+  /**
+   * The Mac records the call itself: mic, call audio and transcription socket. The page gets
+   * copies of the transcript (a MeetingTranscript) and levels. Missing in older builds.
+   */
+  recorder?: {
+    start(options: { url: string }): Promise<{ ok: boolean; reason?: string }>;
+    pause(paused: boolean): Promise<unknown>;
+    stop(): Promise<{ transcript: unknown } | null>;
+    onTranscript(cb: (transcript: unknown) => void): () => void;
+    onLevels(cb: (levels: { you: number; them: number }) => void): () => void;
+    onWarning(cb: (payload: { text: string | null }) => void): () => void;
   };
   /** Meeting drafts on disk. Missing in builds older than local recovery. */
   drafts?: {

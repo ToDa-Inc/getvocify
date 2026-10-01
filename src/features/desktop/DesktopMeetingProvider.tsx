@@ -26,6 +26,7 @@ import {
 import {
   applyChannelResult,
   resetChannel,
+  normalizeMeetingTranscript,
   EMPTY_MEETING_TRANSCRIPT,
   meetingDisplayTurns,
   meetingHasSpeech,
@@ -154,6 +155,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const recoveredForRef = useRef<string | null>(null);
   const userIdRef = useRef("");
   const wsRef = useRef<WebSocket | null>(null);
+  /** The Mac app is recording this meeting itself; the page only mirrors its transcript. */
+  const nativeRef = useRef(false);
   const ctxRef = useRef<AudioContext | null>(null);
   const micRef = useRef<MediaStream | null>(null);
   const releaseAudioRef = useRef<Array<() => void>>([]);
@@ -209,7 +212,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     (next: MeetingTranscript) => {
       transcriptRef.current = next;
       setTranscript(next);
-      getDesktopBridge()?.shell.setState({ lastLine: meetingLastLine(next), overlay: meetingOverlay(next) });
+      // A native recording draws the island itself.
+      if (!nativeRef.current) {
+        getDesktopBridge()?.shell.setState({ lastLine: meetingLastLine(next), overlay: meetingOverlay(next) });
+      }
       if (draftRef.current) scheduleSave();
     },
     [scheduleSave],
@@ -355,6 +361,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     pausedRef.current = true;
     pausedAtRef.current = Date.now();
     setPaused(true);
+    if (nativeRef.current) void getDesktopBridge()?.recorder?.pause(true);
     getDesktopBridge()?.shell.setState({ paused: true, clock: meetingClock() });
   }, [meetingClock]);
 
@@ -363,6 +370,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     pausedTotalRef.current += Date.now() - pausedAtRef.current;
     pausedRef.current = false;
     setPaused(false);
+    if (nativeRef.current) void getDesktopBridge()?.recorder?.pause(false);
     getDesktopBridge()?.shell.setState({ paused: false, clock: meetingClock() });
   }, [meetingClock]);
 
@@ -597,7 +605,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     bridge?.shell.setState({ listening: false });
     void bridge?.shell.hideOverlay();
     await releaseAudio();
-    await drainSocket();
+    if (nativeRef.current) {
+      nativeRef.current = false;
+      // The Mac waits for the last words before answering.
+      const finished = await bridge?.recorder?.stop();
+      if (finished?.transcript) transcriptRef.current = normalizeMeetingTranscript(finished.transcript);
+    } else {
+      await drainSocket();
+    }
 
     transcriptRef.current = settleMeeting(transcriptRef.current);
     const draft = currentDraft();
@@ -657,27 +672,41 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         throw new Error("Allow system audio in the panel above, then try again.");
       }
 
-      const micStream = await navigator.mediaDevices
-        .getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        })
-        .catch(() => {
-          throw new Error("Could not open the microphone.");
-        });
-      micRef.current = micStream;
-
-      const native = await bridge.systemAudio.start();
-      if (!native.ok) {
-        throw new Error(
-          native.reason === "needs_restart"
+      const systemAudioError = (reason?: string) =>
+        new Error(
+          reason === "needs_restart"
             ? "System audio is on but Vocify needs a restart. Quit (⌘Q) and reopen, then record again."
             : "Allow system audio in the panel above, then try again.",
         );
-      }
 
-      const ctx = new AudioContext({ sampleRate: LIVE_STT_SAMPLE_RATE });
-      ctxRef.current = ctx;
-      if (ctx.state === "suspended") await ctx.resume();
+      // The Mac app records natively when it can: no web audio, so nothing waits on this page.
+      const recorder = bridge.recorder;
+      let ctx: AudioContext | null = null;
+      let micStream: MediaStream | null = null;
+      if (recorder) {
+        const started = await recorder.start({ url: liveTranscriptionWsUrl(user.id) });
+        if (!started.ok) {
+          if (started.reason === "no_microphone") throw new Error("Could not open the microphone.");
+          throw systemAudioError(started.reason);
+        }
+        nativeRef.current = true;
+      } else {
+        micStream = await navigator.mediaDevices
+          .getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          })
+          .catch(() => {
+            throw new Error("Could not open the microphone.");
+          });
+        micRef.current = micStream;
+
+        const native = await bridge.systemAudio.start();
+        if (!native.ok) throw systemAudioError(native.reason);
+
+        ctx = new AudioContext({ sampleRate: LIVE_STT_SAMPLE_RATE });
+        ctxRef.current = ctx;
+        if (ctx.state === "suspended") await ctx.resume();
+      }
 
       const startedAt = Date.now();
       const callContact = callContactRef.current;
@@ -689,34 +718,46 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       reconnectsRef.current = 0;
       setPhase("live");
       navigate(ROUTES.RECORD);
-      openSocket();
 
-      let levelsSentAt = 0;
-      const send = (channel: MeetingSpeaker) => (pcm: ArrayBuffer) => {
-        const side = channel === "rep" ? "you" : "them";
-        // Paused: send silence so the session stays open and both channels keep one clock.
-        const audio = pausedRef.current ? new ArrayBuffer(pcm.byteLength) : pcm;
-        if (!pausedRef.current) {
-          levelRef.current[side] = Math.max(levelRef.current[side] * 0.85, pcmLevel(pcm));
-          // Pushed from the audio callbacks, not a timer: timers stall while Vocify is behind the call.
-          const now = performance.now();
-          if (now - levelsSentAt > 100) {
-            levelsSentAt = now;
-            bridge.shell.setState({ levels: { ...levelRef.current } });
-          }
-        }
-        const ws = wsRef.current;
-        if (ws?.readyState === WebSocket.OPEN) ws.send(encodeChannelAudio(channel, audio));
+      const onCallAudioLost = () => {
+        // The Mac already tried to restart it: the island must say so, the window may be hidden.
+        setWarning("Meeting audio stopped. Your mic is still recording.");
+        bridge.shell.setState({ callAudioLost: true });
       };
-      releaseAudioRef.current = [
-        hookMicPcm(ctx, micStream, send("rep")),
-        bridge.systemAudio.onPcm(send("prospect")),
-        bridge.systemAudio.onLost?.(() => {
-          // The Mac already tried to restart it: the island must say so, the window may be hidden.
-          setWarning("Meeting audio stopped. Your mic is still recording.");
-          bridge.shell.setState({ callAudioLost: true });
-        }) ?? (() => {}),
-      ];
+      if (recorder) {
+        releaseAudioRef.current = [
+          recorder.onTranscript((raw) => updateTranscript(normalizeMeetingTranscript(raw))),
+          recorder.onLevels((next) => {
+            levelRef.current = next;
+          }),
+          recorder.onWarning(({ text }) => setWarning(text)),
+          bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
+        ];
+      } else if (ctx && micStream) {
+        openSocket();
+        let levelsSentAt = 0;
+        const send = (channel: MeetingSpeaker) => (pcm: ArrayBuffer) => {
+          const side = channel === "rep" ? "you" : "them";
+          // Paused: send silence so the session stays open and both channels keep one clock.
+          const audio = pausedRef.current ? new ArrayBuffer(pcm.byteLength) : pcm;
+          if (!pausedRef.current) {
+            levelRef.current[side] = Math.max(levelRef.current[side] * 0.85, pcmLevel(pcm));
+            // Pushed from the audio callbacks, not a timer: timers stall while Vocify is behind the call.
+            const now = performance.now();
+            if (now - levelsSentAt > 100) {
+              levelsSentAt = now;
+              bridge.shell.setState({ levels: { ...levelRef.current } });
+            }
+          }
+          const ws = wsRef.current;
+          if (ws?.readyState === WebSocket.OPEN) ws.send(encodeChannelAudio(channel, audio));
+        };
+        releaseAudioRef.current = [
+          hookMicPcm(ctx, micStream, send("rep")),
+          bridge.systemAudio.onPcm(send("prospect")),
+          bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
+        ];
+      }
 
       setElapsed("00:00");
       pausedRef.current = false;
@@ -743,6 +784,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       await bridge.shell.showOverlay();
     } catch (e) {
       draftRef.current = null;
+      if (nativeRef.current) {
+        nativeRef.current = false;
+        await bridge.recorder?.stop();
+      }
       await releaseAudio();
       wsRef.current?.close();
       wsRef.current = null;
@@ -894,6 +939,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       draftRef.current = null;
       phaseRef.current = "idle";
       void releaseAudio();
+      if (nativeRef.current) {
+        nativeRef.current = false;
+        void getDesktopBridge()?.recorder?.stop();
+      }
       wsRef.current?.close();
       wsRef.current = null;
       const bridge = getDesktopBridge();

@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
 import { InterfaceLanguageSettings } from "@/components/dashboard/settings/InterfaceLanguageSettings";
+import { RecordShortcutSettings } from "@/components/dashboard/settings/RecordShortcutSettings";
 import { isManagerRole } from "@/lib/nav";
 import { firstAllowedSettingsPath, isSettingsPathAllowed, visibleSettingsTabs } from "@/lib/settings-nav";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -99,6 +100,7 @@ const SettingsLayout = () => {
               ))}
             </nav>
             <InterfaceLanguageSettings />
+            <RecordShortcutSettings />
           </div>
         )}
 
