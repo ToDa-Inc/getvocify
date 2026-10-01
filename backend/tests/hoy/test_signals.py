@@ -282,3 +282,12 @@ def test_the_v8_callback_is_the_call_commitment_hoy_shows_with_its_reason():
     [signal] = [s for s in signals_for_contact([touch], now=now, day_end=datetime(2026, 9, 24, 22, 0, tzinfo=timezone.utc)) if s.type == "commitment_due"]
     assert signal.payload["why"] == "Estaba recogiendo a los niños"
     assert card_reason(signal) == "Pidió que le llamaras: estaba recogiendo a los niños."
+
+
+def test_a_dropped_call_that_got_somewhere_is_not_retried_as_if_nothing_happened():
+    from app.services.hoy.signals import screening_from_call
+    reached = {"call": {"call_type": "cold_first_contact", "ended_abruptly": True, "phase_reached": "closing"}}
+    assert screening_from_call("connected", reached) == "connected"
+    promised = {"call": {"call_type": "cold_first_contact", "ended_abruptly": True, "phase_reached": "discovery"},
+                "commitments": [{"text": "enviar caso"}]}
+    assert screening_from_call("connected", promised) == "connected"

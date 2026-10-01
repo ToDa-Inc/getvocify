@@ -774,6 +774,9 @@ def _stamp_contact_names(view: dict, signals: list[dict], directory: tuple[dict,
             found = by_contact.get(str(item.get("contact_id") or ""))
             if found:
                 name, company = found
+        if not name and not item.get("contact_name"):
+            # A call nobody answered has no memo to name it: the number dialled is better than "Contacto".
+            name = str((row.get("payload") or {}).get("phone") or "").strip() or None
         if name:
             item["contact_name"] = name
         if company:

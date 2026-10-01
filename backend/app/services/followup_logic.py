@@ -31,9 +31,19 @@ LIST_WINDOW = timedelta(days=7)
 LIST_LIMIT = 50
 
 
+# What the call reading says was not a conversation with a prospect: no email to write.
+_NO_EMAIL_CALLS = frozenset({"no_conversation", "not_a_sales_call", "dictated_note"})
+
+
 def is_eligible(memo: dict) -> bool:
-    """A real conversation with an extraction. Voicemail and no-answer never get a draft."""
+    """A real conversation with an extraction. Voicemail and no-answer never get a draft, nor does
+    a call the reading found was not a conversation with a prospect (wrong number, a test)."""
     if (memo.get("screening_outcome") or "") in SKIPPED_SCREENING:
+        return False
+    extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+    call = ((extraction.get("intelligence") or {}).get("call") if isinstance(extraction.get("intelligence"), dict) else None) \
+        or extraction.get("call_reading")
+    if isinstance(call, dict) and (call.get("reached_conversation") is False or call.get("call_type") in _NO_EMAIL_CALLS):
         return False
     if not (memo.get("transcript") or "").strip():
         return False
@@ -152,6 +162,7 @@ def _next_facts(block: dict, tz) -> dict:
         out["callback"] = {
             **({"who_asked": callback["who_asked"]} if callback.get("who_asked") else {}),
             **_when(callback.get("when"), callback.get("temporal_precision"), tz),
+            **({"said": callback["when_text"]} if callback.get("when_text") else {}),
             **({"reason": callback["reason"]} if callback.get("reason") else {}),
         }
     referral = nxt.get("referral") if isinstance(nxt.get("referral"), dict) else None

@@ -366,3 +366,9 @@ def test_refresh_hoy_signals_writes_a_call_based_callback_and_retracts_it_once_s
     )
     row = next(row for row in supabase.rows("action_signals") if row["dedupe_key"] == "callback:call:call-1")
     assert row["status"] == "resolved"
+
+
+def test_an_unanswered_call_carries_the_number_dialled():
+    call = {**_call("1", 3, "no_answer"), "to_number": "+34915356730"}
+    [signal] = callback_no_answer_from_calls([call], last_touch_at={}, now=NOW, callback_after_days=2)
+    assert signal.payload["phone"] == "+34915356730"

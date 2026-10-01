@@ -269,3 +269,23 @@ class C04NextFacts(unittest.TestCase):
 
     def test_without_next_the_facts_are_as_before(self):
         self.assertEqual(set(c04_facts(C04, "Europe/Madrid")), {"commitments", "meeting", "pain_quote"})
+
+
+def test_no_draft_when_the_reading_found_no_conversation_or_a_test():
+    from app.services.followup_logic import is_eligible
+    base = {"transcript": "You: hola\n\nThem: hola", "extraction": {"summary": "Nota"}}
+    assert is_eligible(base)
+    for call in ({"reached_conversation": False, "call_type": "cold_first_contact"},
+                 {"reached_conversation": True, "call_type": "not_a_sales_call"}):
+        memo = {**base, "extraction": {"summary": "Nota", "intelligence": {"call": call}}}
+        assert not is_eligible(memo)
+
+
+def test_the_callback_reaches_the_email_as_it_was_said():
+    from app.services.followup_logic import c04_facts
+    facts = c04_facts({"next": {"callback": {
+        "needed": True, "who_asked": "prospect", "when": "2027-01-04T00:00:00+01:00",
+        "temporal_precision": "date", "when_text": "a primeros de año", "reason": "retomar",
+    }}}, "Europe/Madrid")
+    assert facts["callback"]["said"] == "a primeros de año"
+    assert facts["callback"]["day"] == "Monday 2027-01-04"

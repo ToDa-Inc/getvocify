@@ -82,9 +82,20 @@ def screening_from_call(screening_outcome: Optional[str], intelligence: Optional
         return screening_outcome
     call = (intelligence or {}).get("call") if isinstance(intelligence, dict) else None
     derived = _UNANSWERED_CALL_TYPES.get((call or {}).get("call_type")) if isinstance(call, dict) else None
-    if not derived and isinstance(call, dict) and call.get("ended_abruptly") is True:
+    if not derived and isinstance(call, dict) and call.get("ended_abruptly") is True and not _something_came_out(intelligence, call):
         derived = "cut_off"  # the line dropped mid-conversation: nothing was closed
     return derived or screening_outcome
+
+
+def _something_came_out(intelligence: dict, call: dict) -> bool:
+    """A call that dropped after it got somewhere (a pitch, a close, an agreed callback, meeting or
+    promise) is followed up on what it left, not retried as if it never happened."""
+    if call.get("phase_reached") in ("pitch", "closing"):
+        return True
+    nxt = intelligence.get("next") if isinstance(intelligence.get("next"), dict) else {}
+    callback = nxt.get("callback") if isinstance(nxt.get("callback"), dict) else {}
+    meeting = intelligence.get("meeting") if isinstance(intelligence.get("meeting"), dict) else {}
+    return bool(callback.get("needed") or meeting.get("agreed") or intelligence.get("commitments"))
 
 
 @dataclass(frozen=True)

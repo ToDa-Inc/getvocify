@@ -284,7 +284,7 @@ def read_hoy_calls(supabase, *, user_id: str) -> list[dict]:
     try:
         stored = (
             supabase.table("outbound_calls")
-            .select("id,hubspot_contact_id,hubspot_deal_id,call_disposition,created_at")
+            .select("id,hubspot_contact_id,hubspot_deal_id,call_disposition,created_at,to_number")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
             .limit(HOY_CALL_LIMIT)
@@ -339,7 +339,9 @@ def callback_no_answer_from_calls(
             deal_id=str(call.get("hubspot_deal_id")) if call.get("hubspot_deal_id") else None,
             source_memo_id="",
             due_at=None,
-            payload={"outcome": disposition, "at": at.isoformat()},
+            # The number dialled names the card when no call ever gave us the contact's name.
+            payload={"outcome": disposition, "at": at.isoformat(),
+                     **({"phone": str(call["to_number"])} if call.get("to_number") else {})},
             dedupe_key=f"callback:call:{call_id}",
             connection_id=None,
         ))
