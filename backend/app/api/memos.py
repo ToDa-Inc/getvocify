@@ -7,7 +7,7 @@ import logging
 import time
 from httpcore import ReadError as HttpcoreReadError
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, status, Body
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 from uuid import UUID
 from typing import Optional, List, Union
@@ -768,6 +768,8 @@ class UploadTranscriptRequest(BaseModel):
     speakers_verified: bool = False
     # What the rep typed during the meeting; steers the summary.
     notes: Optional[str] = None
+    # The CRM contact the call was with, known live from the record on screen (desktop).
+    hubspot_contact_id: Optional[str] = Field(default=None, pattern=r"^\d{1,32}$")
 
 
 @router.post("/upload-transcript", response_model=UploadResponse)
@@ -879,6 +881,9 @@ async def upload_transcript_and_extract(
         "processing_started_at": datetime.utcnow().isoformat(),
         **stored_kind,
     }
+    if body.hubspot_contact_id:
+        # Born with its contact: playbook routing, extraction and the review target use it.
+        payload["hubspot_contact_id"] = body.hubspot_contact_id
     user_notes = (body.notes or "").strip()[:USER_NOTES_MAX_CHARS] or None
     if user_notes:
         # Only written when present, so memos without notes never depend on migration 072.
@@ -1332,6 +1337,35 @@ async def approve_memo(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=detail,
         ) from e
+
+
+@router.post("/{memo_id}/approve-contact", response_model=Union[Memo, SyncResult])
+async def approve_memo_for_contact(
+    memo_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    One-click approve from the Mac app right after a call: exactly what auto-approve sends
+    (the memo's own contact and its matched deal, no new company, the extraction as is).
+    Anything that needs a choice (another contact, a new deal, edits) goes through review.
+    """
+    from app.services.hubspot.auto_sync import approval_payload_for_auto_sync
+    from app.services.playbooks.catalog import INTERNAL_KEY
+
+    memo_data = _require_readable_memo(supabase, str(memo_id), user_id)
+    if str(memo_data.get("user_id") or "") != str(user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the rep who made the call approves from here")
+    contact_id = str(memo_data.get("hubspot_contact_id") or "").strip()
+    if not contact_id or memo_data.get("sales_motion_key") == INTERNAL_KEY:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Needs review: no contact to update")
+    if memo_data.get("status") not in ("pending_review", "approved"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Not ready to approve yet")
+    payload = approval_payload_for_auto_sync(
+        contact_id=contact_id,
+        deal_id=memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id"),
+    )
+    return await approve_memo(memo_id, payload, supabase, user_id)
 
 
 @router.get("/{memo_id}/crm-updates", response_model=List[CRMUpdate])
