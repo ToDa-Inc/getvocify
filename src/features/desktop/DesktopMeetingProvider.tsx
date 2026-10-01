@@ -706,9 +706,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       releaseAudioRef.current = [
         hookMicPcm(ctx, micStream, send("rep")),
         bridge.systemAudio.onPcm(send("prospect")),
-        bridge.systemAudio.onLost?.(() =>
-          setWarning("Meeting audio stopped. Your mic is still recording."),
-        ) ?? (() => {}),
+        bridge.systemAudio.onLost?.(() => {
+          // The Mac already tried to restart it: the island must say so, the window may be hidden.
+          setWarning("Meeting audio stopped. Your mic is still recording.");
+          bridge.shell.setState({ callAudioLost: true });
+        }) ?? (() => {}),
       ];
 
       setElapsed("00:00");
@@ -726,6 +728,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       }, 125);
       bridge.shell.setState({
         listening: true,
+        callAudioLost: false,
         paused: false,
         clock: meetingClock(),
         levels: { you: 0, them: 0 },
