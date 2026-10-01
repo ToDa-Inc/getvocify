@@ -42,6 +42,16 @@ export type VocifyDesktopBridge = {
       error?: string;
     }>;
   };
+  /** CRM pages open in the rep's browsers. Missing in builds older than the call contact. */
+  crm?: {
+    pages(options?: { ask?: boolean }): Promise<{
+      urls: string[];
+      browsers: { name: string; bundleId: string; access: string }[];
+    }>;
+    openAutomationSettings(): Promise<unknown>;
+    /** The notch island detected a call with these CRM pages on screen. */
+    onCallPages(cb: (payload: { urls: string[] }) => void): () => void;
+  };
   /** Meeting drafts on disk. Missing in builds older than local recovery. */
   drafts?: {
     save(draft: object): Promise<{ ok: boolean } | null>;

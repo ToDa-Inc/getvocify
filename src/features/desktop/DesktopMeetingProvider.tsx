@@ -37,6 +37,7 @@ import {
 import { meetingStartedLabel, sortDrafts, type MeetingDraft } from "@/lib/meeting-draft";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
+import { islandCallContact, latestOnly, type CallPreview } from "@/lib/call-contact";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
 
@@ -575,6 +576,25 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       }
     });
   }, [navigate]);
+
+  // The island detected a call: name the CRM contact on screen for its call menu.
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.crm) return;
+    const lookups = latestOnly();
+    return bridge.crm.onCallPages(({ urls }) => {
+      const ticket = lookups.next();
+      if (!api.getToken()) return;
+      api
+        .post<CallPreview>("/live-calls/preview", { page_urls: urls })
+        .then((preview) => {
+          if (lookups.isLatest(ticket)) bridge.shell.setState({ callContact: islandCallContact(preview) });
+        })
+        .catch(() => {
+          // No name: the island keeps showing the app.
+        });
+    });
+  }, []);
 
   // Leaving the dashboard mid-meeting (e.g. signing out) keeps the transcript on disk.
   useEffect(
