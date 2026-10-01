@@ -437,7 +437,9 @@ class OpenRouterProvider(BaseLLMProvider):
             message = await self._complete(
                 messages, model=model, temperature=temperature,
                 response_format={"type": "json_object"}, timeout=timeout, max_retries=max_retries,
-                extra={"reasoning": {"effort": reasoning_effort}},
+                # "low"/"medium"/"high", or a token budget ("1200") that keeps reasoning but caps it.
+                extra={"reasoning": {"max_tokens": int(reasoning_effort)} if str(reasoning_effort).isdigit()
+                       else {"effort": reasoning_effort}},
             )
             content = message.get("content")
             if content is None:
