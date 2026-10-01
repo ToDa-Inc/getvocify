@@ -2838,7 +2838,8 @@ function createNewDealTarget() {
 
 let contactPickTimer = null;
 
-function commitContactPick(contactId) {
+function commitContactPick(contact) {
+  const contactId = contact.contact_id;
   userSelectedContactId = contactId;
   currentContactId = contactId;
   contactPickerOpen = false;
@@ -2846,19 +2847,21 @@ function commitContactPick(contactId) {
   clearContactSearchResults();
   const searchBox = document.getElementById('contact-search-box');
   if (searchBox) searchBox.style.display = 'none';
+  // Show the pick now; the refreshed preview replaces it when it lands.
+  renderContactTarget({ ...(lastPreviewData || {}), selected_contact: contact });
   const targets = currentReviewTargets(reviewTargetContext(), { userContactId: contactId });
   loadPreview(currentMemoId, targets.dealId, null, targets.contactId, { resetEdits: true });
 }
 
-function pickContact(contactId) {
-  const id = String(contactId);
+function pickContact(contact) {
+  const id = String(contact.contact_id);
   const list = document.getElementById('contact-candidates');
   list?.querySelectorAll('.matched-deal-item').forEach((btn) => {
     btn.classList.toggle('is-selected', btn.dataset.contactId === id);
   });
   clearTimeout(contactPickTimer);
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  contactPickTimer = setTimeout(() => commitContactPick(contactId), reduce ? 0 : 160);
+  contactPickTimer = setTimeout(() => commitContactPick(contact), reduce ? 0 : 160);
 }
 
 function renderContactRow(c, selectedId) {
@@ -2869,7 +2872,7 @@ function renderContactRow(c, selectedId) {
   if (selectedId && String(c.contact_id) === String(selectedId)) btn.classList.add('is-selected');
   const meta = [c.email, c.phone, c.company_name].filter(Boolean).join(' · ');
   btn.innerHTML = `<span class="matched-deal-copy"><strong class="deal-title">${escapeHtml(c.name || 'Contact')}</strong>${meta ? `<span class="deal-subtitle">${escapeHtml(meta)}</span>` : ''}</span>`;
-  btn.addEventListener('click', () => pickContact(c.contact_id));
+  btn.addEventListener('click', () => pickContact(c));
   return btn;
 }
 
@@ -3489,7 +3492,7 @@ async function searchContacts(query) {
       item.onclick = () => {
         if (contactSearchInput) contactSearchInput.value = '';
         clearContactSearchResults();
-        pickContact(c.contact_id);
+        pickContact(c);
       };
       contactSearchResultsBox.appendChild(item);
     });

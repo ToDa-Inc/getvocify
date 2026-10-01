@@ -53,13 +53,13 @@ from app.services.playbooks.structured import (
     MAX_OBJECTION_LABEL,
     MAX_TRIGGER,
     OBJECTION_CATEGORIES,
-    OBJECTION_EXTRAS,
     clip_text,
     normalize_objections,
     normalize_qualification,
     normalize_steps,
     objection_view,
     parse_playbook_text,
+    strip_markdown,
 )
 from app.services.text_guard import generic_criterion, generic_phrases
 
@@ -69,9 +69,14 @@ PROMPT_VERSION = "playbook_structure_v2"
 _PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"{PROMPT_VERSION}.md"
 
 MAX_AI_STEPS = 7
-# Same posture as the glossary hints: a short timeout and one attempt at the client. The
-# Head of Sales waits on this call, so a slow model becomes the line parser, not a spinner.
+# One attempt at the client. The Head of Sales waits on this call, so a slow model becomes
+# the line parser, not an endless spinner; but a whole playbook document takes the model
+# longer than a paragraph, and a rushed timeout turned good documents into the parser's
+# rougher steps. Short sources get TIMEOUT_S, long ones up to LONG_TIMEOUT_S.
 TIMEOUT_S = 25.0
+LONG_TIMEOUT_S = 60.0
+LONG_SOURCE_CHARS = 2_500
+
 # The whole company's document writes every call type and the company block in ONE answer:
 # a real playbook (4 types, ~20 steps, objections, criteria) takes the model well over 25 s,
 # and fell back to "¿Para qué llamada es?" every time. The screen waits 120 s for this call
@@ -197,6 +202,10 @@ def _messages(source: str, motion_key: str, lang: str) -> list[dict]:
     return [{"role": "system", "content": _system_prompt()}, {"role": "user", "content": user}]
 
 
+def timeout_for(source: str) -> float:
+    return LONG_TIMEOUT_S if len(source) >= LONG_SOURCE_CHARS else TIMEOUT_S
+
+
 async def _ask(llm: Any, messages: list[dict], timeout: float = TIMEOUT_S) -> Any:
     result = llm.chat_json(
         messages=messages, temperature=TEMPERATURE, timeout=timeout, max_retries=MAX_RETRIES,
@@ -206,10 +215,16 @@ async def _ask(llm: Any, messages: list[dict], timeout: float = TIMEOUT_S) -> An
     return result
 
 
+def _text(raw: dict, name: str, limit: int) -> str:
+    """One field the model wrote, clipped, without the markdown it copied from the source."""
+    return clip_text(strip_markdown(raw.get(name)), limit)
+
+
 def _shape_objections(raw_objections: Any) -> list[dict]:
     """The model's objections as clipped entries: one per fixed category (an answer is
     required), `custom` ones need a label (their answer may be empty), at most
-    MAX_CUSTOM_OBJECTIONS, none twice by label; meaning / question / proof only when written."""
+    MAX_CUSTOM_OBJECTIONS, none twice by label. Anything else the prompt returns (meaning /
+    question / proof) is not kept."""
     out: list[dict] = []
     seen: set[str] = set()
     custom_labels: set[str] = set()
@@ -218,26 +233,22 @@ def _shape_objections(raw_objections: Any) -> list[dict]:
         if not isinstance(raw, dict):
             continue
         category = str(raw.get("category") or "").strip().lower()
-        guidance = clip_text(raw.get("guidance"), MAX_GUIDANCE)
+        guidance = _text(raw, "guidance", MAX_GUIDANCE)
         if category == CUSTOM_CATEGORY:
-            label = clip_text(raw.get("label"), MAX_OBJECTION_LABEL)
+            label = _text(raw, "label", MAX_OBJECTION_LABEL)
             if not label or label.casefold() in custom_labels or customs >= MAX_CUSTOM_OBJECTIONS:
                 continue
             custom_labels.add(label.casefold())
             customs += 1
             entry = {
                 "category": category, "label": label,
-                "trigger": clip_text(raw.get("trigger"), MAX_TRIGGER), "guidance": guidance,
+                "trigger": _text(raw, "trigger", MAX_TRIGGER), "guidance": guidance,
             }
         elif category in OBJECTION_CATEGORIES and guidance and category not in seen:
             seen.add(category)
             entry = {"category": category, "guidance": guidance}
         else:
             continue
-        for name, limit in OBJECTION_EXTRAS:
-            value = clip_text(raw.get(name), limit)
-            if value:
-                entry[name] = value
         out.append(entry)
     return out
 
@@ -250,17 +261,16 @@ def _shape_qualification(raw_criteria: Any) -> list[dict]:
     for raw in raw_criteria if isinstance(raw_criteria, list) else []:
         if not isinstance(raw, dict):
             continue
-        label = clip_text(raw.get("label"), MAX_CRITERION_LABEL)
+        label = _text(raw, "label", MAX_CRITERION_LABEL)
         if not label or label.casefold() in seen:
             continue
         seen.add(label.casefold())
         item = {"label": label}
         if raw.get("criterion_id"):
             item["criterion_id"] = str(raw["criterion_id"]).strip()
-        for name in ("why", "good", "bad"):
-            value = clip_text(raw.get(name), MAX_CRITERION_TEXT)
-            if value:
-                item[name] = value
+        value = _text(raw, "good", MAX_CRITERION_TEXT)
+        if value:
+            item["good"] = value
         out.append(item)
         if len(out) >= MAX_CRITERIA:
             break
@@ -280,10 +290,10 @@ def _shape_content(
     for raw in raw_steps:
         if not isinstance(raw, dict):
             continue
-        label = clip_text(raw.get("label"), MAX_LABEL)
+        label = _text(raw, "label", MAX_LABEL)
         if not label:
             continue
-        step = {"label": label, "criterion": clip_text(raw.get("criterion"), MAX_CRITERION)}
+        step = {"label": label, "criterion": _text(raw, "criterion", MAX_CRITERION)}
         example = " ".join(str(raw.get("example") or "").split())
         if example and _literal_in(example, folded_source):
             step["example"] = clip_text(example, MAX_EXAMPLE)
@@ -313,14 +323,14 @@ def _digits(text: str) -> set[str]:
 def _shape_company(raw: Any, folded_source: str, raw_source: str | None = None) -> dict:
     """What the model says about the company, in the stored shape (normalize_knowledge clips and
     caps it). Two guards against invention: a competitor whose name the source never mentions is
-    dropped, and a customer case's `number` with digits the source does not contain is emptied."""
+    dropped, and a customer case whose result gives a figure the source does not contain loses it."""
     data = normalize_knowledge(raw)
     plain = _deaccent(folded_source)
     source_digits = _digits(raw_source if raw_source is not None else folded_source)
     data["competitors"] = [item for item in data["competitors"] if _deaccent(_fold(item["name"])) in plain]
-    for proof in data["proofs"]:
-        if proof["number"] and not _digits(proof["number"]) <= source_digits:
-            proof["number"] = ""
+    data["proofs"] = [
+        proof if _digits(proof["change"]) <= source_digits else {**proof, "change": ""} for proof in data["proofs"]
+    ]
     return data
 
 
@@ -470,6 +480,7 @@ async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = 
             lambda s: _generic_indexes(s["steps"]),
             lambda s: _retry_note(s["steps"], _generic_indexes(s["steps"])),
             lambda s: bool(s["steps"]),
+            timeout=timeout_for(source),
         )
         generic = _generic_indexes(shaped["steps"])
 

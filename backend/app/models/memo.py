@@ -92,6 +92,10 @@ class MemoExtraction(BaseModel):
     # Typed intelligence. Absent on legacy memos. null is unknown, not false.
     intelligence: Optional[IntelligenceV1] = None
 
+    # Whether anyone outside the rep's team took part. false tags the memo `internal`
+    # (playbooks.routing.apply_internal_detection). null is unknown, never false.
+    customerPresent: Optional[bool] = None
+
     @model_validator(mode="before")
     @classmethod
     def normalize_llm_output(cls, v: Any) -> Any:
@@ -151,6 +155,7 @@ class Memo(MemoBase):
     hubspotDealId: Optional[str] = None
     screeningOutcome: Optional[str] = None
     interactionKind: Optional[str] = None
+    salesMotionKey: Optional[str] = None
     # Lista 4 T4: what the after-call outcome did (stored date, handoff hint). Approve only.
     after_call: Optional[dict] = None
     

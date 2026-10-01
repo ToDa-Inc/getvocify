@@ -183,7 +183,7 @@ const ObjectionCopilotPage = () => {
       </div>
 
       {(transcriptionError || suggestError) && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-destructive/30 dark:bg-destructive/10 dark:text-destructive">
           {transcriptionError || suggestError}
         </div>
       )}
@@ -197,7 +197,7 @@ const ObjectionCopilotPage = () => {
         model={model}
       />
 
-      <section className="rounded-3xl border border-border/40 bg-white/70 p-5 space-y-3">
+      <section className="rounded-3xl border border-border/40 bg-card/70 p-5 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xs font-medium text-muted-foreground">
             Live transcript
@@ -222,7 +222,7 @@ const ObjectionCopilotPage = () => {
         </div>
       </section>
 
-      <section className="rounded-3xl border border-border/40 bg-white/70 p-5 space-y-3">
+      <section className="rounded-3xl border border-border/40 bg-card/70 p-5 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-medium text-muted-foreground">
             Offer context

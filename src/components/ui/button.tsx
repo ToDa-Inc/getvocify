@@ -9,9 +9,11 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        // The app's primary: beige with the glass highlight and a soft glow on hover (materials.css .btn-glow).
+        default: "btn-glow bg-beige text-cream hover:bg-beige/90",
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "border border-border/70 bg-card text-foreground shadow-none hover:bg-secondary/60",
+        // Secondary: the light glass of a selected nav pill.
+        outline: "glass-nav text-foreground hover:bg-white/40 dark:hover:bg-white/10",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-secondary hover:text-foreground",
         link: "text-primary underline-offset-4 hover:underline",

@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from app.services.playbooks.catalog import (
     CATALOG_KEYS,
+    INTERNAL_KEY,
     catalog_order,
     catalog_role,
     effective_applies_to,
@@ -282,15 +283,33 @@ def resolve_motion(
 
 def merge_pin_meta(existing: Any, source: str, *, provisional: bool = False, **extra: Any) -> dict:
     """pipeline_meta with playbook_pin = {source, provisional?, ...}. Other keys are kept.
-    source: "rule" | "role_default" | "manual". A "role_default" or provisional pin is one
-    repin_before_c04 may still move; a manual one, or a rule match decided with everything
-    it needed, never moves."""
+    source: "rule" | "role_default" | "manual" | "internal". A "role_default" or provisional
+    pin is one repin_before_c04 may still move; a manual one, an internal one, or a rule match
+    decided with everything it needed, never moves."""
     meta = dict(existing) if isinstance(existing, dict) else {}
     pin: dict = {"source": source}
     if provisional:
         pin["provisional"] = True
     meta[PIN_META_KEY] = {**pin, **extra}
     return meta
+
+
+def apply_internal_detection(memo_row: dict, extraction: dict) -> dict:
+    """The fields that tag a memo `internal` when extraction says no customer took part
+    (customerPresent is exactly false), else {}. Unknown (null or absent) never tags, and a
+    manual pin is never moved: the person who retagged it has the last word."""
+    if not isinstance(extraction, dict) or extraction.get("customerPresent") is not False:
+        return {}
+    meta = memo_row.get("pipeline_meta")
+    pin = meta.get(PIN_META_KEY) if isinstance(meta, dict) else None
+    source = pin.get("source") if isinstance(pin, dict) else None
+    if source == "manual" or memo_row.get("sales_motion_key") == INTERNAL_KEY:
+        return {}
+    return {
+        "sales_motion_key": INTERNAL_KEY,
+        "playbook_version_id": None,
+        "pipeline_meta": merge_pin_meta(meta, "internal"),
+    }
 
 
 def is_repinnable(pipeline_meta: Any) -> bool:

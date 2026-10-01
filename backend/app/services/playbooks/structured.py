@@ -33,13 +33,6 @@ MAX_GUIDANCE = 600
 MAX_CUSTOM_OBJECTIONS = 12
 MAX_OBJECTION_LABEL = 60
 MAX_TRIGGER = 200
-MAX_MEANING = 200
-MAX_QUESTION = 200
-MAX_PROOF = 300
-# Optional extras of an objection answer, in the order they are stored and shown.
-OBJECTION_EXTRAS: tuple[tuple[str, int], ...] = (
-    ("meaning", MAX_MEANING), ("question", MAX_QUESTION), ("proof", MAX_PROOF),
-)
 MAX_CRITERIA = 8
 MAX_CRITERION_LABEL = 60
 MAX_CRITERION_TEXT = 200
@@ -130,7 +123,9 @@ def _entry_id_slug(entry_id: Any) -> str:
 
 def normalize_objections(objections: Iterable[dict]) -> list[dict]:
     """The objection answers as stored entries. A fixed category keeps one entry (an empty
-    answer is "not written yet", not an error) with optional meaning / question / proof. A
+    answer is "not written yet", not an error) with an optional trigger (how the prospect says it).
+    Anything else sent with it (the old meaning / question / proof) is dropped: an objection is what
+    the prospect says, its kind and the answer. A
     `custom` one is the company's own objection: `label` required, `trigger` is how the
     prospect says it, and it is kept without an answer (Vocify can detect it before anyone
     wrote how to answer); at most MAX_CUSTOM_OBJECTIONS, its entry_id is a slug of the label
@@ -146,7 +141,6 @@ def normalize_objections(objections: Iterable[dict]) -> list[dict]:
         raw = raw if isinstance(raw, dict) else {}
         category = str(raw.get("category") or "").strip().lower()
         guidance = _clean(raw.get("guidance"))
-        extras = {name: _clean(raw.get(name)) for name, _ in OBJECTION_EXTRAS}
         if category == CUSTOM_CATEGORY:
             label = _clean(raw.get("label"))
             trigger = _clean(raw.get("trigger"))
@@ -162,11 +156,12 @@ def normalize_objections(objections: Iterable[dict]) -> list[dict]:
                 raise PlaybookDraftError("bad_category", index=index)
             if category in seen:
                 raise PlaybookDraftError("duplicate_category", index=index)
+            # How the prospect says it ("Es muy caro para nosotros"), optional for a fixed category.
+            trigger = _clean(raw.get("trigger"))
+            if len(trigger) > MAX_TRIGGER:
+                raise PlaybookDraftError("field_too_long", index=index, field="trigger")
         if len(guidance) > MAX_GUIDANCE:
             raise PlaybookDraftError("guidance_too_long", index=index)
-        for name, limit in OBJECTION_EXTRAS:
-            if len(extras[name]) > limit:
-                raise PlaybookDraftError("field_too_long", index=index, field=name)
         if category == CUSTOM_CATEGORY:
             given = str(raw.get("id") or "").strip()
             base = given if _STEP_ID.match(given) else slug(label, "custom")
@@ -182,16 +177,15 @@ def normalize_objections(objections: Iterable[dict]) -> list[dict]:
         else:
             seen.add(category)
             entry = {"entry_id": f"objection:{category}", "category": category, "guidance": guidance}
-        for name, _ in OBJECTION_EXTRAS:
-            if extras[name]:
-                entry[name] = extras[name]
+            if trigger:
+                entry["trigger"] = trigger
         entry["source_ref"] = "editor"
         out.append(entry)
     return out
 
 
 def normalize_qualification(criteria: Optional[Iterable[dict]]) -> list[dict]:
-    """"What has to come out of the call": [{criterion_id, label, why?, good?, bad?}], at most
+    """"What has to come out of the call": [{criterion_id, label, good?}], at most
     MAX_CRITERIA. `criterion_id` is a stable slug (the one the editor sent back, else a slug of
     the label, suffixed when two collide), like a step's `step_id`. An empty list is valid."""
     items = list(criteria or [])
@@ -206,7 +200,8 @@ def normalize_qualification(criteria: Optional[Iterable[dict]]) -> list[dict]:
             raise PlaybookDraftError("criterion_label_empty", index=index)
         if len(label) > MAX_CRITERION_LABEL:
             raise PlaybookDraftError("criterion_label_too_long", index=index)
-        texts = {name: _clean(raw.get(name)) for name in ("why", "good", "bad")}
+        # A criterion is what to find out and how a good answer sounds; older why / bad are dropped.
+        texts = {"good": _clean(raw.get("good"))}
         for name, value in texts.items():
             if len(value) > MAX_CRITERION_TEXT:
                 raise PlaybookDraftError("field_too_long", index=index, field=name)
@@ -236,30 +231,137 @@ def clip_text(value: Any, limit: int) -> str:
 
 # Port of parsePlaybookText (src/lib/playbook-editor.ts): the deterministic parser the
 # structuring flow falls back to when the model is down. Keep both in step.
-_MARKER = re.compile(r"^\s*(?:(?:paso|step)\s*)?(?:\d{1,2}[.)\-:]|[-•*·]|#{1,4})\s+", re.IGNORECASE)
+_MARKER = re.compile(r"^\s*(?:(?:paso|step)\s*)?(?:\d{1,2}[.)\-:]|[-•*·]|#{1,6})\s+", re.IGNORECASE)
+_HEADING = re.compile(r"^\s*#{1,6}\s+")
+_NUMBER = re.compile(r"^\s*(?:(?:paso|step)\s*)?\d{1,2}[.)\-:]\s+", re.IGNORECASE)
+_BULLET = re.compile(r"^\s*[-•*·]\s+")
 _SPLIT = re.compile(r"\s*(?::|—|–|\s-\s)\s*")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+_EMPHASIS = re.compile(r"\*\*|__|`")
+SHORT_LABEL = 60
+# Words a cut label must not end on ("…equipo comercial activo y").
+_DANGLING = frozenset(
+    "y o e u de del con en a al para por que la el los las un una sin "
+    "and or of with to for in on the a an that".split()
+)
+
+
+def strip_markdown(value: Any) -> str:
+    """Bold and code marks a document (or a model copying it) carries: never shown in a step."""
+    return _EMPHASIS.sub("", str(value or ""))
+
+
+def _plain(line: str) -> str:
+    return strip_markdown(line).lstrip("> ").rstrip()
+
+
+def short_label(text: str) -> str:
+    """The name of a step from a sentence: the first clause when the sentence is long, cut
+    at a word boundary, never mid-word ("Priorizar startups B2B con SDRs")."""
+    sentence = _SENTENCE_END.split(_clean(text))[0] if text else ""
+    sentence = re.sub(r"[.!?:]+$", "", sentence).strip()
+    if len(sentence) <= SHORT_LABEL:
+        return sentence
+    for mark in (", ", " (", "; ", " — ", " – "):
+        at = sentence.find(mark)
+        if 12 <= at <= SHORT_LABEL:
+            return sentence[:at].strip()
+    words = clip_text(sentence, SHORT_LABEL).split(" ")
+    while len(words) > 1 and words[-1].casefold() in _DANGLING:
+        words.pop()
+    return " ".join(words)
+
+
+def _clip_sentences(text: str, limit: int) -> str:
+    """A long description keeps whole sentences when it has to be cut."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+    return cut[: end + 1] if end >= limit * 0.5 else clip_text(text, limit)
 
 
 def _step_from_line(line: str) -> dict:
-    body = _MARKER.sub("", line, count=1).strip()
+    body = _clean(_MARKER.sub("", line, count=1))
     match = _SPLIT.search(body)
     if match and 0 < match.start() <= MAX_LABEL:
         label = _clean(body[: match.start()])
         criterion = _clean(body[match.end():])
         return {"label": label, "criterion": criterion or label}
-    sentence = _SENTENCE_END.split(body)[0] if body else body
-    label = re.sub(r"[.!?]+$", "", _clean(sentence))[:MAX_LABEL].strip()
-    return {"label": label, "criterion": _clean(body)}
+    return {"label": short_label(body), "criterion": body}
+
+
+def _join(previous: str, piece: str, item: bool) -> str:
+    """Lines under a step become its description; each list item reads as its own sentence."""
+    if not previous:
+        return piece
+    if item and not re.search(r"[.!?:;]$", previous):
+        previous += "."
+    return f"{previous} {piece}"
+
+
+def _outline_steps(lines: list[str]) -> Optional[list[dict]]:
+    """A document with an outline ("### 1. Elegir la cuenta" and bullets under it): the
+    numbered headings are the steps and everything under one is its description. Headings
+    without a number ("## Objetivo del rol") are context, not steps. None when the text has
+    no outline, so the flat rules apply."""
+    kinds = []
+    for line in lines:
+        heading = bool(_HEADING.match(line))
+        body = _HEADING.sub("", line, count=1)
+        numbered = bool(_NUMBER.match(body))
+        kinds.append((heading, numbered, _clean(_NUMBER.sub("", body, count=1) if numbered else body)))
+
+    def follows(index: int) -> bool:
+        nxt = next((k for k in kinds[index + 1:] if k[2]), None)
+        return nxt is not None and not nxt[1] and not nxt[0]
+
+    if any(h and n for h, n, _ in kinds):
+        is_step = lambda k: k[0] and k[1]  # noqa: E731
+        closes = lambda k: k[0]  # noqa: E731
+    elif sum(1 for h, _, b in kinds if h and b) >= 2 and any(not h and b for h, _, b in kinds):
+        is_step = closes = lambda k: k[0]  # noqa: E731
+    elif any(n and not h and b and not _SPLIT.search(b) and len(b) <= SHORT_LABEL and follows(i)
+             for i, (h, n, b) in enumerate(kinds)):
+        is_step = lambda k: k[1] and not k[0]  # noqa: E731
+        closes = lambda k: k[0]  # noqa: E731
+    else:
+        return None
+
+    steps: list[dict] = []
+    current: Optional[dict] = None
+    for raw, kind in zip(lines, kinds):
+        if not kind[2]:
+            continue
+        if is_step(kind):
+            label = re.sub(r"[:.]+$", "", kind[2]).strip()
+            current = {"label": label if len(label) <= MAX_LABEL else short_label(label), "criterion": ""}
+            steps.append(current)
+        elif closes(kind):
+            current = None
+        elif current is not None:
+            item = bool(_BULLET.match(raw) or _NUMBER.match(raw))
+            piece = _clean(_MARKER.sub("", raw, count=1)) if item else kind[2]
+            current["criterion"] = _join(current["criterion"], piece, item)
+    # A title heading with nothing under it is not a step.
+    steps = [s for s in steps if s["criterion"] or len(steps) == 1 or s is not steps[0]]
+    for step in steps:
+        step["criterion"] = _clip_sentences(step["criterion"], MAX_CRITERION) or step["label"]
+    return steps
 
 
 def parse_playbook_text(text: str) -> list[dict]:
-    """Pasted process text -> [{label, criterion}]. Numbered, bulleted or heading lines
-    start a step ("1. Apertura: se presenta…", "- Cualificar — quién decide"); lines under
-    one are added to its description. Without any marker, each paragraph is a step. Never
-    more than MAX_STEPS. Same behaviour as parsePlaybookText in the frontend."""
+    """Pasted process text -> [{label, criterion}]. An outline (numbered headings with lines
+    under them) gives one step per heading. Otherwise numbered, bulleted or heading lines
+    start a step ("1. Apertura: se presenta…", "- Cualificar — quién decide") and lines under
+    one are added to its description; without any marker, each paragraph is a step. Markdown
+    is dropped and long sentences get a short name. Never more than MAX_STEPS. Same behaviour
+    as parsePlaybookText in the frontend."""
     source = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    lines = source.split("\n")
+    lines = [_plain(line) for line in source.split("\n")]
+    outline = _outline_steps(lines)
+    if outline is not None:
+        return [step for step in outline if step["label"]][:MAX_STEPS]
     steps: list[dict] = []
     if any(_MARKER.match(line) for line in lines):
         for raw in lines:
@@ -273,7 +375,7 @@ def parse_playbook_text(text: str) -> list[dict]:
                 previous = "" if last["criterion"] == last["label"] else last["criterion"]
                 last["criterion"] = _clean(f"{previous} {line}")
     else:
-        for paragraph in re.split(r"\n\s*\n", source):
+        for paragraph in re.split(r"\n\s*\n", "\n".join(lines)):
             if paragraph.strip():
                 steps.append(_step_from_line(paragraph.strip()))
     return [step for step in steps if step["label"]][:MAX_STEPS]
@@ -284,9 +386,8 @@ def render_text(steps: list[dict], entries: list[dict], qualification: Optional[
     lines = [f"{i}. {step['label']}: {step['criterion']}" for i, step in enumerate(steps, start=1)]
     for entry in qualification or []:
         line = f"? {entry['label']}"
-        for name in ("why", "good", "bad"):
-            if entry.get(name):
-                line += f" | {name}: {entry[name]}"
+        if entry.get("good"):
+            line += f" | good: {entry['good']}"
         lines.append(line)
     for entry in entries:
         if entry.get("category") == CUSTOM_CATEGORY:
@@ -296,26 +397,22 @@ def render_text(steps: list[dict], entries: list[dict], qualification: Optional[
             line = f"{head}: {entry['guidance']}" if entry.get("guidance") else head
         else:
             line = f"- {entry['category']}: {entry['guidance']}"
-        for name, _ in OBJECTION_EXTRAS:
-            if entry.get(name):
-                line += f" | {name}: {entry[name]}"
         lines.append(line)
     return "\n".join(lines)
 
 
 def objection_view(entry: dict) -> dict:
-    """A stored objection entry as the editor (and the AI flow) carries it: {category,
-    guidance} plus meaning / question / proof when set; a custom one also has `id` (its slug),
-    `label` and `trigger`."""
+    """A stored objection entry as the editor (and the AI flow) carries it: {category, guidance}
+    plus `trigger` when set; a custom one also has `id` (its slug), `label` and always `trigger`.
+    Older entries' meaning / question / proof are not carried, so the next save drops them."""
     category = str(entry.get("category")).lower()
     item: dict = {"category": category, "guidance": str(entry.get("guidance") or "")}
     if category == CUSTOM_CATEGORY:
         item["id"] = _entry_id_slug(entry.get("entry_id")) or slug(str(entry.get("label") or ""), "custom")
         item["label"] = str(entry.get("label") or "")
         item["trigger"] = str(entry.get("trigger") or "")
-    for name, _ in OBJECTION_EXTRAS:
-        if entry.get(name):
-            item[name] = str(entry[name])
+    elif entry.get("trigger"):
+        item["trigger"] = str(entry["trigger"])
     return item
 
 
@@ -325,7 +422,8 @@ def qualification_view(items: Any) -> list[dict]:
         if not isinstance(raw, dict) or not raw.get("criterion_id"):
             continue
         item = {"criterion_id": str(raw["criterion_id"]), "label": str(raw.get("label") or raw["criterion_id"])}
-        item.update({name: str(raw[name]) for name in ("why", "good", "bad") if raw.get(name)})
+        if raw.get("good"):
+            item["good"] = str(raw["good"])
         out.append(item)
     return out
 

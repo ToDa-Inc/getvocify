@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
+from app.services.usage import scoped
 from app.config import settings
 from app.services.pipeline_meta import record_stage
 from app.services.session_entities import (
@@ -266,6 +267,7 @@ async def transcribe_bytes(
     return result.text
 
 
+@scoped("stt_batch")
 async def transcribe_audio(
     audio_bytes: bytes,
     *,

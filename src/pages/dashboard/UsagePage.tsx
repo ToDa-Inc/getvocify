@@ -128,7 +128,7 @@ const UsagePage = () => {
                   {day.memos > 0 && (
                     <div className="absolute inset-0 bg-beige rounded-t-2xl shadow-[0_0_20px_rgba(245,215,176,0.3)]" />
                   )}
-                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white text-foreground text-[10px] font-black px-2 py-1 rounded-lg opacity-0 group-hover/bar:opacity-100 transition-opacity shadow-soft">
+                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-card text-foreground text-[10px] font-black px-2 py-1 rounded-lg opacity-0 group-hover/bar:opacity-100 transition-opacity shadow-soft">
                     {day.memos}
                   </div>
                 </div>

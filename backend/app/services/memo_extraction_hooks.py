@@ -13,6 +13,7 @@ import re
 from app.services.coaching.score_assembly import build_score_from_extraction
 from app.services.coaching.score_jobs import publish_assembled_score
 from app.services.meetings.proposals import build_proposal, infer_agreement, proposal_from_meeting
+from app.services.playbooks.catalog import INTERNAL_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,18 @@ def _insert_proposal(supabase, *, memo_id: str, input_revision: str, proposal: d
     supabase.table("meeting_proposals").insert(row).execute()
 
 
+def _drop_undecided_proposals(supabase, memo_id: str) -> None:
+    """Machine proposals nobody has decided on or sent to the CRM. A human decision stays."""
+    (
+        supabase.table("meeting_proposals")
+        .delete()
+        .eq("memo_id", memo_id)
+        .eq("decision", "pending")
+        .eq("crm_status", "not_requested")
+        .execute()
+    )
+
+
 def _apply_meeting_fact(supabase, *, memo_id: str, memo: dict, meeting: dict, input_revision: str) -> None:
     """C04 supersedes machine proposals nobody has decided on. A human decision is never replaced."""
     rows = (
@@ -175,14 +188,7 @@ def _apply_meeting_fact(supabase, *, memo_id: str, memo: dict, meeting: dict, in
     )
     if decided:
         return
-    (
-        supabase.table("meeting_proposals")
-        .delete()
-        .eq("memo_id", memo_id)
-        .eq("decision", "pending")
-        .eq("crm_status", "not_requested")
-        .execute()
-    )
+    _drop_undecided_proposals(supabase, memo_id)
     proposal = proposal_from_meeting(
         proposal_id=_stable_proposal_id(memo_id, input_revision),
         meeting=meeting,
@@ -199,6 +205,11 @@ def _maybe_insert_meeting_proposal(
     memo: dict,
     extraction: dict,
 ) -> None:
+    if _is_internal(memo):
+        # Nobody outside the team to meet: never proposed to the CRM, and a proposal made
+        # before it was tagged or retagged internal is closed.
+        _drop_undecided_proposals(supabase, memo_id)
+        return
     input_revision = _meeting_revision(memo, extraction)
     meeting = _current_meeting(memo, extraction)
     if meeting is not None:
@@ -224,7 +235,7 @@ def refresh_meeting_proposal(supabase, memo: dict) -> None:
     """After C04 is stored: its meeting fact replaces the transcript fallback. Best-effort."""
     memo_id = str((memo or {}).get("id") or "")
     extraction = (memo or {}).get("extraction")
-    if not memo_id or not isinstance(extraction, dict):
+    if not memo_id or not isinstance(extraction, dict) or _is_internal(memo):
         return
     try:
         meeting = _current_meeting(memo, extraction)
@@ -310,6 +321,35 @@ def _publish_coaching(supabase, memo: dict, extraction: dict) -> None:
         )
 
 
+def _is_internal(memo: dict) -> bool:
+    return (memo or {}).get("sales_motion_key") == INTERNAL_KEY
+
+
+def _tag_internal(supabase, memo: dict, extraction: dict) -> dict:
+    """Extraction found no customer in the conversation: tag it `internal` before C04 and
+    scoring read the pin (a manual pin is never moved). Per company behind
+    INTERNAL_DETECTION_ENABLED. Best-effort: a failed write leaves the memo as it was."""
+    from app.services.feature_flags import is_enabled
+    from app.services.playbooks.routing import apply_internal_detection
+
+    if not apply_internal_detection(memo, extraction):
+        return memo
+    if not is_enabled(supabase, memo.get("company_id"), "INTERNAL_DETECTION_ENABLED"):
+        return memo
+    # `memo` may have been read before the model call (re-extract): decide on the pin as it is
+    # stored now, so a manual retag made in that window is never overwritten.
+    current = _load_memo(supabase, str(memo["id"]))
+    update = apply_internal_detection(current, extraction) if current else {}
+    if not update:
+        return memo
+    try:
+        supabase.table("memos").update(update).eq("id", str(memo["id"])).execute()
+    except Exception:
+        logger.exception("internal tag failed", extra={"memo_id": memo.get("id")})
+        return memo
+    return {**memo, **update}
+
+
 def _load_memo(supabase, memo_id: str) -> dict | None:
     try:
         result = supabase.table("memos").select("*").eq("id", memo_id).limit(1).execute()
@@ -333,9 +373,12 @@ def run_post_extraction_hooks(
     memo = memo if isinstance(memo, dict) else None
     if memo is None:
         memo = _load_memo(supabase, memo_id)
+    known = bool(memo)
     if not memo:
         memo = {"id": memo_id}
     memo = {**memo, "id": str(memo.get("id") or memo_id)}
+    if known:
+        memo = _tag_internal(supabase, memo, extraction)
     # PLAYBOOK_ROUTING_ENABLED: a role-default pin is routed again with the deal and contact
     # known by now, before C04 reads the pinned steps. No-op (and never raises) otherwise.
     from app.services.playbooks.routing import repin_before_c04

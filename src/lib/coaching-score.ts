@@ -37,12 +37,17 @@ export function scoreBlocksLine(
 export type CoachingSurface =
   | { kind: "setup"; title: string; action: string | null }
   | { kind: "waiting"; title: string }
+  | { kind: "internal"; title: string }
   | { kind: "unscored"; title: string; strengths: string[]; improvements: string[]; coverage: number | null }
   | { kind: "scored"; strengths: string[]; improvements: string[]; value: number; adherence: number | null; crmOutcome: string | null };
 
 export type CoachingProductCopy = Pick<
   ProductTranslations,
-  "coachingSetupTitle" | "coachingSetupAction" | "coachingWaitingTitle" | "coachingUnscoredTitle"
+  | "coachingSetupTitle"
+  | "coachingSetupAction"
+  | "coachingWaitingTitle"
+  | "coachingInternalTitle"
+  | "coachingUnscoredTitle"
 >;
 
 export function coachingSurface(score: ScoreView, copy: CoachingProductCopy, role: string): CoachingSurface {
@@ -53,6 +58,10 @@ export function coachingSurface(score: ScoreView, copy: CoachingProductCopy, rol
       title: copy.coachingSetupTitle,
       action: canEdit ? copy.coachingSetupAction : null,
     };
+  }
+  // An internal memo (no customer in it) is never scored: say so rather than wait for a score.
+  if (score.reason === "internal") {
+    return { kind: "internal", title: copy.coachingInternalTitle };
   }
   if (score.reason === "not_scored") {
     return { kind: "waiting", title: copy.coachingWaitingTitle };

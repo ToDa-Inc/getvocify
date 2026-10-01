@@ -69,7 +69,7 @@ export function TranscriptConversation({
             <div
               className={cn(
                 "whitespace-pre-wrap break-words rounded-[14px] border px-3.5 py-2.5 text-[13.5px] leading-relaxed text-foreground",
-                isYou && "rounded-bl-sm border-border/60 bg-[#f3f0eb]",
+                isYou && "rounded-bl-sm border-border/60 bg-[#f3f0eb] dark:bg-secondary",
                 isThem && "rounded-br-sm border-beige/20 bg-beige/10",
                 side === "other" && "border-border bg-background",
               )}

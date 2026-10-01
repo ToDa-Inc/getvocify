@@ -424,6 +424,7 @@ async def live_ask_loop(text: str, confirm: bool | None = None, on_event=None):
     from app.services.crm_copilot.prompts import build_system_prompt
     from app.services.crm_copilot.tools import OPENAI_TOOLS, CopilotContext, execute_tool
     from app.services.llm.client import LLMClient
+    from app.services.usage import usage_scope
 
     actor = current_actor()
     artifacts = session_for(actor.user_id, actor.conversation_id or "")
@@ -451,26 +452,27 @@ async def live_ask_loop(text: str, confirm: bool | None = None, on_event=None):
     team = team_roster(ctx, actor) if actor.is_team_reader else None
     effort = await choose_effort(text) if settings.ASK_EFFORT_ROUTING and confirm is None else LOW
     try:
-        result = await run_copilot_turn(
-            text,
-            artifacts=artifacts,
-            llm=LLMClient(),
-            execute=execute_tool,
-            tools=[*(t for t in OPENAI_TOOLS if t["function"]["name"] not in WEB_HIDDEN_TOOLS | _WHATSAPP_DATA_TOOLS), *intel_tools_for(actor)],
-            system=build_system_prompt(artifacts, web=True, manager=actor.is_team_reader, tz=actor.timezone, team=team),
-            confirm=confirm,
-            ctx=ctx,
-            model=model_profile.ask_model(),
-            fallback_model=model_profile.ask_fallback_model(),
-            verify_numbers=True,
-            max_rounds=settings.ASK_MAX_ROUNDS,
-            effort=effort,
-            retry_empty=True,
-            with_data=False,
-            answer_hint=answer_hint(reply_language(text)),
-            on_step=on_step,
-            **kwargs,
-        )
+        with usage_scope("ask", user_id=actor.user_id):
+            result = await run_copilot_turn(
+                text,
+                artifacts=artifacts,
+                llm=LLMClient(),
+                execute=execute_tool,
+                tools=[*(t for t in OPENAI_TOOLS if t["function"]["name"] not in WEB_HIDDEN_TOOLS | _WHATSAPP_DATA_TOOLS), *intel_tools_for(actor)],
+                system=build_system_prompt(artifacts, web=True, manager=actor.is_team_reader, tz=actor.timezone, team=team),
+                confirm=confirm,
+                ctx=ctx,
+                model=model_profile.ask_model(),
+                fallback_model=model_profile.ask_fallback_model(),
+                verify_numbers=True,
+                max_rounds=settings.ASK_MAX_ROUNDS,
+                effort=effort,
+                retry_empty=True,
+                with_data=False,
+                answer_hint=answer_hint(reply_language(text)),
+                on_step=on_step,
+                **kwargs,
+            )
     except Exception:
         logging.getLogger(__name__).exception("ask loop failed")
         return None

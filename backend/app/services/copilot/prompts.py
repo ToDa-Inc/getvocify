@@ -119,13 +119,9 @@ def format_company_knowledge(
     proof_lines = []
     for proof in [item for item in (knowledge.get("proofs") or []) if isinstance(item, dict)][:3]:
         customer = _clip(proof.get("customer"), 60)
-        change = _clip(
-            " ".join(part for part in (_clip(proof.get("situation"), 140), _clip(proof.get("change"), 140)) if part),
-            280,
-        )
-        number = _clip(proof.get("number"), 60)
-        if customer or change or number:
-            proof_lines.append("- " + " · ".join(part for part in (customer, change, number) if part))
+        change = _clip(proof.get("change"), 280)
+        if customer or change:
+            proof_lines.append("- " + " · ".join(part for part in (customer, change) if part))
     if proof_lines:
         lines.append("Customer proofs (the only ones that exist):")
         lines.extend(proof_lines)
@@ -133,10 +129,7 @@ def format_company_knowledge(
         lines.append(f"Competitor named in the call: {_clip(competitor.get('name'), 60)}")
         how = _clip(competitor.get("how_to_talk"), 300)
         if how:
-            lines.append(f"- How to talk about it: {how}")
-        landmines = _clip(competitor.get("landmines"), 300)
-        if landmines:
-            lines.append(f"- Do not say: {landmines}")
+            lines.append(f"- How to win against it: {how}")
     if not lines:
         return ""
     body = "\n".join(lines)

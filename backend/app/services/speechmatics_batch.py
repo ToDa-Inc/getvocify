@@ -15,6 +15,7 @@ import httpx
 from app.config import settings
 from app.logging_config import log_domain, DOMAIN_TRANSCRIPTION
 from app.metrics import record_transcription_duration
+from app.services.usage import record_stt_usage
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,22 @@ class SpeechmaticsBatchService:
             data = resp.json()
             return data.get("job", data)
 
+    async def _record_usage(self, job_id: str, channel: bool) -> None:
+        """Audio length comes from the finished job; a lookup failure must not fail the transcript."""
+        try:
+            seconds = (await self._get_job(job_id)).get("duration")
+            if seconds:
+                record_stt_usage(
+                    "speechmatics",
+                    "batch",
+                    float(seconds),
+                    channels=2 if channel else 1,
+                    model=BATCH_OPERATING_POINT,
+                    meta={"job_id": job_id},
+                )
+        except Exception:
+            logger.warning("Speechmatics batch usage not recorded for %s", job_id, exc_info=True)
+
     async def get_transcript(self, job_id: str) -> str:
         """
         Get transcript text from completed job.
@@ -338,6 +355,7 @@ class SpeechmaticsBatchService:
                 )
                 t0 = time.perf_counter()
                 transcript = await self.get_transcript(job_id)
+                await self._record_usage(job_id, channel)
                 total_elapsed = time.perf_counter() - _transcribe_start
                 record_transcription_duration(total_elapsed, "whatsapp")
                 elapsed_ms = (time.perf_counter() - t0) * 1000
