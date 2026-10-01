@@ -28,7 +28,7 @@
     "doubt": false
    },
    "datos_de_la_empresa": {
-    "status": "met",
+    "status": "missed",
     "doubt": false
    },
    "detectar_urgencia": {
@@ -245,7 +245,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "not_applicable",
@@ -283,7 +283,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "not_applicable",
@@ -511,7 +511,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "not_applicable",
@@ -663,7 +663,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "not_applicable",
@@ -1071,7 +1071,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "met",
@@ -1196,7 +1196,7 @@
     "doubt": false
    },
    "datos_de_la_empresa": {
-    "status": "met",
+    "status": "missed",
     "doubt": true
    },
    "detectar_urgencia": {
@@ -1223,7 +1223,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "met",

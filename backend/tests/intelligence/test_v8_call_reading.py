@@ -96,7 +96,7 @@ def test_v8_payload_carries_the_call_the_relabeled_transcript_and_step_examples(
     )
     payload = json.loads(messages[1]["content"])
     assert payload["transcript"] == "You: hola"
-    assert payload["call"] == {"call_type": "follow_up", "phase_reached": "opening", "reached_conversation": True}
+    assert payload["call"] == {"call_type": "follow_up", "phase_reached": "opening", "reached_conversation": True, "roles_marked": True}
     assert payload["playbook_steps"][0]["example"] == "soy X de Y, te llamo porque..."
     v7 = json.loads(build_messages(memo, prompt_version=QUALIFICATION_PROMPT_VERSION, playbook_steps=STEPS)[1]["content"])
     assert "example" not in v7["playbook_steps"][0] and "call" not in v7

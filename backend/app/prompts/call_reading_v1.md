@@ -31,8 +31,11 @@ When a single turn mixes both voices, give it to whoever says most of it.
 call_type is one of:
 - "cold_first_contact": the first real conversation with this prospect (a LinkedIn connection or an
   unanswered email before does not count as a conversation).
-- "follow_up": continues an earlier contact: a previous call, an email the prospect received, "me
-  dijiste que te llamara", a proposal sent. The rep refers to that earlier contact.
+- "follow_up": continues an earlier contact between THIS rep and THIS person: a previous call
+  between them, an email this rep sent them, "me dijiste que te llamara", a proposal sent. A
+  conversation the prospect had with someone else from the rep's company (a colleague, the CEO on
+  LinkedIn) does not make it a follow-up: the rep's first conversation with them is
+  "cold_first_contact".
 - "meeting_confirmation": the main purpose is to confirm or remind a meeting already scheduled.
 - "meeting_reschedule": the main purpose is to rebook a meeting that was missed, postponed or not held.
 - "discovery_meeting": a scheduled meeting or demo (usually long, both sides expected it), not a call
@@ -46,6 +49,8 @@ call_type is one of:
   the rep then pitched something else to them.
 - "no_conversation": voicemail, no answer, ringing, a recorded message, or only greetings.
 - "not_a_sales_call": personal, internal or test call.
+- "dictated_note": a single voice, the rep dictating notes about a conversation that already
+  happened (no prospect speaking).
 - "other".
 If a call is a follow-up AND the prospect could not talk, pick "bad_moment" only when nothing else
 happened; otherwise pick "follow_up". call_type_reason is one short sentence in Spanish saying why.

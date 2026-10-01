@@ -29,12 +29,13 @@ CALL_TYPES = frozenset({
     "wrong_person",
     "no_conversation",
     "not_a_sales_call",
+    "dictated_note",
     "other",
 })
 PHASES = ("none", "opening", "discovery", "pitch", "closing")
 # A call of these types never gets past the opening, whatever steps the playbook has.
 OPENING_ONLY = frozenset({"bad_moment", "gatekeeper", "wrong_person"})
-NOT_JUDGED = frozenset({"no_conversation", "not_a_sales_call"})
+NOT_JUDGED = frozenset({"no_conversation", "not_a_sales_call", "dictated_note"})
 # Calls that pick up an earlier conversation: only their opening is the rep's job to get right.
 CONTINUES_EARLIER = frozenset({"follow_up", "meeting_confirmation", "meeting_reschedule"})
 
@@ -163,5 +164,7 @@ async def read_call(
     meta = dict(getattr(llm, "last_call_meta", None) or {})
     reading = shape_reading(raw, turns)
     if len(turns) < 2:
-        return reading, transcript, meta
-    return reading, relabel(turns, reading), meta
+        # Nothing to split: a dictated note, or a transcript without speaker labels. The text
+        # stays as it was and the judging pass is told the roles are not marked.
+        return {**reading, "roles_marked": False}, transcript, meta
+    return {**reading, "roles_marked": True}, relabel(turns, reading), meta

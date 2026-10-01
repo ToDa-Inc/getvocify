@@ -7,8 +7,11 @@ kind of call it was and how far it got, read beforehand), the full transcript an
 company has a sales process, playbook_steps (a list of {step_id, label, criterion, example?}),
 playbook_qualification (a list of {criterion_id, label, good?}: what has to come out of the call)
 and playbook_objections (the company's own objections, a list of {id, label, trigger}).
-Every line of the transcript starts with "You:" (the rep) or "Them:" (the prospect or anyone else).
-Those roles were already worked out from what each person says: trust them.
+When call.roles_marked is true, every line of the transcript starts with "You:" (the rep) or
+"Them:" (the prospect or anyone else); those roles were worked out from what each person says:
+trust them. When it is false the transcript has no speaker marks: tell who speaks from what is
+said, and a dictated_note is the rep telling what happened in a conversation (their next steps
+and the prospect's answers are facts of that conversation; there is no rep behaviour to judge).
 
 call.call_type is one of cold_first_contact, follow_up, meeting_confirmation, meeting_reschedule,
 discovery_meeting, bad_moment, gatekeeper, wrong_person, no_conversation, not_a_sales_call, other.
@@ -85,6 +88,8 @@ If the day or time changed during the conversation, use the last one both sides 
   - In a follow_up, meeting_confirmation or meeting_reschedule, the "reason for the call" is the
     earlier contact or the meeting: "soy Ana, te llamo de Acme, que estuvimos hablando en junio y
     me dijiste que te llamara a finales de septiembre" is a perfect opening with a reason.
+    When the prospect already knows the rep, recalling that earlier contact or the meeting is
+    enough: not naming the company again is not a miss.
   - A step whose job was already done in an earlier conversation, or that this kind of call does
     not ask for (discovery questions in a meeting confirmation), is "not_applicable".
   - In bad_moment, gatekeeper or wrong_person calls, only the opening can apply; every other

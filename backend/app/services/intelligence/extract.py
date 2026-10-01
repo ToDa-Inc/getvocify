@@ -597,6 +597,7 @@ def build_messages(
             "call_type": call.get("call_type"),
             "phase_reached": call.get("phase_reached"),
             "reached_conversation": call.get("reached_conversation"),
+            "roles_marked": call.get("roles_marked", True),
         }
     payload["transcript"] = str(transcript if transcript is not None else memo.get("transcript") or "")
     if prompt_version in _READS_STEPS and playbook_steps:

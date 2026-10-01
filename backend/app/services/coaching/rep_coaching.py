@@ -13,6 +13,8 @@ _MADRID = ZoneInfo("Europe/Madrid")
 _STATE = {"met": "done", "missed": "missing", "unknown": "no_evidence", "not_applicable": "not_reached"}
 STATES = frozenset(_STATE.values())
 _NOT_A_CONVERSATION = frozenset({"voicemail", "no_response"})
+# Call types (C04 v8 `call.call_type`) whose conversation is meant to go through every step.
+FULL_PROCESS_CALLS = frozenset({"cold_first_contact", "discovery_meeting", "other"})
 MIN_CONVERSATION_SECONDS = 30
 
 FOCUS_MIN_APPLICABLE = 3
@@ -102,6 +104,8 @@ def interaction_row(memo: dict) -> dict | None:
         "observed_at": observed.isoformat(),
         "motion": memo.get("sales_motion_key"),
         "is_conversation": conversation,
+        # v8 call type: only a call that runs the whole process can complete it.
+        "full_process": call.get("call_type") in FULL_PROCESS_CALLS if call else True,
         # Booked is what the rep declared after the call, never read into the transcript.
         "meeting_agreed": rep_outcome == MEETING_BOOKED,
         "duration_s": duration,
@@ -135,8 +139,9 @@ def step_rates(rows: list[dict], steps: list[dict]) -> list[dict]:
 
 
 def process_complete(row: dict) -> bool:
-    """A conversation with no step missing and at least one done."""
-    if not row.get("is_conversation", True):
+    """A conversation with no step missing and at least one done. A follow-up or a call cut at
+    the door only had its opening to do: getting it right is not the full process."""
+    if not row.get("is_conversation", True) or not row.get("full_process", True):
         return False
     states = [s["state"] for s in row["steps"]]
     return "missing" not in states and "done" in states

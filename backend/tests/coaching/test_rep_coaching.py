@@ -230,3 +230,12 @@ def test_repeated_step_observations_keep_the_first():
         ("a", "done", "primera"), ("b", "missing", None),
     ]
     assert step_rates([row], STEPS)[0]["applicable"] == 1
+
+
+def test_only_a_call_that_runs_the_whole_process_can_complete_it():
+    from app.services.coaching.rep_coaching import process_complete
+    memo = _memo([_obs("a", "met"), _obs("b", "not_applicable")])
+    memo["extraction"]["intelligence"]["call"] = {"call_type": "follow_up", "reached_conversation": True}
+    assert process_complete(interaction_row(memo)) is False
+    memo["extraction"]["intelligence"]["call"] = {"call_type": "cold_first_contact", "reached_conversation": True}
+    assert process_complete(interaction_row(memo)) is True
