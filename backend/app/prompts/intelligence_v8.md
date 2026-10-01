@@ -100,6 +100,8 @@ If the day or time changed during the conversation, use the last one both sides 
   que habéis conectado con X… he visto que estás en Y y me queda curiosidad de cómo estáis
   captando clientes" — the rep says who they are, the company, and a reason tied to the
   prospect. That is "met".
+  The connection that brought them together is a valid reason on its own: "te llamo de Acme,
+  hemos conectado por LinkedIn", a referral, an event they both attended.
   status is "met" when the rep did what the step is for in this conversation; quote is the
   rep's own words (a "You:" line) where they did it, copied exactly.
   "missed" only when the step clearly applied to this conversation (by its type and by how far

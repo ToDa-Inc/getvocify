@@ -96,7 +96,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "missed",
@@ -134,8 +134,8 @@
   "playbook_version_id": "963ba427-5c86-41cc-88ff-617bd11ad17a",
   "steps": {
    "apertura_con_motivo": {
-    "status": "missed",
-    "doubt": true
+    "status": "met",
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "not_applicable",
@@ -477,7 +477,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "met",
@@ -765,7 +765,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "not_applicable",
@@ -807,7 +807,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "not_applicable",
@@ -1072,7 +1072,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "not_applicable",
@@ -1404,7 +1404,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "not_applicable",
@@ -1983,7 +1983,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "not_applicable",
@@ -2477,7 +2477,7 @@
   "steps": {
    "apertura_con_motivo": {
     "status": "met",
-    "doubt": true
+    "doubt": false
    },
    "confirmar_quien_decide": {
     "status": "not_applicable",
