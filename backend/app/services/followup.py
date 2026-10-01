@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from app.services.usage import scoped
 from app.config import settings
 from app.services.feature_flags import is_enabled
 from app.services.text_guard import email_filler, strip_email_filler, word_count
@@ -204,6 +205,7 @@ async def _draft(supabase: Any, memo: dict, llm: Any, *, prompt_version: str, by
     return await compose(llm, messages)
 
 
+@scoped("followup")
 async def ensure_followup(supabase: Any, memo_id: str, *, llm: Any = None) -> None:
     """Idempotent. Safe to call from every path that completes an extraction."""
     memo_id = str(memo_id)

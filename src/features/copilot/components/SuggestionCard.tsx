@@ -19,7 +19,7 @@ export function SuggestionCard({
 }: SuggestionCardProps) {
   if (!suggestion && !isLoading) {
     return (
-      <div className="rounded-3xl border border-dashed border-border/60 bg-white/60 p-8 text-center">
+      <div className="rounded-3xl border border-dashed border-border/60 bg-card/60 p-8 text-center">
         <p className="text-sm font-bold text-muted-foreground">
           Waiting for the prospect to finish speaking…
         </p>
@@ -32,7 +32,7 @@ export function SuggestionCard({
 
   if (isLoading && !suggestion) {
     return (
-      <div className="rounded-3xl border border-beige/30 bg-white p-8 shadow-soft">
+      <div className="rounded-3xl border border-beige/30 bg-card p-8 shadow-soft">
         <div className="flex items-center gap-3">
           <div className="h-3 w-3 animate-pulse rounded-full bg-beige" />
           <p className="text-sm font-bold text-beige">Coaching in real time…</p>
@@ -58,7 +58,7 @@ export function SuggestionCard({
     : "nudge";
 
   return (
-    <div className="rounded-3xl border border-beige/20 bg-white p-6 md:p-8 shadow-medium space-y-5">
+    <div className="rounded-3xl border border-beige/20 bg-card p-6 md:p-8 shadow-medium space-y-5">
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-beige/15 px-3 py-1 text-[10px] font-medium text-beige">

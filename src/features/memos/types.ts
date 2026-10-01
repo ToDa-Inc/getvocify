@@ -5,6 +5,7 @@
  */
 
 import type { ID, ISODateString, Nullable } from '@/shared/types/common';
+import type { Channel } from '@/lib/interactions';
 
 // ============================================
 // STATUS TYPES
@@ -195,6 +196,8 @@ export interface Memo {
   screeningOutcome?: Nullable<ScreeningOutcome>;
   /** Capture channel: call, meeting or visit */
   interactionKind?: Nullable<string>;
+  /** Interaction type: a playbook key, a custom key or the reserved `internal` */
+  salesMotionKey?: Nullable<string>;
 
   /** Per-run STT / sanitize / extract timings and LLM prompt snapshots */
   pipelineMeta?: Nullable<PipelineMeta>;
@@ -244,6 +247,10 @@ export interface MemoFilters {
   scope?: 'me' | 'company';
   /** When scope is company, limit to this teammate */
   authorUserId?: string;
+  /** Limit to one channel */
+  interactionKind?: Channel;
+  /** Limit to one interaction type */
+  salesMotionKey?: string;
 }
 
 /**

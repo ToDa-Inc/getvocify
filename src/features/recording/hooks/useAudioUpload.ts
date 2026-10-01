@@ -8,7 +8,7 @@
 
 import { useState, useCallback } from 'react';
 import { memosApi } from '@/features/memos/api';
-import type { RecordedAudio, UploadProgress, UseAudioUploadReturn } from '../types';
+import type { RecordedAudio, UploadKindOptions, UploadProgress, UseAudioUploadReturn } from '../types';
 
 /**
  * Hook for uploading to the backend
@@ -54,13 +54,16 @@ export function useAudioUpload(): UseAudioUploadReturn {
    * Upload transcript and start AI extraction in one call.
    * Use when recording stops with live STT text.
    */
-  const uploadTranscriptAndExtract = useCallback(async (transcript: string): Promise<string> => {
+  const uploadTranscriptAndExtract = useCallback(async (
+    transcript: string,
+    options?: UploadKindOptions,
+  ): Promise<string> => {
     setIsUploading(true);
     setError(null);
     setProgress({ percent: 0, loaded: 0, total: 100, complete: false });
 
     try {
-      const response = await memosApi.uploadTranscriptAndExtract(transcript.trim());
+      const response = await memosApi.uploadTranscriptAndExtract(transcript.trim(), options?.interactionKind);
       setProgress({ percent: 100, loaded: 100, total: 100, complete: true });
       return response.id;
     } catch (err) {
@@ -79,10 +82,11 @@ export function useAudioUpload(): UseAudioUploadReturn {
    */
   const upload = useCallback(async (
     audio: RecordedAudio,
-    transcript?: string
+    transcript?: string,
+    options?: UploadKindOptions,
   ): Promise<string> => {
     if (transcript?.trim()) {
-      return uploadTranscriptAndExtract(transcript);
+      return uploadTranscriptAndExtract(transcript, options);
     }
 
     setIsUploading(true);
@@ -104,7 +108,9 @@ export function useAudioUpload(): UseAudioUploadReturn {
             total: audio.size,
             complete: percent >= 100,
           });
-        }
+        },
+        undefined,
+        options?.interactionKind,
       );
 
       setProgress(prev => prev ? { ...prev, complete: true } : null);

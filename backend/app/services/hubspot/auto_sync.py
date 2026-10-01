@@ -17,6 +17,7 @@ from supabase import Client
 
 from app.logging_config import DOMAIN_MEMO, log_domain
 from app.models.memo import ApproveMemoRequest
+from app.services.playbooks.catalog import INTERNAL_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +258,7 @@ async def maybe_auto_approve_hubspot_call(
         supabase.table("memos")
         .select(
             "id,status,source,company_id,hubspot_contact_id,hubspot_deal_id,"
-            "matched_deal_id,screening_outcome"
+            "matched_deal_id,screening_outcome,sales_motion_key"
         )
         .eq("id", memo_id)
         .limit(1)
@@ -268,6 +269,8 @@ async def maybe_auto_approve_hubspot_call(
         return False
     if data.get("status") != "pending_review":
         return False
+    if data.get("sales_motion_key") == INTERNAL_KEY:
+        return False  # no customer in the conversation: never proposed to the CRM
 
     config = await CRMConfigurationService(supabase).get_configuration(user_id)
     enabled = bool(config and getattr(config, "auto_sync_hubspot_calls", False))

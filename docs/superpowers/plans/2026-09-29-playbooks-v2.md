@@ -568,3 +568,102 @@ Suite de backend: 3433 pasan, 30 saltados (los que necesitan servicios externos)
 
 Pendiente fuera del código: aplicar `066_playbooks_v2.sql` en Supabase justo antes de desplegar (el código nuevo lee `playbooks_live`; el desplegado antes lee `paused_version_id`, que la migración borra), y pasar las evals con clave de OpenRouter antes de activar `PLAYBOOK_QUALIFICATION_ENABLED`.
 
+
+### Rediseño de la pantalla (30 sep 2026)
+
+**Por qué:** la pantalla era un acordeón. Abrir un tipo de llamada desplegaba el documento entero (pasos, cualificación y objeciones) y obligaba a hacer mucho scroll. Todo el texto pesaba lo mismo y había una línea en cada fila. «Vuestra empresa» enseñaba siete secciones vacías, con etiquetas repetidas como placeholder. Además, una importación larga caía en el parser de líneas (timeout de 25 s) y daba 15 «pasos» como «1» o «**Equipo y volumen», o nombres cortados a mitad de palabra.
+
+**Decisiones:**
+1. **Lista y detalle en lugar de acordeón.**
+   - A la izquierda (`ProcessNav`) están «Vuestra empresa» y cada tipo de llamada, con su icono y un punto de estado. Al final, «+ Tipo de llamada» e «Importar documento».
+   - A la derecha va el elemento abierto.
+   - En el móvil, la lista pasa a una fila con scroll horizontal.
+   - Elegir un tipo de llamada cuesta un clic y nunca alarga la página.
+2. **Pestañas por capa.**
+   - Un tipo de llamada tiene tres pestañas: Pasos, Cualificación y Objeciones. Cada una lleva icono y recuento, y un punto de aviso si falta algo (un paso sin «cuenta como hecho cuando» o una objeción sin respuesta).
+   - «Vuestra empresa» tiene cinco pestañas: Cliente, Oferta, Casos, Competencia y Notas.
+   - Las pestañas son `components/ui/tabs.tsx`, reestilizado con subrayado para que sean idénticas a `.v-tabs` de la revisión post-llamada.
+3. **Sin modo Editar/Listo.**
+   - Un manager escribe directamente y el cambio se guarda solo.
+   - «Guardado» aparece con un check y se desvanece (`SaveStatus`). Solo se queda en pantalla si hay error o conflicto, con la acción que lo arregla.
+4. **Jerarquía.**
+   - Nombres en peso medio y descripción apagada debajo; los pasos llevan número en un círculo.
+   - Sin líneas entre filas: separa el espacio, y al pasar el ratón aparece un tinte.
+   - Tokens nuevos: `typography.groupTitle`, `typography.fieldLabel` y `radius.control`. `sectionTitle` pasa a peso medio en toda la app.
+5. **Primer valor.**
+   - Sin nada creado, la caja de entrada es toda la sección.
+   - Con «Vuestra empresa» vacía, la primera acción es «Importar documento».
+   - Cada campo tiene su etiqueta encima y un ejemplo como placeholder.
+   - Hay un solo aviso arriba, «N tipos de llamada tienen cambios…», con el botón «Activar para el equipo».
+6. **Importación.**
+   - El parser determinista (`parse_playbook_text` y `parsePlaybookText`, iguales en back y front) entiende esquemas: cada título numerado es un paso y lo que va debajo, su descripción. Los títulos sin número se tratan como contexto.
+   - Quita el markdown, nombra el paso por su primera cláusula sin cortar palabras y recorta la descripción por frases.
+   - El modelo tiene 60 s con documentos de 2 500 caracteres o más (antes 25 s). El markdown que copie el modelo también se quita.
+
+**Mapa de densidad:**
+
+| Capa | Qué aparece |
+|---|---|
+| Superficie | Nombre, rol, estado e interruptor, objetivo, pestañas con recuento y el contenido de la pestaña activa |
+| Al pasar el ratón | Mover, eliminar y añadir frase; el porcentaje de cumplimiento con tooltip; el estado del punto |
+| Un clic | Otra pestaña, otro tipo de llamada, «···» (reconstruir, descartar, eliminar), detalles de una objeción o de un criterio |
+| Nunca aquí | Ajustes del producto (enlace a Ajustes → Oferta) |
+
+**Pendiente:** los playbooks importados antes siguen con los pasos rotos. Se rehacen desde «···» → «Reconstruir desde un documento».
+
+### Editar sin formularios (30 sep 2026, segunda vuelta)
+
+**Por qué:** después de la primera importación, cambiar algo seguía siendo rellenar casillas (una para «suele significar», otra para «pregunta», otra para «prueba»…), y lo que la importación no encontraba se quedaba vacío para siempre. Además no se veía qué estaba activo ni dónde se usaba cada tipo de llamada.
+
+**Decisiones:**
+1. **«Dile a Vocify» (`FillBox`).** Encima de cada playbook y de «Vuestra empresa» hay una línea para escribir, dictar o soltar un archivo. `POST /playbooks/{key}/fill` y `POST /playbooks/company/fill` (`services/playbooks/fill.py`, prompts `playbook_fill_v1` y `company_fill_v1`).
+   - El modelo devuelve solo los cambios y el código los aplica: pasos y criterios por índice, objeciones por categoría o por etiqueta, elementos de la empresa por nombre.
+   - Lo que no se nombra no se toca. Todo pasa por los mismos normalizadores que un guardado.
+   - Se mantienen los guardas de la estructuración: sin markdown, sin actitudes como criterio, sin competidores ni cifras que nadie dio.
+   - El playbook no se guarda en el servidor. El editor lo mete en su borrador (autoguardado, conflicto, nada llega al equipo hasta publicar). «Vuestra empresa» se guarda al momento con `base_updated_at`.
+   - En los dos casos sale un toast con el resumen y «Deshacer».
+2. **Todo se lee como frases.** Nombre en peso medio y el texto debajo, editable donde se lee (`InlineTextarea` sin bordes, solo un tinte). Los detalles salen solo si tienen texto (`FieldLine`, con la etiqueta como entrada: «Ganamos cuando …»).
+   - Lo que falta es un «✦ Completar con Vocify», que escribe la petición por el manager (`CompleteButton`).
+   - Cada elemento tiene un «···» en la línea del título: añadir un campo, mover, eliminar (`ItemMenu`). Adiós a la papelera flotante y a las cajas.
+3. **Sugerencias desde las llamadas.**
+   - Objeciones que el equipo oye sin respuesta: fila fantasma con la respuesta del mejor comercial («Usar») o «Escribir la respuesta».
+   - Sin nada escrito ni oído: precio, momento y autoridad como punto de partida.
+   - Competidores mencionados en llamadas que no están en la lista (`competitor_mentions` de `/team/adherence`, la misma caché que la página): «+ Nombre · 7».
+   - «Descartar» se recuerda en este navegador (`useDismissed`).
+4. **Estado y publicación por tipo de llamada.** Esto sustituye a la decisión 16 de «Activar para el equipo» para toda la página.
+   - La cabecera dice en una frase dónde se usa y qué es éxito (`usedForLine`), el estado en una palabra (`publishState`: Activo, Cambios sin publicar, Sin publicar, Pausado, Sin crear) y la acción que toca: «Publicar», o el interruptor una vez publicado.
+   - La lista muestra la misma palabra. Sin icono de objetivo.
+5. **Iconos.** Se quedan los de Phosphor, que ya usan las tres superficies. itshover.com no encaja (React y una librería de animación; la extensión y el escritorio no son React). El movimiento, si hace falta, va por el `AnimIcon` compartido.
+
+**Tercera vuelta (30 sep 2026):**
+- **«Completar» toca solo su elemento.** `scope` en `/fill` y `/company/fill`: `restrict_to` y `restrict_company` descartan cualquier otro cambio del modelo (antes, «Escribir la respuesta» en una objeción reescribía las cuatro). El botón no desaparece mientras escribe: dice «Escribiendo…» y la línea de «Dile a Vocify» dice «Vocify está escribiendo…».
+- **Las objeciones son lo que dice el cliente.** `trigger` («Ahora mismo no tenemos presupuesto») vale también para las categorías fijas (`normalize_objections`, `objection_view`; el prompt de fill lo rellena siempre). Sin él, se muestra cómo suele sonar esa objeción. La categoría pasa a ser una etiqueta pequeña al lado.
+- **Nada escondido en un menú ni cajas al pasar el ratón.** «+ Suele significar», «+ Frase para decir», etc. aparecen solo mientras se edita ese elemento (`EditAdds`). El «···» queda para mover y eliminar. Los campos ya no se tiñen al pasar el ratón; solo el cursor de texto.
+- **Pasos mal importados.** `messySteps` detecta nombres que son solo un número, descripciones que empiezan por su numeración o nombres cortados a mitad de palabra. «Ordenar con Vocify» los estructura otra vez desde su propio texto (`stepsAsText`); objeciones y cualificación se quedan como están, y hay «Deshacer».
+
+### Simplificación aprobada (30 sep 2026)
+
+Aprobada sobre `docs/superpowers/mockups/playbook-editing.html`. **Regla: cada elemento es un nombre en negrita y una línea.** Todos los ajustes usan la misma fila (`DocRow`): marca a la izquierda, nombre, etiqueta o menú a la derecha, una línea debajo y una línea fina entre elementos.
+
+- **Objeción** = lo que dice el cliente (`trigger`), su tipo y la respuesta (`guidance`). Se quitan `meaning`, `question` y `proof` de la pantalla, del modelo de datos (`normalize_objections`, `objection_view`), de lo que escribe Vocify y de la validación. Las antiguas se borran al siguiente guardado (opción 2).
+- **Criterio de cualificación** = qué averiguar y cómo suena una buena respuesta (`good`). Se quitan `why` y `bad`; la puntuación solo usa `label` y `good`.
+- **Métodos por rol** (`catalog.py`: `roles` y `summary`).
+  - SDR: BANT, CHAMP, ANUM, GPCT.
+  - AE: MEDDIC, MEDDPICC, SPICED, BANT.
+  - Más «Propio». La tarjeta marcada es la del método del que salen exactamente los criterios (`matchedMethod`).
+- **«Vuestra empresa»**: cada elemento es su nombre y una línea, la que usan el copiloto y los briefs.
+  - Persona: qué le importa (`cares_about`).
+  - Señal: qué hacer (`how_to_use`).
+  - Caso: qué consiguió (`change`).
+  - Competidor: cómo ganarles (`how_to_talk`).
+
+  `LIST_FIELDS` pierde el resto. El guarda contra cifras inventadas pasa de `number` a `change`. El copiloto ya no pinta «Do not say» ni situation/number.
+- **Tipografía**:
+  - `panelTitle`: 22px, 600.
+  - `itemTitle`: 15px, 600.
+  - `itemBody`: 14px, texto al 80 %.
+  - `groupTitle` pasa a 600.
+  - Pestañas: la activa en 600 con la línea marrón. Lo mismo en `.v-tabs` compartido (extensión y escritorio sincronizados).
+- **Glass solo en lo que flota**: «Dile a Vocify» se queda abajo (sticky) y la lista pasa por debajo; la entrada seleccionada de la lista usa `glass-nav`. El contenido va sobre papel.
+
+**Pendiente:** `playbook_structure_v2` y `playbook_split_v2` todavía piden los campos quitados. El código los descarta, así que no cambia nada visible. Recortar esos prompts necesita pasar las evals con la clave de OpenRouter.

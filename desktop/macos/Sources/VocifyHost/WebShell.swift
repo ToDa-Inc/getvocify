@@ -13,6 +13,7 @@ private let shellBackground = NSColor(
 final class HostController: ObservableObject {
     let bridge: Bridge
     let overlay = OverlayController()
+    let permissionGuide = PermissionGuideController()
     @Published var isListening = false
     /// Main window loads the web dashboard (app.getvocify.com) instead of bundled `desktop/renderer`.
     @Published var usesWebDashboard = false

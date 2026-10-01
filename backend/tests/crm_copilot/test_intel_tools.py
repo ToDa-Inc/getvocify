@@ -500,3 +500,34 @@ async def test_searches_are_spaced_so_a_burst_cannot_trip_the_per_second_limit(m
     started = time.monotonic()
     await run("crm_call_stats", {"month": "2026-08"}, _ctx(FakeSupabase(), hs=hs))
     assert time.monotonic() - started >= 0.05 * 4  # five searches, four gaps
+
+
+# ----- internal memos (a conversation with no customer in it) --------------------------------
+
+
+def _internal(mid, user, contact, days_ago, **extraction):
+    return {**_memo(mid, user, contact, days_ago, **extraction), "sales_motion_key": "internal"}
+
+
+@pytest.mark.asyncio
+async def test_internal_memos_are_left_out_of_the_customer_tools():
+    # A meeting agreed with a colleague is not a customer meeting.
+    customer = _memo("m1", "u1", "c1", 2, **ANALYSED)
+    team = _internal("m2", "u1", "c1", 2, **ANALYSED)
+    db = FakeSupabase(memos=[customer, team])
+    met = await run("meetings_agreed", {}, _ctx(db))
+    assert (met["conversations"], met["agreed"]) == (1, 1)
+    assert [i["memo_id"] for i in (await run("find_interactions", {"objection_category": "price"}, _ctx(db)))["items"]] == ["m1"]
+    story = await run("deal_story", {"contact_id": "c1"}, _ctx(db))
+    assert story["n"] == 1
+    assert (await run("objection_breakdown", {"period_days": 30}, _ctx(db)))["objections"]["total"] == 1
+
+    due = dict(ANALYSED)
+    due["intelligence"] = {**ANALYSED["intelligence"], "commitments": [{"kind": "send", "origin": "rep_promise", "text": "enviar el caso", "due_at": _iso(1), "evidence_refs": []}]}
+    only_internal = FakeSupabase(memos=[_internal("m3", "u1", "c1", 3, **due)])
+    assert (await run("next_actions", {}, _ctx(only_internal)))["counts"].get("commitment_due") is None
+
+    # The loader still returns them when a caller asks for internal calls explicitly.
+    ctx = _ctx(db)
+    assert [m["id"] for m in intel_tools._load_memos(ctx, ctx.actor, ["u1"])] == ["m1"]
+    assert {m["id"] for m in intel_tools._load_memos(ctx, ctx.actor, ["u1"], include_internal=True)} == {"m1", "m2"}

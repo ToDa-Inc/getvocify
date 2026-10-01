@@ -20,6 +20,7 @@ from app.services.llm.shared import (
     log_json_failed,
     log_json_parsed,
 )
+from app.services.usage import record_llm_usage
 
 logger = logging.getLogger(__name__)
 
@@ -63,11 +64,17 @@ def openrouter_call_meta(data: dict, *, requested_model: str) -> dict:
     model = None
     if isinstance(data, dict):
         model = data.get("model")
+    completion_details = usage.get("completion_tokens_details") or {}
+    prompt_details = usage.get("prompt_tokens_details") or {}
     return {
         "model": model or requested_model,
         "prompt_tokens": usage.get("prompt_tokens"),
         "completion_tokens": usage.get("completion_tokens"),
         "total_tokens": usage.get("total_tokens"),
+        "reasoning_tokens": completion_details.get("reasoning_tokens"),
+        "cached_tokens": prompt_details.get("cached_tokens"),
+        # What OpenRouter actually billed, present because every request sets usage.include.
+        "cost_usd": usage.get("cost"),
     }
 
 
@@ -119,6 +126,7 @@ class OpenRouterProvider(BaseLLMProvider):
             "model": model or self.model,
             "messages": messages,
             "temperature": temperature,
+            "usage": {"include": True},
         }
         if response_format:
             payload["response_format"] = response_format
@@ -191,6 +199,7 @@ class OpenRouterProvider(BaseLLMProvider):
                     self.last_call_meta = openrouter_call_meta(data, requested_model=model_used)
                     usage = self.last_call_meta
                     inc_llm_request("success", PROVIDER_NAME, usage.get("model") or model_used)
+                    record_llm_usage(PROVIDER_NAME, usage, duration_ms=round(elapsed_ms))
                     logger.info(
                         "LLM chat success",
                         extra=log_domain(
@@ -325,7 +334,13 @@ class OpenRouterProvider(BaseLLMProvider):
         if not self.api_key or not str(self.api_key).strip():
             raise Exception("LLM request failed: OPENROUTER_API_KEY is not set.")
         model_used = model or self.model
-        payload = {"model": model_used, "messages": messages, "temperature": temperature, "stream": True}
+        payload = {
+            "model": model_used,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": True,
+            "usage": {"include": True},
+        }
         if tools:
             payload["tools"] = tools
         if extra:
@@ -380,13 +395,13 @@ class OpenRouterProvider(BaseLLMProvider):
                 inc_llm_request("failure", PROVIDER_NAME, model_used)
                 raise Exception(f"LLM request failed: {type(e).__name__} {e}") from e
         message = acc.message()
-        self.last_call_meta = {
-            "model": acc.model or model_used,
-            "prompt_tokens": (acc.usage or {}).get("prompt_tokens"),
-            "completion_tokens": (acc.usage or {}).get("completion_tokens"),
-            "total_tokens": (acc.usage or {}).get("total_tokens"),
-        }
+        self.last_call_meta = openrouter_call_meta(
+            {"model": acc.model, "usage": acc.usage}, requested_model=model_used
+        )
         inc_llm_request("success", PROVIDER_NAME, self.last_call_meta["model"])
+        record_llm_usage(
+            PROVIDER_NAME, self.last_call_meta, duration_ms=round((time.perf_counter() - t0) * 1000)
+        )
         logger.info(
             "LLM stream success",
             extra=log_domain(

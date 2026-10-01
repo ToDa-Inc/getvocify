@@ -69,12 +69,9 @@ CUSTOM = {
     "label": "Ya lo hacemos con Excel",
     "trigger": "Nosotros lo llevamos en un Excel y va bien.",
     "guidance": "Preguntamos cuántas horas al mes le dedican.",
-    "meaning": "No ve el coste de su proceso actual.",
-    "question": "¿Cuántas horas al mes pierde su equipo con eso?",
-    "proof": "Gestoría Ríos pasó de 6 días a 2.",
 }
 CRITERIA = [
-    {"label": "Presupuesto", "why": "Sin dinero no hay compra.", "good": "Da una cifra.", "bad": "«Ya veremos»."},
+    {"label": "Presupuesto", "good": "Da una cifra."},
     {"label": "Quién decide"},
 ]
 
@@ -121,9 +118,6 @@ class _Fixed:
     ([{"category": "custom", "label": f"c{i}"} for i in range(13)], "too_many_custom_objections", None),
     ([{"category": "custom", "label": "x" * 61}], "field_too_long", 0),
     ([{"category": "custom", "label": "ok", "trigger": "x" * 201}], "field_too_long", 0),
-    ([{"category": "custom", "label": "ok", "meaning": "x" * 201}], "field_too_long", 0),
-    ([{"category": "price", "guidance": "ok", "question": "x" * 201}], "field_too_long", 0),
-    ([{"category": "price", "guidance": "ok", "proof": "x" * 301}], "field_too_long", 0),
     ([{"category": "custom", "label": "ok", "guidance": "x" * 601}], "guidance_too_long", 0),
     ([{"category": "price", "guidance": "a"}, {"category": "price", "guidance": "b"}], "duplicate_category", 1),
 ])
@@ -139,9 +133,7 @@ def test_invalid_objections_are_422_with_the_contract_code(objections, code, ind
     ([{"label": f"c{i}"} for i in range(9)], "too_many_criteria", None),
     ([{"label": "ok"}, {"label": "  "}], "criterion_label_empty", 1),
     ([{"label": "x" * 61}], "criterion_label_too_long", 0),
-    ([{"label": "ok", "why": "x" * 201}], "field_too_long", 0),
     ([{"label": "ok", "good": "x" * 201}], "field_too_long", 0),
-    ([{"label": "ok", "bad": "x" * 201}], "field_too_long", 0),
 ])
 def test_invalid_criteria_are_422_with_the_contract_code(criteria, code, index):
     client = _client()
@@ -156,8 +148,8 @@ def test_the_limits_themselves_are_accepted():
     customs = [{"category": "custom", "label": f"Objeción {i}", "trigger": "t"} for i in range(12)]
     body = _put(
         client,
-        objections=[{**customs[0], "label": "x" * 60, "trigger": "t" * 200, "meaning": "m" * 200, "question": "q" * 200, "proof": "p" * 300, "guidance": "g" * 600}, *customs[1:]],
-        qualification=[{"label": "L" * 60, "why": "w" * 200, "good": "g" * 200, "bad": "b" * 200}] + [{"label": f"c{i}"} for i in range(7)],
+        objections=[{**customs[0], "label": "x" * 60, "trigger": "t" * 200, "guidance": "g" * 600}, *customs[1:]],
+        qualification=[{"label": "L" * 60, "good": "g" * 200}] + [{"label": f"c{i}"} for i in range(7)],
     )
     assert body.status_code == 200
     assert len(body.json()["objections"]) == 12 and len(body.json()["qualification"]) == 8
@@ -179,26 +171,25 @@ def test_custom_objection_slugs_are_stable_and_collisions_get_a_suffix():
     assert all(e["guidance"] == "" for e in entries)  # a custom objection is kept without an answer
 
 
-def test_a_fixed_category_keeps_meaning_question_and_proof_but_drops_label_and_trigger():
+def test_a_fixed_category_keeps_trigger_and_guidance_but_drops_label_and_extras():
     (entry,) = normalize_objections([
-        {"category": "price", "guidance": "ROI", "meaning": "No ve el valor", "question": "¿Comparado con qué?", "proof": "Caso Ríos", "label": "x", "trigger": "y"},
+        {"category": "price", "guidance": "ROI", "meaning": "No ve el valor", "question": "¿Comparado con qué?", "proof": "Caso Ríos", "label": "x", "trigger": "Es caro"},
     ])
     assert entry == {
-        "entry_id": "objection:price", "category": "price", "guidance": "ROI",
-        "meaning": "No ve el valor", "question": "¿Comparado con qué?", "proof": "Caso Ríos", "source_ref": "editor",
+        "entry_id": "objection:price", "category": "price", "guidance": "ROI", "trigger": "Es caro", "source_ref": "editor",
     }
 
 
 def test_criteria_get_stable_ids_like_steps_do():
     criteria = normalize_qualification([
         {"label": "Presupuesto"},
-        {"label": "Presupuesto", "why": " porque   sí "},
+        {"label": "Presupuesto", "why": " porque   sí ", "good": "Da una cifra."},
         {"label": "Otro nombre", "criterion_id": "budget"},
         {"label": "Sin dinero", "criterion_id": "Bad Id"},
         {"label": "Ubicación ¿dónde?"},
     ])
     assert [c["criterion_id"] for c in criteria] == ["presupuesto", "presupuesto_2", "budget", "sin_dinero", "ubicacion_donde"]
-    assert criteria[1] == {"criterion_id": "presupuesto_2", "label": "Presupuesto", "why": "porque sí"}
+    assert criteria[1] == {"criterion_id": "presupuesto_2", "label": "Presupuesto", "good": "Da una cifra."}
     assert normalize_qualification(None) == [] and normalize_qualification([]) == []
     with pytest.raises(PlaybookDraftError) as excinfo:
         normalize_qualification([{"label": "a", "criterion_id": "x"}] * 9)
@@ -206,15 +197,14 @@ def test_criteria_get_stable_ids_like_steps_do():
 
 
 def test_render_text_includes_the_new_blocks():
-    entries = normalize_objections([CUSTOM, {"category": "price", "guidance": "ROI", "meaning": "No ve el valor"}])
+    entries = normalize_objections([CUSTOM, {"category": "price", "guidance": "ROI"}])
     text = render_text(
         [{"step_id": "a", "label": "Apertura", "criterion": "Se presenta"}], entries, normalize_qualification(CRITERIA),
     )
     assert "1. Apertura: Se presenta" in text
-    assert "? Presupuesto | why: Sin dinero no hay compra. | good: Da una cifra. | bad: «Ya veremos»." in text
+    assert "? Presupuesto | good: Da una cifra." in text
     assert '- custom "Ya lo hacemos con Excel" (Nosotros lo llevamos en un Excel y va bien.): Preguntamos' in text
-    assert "| meaning: No ve el coste de su proceso actual." in text and "| proof: Gestoría Ríos pasó de 6 días a 2." in text
-    assert "- price: ROI | meaning: No ve el valor" in text
+    assert "- price: ROI" in text
 
 
 def test_editor_view_of_nothing_and_of_a_legacy_version_has_empty_qualification():
@@ -231,16 +221,16 @@ def test_custom_objections_and_criteria_round_trip_through_draft_and_publish(mak
     client = _client(make())
     body = _put(
         client,
-        objections=[{"category": "price", "guidance": "ROI", "question": "¿Comparado con qué?"}, CUSTOM],
+        objections=[{"category": "price", "guidance": "ROI"}, CUSTOM],
         qualification=CRITERIA,
     ).json()
     assert body["objections"] == [
-        {"category": "price", "guidance": "ROI", "question": "¿Comparado con qué?"},
+        {"category": "price", "guidance": "ROI"},
         {"category": "custom", "id": "ya_lo_hacemos_con_excel", "label": CUSTOM["label"], "trigger": CUSTOM["trigger"],
-         "guidance": CUSTOM["guidance"], "meaning": CUSTOM["meaning"], "question": CUSTOM["question"], "proof": CUSTOM["proof"]},
+         "guidance": CUSTOM["guidance"]},
     ]
     assert body["qualification"] == [
-        {"criterion_id": "presupuesto", "label": "Presupuesto", "why": "Sin dinero no hay compra.", "good": "Da una cifra.", "bad": "«Ya veremos»."},
+        {"criterion_id": "presupuesto", "label": "Presupuesto", "good": "Da una cifra."},
         {"criterion_id": "quien_decide", "label": "Quién decide"},
     ]
     assert body["categories"] == ["price", "timing", "authority", "competitor", "status_quo", "trust", "other"]
@@ -299,9 +289,12 @@ def test_the_templates_endpoint_lists_bant_meddic_and_meddpicc_for_any_member():
         response = _client(role=role).get(f"{BASE}/qualification-templates")
         assert response.status_code == 200
         templates = response.json()["templates"]
-        assert [(t["key"], t["label"]) for t in templates] == [("bant", "BANT"), ("meddic", "MEDDIC"), ("meddpicc", "MEDDPICC")]
-        assert [len(t["criteria"]["es"]) for t in templates] == [4, 6, 8]
-        assert [len(t["criteria"]["en"]) for t in templates] == [4, 6, 8]
+        assert [(t["key"], t["label"]) for t in templates] == [
+            ("bant", "BANT"), ("champ", "CHAMP"), ("anum", "ANUM"), ("gpct", "GPCT"),
+            ("meddic", "MEDDIC"), ("meddpicc", "MEDDPICC"), ("spiced", "SPICED"),
+        ]
+        assert [len(t["criteria"]["es"]) for t in templates] == [4, 4, 4, 4, 6, 8, 5]
+        assert [len(t["criteria"]["en"]) for t in templates] == [4, 4, 4, 4, 6, 8, 5]
 
 
 def test_the_templates_are_saveable_observable_and_short():
@@ -313,11 +306,10 @@ def test_the_templates_are_saveable_observable_and_short():
             assert [c["criterion_id"] for c in saved] == [c["criterion_id"] for c in criteria]  # the ids are already slugs
             assert len(saved) == len(criteria)
             for criterion in criteria:
-                assert set(criterion) == {"criterion_id", "label", "why", "good", "bad"}
+                assert set(criterion) == {"criterion_id", "label", "good"}
                 assert all(criterion[k].strip() for k in criterion)
-                for field in ("why", "good", "bad"):
-                    assert generic_phrases(criterion[field]) == [], criterion
-                    assert criterion[field].count(". ") == 0, criterion  # one sentence
+                assert generic_phrases(criterion["good"]) == [], criterion
+                assert criterion["good"].count(". ") == 0, criterion  # one sentence
     assert qualification_criteria("MEDDIC", "en")[0]["label"] == "Metrics" and qualification_criteria("nope") == []
     ids = [c["criterion_id"] for c in qualification_criteria("meddpicc")]
     assert ids[:4] == [c["criterion_id"] for c in qualification_criteria("meddic")][:4] and len(set(ids)) == 8
@@ -342,15 +334,15 @@ def test_normalize_knowledge_gives_the_full_shape_and_drops_what_does_not_belong
     data = normalize_knowledge({
         "icp": "  Gestorías   de 5 a 30 personas \n\n\n\n  y pymes ",
         "secret": "dropped",
-        "personas": [{"name": " CFO ", "cares_about": "cierre", "extra": "dropped"}, {"cares_about": "sin nombre"}, "x", {"name": "cfo"}],
-        "proofs": [{"customer": "Ríos", "number": 3, "tags": ["nóminas", "Nóminas", " ", "gestoría"]}],
+        "personas": [{"name": " CFO ", "cares_about": "cierre", "extra": "dropped", "language": "dropped"}, {"cares_about": "sin nombre"}, "x", {"name": "cfo"}],
+        "proofs": [{"customer": "Ríos", "change": "Ahorro de tiempo", "number": "dropped", "tags": "dropped"}],
         "differentiators": [" Importamos el histórico ", "importamos el histórico", "", 5],
-        "competitors": [{"name": "Holded", "landmines": "no decir caro"}],
+        "competitors": [{"name": "Holded", "landmines": "dropped", "how_to_talk": ""}],
     })
     assert "secret" not in data
     assert data["icp"] == "Gestorías de 5 a 30 personas\n\ny pymes"
-    assert data["personas"] == [{"name": "CFO", "cares_about": "cierre", "language": "", "measured_on": ""}]
-    assert data["proofs"] == [{"customer": "Ríos", "situation": "", "change": "", "number": "3", "tags": ["nóminas", "gestoría"]}]
+    assert data["personas"] == [{"name": "CFO", "cares_about": "cierre"}]
+    assert data["proofs"] == [{"customer": "Ríos", "change": "Ahorro de tiempo"}]
     assert data["differentiators"] == ["Importamos el histórico", "5"]
     assert data["competitors"][0]["how_to_talk"] == ""
     assert sections(data) == ["icp", "personas", "differentiators", "proofs", "competitors"]
@@ -362,11 +354,11 @@ def test_normalize_knowledge_clips_texts_and_caps_lists():
         "pricing": "x" * 5000,
         "personas": [{"name": f"P{i}", "cares_about": "c" * 900} for i in range(20)],
         "differentiators": [f"d{i}" for i in range(20)],
-        "proofs": [{"customer": "Ríos", "tags": [f"t{i}" for i in range(30)]}],
+        "proofs": [{"customer": "Ríos", "change": "x" * 500}],
     })
     assert len(data["notes"]) <= MAX_LONG and len(data["pricing"]) == MAX_LONG
     assert len(data["personas"]) == MAX_ITEMS and len(data["personas"][0]["cares_about"]) <= MAX_SHORT
-    assert len(data["differentiators"]) == MAX_ITEMS and len(data["proofs"][0]["tags"]) == MAX_ITEMS
+    assert len(data["differentiators"]) == MAX_ITEMS and len(data["proofs"][0]["change"]) <= MAX_SHORT
     assert data["notes"].endswith("palabra")  # cut at a word
 
 
@@ -374,15 +366,15 @@ def test_merge_appends_lists_deduped_and_fills_only_empty_texts():
     existing = normalize_knowledge({
         "icp": "Lo que escribió el Head of Sales",
         "differentiators": ["Soporte en español"],
-        "competitors": [{"name": "Holded", "win_when": "Editado a mano"}],
+        "competitors": [{"name": "Holded", "how_to_talk": "Editado a mano"}],
         "proofs": [{"customer": "Gestoría Ríos", "change": "6 a 2 días"}],
     })
     incoming = {
         "icp": "Lo que dice el documento",
         "bad_fit": "Más de 500 empleados",
         "differentiators": ["soporte en español", "Importa el histórico"],
-        "competitors": [{"name": "HOLDED", "win_when": "otra cosa"}, {"name": "Factorial", "lose_when": "Quieren fichaje"}],
-        "proofs": [{"customer": "gestoría ríos"}, {"customer": "Clínica Sol", "number": "35 %"}],
+        "competitors": [{"name": "HOLDED", "how_to_talk": "otra cosa"}, {"name": "Factorial", "how_to_talk": "Quieren fichaje"}],
+        "proofs": [{"customer": "gestoría ríos"}, {"customer": "Clínica Sol", "change": "35 % improvement"}],
         "triggers": [{"signal": "Abren sede nueva", "how_to_use": "Mencionarlo"}],
     }
     merged, filled = merge_knowledge(existing, incoming)
@@ -390,7 +382,7 @@ def test_merge_appends_lists_deduped_and_fills_only_empty_texts():
     assert merged["bad_fit"] == "Más de 500 empleados"
     assert merged["differentiators"] == ["Soporte en español", "Importa el histórico"]
     assert [c["name"] for c in merged["competitors"]] == ["Holded", "Factorial"]
-    assert merged["competitors"][0]["win_when"] == "Editado a mano"  # the existing item is not touched
+    assert merged["competitors"][0]["how_to_talk"] == "Editado a mano"  # the existing item is not touched
     assert [p["customer"] for p in merged["proofs"]] == ["Gestoría Ríos", "Clínica Sol"]
     assert filled == ["bad_fit", "triggers", "differentiators", "proofs", "competitors"]
     # Merging the same thing again changes nothing.
@@ -464,10 +456,10 @@ COMPANY = {
     "icp": "Gestorías de 5 a 30 personas.",
     "pricing": "Desde 39 € al mes por usuario.",
     "competitors": [
-        {"name": "Holded", "win_when": "Necesitan conciliación bancaria automática.", "lose_when": "Quieren un ERP completo.", "landmines": "No decir nunca que es caro."},
-        {"name": "Factorial", "lose_when": "RRHH quiere fichaje y vacaciones en la misma herramienta."},
+        {"name": "Holded", "how_to_talk": "Necesitan conciliación bancaria automática."},
+        {"name": "Factorial", "how_to_talk": "RRHH quiere fichaje y vacaciones en la misma herramienta."},
     ],
-    "proofs": [{"customer": "Gestoría Ríos", "change": "Redujo el cierre mensual de 6 días a 2.", "number": "6 días a 2", "tags": ["gestoría"]}],
+    "proofs": [{"customer": "Gestoría Ríos", "change": "Redujo el cierre mensual de 6 días a 2."}],
 }
 COMPANY_DOC = (
     "Vendemos a gestorías de 5 a 30 personas. Frente a Holded ganamos cuando necesitan conciliación bancaria "
@@ -517,7 +509,7 @@ def test_a_document_that_names_meddic_gets_the_template_criteria():
 
 def test_the_source_can_word_a_template_criterion_its_own_way_and_extras_are_clipped():
     answer = {"types": [{**SDR, "qualification": [
-        {"criterion_id": "budget", "label": "Presupuesto aprobado " * 10, "why": "porque " * 100, "good": "Da una cifra", "bad": None},
+        {"criterion_id": "budget", "label": "Presupuesto aprobado " * 10, "good": "Da una cifra", "why": None, "bad": None},
         {"label": "  "},  # no label: dropped
         {"label": "Presupuesto aprobado " * 10},  # the same label again: dropped
         *[{"label": f"Criterio {i}"} for i in range(12)],
@@ -525,8 +517,8 @@ def test_the_source_can_word_a_template_criterion_its_own_way_and_extras_are_cli
     _client_, _l, response = _intake(answer)
     criteria = response.json()["types"][0]["editor"]["qualification"]
     assert len(criteria) == 8
-    assert criteria[0]["criterion_id"] == "budget" and len(criteria[0]["label"]) <= 60 and len(criteria[0]["why"]) <= 200
-    assert "bad" not in criteria[0]
+    assert criteria[0]["criterion_id"] == "budget" and len(criteria[0]["label"]) <= 60 and len(criteria[0]["good"]) <= 200
+    assert "bad" not in criteria[0] and "why" not in criteria[0]
 
 
 def test_competitors_and_cases_fill_the_company_and_filled_lists_them():
@@ -539,8 +531,8 @@ def test_competitors_and_cases_fill_the_company_and_filled_lists_them():
     assert company["sections"] == ["icp", "proofs", "competitors", "pricing"]
     assert [c["name"] for c in company["knowledge"]["competitors"]] == ["Holded", "Factorial"]
     factorial = company["knowledge"]["competitors"][1]
-    assert factorial["lose_when"].startswith("RRHH") and factorial["they_like"] == "" and factorial["landmines"] == ""
-    assert company["knowledge"]["proofs"][0]["number"] == "6 días a 2"
+    assert factorial["how_to_talk"].startswith("RRHH")
+    assert company["knowledge"]["proofs"][0]["change"].startswith("Redujo")
     assert client.get(f"{BASE}/company").json() == {k: company[k] for k in ("knowledge", "updated_at", "sections")}
     # Nothing was made up for the call types.
     assert client.get(BASE).json()["motions"] == {}
@@ -549,14 +541,14 @@ def test_competitors_and_cases_fill_the_company_and_filled_lists_them():
 def test_a_second_document_adds_to_the_company_and_never_overwrites_it():
     client = _client()
     saved = client.put(f"{BASE}/company", json={"knowledge": {
-        "icp": "Escrito por el Head of Sales", "competitors": [{"name": "holded", "win_when": "Editado"}],
+        "icp": "Escrito por el Head of Sales", "competitors": [{"name": "holded", "how_to_talk": "Editado"}],
     }}).json()
     _client_, _l, response = _intake({"types": [], "company": COMPANY}, COMPANY_DOC, client=client)
     company = response.json()["company"]
     assert company["knowledge"]["icp"] == "Escrito por el Head of Sales"
     assert company["knowledge"]["pricing"] == COMPANY["pricing"]
     assert [c["name"] for c in company["knowledge"]["competitors"]] == ["holded", "Factorial"]
-    assert company["knowledge"]["competitors"][0]["win_when"] == "Editado"
+    assert company["knowledge"]["competitors"][0]["how_to_talk"] == "Editado"
     assert company["filled"] == ["proofs", "competitors", "pricing"]
     assert company["updated_at"] != saved["updated_at"]
     # The same document again fills nothing, still answers with what is stored, and does not touch the row.
@@ -587,20 +579,20 @@ def test_a_company_that_cannot_be_saved_never_costs_the_call_types():
 
 
 def test_the_model_cannot_invent_a_competitor_or_a_number_the_source_does_not_have():
-    invented = {**COMPANY, "competitors": [*COMPANY["competitors"], {"name": "Sage", "win_when": "Siempre."}],
-                "proofs": [{"customer": "Gestoría Ríos", "number": "un 35 %"}, {"customer": "Clínica Sol", "number": "1.200 horas"}]}
+    invented = {**COMPANY, "competitors": [*COMPANY["competitors"], {"name": "Sage", "how_to_talk": "Siempre."}],
+                "proofs": [{"customer": "Gestoría Ríos", "change": "Ahorro de un 35 %"}, {"customer": "Clínica Sol", "change": "Ahorró 1.200 horas"}]}
     doc = COMPANY_DOC + " Clínica Sol ahorró 1200 horas."
     _c, _l, response = _intake({"types": [], "company": invented}, doc)
     knowledge = response.json()["company"]["knowledge"]
     assert [c["name"] for c in knowledge["competitors"]] == ["Holded", "Factorial"]
-    numbers = {p["customer"]: p["number"] for p in knowledge["proofs"]}
-    assert numbers == {"Gestoría Ríos": "", "Clínica Sol": "1.200 horas"}  # 35 is not in the source; 1.200 is 1200
+    changes = {p["customer"]: p["change"] for p in knowledge["proofs"]}
+    assert changes == {"Gestoría Ríos": "", "Clínica Sol": "Ahorró 1.200 horas"}  # 35 not in source; 1200 is in source
 
 
 def test_a_custom_objection_from_the_model_keeps_its_label_and_needs_no_answer():
     answer = {"types": [{**SDR, "objections": [
         PRICE,
-        {"category": "custom", "label": "Ya lo hacemos con Excel", "trigger": "Ya lo llevamos en un Excel.", "guidance": None, "question": "¿Cuántas horas al mes?"},
+        {"category": "custom", "label": "Ya lo hacemos con Excel", "trigger": "Ya lo llevamos en un Excel.", "guidance": None},
         {"category": "custom", "label": "Ya lo hacemos con Excel"},  # the same objection twice
         {"category": "custom", "label": "  ", "trigger": "sin etiqueta"},
         {"category": "budget", "label": "Invented category", "guidance": "x"},
@@ -612,7 +604,7 @@ def test_a_custom_objection_from_the_model_keeps_its_label_and_needs_no_answer()
     assert [o["category"] for o in objections] == ["price", "custom", "other"]
     assert objections[1] == {
         "category": "custom", "id": "ya_lo_hacemos_con_excel", "label": "Ya lo hacemos con Excel",
-        "trigger": "Ya lo llevamos en un Excel.", "guidance": "", "question": "¿Cuántas horas al mes?",
+        "trigger": "Ya lo llevamos en un Excel.", "guidance": "",
     }
     assert client.get(BASE).json()["details"]["discovery"]["answer_count"] == 3
 
@@ -635,13 +627,13 @@ def test_structure_one_type_returns_qualification_and_custom_objections():
     result = _one({
         "reason": None,
         "steps": [{"label": "Apertura", "criterion": "Se presenta y pregunta si tiene un minuto."}],
-        "qualification": [{"criterion_id": None, "label": "Quién decide", "why": "Quien habla no siempre firma."}],
-        "objections": [{"category": "custom", "label": "Legal", "trigger": "Tenemos que pasarlo por legal.", "guidance": "Enviamos el DPA.", "proof": "40 clientes"}],
+        "qualification": [{"criterion_id": None, "label": "Quién decide", "good": "Identifica al decisor."}],
+        "objections": [{"category": "custom", "label": "Legal", "trigger": "Tenemos que pasarlo por legal.", "guidance": "Enviamos el DPA."}],
     })
-    assert result["qualification"] == [{"criterion_id": "quien_decide", "label": "Quién decide", "why": "Quien habla no siempre firma."}]
+    assert result["qualification"] == [{"criterion_id": "quien_decide", "label": "Quién decide", "good": "Identifica al decisor."}]
     assert result["objections"] == [{
         "category": "custom", "id": "legal", "label": "Legal", "trigger": "Tenemos que pasarlo por legal.",
-        "guidance": "Enviamos el DPA.", "proof": "40 clientes",
+        "guidance": "Enviamos el DPA.",
     }]
     assert set(result) == {"steps", "objections", "qualification", "reason", "fallback"}
 
@@ -764,7 +756,7 @@ def test_the_p03_cases_are_well_formed_and_the_script_scores_them():
     deck = by_id["p03_product_deck_only_es"]
     answer = {"types": [], "company": {
         "icp": "Gestorías de 5 a 30 personas.", "bad_fit": "Más de 500 empleados.", "pricing": "Básico 4 €.",
-        "differentiators": ["Cierre en 2 días"], "proofs": [{"customer": "Gestoría Ríos", "number": "6 días a 2"}],
+        "differentiators": ["Cierre en 2 días"], "proofs": [{"customer": "Gestoría Ríos", "change": "Redujo de 6 días a 2"}],
     }}
     result, _e = asyncio.run(module.run_split_case(FakeLLM(answer), deck))
     assert result["reason"] == "no_process" and module.check_split(deck, result) == []
@@ -773,13 +765,15 @@ def test_the_p03_cases_are_well_formed_and_the_script_scores_them():
 
     card = by_id["p03_competitor_battlecard_es"]
     answer = {"types": [], "company": {"competitors": [
-        {"name": "Holded", "win_when": "Conciliación.", "landmines": "No decir caro."}, {"name": "Factorial", "lose_when": "Fichaje."},
+        {"name": "Holded", "how_to_talk": "Reconocer que es buen producto y preguntar qué parte de la nómina resuelven hoy."},
+        {"name": "Factorial", "how_to_talk": ""},
     ]}}
     result, _e = asyncio.run(module.run_split_case(FakeLLM(answer), card))
     assert module.check_split(card, result) == []
-    answer["company"]["competitors"][1]["landmines"] = "Inventado."
+    # When the model invents a how_to_talk for Factorial that's not in the document
+    answer["company"]["competitors"][1]["how_to_talk"] = "Inventado que no está en el documento."
     result, _e = asyncio.run(module.run_split_case(FakeLLM(answer), card))
-    assert any("Factorial" in f and "landmines" in f for f in module.check_split(card, result))
+    assert any("Factorial" in f for f in module.check_split(card, result))
 
     meddic = by_id["p03_meddic_named_es"]
     steps = [{"label": "Agenda", "criterion": "Abre con la agenda de la reunión."}, {"label": "Repaso", "criterion": "Repasa lo que contó el SDR."},
@@ -794,9 +788,9 @@ def test_the_p03_cases_are_well_formed_and_the_script_scores_them():
     custom = by_id["p03_custom_objections_es"]
     answer = {"types": [{"key": "discovery", "reason": None, "steps": steps, "qualification": [], "objections": [
         PRICE,
-        {"category": "custom", "label": "Datos históricos", "trigger": "¿Y mis datos históricos?", "guidance": "Los importamos.", "meaning": "Miedo a perder el histórico"},
-        {"category": "custom", "label": "Equipo no lo usa", "trigger": "Mi equipo no lo va a usar", "guidance": "Prueba de 15 días.", "question": "¿Quién lleva hoy la nómina?"},
-        {"category": "custom", "label": "Pasar por legal", "trigger": "Tenemos que pasarlo por legal", "guidance": "Enviamos el DPA.", "proof": "Más de 40 clientes ya lo pasaron por legal"},
+        {"category": "custom", "label": "Datos históricos", "trigger": "¿Y mis datos históricos?", "guidance": "Los importamos."},
+        {"category": "custom", "label": "Equipo no lo usa", "trigger": "Mi equipo no lo va a usar", "guidance": "Prueba de 15 días."},
+        {"category": "custom", "label": "Pasar por legal", "trigger": "Tenemos que pasarlo por legal", "guidance": "Enviamos el DPA."},
     ]}]}
     result, _e = asyncio.run(module.run_split_case(FakeLLM(answer), custom))
     assert module.check_split(custom, result) == []

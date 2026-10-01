@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import ssl
+import time
 import os
 import certifi
 from typing import Any, List, Optional
@@ -45,6 +46,7 @@ from fastapi import APIRouter, WebSocket
 from app.config import settings
 from app.deps import get_supabase
 from app.services.glossary import GlossaryService
+from app.services.usage import record_stt_usage, usage_scope
 from app.services.stt_channels import (
     COPILOT_CHANNEL_MODE,
     accepts_client_pcm_bytes,
@@ -162,6 +164,7 @@ class SpeechmaticsProxy:
             or os.environ.get("SPEECHNATICS_API_KEY")
         )
         self.base_url = "wss://eu2.rt.speechmatics.com/v2"
+        self.started_at: Optional[float] = None
         self.ws = None
         self.recognition_started = asyncio.Event()
 
@@ -240,6 +243,7 @@ class SpeechmaticsProxy:
                 additional_headers={"Authorization": f"Bearer {self.api_key}"},
             ) as sm_ws:
                 logger.info("Speechmatics connection handshake successful")
+                self.started_at = time.monotonic()
 
                 config = {
                     "message": "StartRecognition",
@@ -410,6 +414,21 @@ class SpeechmaticsOnlyProxy:
             profile_languages=profile_languages,
         )
 
+    def _record_usage(self) -> None:
+        """Real-time STT is billed by session audio time; the ledger gets it when the socket closes."""
+        started = self.sm_proxy.started_at
+        if started is None:
+            return  # never reached Speechmatics: nothing billed
+        channels = len(self.sm_proxy.channel_labels or []) if self.mode == COPILOT_CHANNEL_MODE else 1
+        record_stt_usage(
+            "speechmatics",
+            "realtime",
+            time.monotonic() - started,
+            channels=max(1, channels),
+            model="enhanced",
+            meta={"stt_mode": self.mode, "language": self.language},
+        )
+
     async def proxy_session(self, client_ws: WebSocket):
         try:
             await client_ws.send_json(
@@ -458,6 +477,7 @@ class SpeechmaticsOnlyProxy:
             logger.error("Speechmatics proxy session error: %s", e)
         finally:
             logger.info("Speechmatics proxy session finished")
+            self._record_usage()
 
 
 @router.websocket("/live")
@@ -550,4 +570,9 @@ async def live_transcription(websocket: WebSocket):
         channel_labels=channel_labels,
         profile_languages=profile_languages,
     )
-    await proxy.proxy_session(websocket)
+    with usage_scope(
+        "live_stt",
+        user_id=user_id if user_id and user_id != "anonymous" else None,
+        capture_id=websocket.query_params.get("capture_id"),
+    ):
+        await proxy.proxy_session(websocket)

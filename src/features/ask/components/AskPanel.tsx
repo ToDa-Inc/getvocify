@@ -1,17 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ClockCounterClockwise, Plus, Trash, X } from "@phosphor-icons/react";
+import { useState } from "react";
+import { ArrowLeft, ArrowRight, ClockCounterClockwise, Plus, Trash, X } from "@phosphor-icons/react";
 import { IconAction } from "@/components/ui/icon-action";
 import { ConfirmAction } from "@/components/ui/confirm-action";
-import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { useAskConversation } from "../hooks/useAskConversation";
 import { useAskSuggestions } from "../hooks/useAskSuggestions";
-import Composer from "./Composer";
+import AskThread from "./AskThread";
 import HistoryList from "./HistoryList";
-import TurnView from "./TurnView";
-
-const STICK_PX = 64;
 
 /** First visit, or a new conversation: the question is the whole screen, with the ones this account can answer. */
 function EmptyState({ suggestions, onPick }: { suggestions: string[]; onPick: (text: string) => void }) {
@@ -47,49 +43,15 @@ function EmptyState({ suggestions, onPick }: { suggestions: string[]; onPick: (t
 
 export default function AskPanel({ onClose }: { onClose?: () => void }) {
   const { t } = useLanguage();
-  const { user } = useAuth();
   const conversation = useAskConversation();
-  const { thread, busy } = conversation;
-  const [draft, setDraft] = useState("");
+  const { thread } = conversation;
   const [showHistory, setShowHistory] = useState(false);
-  const [unread, setUnread] = useState(false);
-  const scroller = useRef<HTMLDivElement>(null);
-  const stick = useRef(true);
-  const shownCount = useRef(0);
-
-  const isTeamReader = user?.company?.role === "owner" || user?.company?.role === "admin";
   const suggestions = useAskSuggestions()
     .map((id) => (t.product as Record<string, string>)[`askSuggest_${id}`])
     .filter(Boolean);
   const [clearing, setClearing] = useState(false);
   const [deletingThis, setDeletingThis] = useState(false);
 
-  function submit(text: string) {
-    stick.current = true;
-    setUnread(false);
-    conversation.send(text);
-  }
-
-  function toBottom(behavior: ScrollBehavior) {
-    const el = scroller.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior });
-  }
-
-  useEffect(() => {
-    const count = thread.messages.length;
-    // A restored or opened conversation lands at its end at once; a new turn glides there.
-    const jumped = Math.abs(count - shownCount.current) > 2;
-    shownCount.current = count;
-    if (stick.current || jumped) {
-      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      stick.current = true;
-      toBottom(reduced || busy || jumped ? "auto" : "smooth");
-    } else if (busy) {
-      setUnread(true);
-    }
-  }, [thread, busy]);
-
-  const last = thread.messages[thread.messages.length - 1];
   const empty = thread.messages.length === 0;
 
   return (
@@ -154,71 +116,15 @@ export default function AskPanel({ onClose }: { onClose?: () => void }) {
             onClearAll={() => setClearing(true)}
           />
         </div>
-      ) : (
-        <>
-          <div className="relative min-h-0 flex-1">
-            <div
-              ref={scroller}
-              role="log"
-              aria-live="off"
-              className="ask-scroll h-full overflow-y-auto px-4 pb-6 pt-5"
-              onScroll={(event) => {
-                const el = event.currentTarget;
-                stick.current = el.scrollHeight - el.clientHeight - el.scrollTop < STICK_PX;
-                if (stick.current) setUnread(false);
-              }}
-            >
-              {empty ? (
-                <EmptyState suggestions={suggestions} onPick={submit} />
-              ) : (
-                <div className="space-y-8">
-                  {thread.messages.map((message, index) => (
-                    <TurnView
-                      key={message.id || index}
-                      message={message}
-                      isLast={index === thread.messages.length - 1}
-                      onRetry={conversation.retry}
-                      onChoose={(id) => submit(id)}
-                      onConfirm={(m) => void conversation.confirm(m)}
-                      onCancel={(m) => void conversation.cancel(m)}
-                      canAnalyze={isTeamReader}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-            {unread ? (
-              <button
-                type="button"
-                className="glass-card-strong ask-enter absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] text-foreground transition-transform duration-150 active:scale-[0.98]"
-                onClick={() => {
-                  stick.current = true;
-                  setUnread(false);
-                  toBottom("smooth");
-                }}
-              >
-                <ArrowDown size={13} weight="light" aria-hidden="true" />
-                {t.product.askNewReply}
-              </button>
-            ) : null}
-          </div>
-          <div className="shrink-0 px-3 pb-3">
-            <Composer
-              value={draft}
-              onChange={setDraft}
-              autoFocus
-              busy={busy && last?.role === "assistant" && last.phase !== "pending"}
-              onStop={conversation.stop}
-              onSend={() => {
-                const text = draft.trim();
-                if (!text) return;
-                setDraft("");
-                submit(text);
-              }}
-            />
-          </div>
-        </>
-      )}
+      ) : null}
+      {/* Kept mounted while the history shows, so a half-typed question survives a peek at it. */}
+      <div className={showHistory ? "hidden" : "min-h-0 flex-1"}>
+        <AskThread
+          conversation={conversation}
+          visible={!showHistory}
+          empty={(submit) => <EmptyState suggestions={suggestions} onPick={submit} />}
+        />
+      </div>
       <ConfirmAction
         open={deletingThis}
         onOpenChange={setDeletingThis}

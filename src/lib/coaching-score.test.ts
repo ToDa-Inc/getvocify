@@ -106,6 +106,24 @@ describe("coaching surface", () => {
   });
 });
 
+describe("internal memo", () => {
+  it("says an internal memo is never scored instead of waiting for a score", () => {
+    for (const copy of [productCatalog.ES, productCatalog.EN]) {
+      const surface = coachingSurface({ status: "unavailable", value: null, reason: "internal", adherence: null, coverage: null }, copy, "member");
+      assert.deepEqual(surface, { kind: "internal", title: copy.coachingInternalTitle });
+      assert.notEqual(copy.coachingInternalTitle, copy.coachingWaitingTitle);
+    }
+    assert.equal(productCatalog.ES.coachingInternalTitle, "Interna: no se puntúa");
+    assert.equal(productCatalog.EN.coachingInternalTitle, "Internal: not scored");
+  });
+
+  it("keeps waiting for any other memo with no score yet", () => {
+    const copy = productCatalog.ES;
+    const surface = coachingSurface({ status: "unavailable", value: null, reason: "not_scored", adherence: null, coverage: null }, copy, "member");
+    assert.equal(surface.kind, "waiting");
+  });
+});
+
 describe("score by block", () => {
   const copy = { scoreOf: "{value}/10", blocks: { steps: "Pasos", qualification: "Cualificación", objections: "Objeciones" } };
   it("lists only the blocks that applied, in a fixed order", () => {

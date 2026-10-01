@@ -4,7 +4,8 @@ import { useAuth } from "@/features/auth";
 import { getUserDisplayName, getUserInitials } from "@/features/auth/types";
 import {
   Home,
-  Mic,
+  Inbox,
+  LayoutDashboard,
   Settings,
   Menu,
   X,
@@ -15,12 +16,12 @@ import {
   BookOpen,
   Workflow,
   GraduationCap,
-  Headphones,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import Logo from "@/components/Logo";
+import { isAskShortcut } from "@/lib/ask-shortcut";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { ReportBell } from "@/components/dashboard/ReportBell";
@@ -34,16 +35,14 @@ import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopShellBridge } from "@/features/desktop/DesktopShellBridge";
 import { isDesktopHost } from "@/lib/desktop-host";
-import { isManagerRole, managerTopBarAsk, navItemsFor, topBarActions, usesRepHome, type NavItemId } from "@/lib/nav";
+import { isManagerRole, isNavActive, navItemsFor, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
 import { useWideScreen } from "@/features/today/hooks/useWideScreen";
 
 const NAV_ICONS: Record<NavItemId, LucideIcon> = {
   home: Home,
-  memos: Mic,
-  copilot: Headphones,
-  ask: MessageCircle,
-  call: Phone,
+  summary: LayoutDashboard,
+  interactions: Inbox,
   insights: Users,
   coach: GraduationCap,
   playbook: BookOpen,
@@ -67,9 +66,6 @@ const DashboardLayout = () => {
   const dialerActive = dialerOpen || dialerLive;
   const canManageBilling = isManagerRole(user?.company?.role);
   const paywalled = companyIsPaywalled(user?.company);
-  const repTopBar = topBarActions(user?.company?.role);
-  // Head of Sales: Ask (manager chat) in the top bar; no Call, they don't dial.
-  const askInTopBar = repTopBar || managerTopBarAsk(user?.company?.role);
   const menu = navItemsFor({
     role: user?.company?.role,
     repWorkspace: user?.company?.repWorkspace,
@@ -81,8 +77,21 @@ const DashboardLayout = () => {
     const state = location.state as { ask?: boolean } | null;
     if (state?.ask) setAskOpen(true);
   }, [location.state]);
+  // ⌘K / Ctrl+K opens Ask too.
+  useEffect(() => {
+    if (paywalled) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!isAskShortcut(event)) return;
+      event.preventDefault();
+      setAskOpen(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [paywalled]);
   const showDialer = !isDesktopHost() && !paywalled && companyCanUseDialer(user?.company);
-  const homeColumn = usesRepHome(user?.company) && location.pathname === "/dashboard";
+  // The full Hoy (/dashboard/today) keeps its contact column whoever opens it, so its ContactPanel
+  // always has somewhere to go on xl (its sheet is xl:hidden). Inicio (/dashboard) has its own rail.
+  const homeColumn = location.pathname === "/dashboard/today";
   const closeAsk = useCallback(() => setAskOpen(false), []);
   const column = useMemo(
     () => ({ target: homeColumn ? columnNode : null, askOpen, closeAsk, canDial: showDialer }),
@@ -92,13 +101,6 @@ const DashboardLayout = () => {
   if (paywalled && location.pathname !== BILLING_PATH) {
     return <Navigate to={BILLING_PATH} replace />;
   }
-
-  const isActive = (path: string) => {
-    if (path === "/dashboard") {
-      return location.pathname === "/dashboard";
-    }
-    return location.pathname.startsWith(path);
-  };
 
   return (
     <DialerFocusProvider onOpenDialer={() => setDialerOpen(true)}>
@@ -138,62 +140,12 @@ const DashboardLayout = () => {
         <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
           {!paywalled && menu.items.map((item) => {
             const Icon = NAV_ICONS[item.id];
-            if (item.id === "call") {
-              return showDialer ? (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-label={t.product.navCall}
-                  aria-expanded={dialerOpen}
-                  onClick={() => {
-                    setDialerOpen((current) => !current);
-                    setSidebarOpen(false);
-                  }}
-                  className={`
-                    flex w-full items-center gap-3 px-3 py-2 text-[13.5px]
-                    ${THEME_TOKENS.radius.pill} transition-colors duration-150
-                    ${dialerActive
-                      ? THEME_TOKENS.interaction.navPillActive
-                      : THEME_TOKENS.interaction.navPillIdle}
-                  `}
-                >
-                  <Icon className={`h-4 w-4 ${dialerActive ? "opacity-100" : "opacity-70"}`} />
-                  <span className="flex-1 text-left">{t.product.navCall}</span>
-                  {dialerLive ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-beige" />
-                  ) : null}
-                </button>
-              ) : null;
-            }
-            if (item.id === "ask") {
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  aria-expanded={askOpen}
-                  onClick={() => {
-                    setAskOpen((open) => !open);
-                    setSidebarOpen(false);
-                  }}
-                  className={`
-                    flex w-full items-center gap-3 px-3 py-2 text-[13.5px]
-                    ${THEME_TOKENS.radius.pill} transition-colors duration-150
-                    ${askOpen
-                      ? THEME_TOKENS.interaction.navPillActive
-                      : THEME_TOKENS.interaction.navPillIdle}
-                  `}
-                >
-                  <Icon className={`h-4 w-4 ${askOpen ? "opacity-100" : "opacity-70"}`} />
-                  <span className="flex-1 text-left">{t.product[item.labelKey]}</span>
-                </button>
-              );
-            }
-            if (!item.path) return null;
-            const active = isActive(item.path);
+            const active = isNavActive(location.pathname, item);
             return (
               <Link
                 key={item.id}
                 to={item.path}
+                aria-current={active ? "page" : undefined}
                 onClick={() => setSidebarOpen(false)}
                 className={`
                   flex items-center gap-3 px-3 py-2 text-[13.5px]
@@ -252,10 +204,9 @@ const DashboardLayout = () => {
             <Menu className="h-5 w-5" />
           </Button>
 
-          {/* Lista 4 E3: for reps, Ask and Call live in the top bar, left side. The Head of
-              Sales gets Ask there too, without Call. */}
+          {/* Lista 4 E3: Ask and Call live in the top bar, left side, for every role. */}
           <div className="flex flex-1 items-center gap-1.5 lg:gap-2">
-            {askInTopBar && !paywalled ? (
+            {!paywalled ? (
               <button
                 type="button"
                 aria-label={t.product.navAsk}
@@ -269,7 +220,7 @@ const DashboardLayout = () => {
                 <span className="hidden sm:inline">{t.product.navAsk}</span>
               </button>
             ) : null}
-            {repTopBar && showDialer ? (
+            {showDialer ? (
               <button
                 type="button"
                 aria-label={t.product.navCall}

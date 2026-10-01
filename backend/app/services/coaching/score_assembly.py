@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.coaching.metrics import compute_adherence
 from app.services.coaching.scoring import assemble_score
+from app.services.playbooks.catalog import INTERNAL_KEY
 
 _STATUS = frozenset({"met", "missed", "not_applicable", "unknown"})
 # C04 v7: what a qualification criterion can be, and how each maps onto a score status.
@@ -310,7 +311,11 @@ def build_score_from_extraction(
 
     qualification_enabled (PLAYBOOK_QUALIFICATION_ENABLED): qualification observations become
     criteria (found -> met, missing -> missed), the score carries `blocks` and its value is the
-    mean of the blocks' ratios. Off, nothing below differs from before."""
+    mean of the blocks' ratios. Off, nothing below differs from before.
+
+    An `internal` memo (no customer in the conversation) is never scored."""
+    if (memo or {}).get("sales_motion_key") == INTERNAL_KEY:
+        return None
     extraction = extraction if isinstance(extraction, dict) else {}
     intelligence = _intelligence_block(extraction, payload)
     if not _extraction_has_score_inputs(extraction, intelligence, qualification_enabled=qualification_enabled):
