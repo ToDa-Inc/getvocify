@@ -429,15 +429,28 @@ class OpenRouterProvider(BaseLLMProvider):
         temperature: float = 0.0,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict:
-        content = await self.chat(
-            messages,
-            model=model,
-            temperature=temperature,
-            response_format={"type": "json_object"},
-            timeout=timeout,
-            max_retries=max_retries,
-        )
+        if reasoning_effort:
+            # How much the model thinks before answering: most of a Gemini call's cost is these
+            # tokens, and a classification needs few of them.
+            message = await self._complete(
+                messages, model=model, temperature=temperature,
+                response_format={"type": "json_object"}, timeout=timeout, max_retries=max_retries,
+                extra={"reasoning": {"effort": reasoning_effort}},
+            )
+            content = message.get("content")
+            if content is None:
+                raise ValueError("Empty model response")
+        else:
+            content = await self.chat(
+                messages,
+                model=model,
+                temperature=temperature,
+                response_format={"type": "json_object"},
+                timeout=timeout,
+                max_retries=max_retries,
+            )
         try:
             parsed = extract_json(content)
             log_json_parsed(parsed)

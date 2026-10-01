@@ -430,11 +430,15 @@ async def extract_memo_async(
                 call_reading=call_reading,
             )
 
+        stored_extraction = extraction.model_dump()
+        if call_reading:
+            # C04 reuses it instead of reading the same call a second time.
+            stored_extraction["call_reading"] = call_reading
         update_memo_row(
             supabase,
             memo_id,
             extraction_complete_update(
-                extraction.model_dump(),
+                stored_extraction,
                 datetime.utcnow().isoformat(),
             ),
         )

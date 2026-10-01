@@ -110,14 +110,17 @@ class LLMRouter:
         provider: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict:
         active = self._active_provider(provider)
+        kwargs = {"reasoning_effort": reasoning_effort} if reasoning_effort else {}
         return await active.chat_json(
             messages,
             model=model or self._default_model,
             temperature=temperature,
             timeout=timeout,
             max_retries=max_retries,
+            **kwargs,
         )
 
     async def chat_tools(

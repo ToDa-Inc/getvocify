@@ -153,6 +153,9 @@ async def read_call(
     turns = split_turns(transcript)
     if not turns:
         return None, transcript, {}
+    from app.config import settings
+
+    effort = getattr(settings, "INTELLIGENCE_READING_EFFORT", None)
     raw = await llm.chat_json(
         build_reading_messages(
             turns, captured_at=captured_at, rep_name=rep_name,
@@ -161,6 +164,7 @@ async def read_call(
         model=model,
         temperature=0.0,
         timeout=90.0,
+        **({"reasoning_effort": effort} if effort else {}),
     )
     meta = dict(getattr(llm, "last_call_meta", None) or {})
     reading = shape_reading(raw, turns)

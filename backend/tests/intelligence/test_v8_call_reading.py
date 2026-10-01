@@ -259,3 +259,29 @@ def test_v8_a_step_done_in_a_call_stopped_at_the_door_still_counts():
         ]},
     )
     assert {o["step_id"]: o["status"] for o in shaped["playbook_observations"]}["pain"] == "met"
+
+
+def test_v8_no_conversation_skips_the_second_pass():
+    memo = {"id": "m-1", "transcript": TRANSCRIPT, "created_at": "2026-09-28T10:00:00+02:00", "extraction": {"summary": "s"}}
+    llm = FakeLLM({"call_type": "no_conversation", "phase_reached": "none", "rep_turns": []})
+    shaped, _ = asyncio.run(extract_intelligence(memo, llm, prompt_version=CALL_READING_PROMPT_VERSION, playbook_steps=STEPS))
+    assert len(llm.calls) == 1  # the reading only
+    assert {o["status"] for o in shaped["playbook_observations"]} == {"not_applicable"}
+    assert shaped["next"]["callback"] == {"needed": False}
+
+
+def test_v8_reuses_the_reading_the_crm_pass_stored_for_the_same_transcript():
+    from app.services.intelligence.call_reading import PROMPT_VERSION as READING_VERSION
+    reading = {"version": READING_VERSION, "call_type": "cold_first_contact", "phase_reached": "discovery",
+               "reached_conversation": True, "rep_turns": [2, 4], "other_turns": [], "turn_count": 5, "roles_marked": True}
+    memo = {"id": "m-1", "transcript": TRANSCRIPT, "created_at": "2026-09-28T10:00:00+02:00",
+            "extraction": {"summary": "s", "call_reading": reading}}
+    llm = FakeLLM({"playbook_observations": [{"step_id": "apertura", "status": "met", "quote": "soy Ana, te llamo de Acme"},
+                                             {"step_id": "pain", "status": "met", "quote": "¿Cómo conseguís clientes hoy?"}]})
+    shaped, _ = asyncio.run(extract_intelligence(memo, llm, prompt_version=CALL_READING_PROMPT_VERSION, playbook_steps=STEPS))
+    assert len(llm.calls) == 1  # no second reading
+    assert json.loads(llm.calls[0][1]["content"])["transcript"].startswith("Them: ¿Sí?\n\nYou: Hola, soy Ana")
+    stale = {**memo, "extraction": {"summary": "s", "call_reading": {**reading, "turn_count": 9}}}
+    llm2 = FakeLLM({"call_type": "cold_first_contact", "phase_reached": "discovery", "rep_turns": [2, 4]}, {"playbook_observations": []})
+    asyncio.run(extract_intelligence(stale, llm2, prompt_version=CALL_READING_PROMPT_VERSION, playbook_steps=STEPS))
+    assert len(llm2.calls) >= 2  # a reading that does not fit is made again

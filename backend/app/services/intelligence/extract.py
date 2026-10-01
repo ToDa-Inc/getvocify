@@ -918,6 +918,24 @@ def call_context(supabase: Any, memo: dict) -> dict:
     return context
 
 
+def _stored_reading(memo: dict) -> tuple[dict, str] | None:
+    """The call reading the CRM pass already made for this transcript (same prompt version, same
+    turns), with its You:/Them: transcript; None when it does not fit and the call must be read."""
+    from app.services.intelligence.call_reading import PROMPT_VERSION as READING_VERSION, relabel, split_turns
+
+    extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+    reading = extraction.get("call_reading") if isinstance(extraction.get("call_reading"), dict) else None
+    if not reading or reading.get("version") != READING_VERSION:
+        return None
+    turns = split_turns(str(memo.get("transcript") or ""))
+    if not turns or reading.get("turn_count") != len(turns):
+        return None
+    reading = {k: v for k, v in reading.items() if k != "rep_company"}
+    if len(turns) < 2:
+        return reading, str(memo.get("transcript") or "")
+    return reading, relabel(turns, reading)
+
+
 def _skipped_steps(raw: Any, messages: list[dict]) -> bool:
     """Whether the reply misses a step it was asked to judge."""
     try:
@@ -1001,7 +1019,10 @@ async def extract_intelligence(
     call = None
     transcript = None
     reading_meta: dict = {}
-    if prompt_version == CALL_READING_PROMPT_VERSION:
+    reused = _stored_reading(memo) if prompt_version == CALL_READING_PROMPT_VERSION else None
+    if reused is not None:
+        call, transcript = reused
+    elif prompt_version == CALL_READING_PROMPT_VERSION:
         from app.services.intelligence.call_reading import read_call
 
         call, transcript, reading_meta = await read_call(
@@ -1015,11 +1036,21 @@ async def extract_intelligence(
         playbook_qualification=playbook_qualification, playbook_objections=playbook_objections,
         transcript=transcript, call=call,
     )
-    raw = await llm.chat_json(messages, model=settings.INTELLIGENCE_MODEL, temperature=0.0, timeout=90.0 if call else 60.0)
-    if call and _skipped_steps(raw, messages):
+    effort = getattr(settings, "INTELLIGENCE_JUDGE_EFFORT", None) if call else None
+    judge = {"reasoning_effort": effort} if effort else {}
+    from app.services.intelligence.call_reading import NOT_JUDGED
+
+    if call and (not call.get("reached_conversation") or call.get("call_type") == "no_conversation"):
+        # Nobody answered for real: there is nothing to judge or to act on, and the second pass
+        # would be paid for an empty answer.
+        raw = {}
+    else:
+        raw = await llm.chat_json(messages, model=settings.INTELLIGENCE_MODEL, temperature=0.0,
+                                  timeout=90.0 if call else 60.0, **judge)
+    if call and raw and _skipped_steps(raw, messages):
         # v8: a step the model left out would read as "no evidence" on a call where it is plain;
         # one more read is cheaper than a wrong coaching line.
-        raw = await llm.chat_json(messages, model=settings.INTELLIGENCE_MODEL, temperature=0.0, timeout=90.0)
+        raw = await llm.chat_json(messages, model=settings.INTELLIGENCE_MODEL, temperature=0.0, timeout=90.0, **judge)
     meta = dict(getattr(llm, "last_call_meta", None) or {})
     if reading_meta:
         meta["call_reading"] = reading_meta
