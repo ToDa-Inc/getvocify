@@ -130,3 +130,15 @@ def test_a_crm_fact_needs_the_prospects_own_words():
     assert out["painPoints"] == [] and out["competitors"] == ["HubSpot"]
     assert out["company_properties"] == {"annualrevenue": 2000000, "crm": None, "name": "Acme"}
     assert out["contactName"] == "Ana" and "evidence" not in out
+
+
+def test_evidence_paths_are_matched_loosely_and_list_items_can_back_themselves():
+    from app.services.extraction import require_prospect_evidence
+    transcript = "You: ¿Quién decide?\n\nThem: Eso lo decide mi socio Pablo. Ahora mismo no me interesa."
+    out = require_prospect_evidence({
+        "decisionMakers": ["Pablo"],
+        "objections": ["no me interesa", "es caro"],
+        "evidence": {"decisionMakers[0]": "lo decide mi socio Pablo"},
+    }, transcript)
+    assert out["decisionMakers"] == ["Pablo"]
+    assert out["objections"] == ["no me interesa"]

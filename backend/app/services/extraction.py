@@ -544,17 +544,24 @@ def require_prospect_evidence(extracted: dict, transcript: str, *, roles_marked:
     from app.services.intelligence.extract import _locate, _turns
 
     out = dict(extracted or {})
-    evidence = out.pop("evidence", None)
-    evidence = evidence if isinstance(evidence, dict) else {}
+    raw_evidence = out.pop("evidence", None)
+    # Paths come back as "objections", "objections[0]", "objections.0" or "company_properties.crm":
+    # group every quote under its field path, without list indexes.
+    evidence: dict[str, list] = {}
+    for key, value in (raw_evidence.items() if isinstance(raw_evidence, dict) else []):
+        path = re.sub(r"\[\d+\]|\.\d+(?=\.|$)", "", str(key)).strip(". ")
+        evidence.setdefault(path, []).extend(value if isinstance(value, list) else [value])
     turns = _turns(transcript) if roles_marked else None
     prospect_text = (
         " ".join(" ".join(text.split()) for who, text in turns if who == "Them") if turns else transcript
     )
 
+    def said(text) -> bool:
+        return isinstance(text, str) and len(text.split()) >= 2 and bool(_locate(text, prospect_text))
+
     def backed(path: str) -> bool:
-        quote = evidence.get(path)
-        quotes = quote if isinstance(quote, list) else [quote]
-        return any(isinstance(q, str) and len(q.split()) >= 2 and _locate(q, prospect_text) for q in quotes)
+        quotes = evidence.get(path) or evidence.get(path.split(".")[-1]) or []
+        return any(said(q) for q in quotes)
 
     def empty(value) -> bool:
         return value in (None, "", [], {})
@@ -571,7 +578,11 @@ def require_prospect_evidence(extracted: dict, transcript: str, *, roles_marked:
         elif isinstance(value, (dict, list)) and key == "line_items":
             out[key] = value if backed(key) else []
         elif not backed(key):
-            out[key] = [] if isinstance(value, list) else None
+            if isinstance(value, list):
+                # An item the prospect said in so many words ("no me interesa") backs itself.
+                out[key] = [item for item in value if said(item)]
+            else:
+                out[key] = None
     return out
 
 
