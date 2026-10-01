@@ -348,6 +348,7 @@ CREATE TABLE memos (
   transcript_complete BOOLEAN NOT NULL DEFAULT false,
   followup JSONB,
   followup_run_started_at TIMESTAMPTZ,
+  user_notes TEXT,
   whatsapp_message_id TEXT,
   conversation_id UUID,
   hubspot_engagement_id TEXT,

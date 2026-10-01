@@ -158,7 +158,9 @@ class Memo(MemoBase):
     salesMotionKey: Optional[str] = None
     # Lista 4 T4: what the after-call outcome did (stored date, handoff hint). Approve only.
     after_call: Optional[dict] = None
-    
+    # What the rep typed while a desktop meeting recorded.
+    userNotes: Optional[str] = None
+
     class Config:
         from_attributes = True
 
