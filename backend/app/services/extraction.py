@@ -801,7 +801,16 @@ def _grounded_rules(json_structure: str) -> str:
    salesperson's pitch, never next steps (that is nextSteps). Do not dress the outcome up ("tras
    superar fuertes objeciones"): say what was agreed, as tentatively as it was agreed. A meeting is
    "agreed" only when the prospect said yes to it; one the salesperson proposed and the prospect did
-   not confirm is "propuesta, sin confirmar".
+   not confirm is "propuesta, sin confirmar". Keep the prospect's hedges ("creo que", "puede que",
+   "más adelante"): a maybe is not a yes, and "no tenemos ese problema" is not "no le interesa".
+   Never leave out what the next touch needs: an email or phone they dictated, who calls or writes to
+   whom and when, a condition they set ("si bajáis el precio", "después de Black Friday"), a price
+   they asked about or accepted, figures with their unit exactly as said (441 comerciales is not 441
+   empleados), and what they said they will do (and who does it: "te envío la invitación" is the
+   salesperson's task, not the prospect's).
+   No line without a fact: never "apertura exitosa", "se presentó", "confirma que se llama X",
+   "se habló de", and never repeat the Resultado below it. A short call or a plain no is the
+   Resultado line plus at most two bullets. Words the audio garbled are not facts: leave them out.
 6. **nextSteps**: only actions the SALESPERSON (or their team) must do, promised or agreed in this
    call: send X, prepare the proposal, send the calendar invite, call back (also when the salesperson
    said "te vuelvo a llamar" without a day), contact the person they were referred to. Never the prospect's own actions (those go in the note) and never "Reunión"
