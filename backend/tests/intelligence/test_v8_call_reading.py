@@ -196,7 +196,7 @@ def test_v8_next_actions_are_shaped_for_the_brief_and_the_email():
     nxt = shaped["next"]
     assert nxt["outcome"]["text"].startswith("Contó que") and len(nxt["outcome"]["evidence_refs"]) == 1
     assert nxt["callback"]["needed"] and nxt["callback"]["who_asked"] == "prospect"
-    assert nxt["callback"]["when"].startswith("2026-09-29T12:30") and nxt["callback"]["temporal_precision"] == "time"
+    assert nxt["callback"]["when"].startswith("2026-10-05T12:30") and nxt["callback"]["temporal_precision"] == "time"  # "el lunes" said on a Monday
     assert nxt["followup_email"] == {"needed": True, "kind": "other", "content": "casos de éxito", "to": None, "evidence_refs": []}
     assert nxt["referral"] is None and nxt["hook"] == "Pregúntale por las ferias"
 
@@ -205,3 +205,18 @@ def test_v8_nothing_said_means_nothing_next():
     shaped, _, _ = _run({"call_type": "no_conversation", "phase_reached": "none"}, {"playbook_observations": []})
     assert shaped["next"] == {"outcome": None, "callback": {"needed": False}, "followup_email": {"needed": False},
                               "referral": None, "hook": None}
+
+
+def test_v8_callback_day_comes_from_the_words_said_not_the_models_arithmetic():
+    shaped, _, _ = _run(
+        {"call_type": "cold_first_contact", "phase_reached": "discovery", "rep_turns": [2, 4]},
+        {"playbook_observations": [], "next": {"callback": {
+            "needed": True, "who_asked": "prospect", "when": "2026-11-28", "when_text": "en un año", "reason": "presupuesto"}}},
+    )
+    assert shaped["next"]["callback"]["when"].startswith("2027-09-28")
+    timed, _, _ = _run(
+        {"call_type": "bad_moment", "phase_reached": "opening", "rep_turns": [2]},
+        {"playbook_observations": [], "next": {"callback": {
+            "needed": True, "who_asked": "prospect", "when": "2026-09-28T12:30:00+02:00", "when_text": "mañana a las 12:30"}}},
+    )
+    assert timed["next"]["callback"]["when"].startswith("2026-09-29T12:30") and timed["next"]["callback"]["temporal_precision"] == "time"

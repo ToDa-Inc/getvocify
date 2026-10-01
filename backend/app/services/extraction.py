@@ -480,6 +480,32 @@ REP_DECLARED_FIELDS = frozenset({"dealstage"})
 SHORT_NOTE_CALL_TYPES = frozenset({"bad_moment", "gatekeeper", "wrong_person"})
 
 
+_ROLE_TOKENS = frozenset({"you", "them", "rep", "prospect", "s1", "s2"})
+
+
+def grounded_cleanup(extracted: dict) -> dict:
+    """What the grounded prompt asks for and a model still slips on, enforced: no transcript role
+    token ("Them") as a person, no all-empty schedule list."""
+    out = dict(extracted or {})
+
+    def is_role(value) -> bool:
+        return isinstance(value, str) and value.strip().strip(".:").lower() in _ROLE_TOKENS
+
+    for key in ("contactName", "companyName"):
+        if is_role(out.get(key)):
+            out[key] = None
+    if isinstance(out.get("decisionMakers"), list):
+        out["decisionMakers"] = [v for v in out["decisionMakers"] if not is_role(v)]
+    for nested in ("contact_properties", "company_properties"):
+        props = out.get(nested)
+        if isinstance(props, dict):
+            out[nested] = {k: (None if is_role(v) else v) for k, v in props.items()}
+    schedules = out.get("nextStepSchedules")
+    if isinstance(schedules, list) and not any(str(v or "").strip() for v in schedules):
+        out["nextStepSchedules"] = []
+    return out
+
+
 def _grounded_source_hint(call_reading: dict) -> str:
     kind = str(call_reading.get("call_type") or "other")
     marked = call_reading.get("roles_marked", True)
@@ -524,7 +550,10 @@ def _grounded_rules(json_structure: str) -> str:
    - products/services offered: what the prospect says their company sells, never the salesperson's
      reading of it, nor partners or tools they use.
    - competitors: only alternatives to what the salesperson sells that the prospect names.
-   - Numbers whose unit was not said (thousands? clients? employees?) stay null.
+   - Numbers whose unit was not said (thousands? clients? employees?) stay null, and so does a range
+     ("entre 1 y 2 millones"): never pick one end of it. A different thing is not the field's thing
+     (an ERP is not a CRM; "solo estoy yo" is not a headcount of the company unless they say so).
+   - products/services offered is never the prospect's sector ("foodtech") or the contact's own job.
 4. **People and identity**: names, emails, phones and domains exactly as said or spelled; never complete
    a surname, email or domain, null when garbled. When the prospect's name was said, fill it in every
    name field the schema has for the contact (contactName and the contact's first/last name fields).
@@ -543,12 +572,12 @@ def _grounded_rules(json_structure: str) -> str:
    salesperson's pitch, never next steps (that is nextSteps). Do not dress the outcome up ("tras
    superar fuertes objeciones"): say what was agreed, as tentatively as it was agreed.
 6. **nextSteps**: only actions the SALESPERSON (or their team) must do, promised or agreed in this
-   call: send X, prepare the proposal, send the calendar invite, call back on a day, contact the person
-   they were referred to. Never the prospect's own actions (those go in the note) and never "Reunión"
-   as a task. Short task titles without dates; timing goes in nextStepSchedules: the day that was agreed
-   for that action, resolved from the call date ("mañana", "el jueves", "en tres meses"); never the call
-   date itself unless they said today; "" only when no day was said for that task. [] when nothing was
-   agreed.
+   call: send X, prepare the proposal, send the calendar invite, call back (also when the salesperson
+   said "te vuelvo a llamar" without a day), contact the person they were referred to. Never the prospect's own actions (those go in the note) and never "Reunión"
+   as a task. Short task titles without dates; timing goes in nextStepSchedules, one item per task: the
+   words that were said for that action, copied as said ("mañana", "el viernes", "en tres meses",
+   "a partir del 15 de enero"), or YYYY-MM-DD only when a full date was said. Never compute a date and
+   never use the call date. "" when no day was said for that task. [] when nothing was agreed.
 6b. **Deal amounts and line items**: only a price or volume the prospect accepted or proposed; a price the
    salesperson quoted and the prospect rejected or did not answer goes in the note, never in a field.
 7. **contactEmail**: only a real address spoken or spelled; never invented.
@@ -1028,6 +1057,8 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             extracted = apply_fill_policies(extracted, field_specs, existing_values)
             extracted = drop_abstained_fields(extracted, abstained, field_specs)
             extracted = drop_unspoken_numbers(extracted, transcript, field_specs)
+            if call_reading:
+                extracted = grounded_cleanup(extracted)
             abstained_names = set(abstained)
             pending_enums = [
                 spec

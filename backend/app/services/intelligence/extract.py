@@ -277,7 +277,26 @@ def _backed(memo_id: str, quote: Any, transcript: str, evidence: dict[str, dict]
     return [ref["id"]]
 
 
-def _next_actions(memo_id: str, raw: Any, transcript: str, evidence: dict[str, dict], tz_name: Any) -> dict:
+def _spoken_day_wins(due: str | None, precision: str, when_text: Any, captured_at: Any, tz_name: Any) -> tuple[str | None, str]:
+    """When code can read the day from the words that were said ("el viernes", "en un año"), that
+    day wins over the model's arithmetic; the model's clock time, if any, is kept."""
+    from app.services.relative_dates import resolve_schedule
+
+    try:
+        ref = datetime.fromisoformat(str(captured_at).replace("Z", "+00:00")).astimezone(_zone(tz_name)).date()
+    except (TypeError, ValueError):
+        return due, precision
+    day = resolve_schedule(str(when_text or ""), ref)
+    if not day:
+        return due, precision
+    if due and precision == "time":
+        parsed = datetime.fromisoformat(due)
+        return datetime.combine(date.fromisoformat(day), parsed.timetz()).isoformat(), "time"
+    resolved, _ = _commitment_due(day, tz_name)
+    return resolved, "date"
+
+
+def _next_actions(memo_id: str, raw: Any, transcript: str, evidence: dict[str, dict], tz_name: Any, captured_at: Any = None) -> dict:
     """v8: what the call leads to, ready for the brief, Hoy and the follow-up email. Texts are
     the model's short Spanish; a part whose `needed` the transcript does not back is dropped."""
     raw = raw if isinstance(raw, dict) else {}
@@ -293,6 +312,7 @@ def _next_actions(memo_id: str, raw: Any, transcript: str, evidence: dict[str, d
         due, precision = (None, "unknown")
         if cb.get("when"):
             due, precision = _commitment_due(cb.get("when"), tz_name)
+        due, precision = _spoken_day_wins(due, precision, cb.get("when_text"), captured_at, tz_name)
         callback = {
             "needed": True,
             "who_asked": cb.get("who_asked") if cb.get("who_asked") in _WHO_ASKED else None,
@@ -570,7 +590,10 @@ def shape_intelligence(
     if prompt_version in _READS_QUALIFICATION:
         shaped["qualification_observations"] = qualification
     if prompt_version == CALL_READING_PROMPT_VERSION:
-        shaped["next"] = _next_actions(memo_id, raw.get("next"), transcript, evidence, memo.get("timezone"))
+        shaped["next"] = _next_actions(
+            memo_id, raw.get("next"), transcript, evidence, memo.get("timezone"),
+            memo.get("capture_started_at") or memo.get("created_at"),
+        )
         shaped["evidence"] = list(evidence.values())
     return shaped
 

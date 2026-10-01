@@ -69,3 +69,15 @@ def test_without_a_reading_the_legacy_prompt_is_unchanged():
     service.jev.is_available = False
     asyncio.run(service.extract("S1: hola\n\nS2: dime", SPECS))
     assert "prefer the best-matching option over null" in service.llm.calls[0][1]["content"]
+
+
+def test_grounded_cleanup_drops_role_tokens_and_empty_schedules():
+    from app.services.extraction import grounded_cleanup
+    out = grounded_cleanup({
+        "contactName": "Them", "decisionMakers": ["Them", "Pablo"], "nextStepSchedules": ["", ""],
+        "contact_properties": {"firstname": "You", "email": "a@b.es"},
+    })
+    assert out["contactName"] is None and out["decisionMakers"] == ["Pablo"]
+    assert out["nextStepSchedules"] == [] and out["contact_properties"] == {"firstname": None, "email": "a@b.es"}
+    kept = grounded_cleanup({"nextStepSchedules": ["2026-10-02", ""]})
+    assert kept["nextStepSchedules"] == ["2026-10-02", ""]  # parallel to nextSteps
