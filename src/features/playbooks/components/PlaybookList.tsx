@@ -25,6 +25,7 @@ const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 export function PlaybookList() {
   const { t } = useLanguage();
   const copy = t.product.pb2;
+  const goalLabels: Record<string, string> = t.product.playbookGoalLabels;
   const process = usePlaybookProcess();
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [browse, setBrowse] = useState(false);
@@ -110,7 +111,7 @@ export function PlaybookList() {
                   registerFlush={(flush) => process.registerFlush(row.key, flush)}
                   meta={
                     <>
-                      {goal && copy.goals[goal] ? <p className={THEME_TOKENS.typography.capsLabel}>{copy.goals[goal]}</p> : null}
+                      {goal && goalLabels[goal] ? <p className={THEME_TOKENS.typography.capsLabel}>{goalLabels[goal]}</p> : null}
                       {state === "paused" ? <p className={THEME_TOKENS.typography.capsLabel}>{copy.pausedLine}</p> : null}
                       {canEdit && ruleNeeded(process.rows, row.key, process.routing) ? (
                         <RuleLine
