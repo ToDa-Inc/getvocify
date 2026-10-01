@@ -72,8 +72,9 @@ export const TranscriptionLanguageSettings = () => {
       <div>
         <h3 className={THEME_TOKENS.typography.sectionTitle}>Call languages</h3>
         <p className="text-xs text-muted-foreground mt-1">
-            Main language for HubSpot recordings, uploads, and WhatsApp. Add others only if
-            those calls mix languages.
+            Main language for live calls, HubSpot recordings, uploads, and WhatsApp. Add the
+            other languages your calls are in: on a live call Vocify hears which one each side
+            speaks and switches to it.
         </p>
       </div>
 

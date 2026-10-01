@@ -10,6 +10,8 @@ export function liveTranscriptionWsUrl(userId: string): string {
   url.searchParams.set("mode", "copilot_channels");
   url.searchParams.set("channel_labels", "prospect,rep");
   url.searchParams.set("language", "multi");
+  // Each side is checked against the profile's call languages and restarts in its own (ChannelReset).
+  url.searchParams.set("detect", "1");
   return url.toString();
 }
 

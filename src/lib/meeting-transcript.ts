@@ -139,6 +139,26 @@ export function applyChannelResult(
   };
 }
 
+/**
+ * One side restarted in its real language (e.g. Catalan) and is sending its words from
+ * `from` again: drop what it had from there on, so nothing shows twice.
+ */
+export function resetChannel(state: MeetingTranscript, audioChannel: unknown, from: unknown): MeetingTranscript {
+  const speaker = speakerOf(audioChannel);
+  const at = seconds(from);
+  if (!speaker || at === null) return state;
+  const key = keyOf(speaker);
+  const segments = state.segments.filter((segment) => segment.speaker !== speaker || (segment.start ?? -1) < at - 0.01);
+  if (segments.length === state.segments.length && !state.interims[key]) return state;
+  return {
+    ...state,
+    segments,
+    interims: without(state.interims, key),
+    interimStarts: without(state.interimStarts, key),
+    interimSeen: without(state.interimSeen, key),
+  };
+}
+
 /** Treats every in-progress tail as final, e.g. when the meeting stops mid-sentence. */
 export function settleMeeting(state: MeetingTranscript): MeetingTranscript {
   return SPEAKER_ORDER.reduce<MeetingTranscript>((acc, key) => {

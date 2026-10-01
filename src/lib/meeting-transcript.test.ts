@@ -7,6 +7,7 @@ import {
   meetingDisplayTurns,
   meetingLastLine,
   meetingUploadText,
+  resetChannel,
   type MeetingTranscript,
 } from "./meeting-transcript.ts";
 import { draftMinutes, sortDrafts, type MeetingDraft } from "./meeting-draft.ts";
@@ -272,5 +273,29 @@ describe("speech-time order and echo", () => {
       ["select the screen", "rep", 6, 7],
     ]);
     assert.equal(meetingUploadText(state), "SPEAKER: S2\nPick the screen, select the screen.");
+  });
+});
+
+describe("resetChannel", () => {
+  it("drops one side's words from the restart on and keeps everything else", () => {
+    const state = [
+      { text: "Hola", isFinal: true, audioChannel: "rep", start: 1, end: 2 },
+      { text: "Bon dia Jordi", isFinal: true, audioChannel: "prospect", start: 2, end: 3 },
+      { text: "Gracias per", isFinal: false, audioChannel: "prospect", start: 4, end: 5 },
+    ].reduce(applyChannelResult, EMPTY_MEETING_TRANSCRIPT);
+    const reset = resetChannel(state, "prospect", 0);
+    assert.deepEqual(meetingTurns(reset), [{ speaker: "rep", text: "Hola" }]);
+    assert.deepEqual(reset.interims, {});
+    const again = applyChannelResult(reset, { text: "Bon dia, Jordi.", isFinal: true, audioChannel: "prospect", start: 2, end: 3 });
+    assert.deepEqual(meetingTurns(again).map((t) => t.text), ["Hola", "Bon dia, Jordi."]);
+  });
+
+  it("keeps what was said before a mid-call restart", () => {
+    const state = [
+      { text: "Primero", isFinal: true, audioChannel: "prospect", start: 1, end: 2 },
+      { text: "després", isFinal: true, audioChannel: "prospect", start: 50, end: 51 },
+    ].reduce(applyChannelResult, EMPTY_MEETING_TRANSCRIPT);
+    assert.deepEqual(meetingTurns(resetChannel(state, "prospect", 48)).map((t) => t.text), ["Primero"]);
+    assert.equal(resetChannel(state, "nobody", 0), state);
   });
 });

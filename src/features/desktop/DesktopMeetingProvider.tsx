@@ -25,6 +25,7 @@ import {
 } from "@/lib/copilot-channel-stt";
 import {
   applyChannelResult,
+  resetChannel,
   EMPTY_MEETING_TRANSCRIPT,
   meetingDisplayTurns,
   meetingHasSpeech,
@@ -276,6 +277,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         audio_channel?: unknown;
         start?: unknown;
         end?: unknown;
+        from?: unknown;
         error?: unknown;
         channel?: { alternatives?: Array<{ transcript?: string }> };
       };
@@ -292,6 +294,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           start: data.start,
           end: data.end,
         });
+        if (next !== transcriptRef.current) updateTranscript(next);
+      } else if (data.type === "ChannelReset") {
+        const next = resetChannel(transcriptRef.current, data.audio_channel, data.from);
         if (next !== transcriptRef.current) updateTranscript(next);
       } else if (data.type === "Error") {
         setWarning(typeof data.error === "string" ? data.error : "Transcription error");
