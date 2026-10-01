@@ -250,3 +250,22 @@ class View(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class C04NextFacts(unittest.TestCase):
+    def test_v8_next_tells_the_email_what_to_carry_to_whom_and_the_agreed_callback(self):
+        block = {**C04, "next": {
+            "outcome": {"text": "Dijo que de momento no; pidió info para verla con su socio"},
+            "followup_email": {"needed": True, "kind": "info", "content": "casos de éxito", "to": "Goda, la CEO"},
+            "callback": {"needed": True, "who_asked": "prospect", "when": "2026-10-05T12:30:00+02:00",
+                         "temporal_precision": "time", "reason": "verlo con su socio"},
+            "referral": {"name": "Goda", "role": "CEO"},
+        }}
+        facts = c04_facts(block, "Europe/Madrid")
+        self.assertEqual(facts["promised_email"], {"kind": "info", "content": "casos de éxito", "to": "Goda, la CEO"})
+        self.assertEqual(facts["callback"], {"who_asked": "prospect", "day": "Monday 2026-10-05", "time": "12:30", "reason": "verlo con su socio"})
+        self.assertEqual(facts["referral"], {"name": "Goda", "role": "CEO"})
+        self.assertTrue(facts["outcome"].startswith("Dijo que de momento no"))
+
+    def test_without_next_the_facts_are_as_before(self):
+        self.assertEqual(set(c04_facts(C04, "Europe/Madrid")), {"commitments", "meeting", "pain_quote"})

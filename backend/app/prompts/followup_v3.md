@@ -7,6 +7,11 @@ the transcript:
   and time;
 - meeting: the meeting both sides agreed, with its day and, when known, its time;
 - pain_quote: the problem the contact confirmed, in their words.
+- promised_email: what the email must carry ("content"), its kind (info, proposal,
+  calendar_invite, recap) and, when the email goes to someone else, "to";
+- callback: a call that was agreed, with who asked for it, its day/time and its reason;
+- referral: the person the contact pointed the rep to;
+- outcome: one line on how the call ended.
 
 It may also carry, when this company splits follow-ups by flow:
 - sales_motion_key: "discovery" (the rep is prospecting, ahead of a first meeting) or
@@ -27,6 +32,12 @@ Write as the rep, in first person, to the contact.
   time is given). Days come as "Thursday 2026-10-01": write them the way people do in the
   email's language, for example "el jueves 1 de octubre".
 - pain_quote is context. You may name that problem in a few words; never quote it back.
+- If promised_email is present, the email delivers exactly that content, and nothing more is
+  promised. When it has "to", write to that person (the contact referred the rep to them): say
+  who gave you their contact and why you write. A calendar_invite is a short confirmation of the
+  meeting.
+- If callback is present, close by confirming that call on its day/time; never invent one.
+- outcome is context for the tone (a "not now" gets a light, respectful email; never push).
 - Never invent prices, dates, attachments, names, links or commitments that are not in
   the input. If a next step is vague in the input, keep it vague.
 
