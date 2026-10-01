@@ -233,6 +233,11 @@ def _when_label(value, precision: str | None, *, now: datetime, tz_name: str) ->
     return f"{day} a las {local:%H:%M}" if precision == "time" else day
 
 
+def _said_in(text: str | None, name: str | None) -> bool:
+    """Whether a line already names this person: the brief never repeats itself."""
+    return bool(text and name and name.split()[0].lower() in text.lower())
+
+
 def sdr_next_lines(*, memo: dict, intelligence: dict, tz_name: str, now: datetime) -> list[dict]:
     """v8 SDR brief, from the call's own `next` block: what happened, what is owed, and the
     callback with its reason (or the hook to open with). Every line is a fact of that call."""
@@ -244,10 +249,12 @@ def sdr_next_lines(*, memo: dict, intelligence: dict, tz_name: str, now: datetim
     day = _day_label(when, tz_name)
     ref = memo.get("id")
     lines: list[dict] = []
-    obstacle = _bad_moment(intelligence)
     outcome = (nxt.get("outcome") or {}).get("text") if isinstance(nxt.get("outcome"), dict) else None
+    # The outcome already says, cleanly, that they could not talk; the raw quote is only a
+    # fallback when there is no outcome (ASR quotes stutter: "estoy estoy en una…").
+    obstacle = None if outcome else _bad_moment(intelligence)
     if day:
-        lines.append(_line("hook", f"Llamada el {day}: {outcome}" if outcome and not obstacle else f"Llamada el {day}",
+        lines.append(_line("hook", f"Llamada el {day}: {outcome}" if outcome else f"Llamada el {day}",
                            source_ref=ref, observed_at=when))
     if obstacle:
         lines.append(_line("obstacle", f"No pudo atenderte: «{obstacle}»", source_ref=ref))
@@ -256,7 +263,7 @@ def sdr_next_lines(*, memo: dict, intelligence: dict, tz_name: str, now: datetim
     if email.get("needed") and email.get("kind") != "calendar_invite" and email.get("content"):
         to = f" a {email['to']}" if email.get("to") else ""
         lines.append(_line("pending", f"Le debes un correo{to}: {_lower_first(_strip_final_period(email['content']))}.", source_ref=ref))
-    elif referral and (referral.get("name") or referral.get("role")):
+    elif referral and (referral.get("name") or referral.get("role")) and not _said_in(outcome, referral.get("name")):
         who = " ".join(x for x in (referral.get("name"), f"({referral['role']})" if referral.get("role") and referral.get("name") else referral.get("role")) if x)
         lines.append(_line("pending", f"Te derivó a {who}.", source_ref=ref))
     callback = nxt.get("callback") if isinstance(nxt.get("callback"), dict) else {}

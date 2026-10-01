@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.after_call import promised_email  # noqa: E402
 from app.services.briefs.v2 import prepare_brief_v2  # noqa: E402
+from app.services.hoy.signals import UNANSWERED_OUTCOMES, screening_from_call  # noqa: E402
 from app.services.intelligence.worker import revision_for_memo  # noqa: E402
 
 CACHE = Path(__file__).resolve().parents[1] / "evals" / "C04" / "real" / ".cache"
@@ -80,9 +81,12 @@ def system_view(intel: dict) -> dict:
     if meeting.get("starts_at"):
         day, clock = _local(meeting["starts_at"])
         starts = f"{day}T{clock}" if clock and meeting.get("precision") == "time" else day
+    # What Hoy shows: an agreed callback, or a retry card when the call reading saw a voicemail
+    # or a "can't talk now" (hoy.signals.screening_from_call).
+    retry = screening_from_call(None, intel) in UNANSWERED_OUTCOMES
     return {
         "email": promised_email(intel),
-        "callback": bool(calls),
+        "callback": bool(calls) or retry,
         "callback_dated": bool(dated),
         "callback_when": callback_when,
         "meeting": meeting.get("agreed"),

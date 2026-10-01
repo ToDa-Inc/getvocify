@@ -42,7 +42,20 @@ TIER: dict[str, int] = {
 DEFAULT_LIMIT = 7
 # Last attempt outcomes (telephony/call_screening.resolve_screening_outcome) that count as
 # "no answer" for a callback_no_answer card - a real conversation never happened after them.
-UNANSWERED_OUTCOMES: frozenset[str] = frozenset({"no_response", "voicemail"})
+UNANSWERED_OUTCOMES: frozenset[str] = frozenset({"no_response", "voicemail", "bad_moment"})
+# C04 v8 call types that mean the same thing when telephony screening did not say it: nobody
+# picked up for real, or they could not talk and the call ended at once.
+_UNANSWERED_CALL_TYPES = {"no_conversation": "no_response", "bad_moment": "bad_moment"}
+
+
+def screening_from_call(screening_outcome: Optional[str], intelligence: Optional[dict]) -> Optional[str]:
+    """The telephony outcome when it says the call went unanswered; otherwise what the call
+    reading saw (a "connected" call can still be a voicemail or a "me pillas fatal")."""
+    if screening_outcome in UNANSWERED_OUTCOMES:
+        return screening_outcome
+    call = (intelligence or {}).get("call") if isinstance(intelligence, dict) else None
+    derived = _UNANSWERED_CALL_TYPES.get((call or {}).get("call_type")) if isinstance(call, dict) else None
+    return derived or screening_outcome
 
 
 @dataclass(frozen=True)

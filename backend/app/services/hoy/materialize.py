@@ -13,6 +13,7 @@ from app.services.hoy.signals import (
     Signal,
     Touch,
     never_contacted_signal,
+    screening_from_call,
     signals_for_contact,
     touch_from_intelligence,
 )
@@ -118,7 +119,7 @@ def contact_touches(memos: list[dict]) -> tuple[dict[str, list], dict[str, bool]
             connection_id=memo.get("connection_id"),
             intelligence=shaped if shaped.get("objections") or shaped.get("commitments") or shaped.get("interest") else None,
             history_complete=True,
-            screening_outcome=memo.get("screening_outcome"),
+            screening_outcome=screening_from_call(memo.get("screening_outcome"), intelligence),
             followup_at=_stored_followup_at(memo),
             rep_outcome=memo.get("rep_outcome"),
         )

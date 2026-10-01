@@ -197,12 +197,17 @@ def _callback_no_answer(payload: dict, lang: str, now: datetime) -> str:
     at = _as_dt(payload.get("at"))
     days = max(0, (now.date() - at.date()).days) if at else 0
     voicemail = payload.get("outcome") == "voicemail"
+    bad_moment = payload.get("outcome") == "bad_moment"
     if lang == "es":
         when = "hoy" if days == 0 else "ayer" if days == 1 else f"hace {days} días"
+        if bad_moment:
+            return f"Le llamaste {when} y no podía hablar. Vuelve a intentarlo."
         if voicemail:
             return f"Saltó el buzón de voz {when}. Vuelve a llamar."
         return f"Le llamaste {when} y no contestó."
     when = "today" if days == 0 else "yesterday" if days == 1 else f"{days} days ago"
+    if bad_moment:
+        return f"You called {when} and they could not talk. Try again."
     if voicemail:
         return f"It went to voicemail {when}. Call again."
     return f"You called {when} and they did not pick up."

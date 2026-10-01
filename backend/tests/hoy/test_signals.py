@@ -239,3 +239,21 @@ def test_a_stored_signal_of_a_type_this_build_does_not_rank_is_skipped_not_fatal
     cards, folded = rank_cards([stale, *live], now=NOW)
     assert all(card.primary.type != "legacy_nudge" for card in cards) and cards
     assert rank_cards([stale], now=NOW) == ([], 0)
+
+
+def test_a_connected_call_the_reading_saw_as_a_bad_moment_asks_for_a_retry():
+    from app.services.hoy.signals import screening_from_call
+    bad = {"call": {"call_type": "bad_moment"}}
+    assert screening_from_call("connected", bad) == "bad_moment"
+    assert screening_from_call(None, {"call": {"call_type": "no_conversation"}}) == "no_response"
+    assert screening_from_call("voicemail", bad) == "voicemail"  # telephony knows best
+    assert screening_from_call("connected", {"call": {"call_type": "follow_up"}}) == "connected"
+    assert screening_from_call(None, None) is None
+
+
+def test_bad_moment_retry_card_says_they_could_not_talk():
+    from datetime import datetime, timezone
+    from app.services.hoy.reasons import _callback_no_answer
+    now = datetime(2026, 9, 26, 10, 0, tzinfo=timezone.utc)
+    text = _callback_no_answer({"outcome": "bad_moment", "at": "2026-09-25T10:00:00+00:00"}, "es", now)
+    assert text == "Le llamaste ayer y no podía hablar. Vuelve a intentarlo."

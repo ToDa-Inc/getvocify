@@ -139,18 +139,24 @@ If the day or time changed during the conversation, use the last one both sides 
 - next: what the rep needs to act on after this call. Write every text field in Spanish, short,
   addressed to the rep ("tú"), only facts from this conversation. Each part with a quote (exact
   substring where it was said) or null.
-  - outcome: {text, quote}. One sentence (max 20 words) with what happened, the way a colleague
-    would tell it: "Dijo que de momento no; pidió info para verla con su socio", "Aceptó una demo
-    el viernes 9 a las 9:30", "Te cogió en una reunión y pidió que le llamaras luego". Never a recap
-    of the rep's pitch ("breve presentación", "se habló de…").
+  - outcome: {text, quote}. One sentence (max 20 words) with how the call ended, decision first,
+    the way a colleague would tell it: "Dijo que de momento no; pidió info para verla con su socio",
+    "Aceptó una demo el viernes 9 a las 9:30", "Te cogió en una reunión y pidió que le llamaras
+    luego", "No le interesa y pidió que no le volvieras a llamar". A "do not call me" or "call me
+    from January" always goes in it. Never a recap of the rep's pitch ("breve presentación", "se
+    habló de…"), and never the rep's own situation attributed to the prospect.
   - callback: {needed, who_asked, when, when_text, reason, quote}. needed is true when someone
     will or should call again: the prospect asked to be called ("llámame luego", "en enero"), the
-    rep said they would call ("te llamo el lunes", "la semana que viene"), or the call was cut
-    and nothing else was agreed. false when a meeting was booked, the prospect said a final no,
-    or they are not the right person and pointed elsewhere. who_asked is "prospect", "rep" or
+    rep said they would call ("te llamo el lunes", "la semana que viene", "te vuelvo a llamar que
+    se corta"). Someone has to have said it in this conversation: never propose a callback nobody
+    mentioned. false when a meeting was booked, the prospect said a final no or asked not to be
+    called, or they are not the right person and pointed elsewhere. who_asked is "prospect", "rep" or
     null. when is resolved like commitments' due_at (ISO with offset when a clock time was said,
     "YYYY-MM-DD" for a day, null when nobody said when; "en enero" is the first working day of
-    January; "la semana que viene" is next Monday); when_text is how it was said. reason is the
+    January; "la semana que viene" is next Monday; "a partir del 15 de enero" is that day; "en un
+    año" is captured_at plus a year). When the time was changed during the call ("¿en un par de
+    meses?" "No, mejor en un año"), use what the prospect asked for last. Never pick today unless
+    they said today or now. when_text is how it was said. reason is the
     hook for that call in max 15 words ("estaba recogiendo a los niños", "quiere verlo con su socio
     cuando tengan presupuesto").
   - followup_email: {needed, kind, content, to, quote}. needed is true when the rep promised to
@@ -159,10 +165,13 @@ If the day or time changed during the conversation, use the last one both sides 
     "proposal", "calendar_invite", "recap" or "other". content is what it must carry (max 20
     words). to is the recipient when it is not the person on the call, as a name and/or role
     ("Goda, la CEO"), never an email address (they come out garbled in transcripts); else null.
-  - referral: {name, role, quote} when the person pointed to someone else (the real decision
-    maker, a partner, another department); null otherwise.
-  - hook: max 15 words, how to open the next call with this person using something they said
-    ("pregúntale qué opinó su socio de los casos de éxito"). null when there is nothing concrete.
+  - referral: {name, role, quote} only when the prospect handed over another person for the rep
+    to approach (the real decision maker, a partner, a colleague, with a name or a way to reach
+    them). Mentioning that a partner also decides, or asking the rep to send something they will
+    forward, is not a referral. null otherwise.
+  - hook: max 15 words, how to open the next call with this person using something THE PROSPECT
+    said or asked for ("pregúntale qué opinó su socio de los casos de éxito"), never the rep's own
+    pitch. null when there is nothing concrete.
 
 Never invent a price, a date, a name or a document. Never paraphrase inside quote.
 
