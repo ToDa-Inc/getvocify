@@ -142,3 +142,16 @@ def test_evidence_paths_are_matched_loosely_and_list_items_can_back_themselves()
     }, transcript)
     assert out["decisionMakers"] == ["Pablo"]
     assert out["objections"] == ["no me interesa"]
+
+
+def test_identity_written_at_the_top_fills_the_crms_own_empty_name_fields():
+    from app.services.extraction import grounded_cleanup
+    out = grounded_cleanup({
+        "contactName": "Sergi Bonilla", "companyName": "Creantun Talent",
+        "contact_properties": {"firstname": None, "lastname": None, "email": None},
+        "company_properties": {"name": None, "crm": None},
+    })
+    assert out["contact_properties"]["firstname"] == "Sergi" and out["contact_properties"]["lastname"] == "Bonilla"
+    assert out["company_properties"]["name"] == "Creantun Talent"
+    kept = grounded_cleanup({"contactName": "Sergi", "contact_properties": {"firstname": "Sergio"}})
+    assert kept["contact_properties"]["firstname"] == "Sergio"  # never overwrites

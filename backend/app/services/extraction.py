@@ -523,7 +523,25 @@ def grounded_cleanup(extracted: dict) -> dict:
     schedules = out.get("nextStepSchedules")
     if isinstance(schedules, list) and not any(str(v or "").strip() for v in schedules):
         out["nextStepSchedules"] = []
+    _mirror_identity(out)
     return out
+
+
+def _mirror_identity(out: dict) -> None:
+    """The contact's name and the company's name the pass already wrote at the top level also
+    fill the CRM's own empty name fields, when the schema asked for them."""
+    contact = out.get("contact_properties")
+    name = str(out.get("contactName") or "").strip()
+    if isinstance(contact, dict) and name:
+        first, _, last = name.partition(" ")
+        if "firstname" in contact and not contact.get("firstname"):
+            contact["firstname"] = first
+        if "lastname" in contact and not contact.get("lastname") and last:
+            contact["lastname"] = last
+    company = out.get("company_properties")
+    company_name = str(out.get("companyName") or "").strip()
+    if isinstance(company, dict) and company_name and "name" in company and not company.get("name"):
+        company["name"] = company_name
 
 
 # Fields the grounded pass may fill without a prospect quote: the note, the tasks, and who the
