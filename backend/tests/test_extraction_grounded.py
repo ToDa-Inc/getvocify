@@ -100,3 +100,33 @@ def test_a_long_transcript_read_as_no_conversation_still_gets_a_note():
     long_call = "You: hola, soy Ana de Acme\n\nThem: " + "estoy de vacaciones, llámame el lunes. " * 20
     out = asyncio.run(service.extract(long_call, SPECS, call_reading={"call_type": "not_a_sales_call"}))
     assert len(service.llm.calls) == 1 and out.summary.startswith("**Resultado:** Pidió")
+
+
+def test_an_empty_grounded_reply_is_retried_once():
+    class Flaky(FakeLLM):
+        async def chat_json(self, messages, **kwargs):
+            self.calls.append(messages)
+            return {} if len(self.calls) == 1 else {"summary": "**Resultado:** Reunión el lunes.", "nextSteps": []}
+    service = _service({})
+    service.llm = Flaky({})
+    out = asyncio.run(service.extract("You: hola soy Ana de Acme\n\nThem: vale, el lunes", SPECS, call_reading=READING))
+    assert len(service.llm.calls) == 2 and out.summary.startswith("**Resultado:** Reunión")
+
+
+def test_a_crm_fact_needs_the_prospects_own_words():
+    from app.services.extraction import require_prospect_evidence
+    transcript = "You: ¿Os cuesta generar leads?\n\nThem: Facturamos dos millones y usamos HubSpot desde hace años."
+    out = require_prospect_evidence({
+        "painPoints": ["Falta de leads"],
+        "competitors": ["HubSpot"],
+        "company_properties": {"annualrevenue": 2000000, "crm": "hubspot", "name": "Acme"},
+        "contactName": "Ana",
+        "evidence": {
+            "painPoints": "Os cuesta generar leads",          # the rep's words: not the prospect's
+            "competitors": "usamos HubSpot desde hace años",
+            "company_properties.annualrevenue": "facturamos dos millones",
+        },
+    }, transcript)
+    assert out["painPoints"] == [] and out["competitors"] == ["HubSpot"]
+    assert out["company_properties"] == {"annualrevenue": 2000000, "crm": None, "name": "Acme"}
+    assert out["contactName"] == "Ana" and "evidence" not in out

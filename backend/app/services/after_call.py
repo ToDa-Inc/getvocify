@@ -113,9 +113,23 @@ def memo_stopper(memo: dict, now: datetime) -> Optional[str]:
     return stopper_for(touch) if touch else None
 
 
+def _agreed_callback(memo: dict, now: datetime) -> Optional[datetime]:
+    """C04 v8: the callback the call agreed, when it has a day still ahead."""
+    nxt = (_intelligence(memo) or {}).get("next")
+    callback = nxt.get("callback") if isinstance(nxt, dict) and isinstance(nxt.get("callback"), dict) else {}
+    if not callback.get("needed"):
+        return None
+    when = _as_dt(callback.get("when"))
+    return when if when and when > now else None
+
+
 def suggested_followup_at(memo: dict, company_overrides: Optional[dict[str, int]], now: datetime) -> datetime:
-    """E8's date for a follow-up: the call plus its stopper's wait (company overrides first),
-    +7 days when the stopper is unknown. Never in the past - reviewing an old call counts from now."""
+    """E8's date for a follow-up: the callback the call agreed when there is one (v8), else the call
+    plus its stopper's wait (company overrides first), +7 days when the stopper is unknown. Never in
+    the past - reviewing an old call counts from now."""
+    agreed = _agreed_callback(memo, now)
+    if agreed is not None:
+        return agreed
     at = _as_dt(memo.get("created_at")) or now
     days = wait_days(memo_stopper(memo, now), company_overrides) or FALLBACK_FOLLOWUP_DAYS
     due = at + timedelta(days=days)

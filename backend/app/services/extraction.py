@@ -526,6 +526,55 @@ def grounded_cleanup(extracted: dict) -> dict:
     return out
 
 
+# Fields the grounded pass may fill without a prospect quote: the note, the tasks, and who the
+# contact is (identity is checked as spoken by grounded_cleanup instead).
+_NO_EVIDENCE_NEEDED = frozenset({
+    "summary", "nextSteps", "nextStepSchedules", "next_step_schedules", "confidence", "evidence",
+    "contactName", "contactEmail", "contactPhone", "companyName", "customerPresent", "dealname",
+    "contact_properties.firstname", "contact_properties.lastname", "contact_properties.email",
+    "contact_properties.phone", "contact_properties.mobilephone", "company_properties.name",
+    "company_properties.domain", "company_properties.website", "description",
+})
+
+
+def require_prospect_evidence(extracted: dict, transcript: str, *, roles_marked: bool = True) -> dict:
+    """Every CRM fact the grounded pass fills needs the prospect's own words behind it: its
+    `evidence` quote must be found (ignoring case, accents and punctuation) in a "Them:" turn.
+    A field without one is emptied; what only the salesperson said never becomes the prospect's."""
+    from app.services.intelligence.extract import _locate, _turns
+
+    out = dict(extracted or {})
+    evidence = out.pop("evidence", None)
+    evidence = evidence if isinstance(evidence, dict) else {}
+    turns = _turns(transcript) if roles_marked else None
+    prospect_text = (
+        " ".join(" ".join(text.split()) for who, text in turns if who == "Them") if turns else transcript
+    )
+
+    def backed(path: str) -> bool:
+        quote = evidence.get(path)
+        quotes = quote if isinstance(quote, list) else [quote]
+        return any(isinstance(q, str) and len(q.split()) >= 2 and _locate(q, prospect_text) for q in quotes)
+
+    def empty(value) -> bool:
+        return value in (None, "", [], {})
+
+    for key in list(out):
+        value = out[key]
+        if key in _NO_EVIDENCE_NEEDED or empty(value):
+            continue
+        if isinstance(value, dict) and key in ("contact_properties", "company_properties"):
+            out[key] = {
+                k: (v if empty(v) or f"{key}.{k}" in _NO_EVIDENCE_NEEDED or backed(f"{key}.{k}") else None)
+                for k, v in value.items()
+            }
+        elif isinstance(value, (dict, list)) and key == "line_items":
+            out[key] = value if backed(key) else []
+        elif not backed(key):
+            out[key] = [] if isinstance(value, list) else None
+    return out
+
+
 def _grounded_source_hint(call_reading: dict) -> str:
     kind = str(call_reading.get("call_type") or "other")
     marked = call_reading.get("roles_marked", True)
@@ -612,9 +661,15 @@ def _grounded_rules(json_structure: str) -> str:
 7b. **Fields agree with the note**: whatever the note states about the agreed meeting or callback day,
    the objection, the company's name, its revenue or a pain the prospect owned also goes in its
    field (nextStepSchedules, objections, the company and contact fields); a field never contradicts the note.
+7c. **evidence**: for every field you fill except the note, the tasks, their schedules and the
+   contact's own name, email, phone and company name, add to "evidence" the prospect's exact words
+   that back it, copied from a "Them:" line: {{"field path": "exact words"}}, with the same path as
+   the field ("painPoints", "company_properties.annualrevenue", "dealstage"…). A field with no
+   prospect words to back it is not filled: what only the salesperson said never counts.
 8. **Format**: Return JSON in this structure:
 
 {json_structure}
+Add one more top-level key: "evidence": {{"field path": "the prospect's exact words"}}.
 
 9. **Confidence**: Provide overall (0-1) and per-field scores."""
 
@@ -1088,10 +1143,13 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                     if name not in abstained:
                         abstained.append(name)
             elif call_reading:
-                # One retry on an unparseable reply: a failed extraction leaves the memo failed.
+                # One retry on an unparseable or empty reply: a real call must not be left without
+                # its note (a model sometimes returns {} on a long call).
                 try:
                     extracted = await self.llm.chat_json(messages, temperature=0.0)
                 except ValueError:
+                    extracted = None
+                if not isinstance(extracted, dict) or not str(extracted.get("summary") or "").strip():
                     extracted = await self.llm.chat_json(messages, temperature=0.0)
             else:
                 extracted = await self.llm.chat_json(messages, temperature=0.0)
@@ -1101,7 +1159,9 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             extracted = drop_abstained_fields(extracted, abstained, field_specs)
             extracted = drop_unspoken_numbers(extracted, transcript, field_specs)
             if call_reading:
-                extracted = grounded_cleanup(extracted)
+                extracted = grounded_cleanup(require_prospect_evidence(
+                    extracted, transcript, roles_marked=call_reading.get("roles_marked", True),
+                ))
             abstained_names = set(abstained)
             pending_enums = [
                 spec
