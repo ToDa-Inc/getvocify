@@ -35,6 +35,38 @@ def normalize_competitor_name(name: str) -> str:
     return " ".join(str(name).upper().split())
 
 
+def _folded(name: str) -> str:
+    import unicodedata
+
+    plain = unicodedata.normalize("NFKD", name)
+    return "".join(c for c in plain if c.isalnum()).upper()
+
+
+def _merge_spellings(
+    tallies: dict[str, int], quotes: dict[str, list[tuple[datetime, str]]]
+) -> tuple[dict[str, int], dict[str, list[tuple[datetime, str]]]]:
+    """The audio spells one product several ways ("Ringover", "Ring Over", "RingGover"): they are
+    one competitor, named by its most frequent spelling."""
+    from difflib import SequenceMatcher
+
+    groups: list[list[str]] = []
+    for name in sorted(tallies, key=lambda n: (-tallies[n], n)):
+        key = _folded(name)
+        for group in groups:
+            head = _folded(group[0])
+            if key == head or (min(len(key), len(head)) >= 5 and SequenceMatcher(None, key, head).ratio() >= 0.85):
+                group.append(name)
+                break
+        else:
+            groups.append([name])
+    merged_tallies: dict[str, int] = {}
+    merged_quotes: dict[str, list[tuple[datetime, str]]] = {}
+    for group in groups:
+        merged_tallies[group[0]] = sum(tallies[n] for n in group)
+        merged_quotes[group[0]] = [q for n in group for q in quotes.get(n, [])]
+    return merged_tallies, merged_quotes
+
+
 def _memo_instant(memo: dict) -> datetime | None:
     observed = _parse_instant(memo.get("capture_started_at"))
     if observed is not None:
@@ -85,6 +117,7 @@ def competitor_counts(
                 text = " ".join(str(quote_text).split())
                 if text:
                     quotes.setdefault(name, []).append((instant, text))
+    tallies, quotes = _merge_spellings(tallies, quotes)
     ordered = []
     for name, count in tallies.items():
         recent = sorted(quotes.get(name, []), key=lambda pair: pair[0], reverse=True)[:3]

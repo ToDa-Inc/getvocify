@@ -241,7 +241,12 @@ def review_memos_from(memos: list[dict], *, limit: int = 3) -> list[dict]:
     ranked: list[tuple[str, str, str]] = []
     for memo in memos:
         extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
-        line = _first_plain_line(str((extraction or {}).get("summary") or ""))
+        intel = (extraction or {}).get("intelligence") if isinstance((extraction or {}).get("intelligence"), dict) else {}
+        outcome = ((intel.get("next") or {}).get("outcome") or {}) if isinstance(intel.get("next"), dict) else {}
+        # How the call ended (C04 v8) says more to a Head of Sales than the note's first line.
+        line = " ".join(str((outcome or {}).get("text") or "").split()) or _first_plain_line(
+            str((extraction or {}).get("summary") or "")
+        )
         memo_id = str(memo.get("id") or "").strip()
         if not line or not memo_id:
             continue

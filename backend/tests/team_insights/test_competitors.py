@@ -405,3 +405,9 @@ def test_team_report_email_omits_competitors_when_flag_off():
     html = email_html_for_snapshot(snap, report_id=report_id)
     assert "Competidores mencionados" not in html
     assert "competitors" not in snap
+
+
+def test_spellings_of_one_product_count_as_one_competitor():
+    from app.services.team_insights.competitors import _merge_spellings
+    tallies, quotes = _merge_spellings({"RINGOVER": 2, "RING OVER": 1, "RINGGOVER": 1, "HUBSPOT": 3, "TLDV": 1}, {})
+    assert tallies == {"HUBSPOT": 3, "RINGOVER": 4, "TLDV": 1}

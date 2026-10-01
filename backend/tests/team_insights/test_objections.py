@@ -242,3 +242,11 @@ def test_playbook_tab_flag_on_adds_how_to_and_best_example():
     category = body["objection_categories"][0]
     assert category["how_to"] == "Ancla en el ROI."
     assert category["best_example"] == "Le mostré el ROI."
+
+
+def test_the_best_example_is_the_text_people_read_not_its_storage():
+    from app.services.team_insights.objections import response_text
+    assert response_text('{"text": "Te lo enseño en 20 minutos."}') == "Te lo enseño en 20 minutos."
+    assert response_text({"text": "Vale,  sin problema."}) == "Vale, sin problema."
+    long = "Mira, lo entiendo. " * 30
+    assert len(response_text(long)) <= 245 and response_text(long).endswith("…")
