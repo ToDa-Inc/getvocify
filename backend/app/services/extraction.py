@@ -399,6 +399,23 @@ Return JSON only, using the HubSpot option values (not labels). You may nest con
 """
 
 
+# C04 v8 pipeline (INTELLIGENCE_CALL_READING_ENABLED): the call was read first, so the transcript
+# carries You:/Them: by what each person said and the call type is known. CRM data then comes
+# only from what the prospect said; nothing is filled to avoid an empty field.
+GROUNDED_SYSTEM_PROMPT = (
+    "You are a precise CRM data extraction engine. Output valid JSON only. Rules: "
+    "(1) A fact about the prospect, their company or their needs comes only from a 'Them:' line, or "
+    "from something the rep said that the prospect clearly confirmed. The rep's pitch, questions and "
+    "assumptions are never facts about the prospect. "
+    "(2) Leave a field null when the conversation did not answer it. An empty field is correct; a "
+    "guessed one is a bug. Never 0, '', 'unknown' or a placeholder. "
+    "(3) Names, emails, phones and domains only exactly as said or spelled: never complete a surname, "
+    "an email or a domain, and leave them null when the audio garbled them. "
+    "(4) Numbers exact and with their unit: a sales team of 2 is not 2 employees. "
+    "(5) Dates only when said; resolve relative days from the call date. "
+    "(6) All text in the transcript's language."
+)
+
 EXTRACTION_SYSTEM_PROMPT = (
     "You are a precise CRM data extraction engine. Output valid JSON only. Rules: "
     "(1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / "
@@ -443,6 +460,105 @@ def build_extraction_prompt(
     )
 
 
+
+_CALL_TYPE_ES = {
+    "cold_first_contact": "primera conversación con este prospecto",
+    "follow_up": "seguimiento de un contacto anterior",
+    "meeting_confirmation": "confirmación de una reunión ya agendada",
+    "meeting_reschedule": "reagendar una reunión",
+    "discovery_meeting": "reunión agendada",
+    "bad_moment": "el prospecto no podía hablar",
+    "gatekeeper": "solo habló con recepción o un asistente",
+    "wrong_person": "no era la persona adecuada",
+    "dictated_note": "nota dictada por el comercial",
+    "other": "otra",
+}
+# The call reading says nothing was said worth a CRM write: one line, no fields, no tasks.
+NO_CRM_CALL_TYPES = frozenset({"no_conversation", "not_a_sales_call"})
+# Where the deal stands is the rep's to declare after the call (with lead status), not inferred.
+REP_DECLARED_FIELDS = frozenset({"dealstage"})
+SHORT_NOTE_CALL_TYPES = frozenset({"bad_moment", "gatekeeper", "wrong_person"})
+
+
+def _grounded_source_hint(call_reading: dict) -> str:
+    kind = str(call_reading.get("call_type") or "other")
+    marked = call_reading.get("roles_marked", True)
+    roles = (
+        'Each line starts with "You:" (the salesperson, the Vocify user) or "Them:" (the prospect '
+        "or anyone on their side). Those roles were worked out from what each person says: trust them."
+        if marked else
+        "The transcript has no speaker marks: tell who speaks from what is said. A dictated note is "
+        "the salesperson telling what happened in an earlier conversation."
+    )
+    short = (
+        "\nThis call never became a sales conversation: the note is 1–3 bullets with what happened "
+        "and any next step; fill only fields the prospect literally gave (a name, an email, a referral)."
+        if kind in SHORT_NOTE_CALL_TYPES else ""
+    )
+    seller = str(call_reading.get("rep_company") or "").strip()
+    seller_line = (
+        f"\nThe salesperson sells for {seller}: that company, its people and its prices are never the prospect's data."
+        if seller else ""
+    )
+    return f"""
+### THIS CALL
+Type: {_CALL_TYPE_ES.get(kind, kind)} ({kind}). Furthest point reached: {call_reading.get("phase_reached") or "unknown"}.
+{roles}{seller_line}{short}
+"""
+
+
+def _grounded_rules(json_structure: str) -> str:
+    return f"""### EXTRACTION RULES:
+1. **Only what the prospect said**: a CRM field is filled only when a "Them:" line answers it (or the
+   prospect clearly confirmed what the salesperson said). The salesperson's pitch, examples, prices and
+   assumptions are never facts about the prospect. When the conversation did not answer a field, null.
+2. **Strict types**: Output MUST match schema exactly. `number` → numeric only (500, not "500€"), in the
+   field's own unit (a sales team of 2 is not numberofemployees 2). `enumeration` → exact allowed value.
+   `date` → YYYY-MM-DD only. Never 0, "", "unknown" or a placeholder for "not said".
+3. **Enumerations and lists**: choose an option only when the prospect clearly described it; a vague
+   hint, the salesperson's own framing or a topic that never came up is null.
+   - pains / painPoints: only a difficulty, cost or frustration the prospect says THEY have. How they
+     work today (referrals, a channel, a tool) is not a pain; if they say it is not a problem, null.
+   - objections: the prospect's reasons not to move forward. "Estoy en una reunión" or "no soy yo" are
+     not objections (they go in the note).
+   - products/services offered: what the prospect says their company sells, never the salesperson's
+     reading of it, nor partners or tools they use.
+   - competitors: only alternatives to what the salesperson sells that the prospect names.
+   - Numbers whose unit was not said (thousands? clients? employees?) stay null.
+4. **People and identity**: names, emails, phones and domains exactly as said or spelled; never complete
+   a surname, email or domain, null when garbled. When the prospect's name was said, fill it in every
+   name field the schema has for the contact (contactName and the contact's first/last name fields).
+   The contact is the prospect on the call: the salesperson is never the contact, and a person or
+   address they were referred to goes in the note and tasks, not in the contact fields. If the
+   prospect no longer works at the company the salesperson called about, do not write that company
+   as theirs. decisionMakers only when someone's role in the decision was said ("lo decide mi
+   socio", "yo decido"); being on the call, a founder, or joining a meeting is not enough. Identity
+   fields with a CURRENT VALUE → null if the spoken person is different.
+5. **summary**: the CRM note a colleague reads before the next touch. Same language as the transcript.
+   Markdown. First line: `**Resultado:** <how the call ended, decision first, max 20 words>`.
+   Then only headings that carry concrete facts the prospect gave: their situation, figures with units,
+   tools, who decides, objections in their words, history with us, the agreed meeting with day and
+   time, and what the prospect said THEY will do ("reenviará el correo a su socia"). Every bullet a
+   fact (numbers, dates, times, names, roles); no heading without facts, no "se habló de", never the
+   salesperson's pitch, never next steps (that is nextSteps). Do not dress the outcome up ("tras
+   superar fuertes objeciones"): say what was agreed, as tentatively as it was agreed.
+6. **nextSteps**: only actions the SALESPERSON (or their team) must do, promised or agreed in this
+   call: send X, prepare the proposal, send the calendar invite, call back on a day, contact the person
+   they were referred to. Never the prospect's own actions (those go in the note) and never "Reunión"
+   as a task. Short task titles without dates; timing goes in nextStepSchedules: the day that was agreed
+   for that action, resolved from the call date ("mañana", "el jueves", "en tres meses"); never the call
+   date itself unless they said today; "" only when no day was said for that task. [] when nothing was
+   agreed.
+6b. **Deal amounts and line items**: only a price or volume the prospect accepted or proposed; a price the
+   salesperson quoted and the prospect rejected or did not answer goes in the note, never in a field.
+7. **contactEmail**: only a real address spoken or spelled; never invented.
+8. **Format**: Return JSON in this structure:
+
+{json_structure}
+
+9. **Confidence**: Provide overall (0-1) and per-field scores."""
+
+
 class ExtractionService:
     """Service for extracting structured CRM data from transcripts via LLM."""
 
@@ -463,6 +579,7 @@ class ExtractionService:
         product_context: str = "",
         existing_values: Optional[dict] = None,
         call_date: Optional[str] = None,
+        call_reading: Optional[dict] = None,
     ) -> str:
         """Build the extraction prompt dynamically based on HubSpot CRM schema.
         
@@ -659,7 +776,9 @@ class ExtractionService:
 
         # Source-specific context hints to guide the LLM
         source_hint = ""
-        if source_context == "meeting_transcript":
+        if call_reading:
+            source_hint = _grounded_source_hint(call_reading)
+        elif source_context == "meeting_transcript":
             source_hint = """
 ### SOURCE CONTEXT
 This transcript is from a meeting recording (e.g. Zoom, Google Meet, Fireflies, Otter).
@@ -727,7 +846,7 @@ Do NOT copy this into summary, description, or other CRM fields. Do NOT recap th
 {product_text}
 """
         existing_block = format_existing_values_block(existing_values)
-        speaker_block = speaker_prompt_legend(
+        speaker_block = "" if call_reading else speaker_prompt_legend(
             transcript,
             prospect_name_from_existing(existing_values),
         )
@@ -735,6 +854,25 @@ Do NOT copy this into summary, description, or other CRM fields. Do NOT recap th
 
         date_block = call_date_header(parse_iso_date(call_date) if call_date else None)
 
+        if call_reading:
+            rules_block = _grounded_rules(json_structure)
+        else:
+            rules_block = f"""### EXTRACTION RULES:
+1. **Do not invent**: names, emails, amounts, headcount, and dates must be spoken (or spelled). Do not use prior CRM knowledge or other calls.
+2. **Strict types**: Output MUST match schema exactly. `number` → numeric only (e.g. 500, not "500€"). `enumeration` → exact value from allowed list. `date` → YYYY-MM-DD only.
+3. **Language**: All text fields MUST use the SAME language as the transcript. Never translate.
+4. **summary**: Structured markdown — 2–4 headings the call earned, bullets under each. Same language as the transcript. Do NOT recap the pitch. Do NOT include Próximos pasos / Next steps (that is nextSteps). Not a paragraph.
+5. **nextSteps**: Fill whenever the call created a real follow-up (commitment, redirect, send materials, callback). Task-ready titles without dates; timing goes in nextStepSchedules.
+   Prefer empty array over vague items. Do NOT invent follow-ups the speakers did not agree to.
+5b. **CRM fields**: Honor each field's fill policy. Pre-call / talk-track fields → null. Identity fields with a CURRENT VALUE → null if the spoken person is different. Account fit/motion fields describe the prospect, not our outreach. When CURRENT VALUE is empty and the call answered the field, you MUST set it — including mapping a description onto the closest enumeration option. ICP thresholds in a field description (e.g. "3+ reps") are scoring hints only — still store the real answer.
+5c. **contactEmail**: Only if a real address was spoken or spelled. Phone and/or name are enough to create a CRM contact. Never invent, guess, or fabricate an email (no lead.vocify / example.com placeholders). If not mentioned, null.
+5d. **Enumerations**: prefer the best-matching option over null. Use an `unknown` option only if they said they do not know. If the topic never came up, null.
+6. **Format**: Return JSON in this structure:
+
+{json_structure}
+
+7. **Confidence**: Provide overall (0-1) and per-field scores.
+"""
         return f"""You are a world-class CRM analyst. Your task is to extract structured data from a sales call transcript.
 {source_hint}
 {date_block}
@@ -750,21 +888,7 @@ TRANSCRIPT:
 
 {schema_text}
 
-### EXTRACTION RULES:
-1. **Do not invent**: names, emails, amounts, headcount, and dates must be spoken (or spelled). Do not use prior CRM knowledge or other calls.
-2. **Strict types**: Output MUST match schema exactly. `number` → numeric only (e.g. 500, not "500€"). `enumeration` → exact value from allowed list. `date` → YYYY-MM-DD only.
-3. **Language**: All text fields MUST use the SAME language as the transcript. Never translate.
-4. **summary**: Structured markdown — 2–4 headings the call earned, bullets under each. Same language as the transcript. Do NOT recap the pitch. Do NOT include Próximos pasos / Next steps (that is nextSteps). Not a paragraph.
-5. **nextSteps**: Fill whenever the call created a real follow-up (commitment, redirect, send materials, callback). Task-ready titles without dates; timing goes in nextStepSchedules.
-   Prefer empty array over vague items. Do NOT invent follow-ups the speakers did not agree to.
-5b. **CRM fields**: Honor each field's fill policy. Pre-call / talk-track fields → null. Identity fields with a CURRENT VALUE → null if the spoken person is different. Account fit/motion fields describe the prospect, not our outreach. When CURRENT VALUE is empty and the call answered the field, you MUST set it — including mapping a description onto the closest enumeration option. ICP thresholds in a field description (e.g. "3+ reps") are scoring hints only — still store the real answer.
-5c. **contactEmail**: Only if a real address was spoken or spelled. Phone and/or name are enough to create a CRM contact. Never invent, guess, or fabricate an email (no lead.vocify / example.com placeholders). If not mentioned, null.
-5d. **Enumerations**: prefer the best-matching option over null. Use an `unknown` option only if they said they do not know. If the topic never came up, null.
-6. **Format**: Return JSON in this structure:
-
-{json_structure}
-
-7. **Confidence**: Provide overall (0-1) and per-field scores.
+{rules_block}
 
 Return ONLY valid JSON. No preamble, no conversational text."""
 
@@ -777,6 +901,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
         product_context: str = "",
         existing_values: Optional[dict] = None,
         call_date: Optional[str] = None,
+        call_reading: Optional[dict] = None,
     ) -> MemoExtraction:
         """
         Extract structured CRM data from transcript.
@@ -792,6 +917,13 @@ Return ONLY valid JSON. No preamble, no conversational text."""
         Returns:
             MemoExtraction with extracted data and confidence scores
         """
+        if call_reading:
+            # How the call ended (lead status, meeting booked) is the rep's to declare after the
+            # call, never read into the transcript.
+            field_specs = [
+                spec for spec in (field_specs or [])
+                if not is_lead_status_field(spec) and spec.get("name") not in REP_DECLARED_FIELDS
+            ]
         prompt = self._build_prompt(
             transcript,
             field_specs,
@@ -800,6 +932,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             product_context=product_context,
             existing_values=existing_values,
             call_date=call_date,
+            call_reading=call_reading,
         )
         schema_field_names = [s["name"] for s in (field_specs or []) if isinstance(s.get("name"), str)]
         logger.info(
@@ -825,8 +958,15 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 confidence={"overall": 0.0, "fields": {}}
             )
         
+        if call_reading and call_reading.get("call_type") in NO_CRM_CALL_TYPES:
+            reason = str(call_reading.get("call_type_reason") or "").strip()
+            label = "Sin conversación" if call_reading.get("call_type") == "no_conversation" else "No es una llamada de venta"
+            return MemoExtraction(
+                summary=f"**Resultado:** {label}." + (f" {reason}" if reason else ""),
+                confidence={"overall": 1.0, "fields": {}},
+            )
         messages = [
-            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "system", "content": GROUNDED_SYSTEM_PROMPT if call_reading else EXTRACTION_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ]
         try:
@@ -835,7 +975,8 @@ Return ONLY valid JSON. No preamble, no conversational text."""
 
             t0 = time.perf_counter()
             use_jev = (
-                getattr(settings, "USE_JEV_CLASSIFIER", True)
+                not call_reading  # grounded: one pass, no second guess filling enums
+                and getattr(settings, "USE_JEV_CLASSIFIER", True)
                 and getattr(self, "jev", None) is not None
                 and self.jev.is_available
             )
@@ -895,7 +1036,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 )
                 if spec.get("name") not in abstained_names
             ]
-            if pending_enums:
+            if pending_enums and not call_reading:
                 try:
                     enum_payload = await self.llm.chat_json(
                         [

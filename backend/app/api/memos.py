@@ -273,6 +273,46 @@ def _call_date_from_memo(memo_data: Optional[dict]) -> Optional[str]:
     return str(created)[:10] if created else None
 
 
+async def _read_call_first(
+    supabase: Client,
+    memo_id: str,
+    transcript: str,
+    *,
+    profile: Optional[dict],
+    call_date: Optional[str],
+) -> tuple[Optional[dict], str]:
+    """C04 v8 pipeline (INTELLIGENCE_CALL_READING_ENABLED): read the call before the CRM pass,
+    so the note and the fields know who said what and what kind of call it was. Off, or on any
+    failure, the CRM pass runs exactly as before on the transcript it was given."""
+    from app.services.feature_flags import is_enabled
+    from app.services.intelligence.call_reading import read_call
+    from app.services.intelligence.extract import CALL_READING_FLAG, call_context
+    from app.services.llm import LLMClient
+
+    try:
+        rows = supabase.table("memos").select(
+            "id,company_id,user_id,hubspot_contact_id,created_at"
+        ).eq("id", str(memo_id)).limit(1).execute().data or []
+        memo = rows[0] if rows else {}
+        if not memo or not is_enabled(supabase, memo.get("company_id"), CALL_READING_FLAG):
+            return None, transcript
+        context = call_context(supabase, memo)
+        if profile and profile.get("company_name") and not context.get("company_name"):
+            context["company_name"] = profile["company_name"]
+        from app.config import settings
+
+        reading, relabeled, _ = await read_call(
+            transcript, LLMClient(), model=settings.INTELLIGENCE_MODEL,
+            captured_at=str(call_date or memo.get("created_at") or ""), **context,
+        )
+        if reading is not None and context.get("company_name"):
+            reading = {**reading, "rep_company": context["company_name"]}
+        return reading, relabeled
+    except Exception:
+        logger.warning("call reading before extraction failed", extra={"memo_id": str(memo_id)}, exc_info=True)
+        return None, transcript
+
+
 async def extract_memo_async(
     memo_id: str,
     user_id: str,
@@ -367,6 +407,9 @@ async def extract_memo_async(
                 extra_names=[profile.get("full_name"), profile.get("company_name")],
                 two_party=is_two_party_source(source_type),
             )
+            call_reading, transcript = await _read_call_first(
+                supabase, memo_id, transcript, profile=profile, call_date=call_date,
+            )
             extraction = await extraction_service.extract(
                 transcript,
                 field_specs,
@@ -375,6 +418,7 @@ async def extract_memo_async(
                 product_context=product_context,
                 existing_values=existing_values,
                 call_date=call_date,
+                call_reading=call_reading,
             )
 
         update_memo_row(
