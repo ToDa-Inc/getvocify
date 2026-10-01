@@ -39,8 +39,9 @@ export function isManagerRole(role?: string | null): boolean {
 
 // Inicio (/dashboard) is every role's home. A member (Llamadas, Reuniones, General) has
 // Inicio, Interacciones, Playbook, Coaching and Ajustes; their full Hoy is /dashboard/today,
-// reached from Inicio's rail. The Admin/Owner keeps Equipo and Proceso de venta,
-// with Inicio and Interacciones added. Ask and Llamar sit in the top bar for every role.
+// reached from Inicio's rail. The Admin/Owner keeps Equipo and Proceso de venta, with Inicio
+// added; their Interacciones is Inicio's latest list ("Ver todas" opens /dashboard/interactions).
+// Ask and Llamar sit in the top bar for every role.
 // Every other route still exists, just unlinked.
 export function navItemsFor({
   role,
@@ -53,7 +54,7 @@ export function navItemsFor({
 }): NavMenu {
   if (isManagerRole(role)) {
     // Billing is the owner's: the Plans card is not shown to an admin.
-    return { items: [HOME, INTERACTIONS, INSIGHTS, PROCESS, SETTINGS], showPlans: role === "owner" };
+    return { items: [HOME, INSIGHTS, PROCESS, SETTINGS], showPlans: role === "owner" };
   }
   // T11: the Playbook tab is for every company member.
   const playbook = playbookTabEnabled ? [PLAYBOOK] : [];

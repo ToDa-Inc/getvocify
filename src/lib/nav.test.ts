@@ -42,12 +42,12 @@ describe("navItemsFor for a member (Llamadas, Reuniones, General)", () => {
 });
 
 describe("navItemsFor for the Admin/Owner", () => {
-  it("adds Inicio and Interacciones to Equipo, Proceso de venta and Ajustes, whatever the flags", () => {
+  it("adds Inicio to Equipo, Proceso de venta and Ajustes, whatever the flags", () => {
     for (const role of ["owner", "admin"]) {
       for (const repWorkspace of [false, true]) {
         for (const playbookTabEnabled of [false, true]) {
           assert.deepEqual(navItemsFor({ role, repWorkspace, playbookTabEnabled }), {
-            items: [home, interactions, insights, process, settings],
+            items: [home, insights, process, settings],
             showPlans: role === "owner",
           });
         }
