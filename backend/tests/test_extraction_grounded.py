@@ -155,3 +155,65 @@ def test_identity_written_at_the_top_fills_the_crms_own_empty_name_fields():
     assert out["company_properties"]["name"] == "Creantun Talent"
     kept = grounded_cleanup({"contactName": "Sergi", "contact_properties": {"firstname": "Sergio"}})
     assert kept["contact_properties"]["firstname"] == "Sergio"  # never overwrites
+
+
+def test_a_fact_the_prospect_confirmed_or_said_across_a_turn_split_is_kept():
+    from app.services.extraction import require_prospect_evidence
+    transcript = (
+        "You: He visto que sois una plataforma de gestión de flotas, ¿verdad?\n\n"
+        "Them: Sí.\n\n"
+        "You: Y os ayudamos a vender más, que es lo que hacemos.\n\n"
+        "Them: Vale.\n\n"
+        "You: ¿Qué tal estáis ahora?\n\n"
+        "Them: Al final lo estamos haciendo internamente y no vamos a utilizar ningún tipo de\n\n"
+        "You: asesoramiento externo para la planificación. Vale.\n\n"
+        "Them: Más adelante, después de Black Friday podemos hablar, ahora estamos hasta arriba."
+    )
+    out = require_prospect_evidence({
+        "company_properties": {"products_or_services_offered": "Gestión de flotas", "pains": "Vender más"},
+        "objections": ["Lo hacen internamente", "No es el momento"],
+        "evidence": {
+            "company_properties.products_or_services_offered": "sois una plataforma de gestión de flotas",
+            "company_properties.pains": "os ayudamos a vender más",  # a pitch answered "Vale": not confirmed
+            "objections": [
+                "lo estamos haciendo internamente y no vamos a utilizar ningún tipo de asesoramiento externo",
+                "después de Black Friday podemos hablar... [Them:] ahora estamos hasta arriba",
+            ],
+        },
+    }, transcript)
+    assert out["company_properties"] == {"products_or_services_offered": "Gestión de flotas", "pains": None}
+    assert out["objections"] == ["Lo hacen internamente", "No es el momento"]
+
+
+def test_a_bare_yes_or_number_backs_a_field_only_next_to_the_question_it_answered():
+    from app.services.extraction import require_prospect_evidence
+    transcript = (
+        "You: Vendéis B2B, todo tema consultiva, ¿verdad?\n\nThem: Sí.\n\n"
+        "You: ¿Cuántos clientes tenéis?\n\nThem: 10. Más o menos.\n\n"
+        "You: ¿Usáis HubSpot?\n\nThem: Sí.\n\n"
+        "You: Sois un SaaS de IA para informes, ¿verdad?\n\nThem: Sí, más o menos.\n\n"
+        "You: ¿Y de CRM?\n\nThem: Sí, HubSpot."
+    )
+    out = require_prospect_evidence({
+        "company_properties": {
+            "products_or_services_offered": "B2B, todo tema consultiva",
+            "number_of_clients": 10,
+            "numberofemployees": 25,
+            "sector": "Logística",
+            "industry": "SaaS de IA para informes",
+            "crm": "hubspot",
+        },
+        "evidence": {
+            "company_properties.products_or_services_offered": "Sí.",
+            "company_properties.number_of_clients": "10.",
+            "company_properties.numberofemployees": "25",
+            "company_properties.sector": "Sí.",
+            "company_properties.industry": "Sí, más o menos. [en respuesta a: SaaS de IA para informes]",
+            "company_properties.crm": "Sí, HubSpot.",
+        },
+    }, transcript)
+    assert out["company_properties"] == {
+        "products_or_services_offered": "B2B, todo tema consultiva", "number_of_clients": 10,
+        "numberofemployees": None, "sector": None, "industry": None,
+        "crm": "hubspot",
+    }

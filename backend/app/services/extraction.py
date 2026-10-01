@@ -555,10 +555,99 @@ _NO_EVIDENCE_NEEDED = frozenset({
 })
 
 
+# A prospect's answer that confirms what the salesperson just said ("sois de Shopify, ¿verdad?" "Sí.").
+_YES = re.compile(r"^(?:si|sí|exacto|exactamente|correcto|eso es|asi es|efectivamente|claro|yes|right|exactly|correct)\b")
+# "Sí, más o menos" confirms nothing.
+_HEDGE = re.compile(r"\b(?:mas o menos|no del todo|no exactamente|no se|en parte|sort of|kind of|not exactly)\b")
+
+
+_YES_WORDS = frozenset({"si", "exacto", "exactamente", "correcto", "claro", "efectivamente", "eso", "es",
+                        "asi", "vale", "yes", "right", "exactly", "correct"})
+
+
+def _plain_yes(reply: str) -> bool:
+    return bool(_YES.match(reply)) and not _HEDGE.search(reply[:60])
+
+
+def _bare_yes(quote: str) -> bool:
+    """Nothing but a yes ("Sí, sí, correcto.", "Sí, más o menos [a lo que preguntó]"): it says
+    nothing on its own, unlike "Sí, HubSpot"."""
+    from app.services.intelligence.extract import _fold
+
+    words = _fold(re.sub(r"\[[^\]]*\]", " ", str(quote or "")))[0].split()
+    rest = " ".join(word for word in words if word not in _YES_WORDS)
+    return bool(words) and words[0] in _YES_WORDS and (not rest or bool(_HEDGE.fullmatch(rest)))
+
+
+def _quote_parts(quote: str) -> list[str]:
+    """A model's quote cut back to the stretches it copied: no "[...]" notes, no role marks, and
+    split where it joined two places with an ellipsis."""
+    text = re.sub(r"\[[^\]]*\]", "|", str(quote or ""))
+    text = re.sub(r"\b(?:You|Them)\s*:", "|", text)
+    parts = re.split(r"\.{3,}|…|\|", text)
+    return [part.strip(" ,;") for part in parts if part.strip(" ,;.")]
+
+
+def _prospect_said(quote: str, turns: list[tuple[str, str]]) -> bool:
+    """The quote is the prospect's: most of it falls in a "Them:" turn (a sentence the audio split
+    across two turns still counts), or it is the salesperson's sentence the prospect answered
+    with a plain yes."""
+    from app.services.intelligence.extract import _fold
+
+    folded_quote, _ = _fold(" ".join(quote.split()))
+    if len(folded_quote.split()) < 3:
+        return False
+    texts = [" ".join(text.split()) for _, text in turns]
+    flat = " ".join(texts)
+    owner: list[int] = []
+    for index, text in enumerate(texts):
+        owner.extend([index] * (len(text) + 1))
+    folded, where = _fold(flat)
+    at = folded.find(folded_quote)
+    if at < 0:
+        return False
+    span = [owner[where[i]] for i in range(at, at + len(folded_quote)) if folded[i] != " "]
+    if sum(turns[i][0] == "Them" for i in span) * 2 > len(span):
+        return True
+    last = span[-1]
+    if turns[last][0] != "You" or last + 1 >= len(turns) or turns[last + 1][0] != "Them":
+        return False
+    asked = "?" in flat[where[at]:sum(len(t) + 1 for t in texts[:last + 1])]
+    return asked and _plain_yes(_fold(texts[last + 1])[0])
+
+
+def _answered(value, quote: str, turns: list[tuple[str, str]]) -> bool:
+    """A short answer the model quoted alone ("Sí.", "10.") backs the field only next to the
+    question it answered: a yes to a salesperson question that carries the value's own words, or
+    the value itself said as the answer to a question."""
+    from app.services.intelligence.extract import _fold
+
+    answer = _fold(" ".join(str(quote or "").split()))[0]
+    if not answer:
+        return False
+    for index in range(1, len(turns)):
+        (asker, question), (who, reply) = turns[index - 1], turns[index]
+        if asker != "You" or who != "Them" or "?" not in question:
+            continue
+        said = _fold(reply)[0]
+        if not said.startswith(answer):
+            continue
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if answer.split()[0] == f"{value:g}":
+                return True
+        elif isinstance(value, str) and _plain_yes(said):
+            words = [w for w in _fold(value)[0].split() if len(w) > 3]
+            asked = _fold(question)[0]
+            if words and sum(w in asked for w in words) * 10 >= len(words) * 7:
+                return True
+    return False
+
+
 def require_prospect_evidence(extracted: dict, transcript: str, *, roles_marked: bool = True) -> dict:
     """Every CRM fact the grounded pass fills needs the prospect's own words behind it: its
-    `evidence` quote must be found (ignoring case, accents and punctuation) in a "Them:" turn.
-    A field without one is emptied; what only the salesperson said never becomes the prospect's."""
+    `evidence` quote must be found (ignoring case, accents and punctuation) in a "Them:" turn, or be
+    the salesperson's question the prospect answered yes to. A field without one is emptied; what
+    only the salesperson said never becomes the prospect's."""
     from app.services.intelligence.extract import _locate, _turns
 
     out = dict(extracted or {})
@@ -575,11 +664,23 @@ def require_prospect_evidence(extracted: dict, transcript: str, *, roles_marked:
     )
 
     def said(text) -> bool:
-        return isinstance(text, str) and len(text.split()) >= 2 and bool(_locate(text, prospect_text))
+        if not isinstance(text, str):
+            return False
+        if _bare_yes(text):
+            return False  # it proves something only next to its question (_answered)
+        if len(text.split()) >= 2 and _locate(text, prospect_text):
+            return True
+        # Long enough stretches of it carry the quote; short bits ("Sí.") prove nothing on their own.
+        parts = [part for part in _quote_parts(text) if len(part.split()) >= 3]
+        if not parts:
+            return False
+        if turns:
+            return all(_prospect_said(part, turns) for part in parts)
+        return all(_locate(part, prospect_text) for part in parts)
 
-    def backed(path: str) -> bool:
+    def backed(path: str, value=None) -> bool:
         quotes = evidence.get(path) or evidence.get(path.split(".")[-1]) or []
-        return any(said(q) for q in quotes)
+        return any(said(q) or (turns and _answered(value, q, turns)) for q in quotes)
 
     def empty(value) -> bool:
         return value in (None, "", [], {})
@@ -590,12 +691,12 @@ def require_prospect_evidence(extracted: dict, transcript: str, *, roles_marked:
             continue
         if isinstance(value, dict) and key in ("contact_properties", "company_properties"):
             out[key] = {
-                k: (v if empty(v) or f"{key}.{k}" in _NO_EVIDENCE_NEEDED or backed(f"{key}.{k}") else None)
+                k: (v if empty(v) or f"{key}.{k}" in _NO_EVIDENCE_NEEDED or backed(f"{key}.{k}", v) else None)
                 for k, v in value.items()
             }
         elif isinstance(value, (dict, list)) and key == "line_items":
             out[key] = value if backed(key) else []
-        elif not backed(key):
+        elif not backed(key, value):
             if isinstance(value, list):
                 # An item the prospect said in so many words ("no me interesa") backs itself.
                 out[key] = [item for item in value if said(item)]
