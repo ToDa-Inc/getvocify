@@ -31,7 +31,10 @@ import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
-import { DESKTOP_SHELL_EVENTS, isDesktopHost } from "@/lib/desktop-host";
+import { useDesktopMeeting } from "@/features/desktop/DesktopMeetingProvider";
+import { MeetingLiveView } from "@/features/desktop/MeetingLiveView";
+import { useDesktopPermissions } from "@/features/desktop/useDesktopPermissions";
+import { draftMinutes, meetingStartedLabel } from "@/lib/meeting-draft";
 
 export interface VoiceRecorderWidgetProps {
   /** Callback fired with the created memo ID when recording/import succeeds */
@@ -56,6 +59,10 @@ export const VoiceRecorderWidget = ({
   const { t } = useLanguage();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const meeting = useDesktopMeeting();
+  const desktopMeeting = meeting.available;
+  const desktopPermissions = useDesktopPermissions();
+  const desktopReady = !desktopMeeting || desktopPermissions.ready;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isSubmitLocked = useRef(false);
 
@@ -144,28 +151,6 @@ export const VoiceRecorderWidget = ({
     }
   };
 
-  const recordToggleRef = useRef(handleRecordToggle);
-  recordToggleRef.current = handleRecordToggle;
-
-  useEffect(() => {
-    if (!isDesktopHost()) return;
-    const onListen = () => {
-      void recordToggleRef.current();
-    };
-    const onStop = () => {
-      if (state === "recording") {
-        stopRecording();
-        stopTranscription();
-      }
-    };
-    window.addEventListener(DESKTOP_SHELL_EVENTS.listen, onListen);
-    window.addEventListener(DESKTOP_SHELL_EVENTS.stop, onStop);
-    return () => {
-      window.removeEventListener(DESKTOP_SHELL_EVENTS.listen, onListen);
-      window.removeEventListener(DESKTOP_SHELL_EVENTS.stop, onStop);
-    };
-  }, [state, stopRecording, stopTranscription]);
-
   // Re-record / reset state
   const handleReRecord = () => {
     cancelRecording();
@@ -222,7 +207,7 @@ export const VoiceRecorderWidget = ({
     isSubmitLocked.current = true;
 
     try {
-      const memoId = await uploadTranscriptAndExtract(trimmed);
+      const memoId = await uploadTranscriptAndExtract(trimmed, { sourceType: "meeting_transcript" });
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
       toast.success("AI is extracting CRM fields...");
       setPastedTranscript("");
@@ -290,6 +275,10 @@ export const VoiceRecorderWidget = ({
 
   const hasTranscript = Boolean(fullTranscript?.trim());
   const showAudioFallback = state === "stopped" && !hasTranscript && Boolean(audio);
+
+  if (desktopMeeting && ["live", "stopping", "uploading"].includes(meeting.phase)) {
+    return <MeetingLiveView />;
+  }
 
   // 1. Error state
   if (state === "error" && recorderError) {
@@ -461,15 +450,19 @@ export const VoiceRecorderWidget = ({
       <div className="flex flex-col items-center justify-center mb-6">
         <button
           type="button"
-          onClick={handleRecordToggle}
-          disabled={state === "requesting"}
-          aria-label="Start recording voice memo"
+          onClick={() => {
+            if (desktopMeeting) void meeting.start();
+            else void handleRecordToggle();
+          }}
+          disabled={state === "requesting" || meeting.phase === "starting" || !desktopReady}
+          aria-label={desktopMeeting ? "Record meeting" : "Start recording voice memo"}
           className={cn(
             "group relative w-20 h-20 rounded-full glass-panel border border-white/70 shadow-lg dark:border-white/10 flex items-center justify-center",
-            "hover:scale-105 hover:border-beige/40 active:scale-95 transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-beige"
+            "hover:scale-105 hover:border-beige/40 active:scale-95 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-beige",
+            desktopReady ? "cursor-pointer" : "opacity-50 cursor-not-allowed hover:scale-100"
           )}
         >
-          {state === "requesting" ? (
+          {state === "requesting" || meeting.phase === "starting" ? (
             <div className="w-6 h-6 border-2 border-beige border-t-transparent rounded-full animate-spin" />
           ) : (
             <div className="w-7 h-7 rounded-full bg-beige group-hover:scale-110 transition-transform duration-200 shadow-xs flex items-center justify-center text-cream">
@@ -479,12 +472,42 @@ export const VoiceRecorderWidget = ({
         </button>
 
         <span className="text-sm font-medium text-foreground mt-3">
-          {state === "requesting" ? "Requesting microphone..." : "Record"}
+          {state === "requesting"
+            ? "Requesting microphone..."
+            : meeting.phase === "starting"
+              ? "Starting…"
+              : desktopMeeting
+                ? "Record meeting"
+                : "Record"}
         </span>
-        <span className="text-xs text-muted-foreground mt-0.5">
-          Tap to record or import transcript
-        </span>
+        {!desktopMeeting ? (
+          <span className="text-xs text-muted-foreground mt-0.5">
+            Tap to record or import transcript
+          </span>
+        ) : null}
       </div>
+      {desktopMeeting && (meeting.pending.length || meeting.error) ? (
+        <div className="mb-5 flex flex-col items-center gap-2" role="alert">
+          {meeting.pending.length ? (
+            <p className="text-sm text-muted-foreground max-w-md">
+              {meeting.pending.length === 1
+                ? `Meeting from ${meetingStartedLabel(meeting.pending[0])} · ${draftMinutes(meeting.pending[0])} min isn't sent yet.`
+                : `${meeting.pending.length} meetings aren't sent yet.`}
+              {meeting.savedOnDevice
+                ? meeting.pending.length === 1 ? " It's saved on this Mac." : " They're saved on this Mac."
+                : ""}
+            </p>
+          ) : (
+            <p className="text-sm text-destructive max-w-md">{meeting.error}</p>
+          )}
+          {meeting.pending.length ? (
+            <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={() => void meeting.retryPending()}>
+              <RotateCcw className="h-3.5 w-3.5" />
+              Retry sending
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Quick Actions Row */}
       <div className="flex items-center justify-center gap-3 mb-6">
@@ -595,3 +618,4 @@ export const VoiceRecorderWidget = ({
 };
 
 export default VoiceRecorderWidget;
+

@@ -7,6 +7,9 @@ import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/features/auth";
+import { DesktopPermissionsPanel } from "@/features/desktop/DesktopPermissionsPanel";
+import { useDesktopMeeting } from "@/features/desktop/DesktopMeetingProvider";
+import { MeetingLiveView } from "@/features/desktop/MeetingLiveView";
 import { meetingsApi } from "@/features/meetings/api";
 import { ApiError } from "@/shared/lib/api-client";
 import { ROUTES } from "@/shared/lib/constants";
@@ -74,6 +77,11 @@ const RecordPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const recallBotEnabled = Boolean(user?.company?.features?.includes("RECALL_BOT_ENABLED"));
+  const meeting = useDesktopMeeting();
+
+  if (meeting.available && ["live", "stopping", "uploading"].includes(meeting.phase)) {
+    return <MeetingLiveView />;
+  }
 
   return (
     <div className={`max-w-3xl mx-auto space-y-8 ${THEME_TOKENS.motion.fadeIn}`}>
@@ -95,6 +103,8 @@ const RecordPage = () => {
             : "Record a voice memo or import a meeting transcript. For Zoom, Meet, or Teams system audio (Granola-style, no meeting bot), use the Vocify Mac app."}
         </p>
       </div>
+
+      <DesktopPermissionsPanel />
 
       <VoiceRecorderWidget
         onComplete={(memoId) => navigate(ROUTES.MEMO_DETAIL(memoId))}

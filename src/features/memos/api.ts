@@ -100,10 +100,23 @@ export const memosApi = {
    * Returns memo ID with status "extracting". `interactionKind` is stored on the memo
    * (the web recorder sends voice_note); absent, the backend derives it as before.
    */
-  uploadTranscriptAndExtract: (transcript: string, interactionKind?: Channel): Promise<UploadMemoResponse> => {
+  uploadTranscriptAndExtract: (
+    transcript: string,
+    options: {
+      interactionKind?: Channel;
+      sourceType?: 'voice_memo' | 'meeting_transcript';
+      /** Speakers come from separate audio channels (desktop: mic = rep, meeting audio = them). */
+      speakersVerified?: boolean;
+      /** What the rep typed while recording; steers the summary. */
+      notes?: string;
+    } = {},
+  ): Promise<UploadMemoResponse> => {
     return api.post<UploadMemoResponse>('/memos/upload-and-extract', {
       transcript,
-      ...(interactionKind && { interaction_kind: interactionKind }),
+      source_type: options.sourceType ?? 'voice_memo',
+      ...(options.interactionKind && { interaction_kind: options.interactionKind }),
+      speakers_verified: Boolean(options.speakersVerified),
+      notes: options.notes?.trim() || undefined,
     });
   },
 
@@ -132,7 +145,7 @@ export const memosApi = {
   ): Promise<UploadMemoResponse> => {
     if (transcript?.trim()) {
       onProgress(100);
-      return memosApi.uploadTranscriptAndExtract(transcript.trim(), interactionKind);
+      return memosApi.uploadTranscriptAndExtract(transcript.trim(), { interactionKind });
     }
     return api.uploadWithProgress<UploadMemoResponse>(
       '/memos/upload',

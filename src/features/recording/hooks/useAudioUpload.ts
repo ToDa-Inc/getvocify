@@ -63,7 +63,7 @@ export function useAudioUpload(): UseAudioUploadReturn {
     setProgress({ percent: 0, loaded: 0, total: 100, complete: false });
 
     try {
-      const response = await memosApi.uploadTranscriptAndExtract(transcript.trim(), options?.interactionKind);
+      const response = await memosApi.uploadTranscriptAndExtract(transcript.trim(), options);
       setProgress({ percent: 100, loaded: 100, total: 100, complete: true });
       return response.id;
     } catch (err) {

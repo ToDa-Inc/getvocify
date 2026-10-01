@@ -31,7 +31,8 @@ import { DialerFocusProvider, useDialerFocus } from "@/features/calling/DialerFo
 import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
 import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
-import { DesktopShellBridge } from "@/features/desktop/DesktopShellBridge";
+import { DesktopMeetingProvider } from "@/features/desktop/DesktopMeetingProvider";
+import { DesktopRecordingChip } from "@/features/desktop/DesktopRecordingChip";
 import { isDesktopHost } from "@/lib/desktop-host";
 import { isManagerRole, isNavActive, navItemsFor, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
@@ -99,9 +100,9 @@ const DashboardLayout = () => {
   }
 
   return (
+    <DesktopMeetingProvider>
     <DialerFocusProvider onOpenDialer={() => setDialerOpen(true)}>
     <HomeColumnContext.Provider value={column}>
-    <DesktopShellBridge />
     <div className="dashboard-shell h-dvh bg-background flex w-full overflow-hidden">
       {sidebarOpen && (
         <div
@@ -202,6 +203,7 @@ const DashboardLayout = () => {
 
           {/* Lista 4 E3: Ask and Call live in the top bar, left side, for every role. */}
           <div className="flex flex-1 items-center gap-1.5 lg:gap-2">
+            <DesktopRecordingChip />
             {!paywalled ? (
               <button
                 type="button"
@@ -313,6 +315,7 @@ const DashboardLayout = () => {
     </div>
     </HomeColumnContext.Provider>
     </DialerFocusProvider>
+    </DesktopMeetingProvider>
   );
 };
 

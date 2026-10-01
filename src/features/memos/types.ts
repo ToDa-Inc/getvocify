@@ -198,6 +198,8 @@ export interface Memo {
   interactionKind?: Nullable<string>;
   /** Interaction type: a playbook key, a custom key or the reserved `internal` */
   salesMotionKey?: Nullable<string>;
+  /** What the rep typed while the meeting recorded (desktop). */
+  userNotes?: Nullable<string>;
 
   /** Per-run STT / sanitize / extract timings and LLM prompt snapshots */
   pipelineMeta?: Nullable<PipelineMeta>;

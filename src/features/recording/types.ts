@@ -143,7 +143,11 @@ export interface UseMediaRecorderReturn {
 }
 
 /** The channel stored on the memo; the dashboard recorder sends voice_note, absent = derived. */
-export type UploadKindOptions = { interactionKind?: Channel };
+export type UploadKindOptions = {
+  interactionKind?: Channel;
+  /** A pasted meeting transcript rather than a voice memo. */
+  sourceType?: 'voice_memo' | 'meeting_transcript';
+};
 
 /**
  * Return type for useAudioUpload hook

@@ -1,4 +1,4 @@
-/** macOS Vocify.app WKWebView — injected via desktop/macos bridge.js */
+/** The Vocify Mac app's WKWebView bridge, injected by the native shell's bridge.js. */
 export type DesktopPermissionStatus = "authorized" | "denied" | "never_requested";
 
 export type VocifyDesktopBridge = {
@@ -14,9 +14,15 @@ export type VocifyDesktopBridge = {
       platform: string;
       microphone: DesktopPermissionStatus;
       systemAudio: DesktopPermissionStatus;
+      signing?: "adhoc" | "signed";
+      signingAuthority?: string;
+      systemAudioError?: string;
     }>;
     request(type: "microphone" | "systemAudio"): Promise<unknown>;
     open(type: "microphone" | "systemAudio"): Promise<void>;
+    guide?(type: "microphone" | "systemAudio"): Promise<unknown>;
+    appInfo?(): Promise<{ name?: string; bundleId?: string } | null>;
+    onChanged?(cb: () => void): () => void;
   };
   shell: {
     setState(state: Record<string, unknown>): void;
@@ -36,7 +42,14 @@ export type VocifyDesktopBridge = {
       error?: string;
     }>;
   };
-  capture: {
+  /** Meeting drafts on disk. Missing in builds older than local recovery. */
+  drafts?: {
+    save(draft: object): Promise<{ ok: boolean } | null>;
+    list(): Promise<unknown[] | null>;
+    remove(id: string): Promise<unknown>;
+  };
+  /** Only the first-version host (desktop/macos, VocifyHost) has these. */
+  capture?: {
     begin(payload: Record<string, unknown>): Promise<unknown>;
     append(payload: Record<string, unknown>): Promise<unknown>;
     channelAbsent(payload: Record<string, unknown>): Promise<unknown>;
@@ -61,7 +74,5 @@ export function getDesktopBridge(): VocifyDesktopBridge | null {
   return isDesktopHost() ? window.vocifyDesktop! : null;
 }
 
-export const DESKTOP_SHELL_EVENTS = {
-  listen: "vocify-desktop:listen",
-  stop: "vocify-desktop:stop",
-} as const;
+/** Opens transcript search on the meeting screen (e.g. from the floating pill). */
+export const TRANSCRIPT_SEARCH_EVENT = "vocify:transcript-search";
