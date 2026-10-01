@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { isManagerRole, isNavActive, navItemsFor, usesRepHome, type NavItem } from "./nav.ts";
 
 const home: NavItem = { id: "home", labelKey: "navHome", path: "/dashboard" };
-const interactions: NavItem = { id: "interactions", labelKey: "navInteractions", path: "/dashboard/interactions" };
 const insights: NavItem = { id: "insights", labelKey: "navInsights", path: "/dashboard/insights" };
 const coach: NavItem = { id: "coach", labelKey: "navCoach", path: "/dashboard/coach" };
 const playbook: NavItem = { id: "playbook", labelKey: "navPlaybook", path: "/dashboard/playbook" };
@@ -11,27 +10,27 @@ const process: NavItem = { id: "process", labelKey: "navProcess", path: "/dashbo
 const settings: NavItem = { id: "settings", labelKey: "navSettings", path: "/dashboard/settings" };
 
 describe("navItemsFor for a member (Llamadas, Reuniones, General)", () => {
-  it("gives Inicio, Interacciones, Playbook, Coaching and Ajustes, with plans, when the workspace is off", () => {
+  it("gives Inicio, Playbook, Coaching and Ajustes, with plans, when the workspace is off", () => {
     assert.deepEqual(navItemsFor({ role: "member", repWorkspace: false, playbookTabEnabled: true }), {
-      items: [home, interactions, playbook, coach, settings],
+      items: [home, playbook, coach, settings],
       showPlans: true,
     });
   });
 
   it("gives the same places, without plans, in the workspace (Inicio replaces Hoy)", () => {
     assert.deepEqual(navItemsFor({ role: "member", repWorkspace: true, playbookTabEnabled: true }), {
-      items: [home, interactions, playbook, coach, settings],
+      items: [home, playbook, coach, settings],
       showPlans: false,
     });
   });
 
   it("drops Playbook only when the tab is off", () => {
-    assert.deepEqual(navItemsFor({ role: "member", repWorkspace: true }).items, [home, interactions, coach, settings]);
+    assert.deepEqual(navItemsFor({ role: "member", repWorkspace: true }).items, [home, coach, settings]);
   });
 
-  it("never gives a member Equipo or Proceso de venta", () => {
-    const ids = navItemsFor({ role: "member", repWorkspace: true, playbookTabEnabled: true }).items.map((item) => item.id);
-    for (const id of ["insights", "process"]) assert.equal(ids.includes(id as NavItem["id"]), false);
+  it("never gives a member Equipo, Proceso de venta or Interacciones (it is Inicio's list)", () => {
+    const ids: string[] = navItemsFor({ role: "member", repWorkspace: true, playbookTabEnabled: true }).items.map((item) => item.id);
+    for (const id of ["insights", "process", "interactions"]) assert.equal(ids.includes(id), false);
   });
 
   it("treats a missing or unknown role like a member", () => {
@@ -77,17 +76,13 @@ describe("isManagerRole / usesRepHome", () => {
 });
 
 describe("isNavActive", () => {
-  it("lights Inicio on /dashboard and on the full Hoy, nowhere else", () => {
+  it("lights Inicio on /dashboard and on what it opens (Hoy, Interacciones, a memo), nowhere else", () => {
     assert.equal(isNavActive("/dashboard", home), true);
     assert.equal(isNavActive("/dashboard/today", home), true);
+    assert.equal(isNavActive("/dashboard/interactions", home), true);
+    assert.equal(isNavActive("/dashboard/memos/abc", home), true);
     assert.equal(isNavActive("/dashboard/insights", home), false);
-    assert.equal(isNavActive("/dashboard/interactions", home), false);
-  });
-
-  it("lights Interacciones on its list and on a memo's detail", () => {
-    assert.equal(isNavActive("/dashboard/interactions", interactions), true);
-    assert.equal(isNavActive("/dashboard/memos/abc", interactions), true);
-    assert.equal(isNavActive("/dashboard/insights", interactions), false);
+    assert.equal(isNavActive("/dashboard/settings", home), false);
   });
 
   it("lights an item on its own path and below it, not on a path that only shares a prefix", () => {

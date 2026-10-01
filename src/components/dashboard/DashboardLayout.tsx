@@ -4,7 +4,6 @@ import { useAuth } from "@/features/auth";
 import { getUserDisplayName, getUserInitials } from "@/features/auth/types";
 import {
   Home,
-  Inbox,
   Settings,
   Menu,
   X,
@@ -40,7 +39,6 @@ import { useWideScreen } from "@/features/today/hooks/useWideScreen";
 
 const NAV_ICONS: Record<NavItemId, LucideIcon> = {
   home: Home,
-  interactions: Inbox,
   insights: Users,
   coach: GraduationCap,
   playbook: BookOpen,
