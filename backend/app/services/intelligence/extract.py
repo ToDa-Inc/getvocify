@@ -43,6 +43,7 @@ CURRENT_PROMPT_VERSIONS = frozenset({
 _READS_STEPS = frozenset({OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION, CALL_READING_PROMPT_VERSION})
 _READS_QUALIFICATION = frozenset({QUALIFICATION_PROMPT_VERSION, CALL_READING_PROMPT_VERSION})
 _REASON_MAX = 240
+_QUALITY = frozenset({"solid", "improvable"})
 _MAX_CRITERIA = 8
 _MAX_CUSTOM_OBJECTIONS = 12
 _CUSTOM_ENTRY_PREFIX = "objection:custom:"
@@ -161,16 +162,16 @@ def _own_words(memo_id: str, quote: str, transcript: str, speaker: str) -> dict 
     if turns is None:
         return None
     own = [" ".join(text.split()) for who, text in turns if who == speaker]
-    matched = _locate(quote, " ".join(own))
-    if not matched:
-        return None
+    # The quote may span the other side too (the rep's question and the prospect's answer):
+    # what counts is the speaker's own longest piece of it, inside a single turn.
+    matched = _locate(quote, " ".join(own)) or _locate(quote, transcript) or " ".join(str(quote or "").split())
     best = ""
     for text in own:
-        hit = SequenceMatcher(None, text, matched, autojunk=False).find_longest_match(0, len(text), 0, len(matched))
+        hit = SequenceMatcher(None, text.lower(), matched.lower(), autojunk=False).find_longest_match(0, len(text), 0, len(matched))
         piece = text[hit.a:hit.a + hit.size].strip(" ,.;:¿?¡!")
         if len(piece) > len(best):
             best = piece
-    if len(best.split()) < 3:
+    if len(best.split()) < 4:
         return None
     return _evidence(memo_id, best, transcript)
 
@@ -416,9 +417,12 @@ def _playbook_observations(
         }
         reason = " ".join(str(item.get("reason") or "").split())[:_REASON_MAX] or None
         advice = " ".join(str(item.get("advice") or "").split())[:_REASON_MAX] or None
+        quality = item.get("quality") if status == "met" and item.get("quality") in _QUALITY else None
         if reason:
             entry["reason"] = reason
-        if advice and status == "missed":
+        if quality:
+            entry["quality"] = quality
+        if advice and (status == "missed" or quality == "improvable"):
             entry["advice"] = advice
         out.append(entry)
     return out

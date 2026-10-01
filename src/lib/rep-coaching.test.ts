@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { productCatalog } from "./product-catalog.ts";
 import {
   STATE_VIEW,
+  stepCountLine,
   canPickFlow,
   conversionSentence,
   isGeneralRep,
@@ -30,13 +31,20 @@ const ES = productCatalog.ES;
 const EN = productCatalog.EN;
 
 describe("state view", () => {
-  it("maps the four states, only done and missing count", () => {
+  it("maps the five states; done, could-be-better and missing count", () => {
     assert.equal(STATE_VIEW.done.glyph, "✅");
+    assert.equal(STATE_VIEW.improvable.glyph, "🟡");
     assert.equal(STATE_VIEW.missing.glyph, "❌");
     assert.equal(STATE_VIEW.no_evidence.glyph, "❔");
     assert.equal(STATE_VIEW.not_reached.glyph, "⚪");
-    assert.deepEqual(Object.entries(STATE_VIEW).filter(([, v]) => v.counted).map(([k]) => k), ["done", "missing"]);
+    assert.deepEqual(Object.entries(STATE_VIEW).filter(([, v]) => v.counted).map(([k]) => k), ["done", "improvable", "missing"]);
     assert.equal(stateView("weird").glyph, "❔");
+  });
+
+  it("shows the counts behind a rate, and what could be better", () => {
+    assert.equal(stepCountLine(ES, { done: 0, applicable: 1 }), "0 de 1");
+    assert.equal(stepCountLine(ES, { done: 2, improvable: 1, applicable: 3 }), "2 de 3 · 1 mejorable(s)");
+    assert.equal(stepCountLine(ES, {}), null);
   });
 });
 

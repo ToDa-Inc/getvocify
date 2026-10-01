@@ -220,3 +220,17 @@ def test_v8_callback_day_comes_from_the_words_said_not_the_models_arithmetic():
             "needed": True, "who_asked": "prospect", "when": "2026-09-28T12:30:00+02:00", "when_text": "mañana a las 12:30"}}},
     )
     assert timed["next"]["callback"]["when"].startswith("2026-09-29T12:30") and timed["next"]["callback"]["temporal_precision"] == "time"
+
+
+def test_v8_a_quote_of_the_whole_exchange_counts_on_the_reps_part_and_carries_quality():
+    shaped, _, _ = _run(
+        {"call_type": "cold_first_contact", "phase_reached": "discovery", "rep_turns": [2, 4]},
+        {"playbook_observations": [
+            {"step_id": "pain", "status": "met", "quality": "improvable", "reason": "Preguntaste pero no profundizaste",
+             "advice": "Repregunta qué le cuesta más.",
+             "quote": "¿Cómo conseguís clientes hoy? Pues con ferias, y se nos escapan los leads."},
+        ]},
+    )
+    pain = {o["step_id"]: o for o in shaped["playbook_observations"]}["pain"]
+    assert pain["status"] == "met" and pain["quote"] == "Cómo conseguís clientes hoy"
+    assert pain["quality"] == "improvable" and pain["advice"] == "Repregunta qué le cuesta más."

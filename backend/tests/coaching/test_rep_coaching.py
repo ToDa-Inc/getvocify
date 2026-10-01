@@ -239,3 +239,14 @@ def test_only_a_call_that_runs_the_whole_process_can_complete_it():
     assert process_complete(interaction_row(memo)) is False
     memo["extraction"]["intelligence"]["call"] = {"call_type": "cold_first_contact", "reached_conversation": True}
     assert process_complete(interaction_row(memo)) is True
+
+
+def test_an_improvable_step_counts_as_done_and_is_counted_apart():
+    obs = [{"step_id": "a", "label": "A", "status": "met", "quality": "improvable", "advice": "Pregunta un dato más."},
+           {"step_id": "b", "label": "B", "status": "met", "quality": "solid"}]
+    row = interaction_row(_memo(obs))
+    states = {s["step_id"]: s for s in row["steps"]}
+    assert states["a"]["state"] == "improvable" and states["a"]["advice"] == "Pregunta un dato más."
+    assert states["b"]["state"] == "done"
+    [rate] = step_rates([row], [{"step_id": "a", "label": "A"}])
+    assert (rate["done"], rate["improvable"], rate["applicable"], rate["rate"]) == (1, 1, 1, 1.0)

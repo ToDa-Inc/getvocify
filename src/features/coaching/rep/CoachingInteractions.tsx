@@ -27,7 +27,9 @@ function Row({ item }: { item: CoachInteraction }) {
     : "";
   // Plan §3.2: a missed step says what to do next time (v8 advice) and, as context, the moment it
   // should have happened, when the engine has either.
-  const missed = item.steps.filter((step) => step.state === "missing" && (step.advice || step.quote));
+  const missed = item.steps.filter(
+    (step) => (step.state === "missing" && (step.advice || step.quote)) || (step.state === "improvable" && step.advice),
+  );
   return (
     <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-4 space-y-2`} data-testid="coach-interaction-row">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -58,7 +60,10 @@ function Row({ item }: { item: CoachInteraction }) {
       {missed.map((step) => (
         <div key={step.step_id} className="space-y-0.5 text-xs" data-testid="coach-missed-step">
           <p className="text-foreground">
-            <span className="font-medium">{step.label}:</span>{" "}
+            <span className="font-medium">
+              {step.label}
+              {step.state === "improvable" ? ` (${String(p.coachStateImprovable).toLowerCase()})` : ""}:
+            </span>{" "}
             {step.advice ? step.advice : <span className="italic text-muted-foreground">“{step.quote}”</span>}
           </p>
           {step.advice && step.quote ? (

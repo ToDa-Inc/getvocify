@@ -4,6 +4,7 @@ import { reportKeys, reportsApi } from "@/lib/api/reports";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import {
+  stepCountLine,
   conversionSentence,
   focusTitle,
   focusWhy,
@@ -95,6 +96,7 @@ function StepStrip({ steps, onOpenProcess }: { steps: CoachStepRate[]; onOpenPro
               <p className="mt-0.5 text-base text-foreground">
                 {formatPercent(step.rate)} {arrow ? <span className="text-muted-foreground">{arrow}</span> : null}
               </p>
+              {stepCountLine(p, step) ? <p className="text-xs text-muted-foreground">{stepCountLine(p, step)}</p> : null}
               {step.rate !== null ? (
                 <div className="relative mt-1 h-1 rounded-full bg-muted-foreground/15">
                   <div className="h-1 rounded-full bg-beige" style={{ width: `${Math.round(step.rate * 100)}%` }} />

@@ -114,9 +114,13 @@ If the day or time changed during the conversation, use the last one both sides 
   ("and the prospect accepts", "the prospect names a problem"), the step is "met" when the
   rep did their part as described, whatever the prospect answered; the prospect's answer is
   the call's outcome (meeting, interest), never a missed step.
+  quality: only when status is "met". "solid" when the rep did it well; "improvable" when they did it
+  but it could clearly be better: only part of what the step asks (two of the three data points), a
+  vague or late version of it, a question the prospect dodged and the rep did not try again. A step
+  is not black or white: use "improvable" whenever a good sales lead would say "bien, pero…".
   reason is one short sentence in Spanish addressed to the rep as "tú" ("Te presentaste y…",
   "No preguntaste…"), never "el comercial" or "el SDR": what they did or did not do, in plain words.
-  advice: only when status is "missed", one short sentence in Spanish, addressed to the rep
+  advice: when status is "missed", or "met" with quality "improvable"; one short sentence in Spanish, addressed to the rep
   ("tú"; the prospect is "él"/"ella"), saying concretely what to do next time in a call like this one, using this call's
   situation (for example "Antes de preguntar, di por qué le llamas: que viste que conectó con
   X en LinkedIn."). Never repeat the criterion word for word. null otherwise.
@@ -185,4 +189,4 @@ Return only this JSON, nothing before or after it:
           "callback": {"needed": false, "who_asked": null, "when": null, "when_text": null, "reason": null, "quote": null},
           "followup_email": {"needed": false, "kind": null, "content": null, "to": null, "quote": null},
           "referral": null, "hook": null}}
-Each playbook_observations entry is {"step_id": "...", "reason": "...", "status": "...", "quote": null, "advice": null}.
+Each playbook_observations entry is {"step_id": "...", "reason": "...", "status": "...", "quality": null, "quote": null, "advice": null}.

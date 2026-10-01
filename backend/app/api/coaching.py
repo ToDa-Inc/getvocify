@@ -411,6 +411,10 @@ async def get_my_coaching_summary(
             "step_id": r["step_id"],
             "label": r["label"],
             "rate": r["rate"],
+            # The counts behind the rate: "0 %" of one call is not "0 %" of twenty.
+            "done": r["done"],
+            "improvable": r["improvable"],
+            "applicable": r["applicable"],
             "prev_rate": prev_rates[r["step_id"]],
             "peer_median": medians.get(r["step_id"]),
         }
@@ -439,7 +443,7 @@ async def get_my_coaching_summary(
 @router.get("/coaching/me/interactions")
 async def get_my_coaching_interactions(
     step_id: Optional[str] = Query(None),
-    state: Optional[Literal["done", "missing", "no_evidence", "not_reached"]] = Query(None),
+    state: Optional[Literal["done", "improvable", "missing", "no_evidence", "not_reached"]] = Query(None),
     meeting: Optional[bool] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     flow: Optional[Flow] = Query(None),

@@ -11,7 +11,8 @@ from app.services.playbooks.outcome_steps import MEETING_BOOKED, status_from_rep
 _MADRID = ZoneInfo("Europe/Madrid")
 
 _STATE = {"met": "done", "missed": "missing", "unknown": "no_evidence", "not_applicable": "not_reached"}
-STATES = frozenset(_STATE.values())
+STATES = frozenset(_STATE.values()) | {"improvable"}
+DONE_STATES = frozenset({"done", "improvable"})
 _NOT_A_CONVERSATION = frozenset({"voicemail", "no_response"})
 # Call types (C04 v8 `call.call_type`) whose conversation is meant to go through every step.
 FULL_PROCESS_CALLS = frozenset({"cold_first_contact", "discovery_meeting", "other"})
@@ -91,10 +92,13 @@ def interaction_row(memo: dict) -> dict | None:
         status = item.get("status")
         if item.get("judged_by") == "rep_outcome" and status == "unknown":
             status = status_from_rep_outcome(str(item.get("outcome") or ""), rep_outcome)
+        state = _STATE.get(status, "no_evidence")
+        if state == "done" and item.get("quality") == "improvable":
+            state = "improvable"  # done, and the advice says how to do it better
         steps.append({
             "step_id": step_id,
             "label": str(item.get("label") or step_id),
-            "state": _STATE.get(status, "no_evidence"),
+            "state": state,
             "quote": item.get("quote") or None,
             "advice": item.get("advice") or None,
         })
@@ -126,11 +130,13 @@ def step_rates(rows: list[dict], steps: list[dict]) -> list[dict]:
     for step in steps:
         step_id = str(step.get("step_id"))
         states = [s["state"] for row in conversations for s in row["steps"] if s["step_id"] == step_id]
-        done, missing = states.count("done"), states.count("missing")
+        improvable = states.count("improvable")
+        done, missing = states.count("done") + improvable, states.count("missing")
         out.append({
             "step_id": step_id,
             "label": str(step.get("label") or step_id),
             "done": done,
+            "improvable": improvable,
             "missing": missing,
             "applicable": done + missing,
             "rate": _rate(done, done + missing),
@@ -144,7 +150,7 @@ def process_complete(row: dict) -> bool:
     if not row.get("is_conversation", True) or not row.get("full_process", True):
         return False
     states = [s["state"] for s in row["steps"]]
-    return "missing" not in states and "done" in states
+    return "missing" not in states and any(s in DONE_STATES for s in states)
 
 
 def choose_focus(rows_prev_week: list[dict], steps: list[dict], peer_rates: dict | None = None) -> dict | None:
