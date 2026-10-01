@@ -68,6 +68,12 @@ async def suggest_objection_handling(
     supabase: Client = Depends(get_supabase),
 ):
     """Stream a structured objection-handling suggestion (SSE)."""
+    product_context = (body.product_context or "").strip()
+    if not product_context:
+        # Desktop meetings don't carry the offer; use the one the rep saved for extraction.
+        from app.services.extraction_context import load_product_context
+
+        product_context = load_product_context(supabase, membership.user_id)
 
     context = resolve_suggest_context(
         body.contact_id,
@@ -96,7 +102,7 @@ async def suggest_objection_handling(
         async for event in stream_objection_suggestion(
             transcript_window=body.transcript_window,
             latest_turn=body.latest_turn,
-            product_context=body.product_context,
+            product_context=product_context or None,
             language=body.language,
             call_mode=body.call_mode,
             speaker_role=body.speaker_role,

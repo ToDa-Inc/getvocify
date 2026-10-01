@@ -11,7 +11,7 @@ import httpx
 from app.config import settings
 from app.services.copilot.context import SuggestContext
 from app.services.copilot.grounding import SuggestGrounding, finalize_suggest_result
-from app.services.copilot.prompts import SYSTEM_PROMPT, build_user_prompt
+from app.services.copilot.prompts import MEETING_LINE_MAX, build_user_prompt, system_prompt_for
 from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ async def stream_objection_suggestion(
 
     model_used = _resolve_model(model)
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt_for(call_mode)},
         {
             "role": "user",
             "content": build_user_prompt(
@@ -158,7 +158,7 @@ async def stream_objection_suggestion(
                         assembled += delta
                         yield {"type": "token", "text": delta}
 
-        suggestion = _parse_suggestion(assembled)
+        suggestion = _suggestion_for_mode(assembled, call_mode)
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         finalized = finalize_suggest_result(
             call_mode=call_mode,
@@ -213,7 +213,7 @@ async def _fallback_non_stream(
     content = data["choices"][0]["message"]["content"] or ""
     if content:
         yield {"type": "token", "text": content}
-    suggestion = _parse_suggestion(content)
+    suggestion = _suggestion_for_mode(content, call_mode)
     finalized = finalize_suggest_result(
         call_mode=call_mode,
         suggestion=suggestion,
@@ -248,6 +248,54 @@ def _parse_suggestion(raw: str) -> dict[str, Any]:
         "evidence_refs": _parse_evidence_refs(parsed.get("evidence_refs")),
         "source_id": str(parsed.get("source_id") or "").strip() or None,
     }
+
+
+MEETING_OBJECTION_TYPES = {"price", "timing", "authority", "competitor", "status_quo", "trust", "question", "other"}
+
+
+def _silent() -> dict[str, Any]:
+    return {
+        "is_objection": False,
+        "objection_type": "none",
+        "urgency": "low",
+        "say_this": "",
+        "why_it_works": "",
+        "next_question": "",
+        "dont_say": "",
+        "evidence_refs": [],
+        "source_id": None,
+    }
+
+
+def meeting_suggestion(raw: str) -> dict[str, Any]:
+    """Meetings show help only for a clear objection with one short line; anything else stays silent."""
+    try:
+        parsed = extract_json(raw) if raw and raw.strip() else None
+    except ValueError:
+        parsed = None
+    if not isinstance(parsed, dict) or parsed.get("is_objection") is not True:
+        return _silent()
+    objection_type = str(parsed.get("objection_type") or "").strip()
+    say_this = " ".join(str(parsed.get("say_this") or "").split())
+    if objection_type not in MEETING_OBJECTION_TYPES or not say_this or len(say_this) > MEETING_LINE_MAX:
+        return _silent()
+    next_question = " ".join(str(parsed.get("next_question") or "").split())
+    return {
+        "is_objection": True,
+        "objection_type": objection_type,
+        "urgency": str(parsed.get("urgency") or "low"),
+        "say_this": say_this,
+        "why_it_works": str(parsed.get("why_it_works") or "").strip(),
+        "next_question": next_question if len(next_question) <= MEETING_LINE_MAX else "",
+        "dont_say": str(parsed.get("dont_say") or "").strip(),
+        # Read by finalize_suggest_result: a playbook answer needs both.
+        "evidence_refs": _parse_evidence_refs(parsed.get("evidence_refs")),
+        "source_id": str(parsed.get("source_id") or "").strip() or None,
+    }
+
+
+def _suggestion_for_mode(raw: str, call_mode: str) -> dict[str, Any]:
+    return meeting_suggestion(raw) if call_mode == "meeting" else _parse_suggestion(raw)
 
 
 def _parse_evidence_refs(raw: Any) -> list[str]:
