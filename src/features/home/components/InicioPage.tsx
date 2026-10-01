@@ -40,12 +40,29 @@ export function InicioPage() {
   const chat = useHomeChat();
   const { conversation } = chat;
   const inChat = chat.mode === "chat";
-  const [showHistory, setShowHistory] = useState(false);
+  // The history opens from the home too (the toolbar is always there), not only from inside a chat.
+  const [historyOpen, setShowHistory] = useState(false);
   // Leaving the chat (Esc included) closes the history with it.
-  const historyOpen = inChat && showHistory;
+  const wasInChat = useRef(inChat);
   useEffect(() => {
-    if (!inChat) setShowHistory(false);
+    if (wasInChat.current && !inChat) setShowHistory(false);
+    wasInChat.current = inChat;
   }, [inChat]);
+  // At home, Esc closes an open history (in the chat, Esc already leaves the chat and closes it with it).
+  useEffect(() => {
+    if (inChat || !historyOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      setShowHistory(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [inChat, historyOpen]);
+  const toggleHistory = () => {
+    const next = !historyOpen;
+    setShowHistory(next);
+    if (next) void conversation.loadHistory();
+  };
   const [clearing, setClearing] = useState(false);
   // A phone keeps its keyboard down until the person taps the field.
   const [wide] = useState(() => window.matchMedia("(min-width: 768px)").matches);
@@ -62,7 +79,10 @@ export function InicioPage() {
     chat.send(text);
   };
 
-  const goHome = () => chat.reset();
+  const goHome = () => {
+    setShowHistory(false);
+    chat.reset();
+  };
 
   // A signal's question lands in the home composer to edit or send, never sent on its own.
   const prefill = (question: string) => {
@@ -74,6 +94,23 @@ export function InicioPage() {
   // server-side): composer and feed only.
   const repDay = !manager && usesRepHome(user?.company);
   const rail = manager ? <SignalsRail onAsk={prefill} /> : null;
+
+  const history = (
+    <HistoryList
+      rows={conversation.history}
+      failed={conversation.historyError}
+      activeId={inChat ? conversation.conversationId : null}
+      onOpen={(id) => {
+        setShowHistory(false);
+        void chat.open(id).catch(() => undefined);
+      }}
+      onDelete={(id) => {
+        const current = inChat && id === conversation.conversationId;
+        void conversation.deleteConversation(id).then(() => (current ? goHome() : undefined));
+      }}
+      onClearAll={() => setClearing(true)}
+    />
+  );
 
   // The composer glides from the middle of the page to the bottom of the thread, which fades in.
   useLayoutEffect(() => {
@@ -91,11 +128,21 @@ export function InicioPage() {
   return (
     <div className={cn("flex flex-col gap-6 md:flex-row md:items-start", inChat && "h-full md:items-stretch")}>
       <div className={cn("relative flex min-w-0 flex-col md:flex-1", inChat && "min-h-0 flex-1")}>
+        <div className="relative z-10 flex shrink-0 justify-end gap-0.5">
+          <IconAction label={p.askHistory} onClick={toggleHistory}>
+            <ClockCounterClockwise size={16} weight={historyOpen ? "fill" : "light"} />
+          </IconAction>
+          {inChat ? (
+            <IconAction label={p.home.newChat} shortcut={p.home.newChatKey} onClick={goHome}>
+              <Plus size={16} weight="light" />
+            </IconAction>
+          ) : null}
+        </div>
         <div
-          aria-hidden={inChat || undefined}
+          aria-hidden={inChat || historyOpen || undefined}
           className={cn(
             "flex flex-col gap-8 transition-opacity duration-200 motion-reduce:transition-none",
-            inChat && "pointer-events-none invisible absolute inset-0 overflow-hidden opacity-0",
+            (inChat || historyOpen) && "pointer-events-none invisible absolute inset-0 overflow-hidden opacity-0",
           )}
         >
           <div className="mx-auto w-full max-w-[680px] space-y-5 pt-2 xl:pt-6">
@@ -112,40 +159,8 @@ export function InicioPage() {
 
         {inChat ? (
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex shrink-0 justify-end gap-0.5">
-              <IconAction
-                label={p.askHistory}
-                onClick={() => {
-                  const next = !historyOpen;
-                  setShowHistory(next);
-                  if (next) void conversation.loadHistory();
-                }}
-              >
-                <ClockCounterClockwise size={16} weight={historyOpen ? "fill" : "light"} />
-              </IconAction>
-              <IconAction label={p.home.newChat} shortcut={p.home.newChatKey} onClick={goHome}>
-                <Plus size={16} weight="light" />
-              </IconAction>
-            </div>
             <div ref={threadBox} className="mx-auto flex min-h-0 w-full max-w-[760px] flex-1 flex-col">
-              {historyOpen ? (
-                <div className="ask-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-2">
-                  <HistoryList
-                    rows={conversation.history}
-                    failed={conversation.historyError}
-                    activeId={conversation.conversationId}
-                    onOpen={(id) => {
-                      setShowHistory(false);
-                      void chat.open(id).catch(() => undefined);
-                    }}
-                    onDelete={(id) => {
-                      const current = id === conversation.conversationId;
-                      void conversation.deleteConversation(id).then(() => (current ? goHome() : undefined));
-                    }}
-                    onClearAll={() => setClearing(true)}
-                  />
-                </div>
-              ) : null}
+              {historyOpen ? <div className="ask-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-2">{history}</div> : null}
               {/* Kept mounted while the history shows, so a half-typed question survives a peek at it. */}
               <div className={historyOpen ? "hidden" : "min-h-0 flex-1"}>
                 <AskThread
@@ -161,6 +176,8 @@ export function InicioPage() {
               </div>
             </div>
           </div>
+        ) : historyOpen ? (
+          <div className="mx-auto w-full max-w-[760px] px-2 pb-4 pt-2">{history}</div>
         ) : null}
       </div>
 
