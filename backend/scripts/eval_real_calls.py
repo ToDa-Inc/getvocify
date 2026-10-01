@@ -136,7 +136,9 @@ def _clean_name(value: str | None) -> str | None:
     return " ".join(value.split()) or None
 
 
-async def run_model(supabase, memos: dict[str, dict], ids: list[str], version: str, concurrency: int) -> dict[str, dict]:
+async def run_model(supabase, memos: dict[str, dict], ids: list[str], version: str, concurrency: int,
+                    overrides: dict[str, str] | None = None) -> dict[str, dict]:
+    overrides = overrides or {}
     from app.services.intelligence.extract import call_context
     from app.services.llm import LLMClient
 
@@ -146,6 +148,8 @@ async def run_model(supabase, memos: dict[str, dict], ids: list[str], version: s
 
     async def one(index: int, memo_id: str):
         memo = memos[memo_id]
+        if not memo.get("playbook_version_id") and overrides.get(memo_id):
+            memo = {**memo, "playbook_version_id": overrides[memo_id]}  # a label's playbook for an unpinned call
         async with semaphore:
             llm = llm_pool[index % concurrency]
             steps = pinned_playbook_steps(supabase, memo)
@@ -197,7 +201,8 @@ def main() -> int:
         if args.model:
             settings.INTELLIGENCE_MODEL = args.model
         name = f"{args.run}-{settings.INTELLIGENCE_MODEL.replace('/', '_')}"
-        outputs = asyncio.run(run_model(supabase, memos, ids, args.run, args.concurrency))
+        overrides = {lab["memo_id"]: lab["playbook_version_id"] for lab in labels if lab.get("playbook_version_id")}
+        outputs = asyncio.run(run_model(supabase, memos, ids, args.run, args.concurrency, overrides))
 
     result = score(labels, outputs, memos)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")

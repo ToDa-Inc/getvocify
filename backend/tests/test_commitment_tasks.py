@@ -547,3 +547,37 @@ async def test_salesforce_approval_gets_no_commitment_tasks(monkeypatch):
     call = provider.calls[0]
     assert "commitment_tasks" not in call
     assert call["extraction"].nextSteps == ["Llamar a Ana"]
+
+
+# --- C04 v8 `next` ------------------------------------------------------------
+
+
+def _with_next(memo, nxt):
+    memo["extraction"]["intelligence"]["next"] = nxt
+    return memo
+
+
+def test_v8_next_adds_the_callback_email_and_referral_no_commitment_covers():
+    nxt = {
+        "callback": {"needed": True, "when": "2026-09-23T12:30:00+02:00", "temporal_precision": "time", "reason": "estaba recogiendo a los niños"},
+        "followup_email": {"needed": True, "kind": "info", "content": "casos de éxito", "to": None},
+        "referral": {"name": "Goda", "role": "CEO"},
+    }
+    tasks = ct.commitment_tasks(_with_next(_memo([UNDATED]), nxt), tz_name="Europe/Madrid")
+    by_id = {t.commitment_id: t for t in tasks}
+    assert by_id["next:callback"].text == "Llamar: estaba recogiendo a los niños"
+    assert by_id["next:callback"].due_at == datetime(2026, 9, 23, 12, 30, tzinfo=MADRID)
+    assert by_id["next:email"].text == "Enviar correo: casos de éxito" and by_id["next:email"].due_date == "2026-09-22"
+    assert by_id["next:referral"].text == "Contactar a Goda (CEO)" and by_id["next:referral"].due_at is None
+
+
+def test_v8_next_never_duplicates_a_commitment_of_the_same_kind():
+    nxt = {"callback": {"needed": True, "when": None, "reason": "x"}, "followup_email": {"needed": True, "content": "y"}}
+    tasks = ct.commitment_tasks(_with_next(_memo([TIMED, DAY]), nxt), tz_name="Europe/Madrid")
+    assert [t.commitment_id for t in tasks] == ["com-1", "com-2"]
+
+
+def test_v8_pipeline_turns_commitment_tasks_on(monkeypatch):
+    from app.services.intelligence.extract import CALL_READING_FLAG
+    monkeypatch.setattr(ct, "is_enabled", lambda _sb, _company, flag: flag == CALL_READING_FLAG)
+    assert ct._enabled(object(), COMPANY) is True

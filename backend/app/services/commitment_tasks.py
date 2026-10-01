@@ -78,7 +78,49 @@ def commitment_tasks(memo: dict, *, tz_name: str) -> Optional[list[CommitmentTas
             text=_display(item["text"]),
             due_at=task_due(item, tz_name=tz_name),
         ))
+    tasks += _next_tasks(block, memo, tasks, tz_name=tz_name)
     return tasks or None
+
+
+def _next_tasks(block: dict, memo: dict, existing: list[CommitmentTask], *, tz_name: str) -> list[CommitmentTask]:
+    """C04 v8 `next`: what the call leads to, as tasks when no commitment already says it — the
+    callback (with its day and time), the promised email, the person they were referred to."""
+    nxt = block.get("next") if isinstance(block.get("next"), dict) else None
+    if not nxt:
+        return []
+    kinds = {t.kind for t in existing}
+    out: list[CommitmentTask] = []
+    callback = nxt.get("callback") if isinstance(nxt.get("callback"), dict) else {}
+    if callback.get("needed") and "call" not in kinds:
+        reason = " ".join(str(callback.get("reason") or "").split())
+        out.append(CommitmentTask(
+            commitment_id="next:callback", kind="call",
+            text=f"Llamar: {reason}" if reason else "Volver a llamar",
+            due_at=task_due({"due_at": callback.get("when"), "temporal_precision": callback.get("temporal_precision")}, tz_name=tz_name),
+        ))
+    email = nxt.get("followup_email") if isinstance(nxt.get("followup_email"), dict) else {}
+    if email.get("needed") and not kinds & {"email", "send"}:
+        content = " ".join(str(email.get("content") or "").split())
+        to = f" a {email['to']}" if email.get("to") else ""
+        sent_on = memo.get("capture_started_at") or memo.get("created_at")
+        out.append(CommitmentTask(
+            commitment_id="next:email", kind="email",
+            text=_display(f"Enviar correo{to}: {content}" if content else f"Enviar correo{to}"),
+            due_at=task_due({"due_at": str(sent_on or ""), "temporal_precision": "date"}, tz_name=tz_name),
+        ))
+    referral = nxt.get("referral") if isinstance(nxt.get("referral"), dict) else None
+    if referral and (referral.get("name") or referral.get("role")):
+        who = " ".join(x for x in (referral.get("name"), f"({referral['role']})" if referral.get("role") else None) if x)
+        out.append(CommitmentTask(commitment_id="next:referral", kind="call", text=f"Contactar a {who}", due_at=None))
+    return out
+
+
+def _enabled(supabase: Any, company_id: Optional[str]) -> bool:
+    """Commitment tasks are on with their own flag, and always in the C04 v8 pipeline: there the
+    CRM pass no longer computes task dates, C04 does."""
+    from app.services.intelligence.extract import CALL_READING_FLAG
+
+    return is_enabled(supabase, company_id, FLAG) or is_enabled(supabase, company_id, CALL_READING_FLAG)
 
 
 def _same_text(a: str, b: str) -> bool:
@@ -133,7 +175,7 @@ def _company(memo: dict, connection: Optional[dict]) -> Optional[str]:
 
 def preview_kwargs(supabase: Any, *, memo: dict, connection: Optional[dict]) -> dict[str, Any]:
     provider = str((connection or {}).get("provider") or "").lower()
-    if provider not in TASK_CRMS or not is_enabled(supabase, _company(memo, connection), FLAG):
+    if provider not in TASK_CRMS or not _enabled(supabase, _company(memo, connection)):
         return {}
     tasks = commitment_tasks(memo, tz_name=rep_timezone(memo.get("user_id")))
     return {} if tasks is None else {"commitment_tasks": tasks}
@@ -149,7 +191,7 @@ def sync_plan(
 ) -> Optional[tuple[list[CommitmentTask], MemoExtraction]]:
     """(tasks to write, extraction whose nextSteps are still written the old way), or None."""
     provider = str((connection or {}).get("provider") or "").lower()
-    if provider not in TASK_CRMS or not is_enabled(supabase, _company(memo, connection), FLAG):
+    if provider not in TASK_CRMS or not _enabled(supabase, _company(memo, connection)):
         return None
     tasks = commitment_tasks(memo, tz_name=rep_timezone(memo.get("user_id")))
     if tasks is None:
