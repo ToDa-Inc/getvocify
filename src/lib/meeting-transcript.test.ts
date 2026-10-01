@@ -56,33 +56,61 @@ describe("applyChannelResult", () => {
 });
 
 describe("meetingDisplayTurns", () => {
-  it("keys settled paragraphs by their first segment and a pending one by its channel", () => {
+  it("keeps a bubble's key from its first word to its final", () => {
     const live = feed([["hola", true, "rep"], ["buenas", false, "prospect"]]);
     const rows = meetingDisplayTurns(live);
     assert.deepEqual(rows.map((r) => [r.key, r.label, r.text, r.pending]), [
-      ["s0", "You", "hola", ""],
-      ["live-prospect", "Them", "", "buenas"],
+      ["u0", "You", "hola", ""],
+      ["u1", "Them", "", "buenas"],
     ]);
     const settled = meetingDisplayTurns(applyChannelResult(live, { text: "buenas tardes", isFinal: true, audioChannel: "prospect" }));
-    assert.deepEqual(settled.map((r) => [r.key, r.text, r.pending]), [["s0", "hola", ""], ["s1", "buenas tardes", ""]]);
+    assert.deepEqual(settled.map((r) => [r.key, r.text, r.pending]), [["u0", "hola", ""], ["u1", "buenas tardes", ""]]);
   });
 
-  it("keeps a paragraph's key when a late final is sorted in above its tail", () => {
-    const timedFeed = (events: Array<[string, string, number]>) =>
-      events.reduce(
-        (state, [text, audioChannel, start]) => applyChannelResult(state, { text, isFinal: true, audioChannel, start, end: start + 1 }),
-        EMPTY_MEETING_TRANSCRIPT,
-      );
-    const before = meetingDisplayTurns(timedFeed([["Which", "prospect", 10], ["is it?", "prospect", 12]]));
-    const after = meetingDisplayTurns(timedFeed([["Which", "prospect", 10], ["is it?", "prospect", 12], ["Yes.", "rep", 11]]));
-    assert.deepEqual(before.map((r) => r.key), ["s0"]);
-    assert.deepEqual(after.map((r) => [r.key, r.text]), [["s0", "Which"], ["s2", "Yes."], ["s1", "is it?"]]);
+  it("never moves or splits a bubble on screen when a late final was spoken earlier", () => {
+    const events: Array<[string, boolean, string, number]> = [
+      ["Which", true, "prospect", 10],
+      ["is it", false, "prospect", 12],
+      ["is it?", true, "prospect", 12],
+      ["Yes.", true, "rep", 11],
+    ];
+    const state = events.reduce(
+      (acc, [text, isFinal, audioChannel, start]) => applyChannelResult(acc, { text, isFinal, audioChannel, start, end: start + 1 }),
+      EMPTY_MEETING_TRANSCRIPT,
+    );
+    assert.deepEqual(meetingDisplayTurns(state).map((r) => [r.key, r.text]), [["u0", "Which is it?"], ["u2", "Yes."]]);
+    // The saved transcript still reads in the order things were said.
+    assert.deepEqual(meetingTurns(state).map((t) => t.text), ["Which", "Yes.", "is it?"]);
+  });
+
+  it("puts both live tails in the order they started and keeps them there", () => {
+    const state = feed([["te cuento", false, "rep"], ["perfecto", false, "prospect"], ["te cuento el precio", false, "rep"]]);
+    assert.deepEqual(meetingDisplayTurns(state).map((r) => [r.key, r.pending]), [["u0", "te cuento el precio"], ["u1", "perfecto"]]);
+    const repDone = applyChannelResult(state, { text: "Te cuento el precio.", isFinal: true, audioChannel: "rep" });
+    assert.deepEqual(meetingDisplayTurns(repDone).map((r) => [r.key, r.text, r.pending]), [
+      ["u0", "Te cuento el precio.", ""],
+      ["u1", "", "perfecto"],
+    ]);
   });
 
   it("continues the same speaker's paragraph instead of opening a new one", () => {
     const rows = meetingDisplayTurns(feed([["hola", true, "rep"], ["qué tal", false, "rep"]]));
     assert.equal(rows.length, 1);
     assert.equal(rows[0].pending, "qué tal");
+  });
+
+  it("shows drafts saved before bubbles had a place in arrival order", async () => {
+    const { normalizeMeetingTranscript } = await import("./meeting-transcript.ts");
+    const old = normalizeMeetingTranscript({
+      segments: [
+        { speaker: "prospect", text: "Hola", start: 5, end: 6 },
+        { speaker: "rep", text: "Buenas", start: 2, end: 3 },
+      ],
+      interims: {},
+    });
+    assert.deepEqual(meetingDisplayTurns(old).map((r) => [r.key, r.text]), [["u0", "Hola"], ["u1", "Buenas"]]);
+    const next = applyChannelResult(old, { text: "Qué tal", isFinal: true, audioChannel: "prospect" });
+    assert.deepEqual(meetingDisplayTurns(next).map((r) => r.key), ["u0", "u1", "u2"]);
   });
 });
 

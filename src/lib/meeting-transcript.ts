@@ -10,6 +10,8 @@ export type MeetingSegment = {
   text: string;
   start: number | null;
   end: number | null;
+  /** When its words first showed on screen; the live transcript keeps this order so nothing moves. */
+  seen?: number;
 };
 
 /** Finals in arrival order; each channel keeps its own in-progress tail. */
@@ -18,6 +20,10 @@ export type MeetingTranscript = {
   interims: Partial<Record<SpeakerKey, string>>;
   /** When each tail started, so a tail settled at stop still sorts where it was said. */
   interimStarts?: Partial<Record<SpeakerKey, number>>;
+  /** When each tail first showed; its final keeps the same place and bubble. */
+  interimSeen?: Partial<Record<SpeakerKey, number>>;
+  /** Next `seen` to hand out. */
+  nextSeen?: number;
 };
 
 export type MeetingDisplayTurn = {
@@ -69,11 +75,21 @@ export function normalizeMeetingTranscript(raw: unknown): MeetingTranscript {
     turns?: MeetingTurn[];
     interims?: MeetingTranscript["interims"];
     interimStarts?: MeetingTranscript["interimStarts"];
+    interimSeen?: MeetingTranscript["interimSeen"];
+    nextSeen?: number;
   };
-  const segments = Array.isArray(value.segments)
+  const stored: MeetingSegment[] = Array.isArray(value.segments)
     ? value.segments
     : (value.turns ?? []).map((turn) => ({ speaker: turn.speaker, text: turn.text, start: null, end: null }));
-  return { segments, interims: value.interims ?? {}, interimStarts: value.interimStarts ?? {} };
+  // Drafts saved before `seen` existed show in arrival order.
+  const segments = stored.map((segment, index) => (typeof segment.seen === "number" ? segment : { ...segment, seen: index }));
+  return {
+    segments,
+    interims: value.interims ?? {},
+    interimStarts: value.interimStarts ?? {},
+    interimSeen: value.interimSeen ?? {},
+    nextSeen: typeof value.nextSeen === "number" ? value.nextSeen : segments.length + Object.keys(value.interims ?? {}).length,
+  };
 }
 
 function without<T extends object>(map: T | undefined, key: SpeakerKey): T {
@@ -91,19 +107,35 @@ export function applyChannelResult(
   if (!text) {
     // An empty final closes that channel's utterance; an empty interim changes nothing.
     if (!result.isFinal || !state.interims[key]) return state;
-    return { ...state, interims: without(state.interims, key), interimStarts: without(state.interimStarts, key) };
+    return {
+      ...state,
+      interims: without(state.interims, key),
+      interimStarts: without(state.interimStarts, key),
+      interimSeen: without(state.interimSeen, key),
+    };
   }
   const start = seconds(result.start);
+  const nextSeen = state.nextSeen ?? state.segments.length;
+  const openSeen = state.interimSeen?.[key];
   if (!result.isFinal) {
     if (state.interims[key] === text) return state;
     const interimStarts = start === null ? state.interimStarts : { ...state.interimStarts, [key]: start };
-    return { ...state, interims: { ...state.interims, [key]: text }, interimStarts };
+    if (openSeen !== undefined) return { ...state, interims: { ...state.interims, [key]: text }, interimStarts };
+    return {
+      ...state,
+      interims: { ...state.interims, [key]: text },
+      interimStarts,
+      interimSeen: { ...state.interimSeen, [key]: nextSeen },
+      nextSeen: nextSeen + 1,
+    };
   }
-  const segment = { speaker, text, start, end: seconds(result.end) ?? start };
+  const segment = { speaker, text, start, end: seconds(result.end) ?? start, seen: openSeen ?? nextSeen };
   return {
     segments: [...state.segments, segment],
     interims: without(state.interims, key),
     interimStarts: without(state.interimStarts, key),
+    interimSeen: without(state.interimSeen, key),
+    nextSeen: openSeen === undefined ? nextSeen + 1 : nextSeen,
   };
 }
 
@@ -112,9 +144,12 @@ export function settleMeeting(state: MeetingTranscript): MeetingTranscript {
   return SPEAKER_ORDER.reduce<MeetingTranscript>((acc, key) => {
     const text = state.interims[key];
     return text
-      ? applyChannelResult(acc, { text, isFinal: true, audioChannel: speakerFromKey(key), start: state.interimStarts?.[key] })
+      ? applyChannelResult(
+          { ...acc, interimSeen: { ...acc.interimSeen, [key]: state.interimSeen?.[key] ?? acc.nextSeen ?? acc.segments.length } },
+          { text, isFinal: true, audioChannel: speakerFromKey(key), start: state.interimStarts?.[key] },
+        )
       : acc;
-  }, { segments: state.segments, interims: {}, interimStarts: {} });
+  }, { ...state, interims: {}, interimStarts: {}, interimSeen: {} });
 }
 
 function words(text: string): string[] {
@@ -195,37 +230,66 @@ function keyedTurns(state: MeetingTranscript): KeyedTurn[] {
   return turns;
 }
 
+type DisplayItem = { seen: number; speaker: MeetingSpeaker | null; text: string; pending: string };
+
+const settledRowsCache = new WeakMap<MeetingSegment[], MeetingDisplayTurn[]>();
+
 /**
- * Render-ready paragraphs keyed by their first segment, so a bubble keeps its identity
- * when a late final is sorted in above it; a pending tail joins its speaker's last
- * paragraph when it continues it.
+ * Builds rows in the order words first showed on screen, never re-sorting what is
+ * already there: a bubble keeps its place and key from its first word to its final.
  */
-export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTurn[] {
-  const rows: MeetingDisplayTurn[] = keyedTurns(state).map((turn) => ({
-    key: turn.key,
-    speaker: turn.speaker,
-    label: turn.speaker ? SPEAKER_LABEL[turn.speaker] : null,
-    text: turn.text,
-    pending: "",
-  }));
-  const last = rows[rows.length - 1];
-  for (const key of SPEAKER_ORDER) {
-    const pending = state.interims[key];
-    if (!pending) continue;
-    const speaker = speakerFromKey(key);
-    if (last && last.speaker === speaker && !last.pending) {
-      last.pending = pending;
+function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[]): MeetingDisplayTurn[] {
+  for (const item of items) {
+    const last = rows[rows.length - 1];
+    if (last && !last.pending && (last.speaker === item.speaker || item.speaker === null || last.speaker === null)) {
+      // A fragment without a channel continues whoever was talking; an opening one goes to the first speaker.
+      if (last.speaker === null && item.speaker) {
+        last.speaker = item.speaker;
+        last.label = SPEAKER_LABEL[item.speaker];
+      }
+      if (item.pending) last.pending = item.pending;
+      else last.text = joinChunks(last.text, item.text);
       continue;
     }
     rows.push({
-      key: `live-${key}`,
-      speaker,
-      label: speaker ? SPEAKER_LABEL[speaker] : null,
-      text: "",
-      pending,
+      key: `u${item.seen}`,
+      speaker: item.speaker,
+      label: item.speaker ? SPEAKER_LABEL[item.speaker] : null,
+      text: item.text,
+      pending: item.pending,
     });
   }
   return rows;
+}
+
+function settledRows(segments: MeetingSegment[]): MeetingDisplayTurn[] {
+  const cached = settledRowsCache.get(segments);
+  if (cached) return cached;
+  const meeting = segments.filter((segment) => segment.speaker === "prospect");
+  const items = segments
+    .map((segment, arrival) => ({ segment, seen: segment.seen ?? arrival }))
+    .filter(({ segment }) => !isEcho(segment, meeting))
+    .sort((a, b) => a.seen - b.seen)
+    .map(({ segment, seen }) => ({ seen, speaker: segment.speaker, text: segment.text, pending: "" }));
+  const rows = displayRows(items, []);
+  settledRowsCache.set(segments, rows);
+  return rows;
+}
+
+/**
+ * Render-ready paragraphs for the live transcript. Unlike the uploaded text (sorted by
+ * speech time), they keep the order words first appeared, so a late final never moves
+ * or splits a bubble the rep is reading, and a tail keeps its bubble when it settles.
+ */
+export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTurn[] {
+  const rows = settledRows(state.segments).map((row) => ({ ...row }));
+  const nextSeen = state.nextSeen ?? state.segments.length;
+  const tails = SPEAKER_ORDER.flatMap((key) => {
+    const pending = state.interims[key];
+    return pending ? [{ seen: state.interimSeen?.[key] ?? nextSeen, speaker: speakerFromKey(key), text: "", pending }] : [];
+  }).sort((a, b) => a.seen - b.seen);
+  // A tail older than the last settled bubble still goes last: settled bubbles never move.
+  return displayRows(tails, rows);
 }
 
 export function meetingHasSpeech(state: MeetingTranscript): boolean {
