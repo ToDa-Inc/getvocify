@@ -29,7 +29,14 @@ export type CoachSummary = {
   conversion: CoachConversion | null;
   playbook_published: boolean;
 };
-export type CoachInteractionStep = { step_id: string; label: string; state: StepState; quote: string | null };
+export type CoachInteractionStep = {
+  step_id: string;
+  label: string;
+  state: StepState;
+  quote: string | null;
+  /** C04 v8: what to do next time in this call's terms; absent on older calls. */
+  advice?: string | null;
+};
 export type CoachInteraction = {
   memo_id: string;
   user_id: string;

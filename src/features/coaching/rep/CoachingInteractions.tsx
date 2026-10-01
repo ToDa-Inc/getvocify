@@ -25,8 +25,9 @@ function Row({ item }: { item: CoachInteraction }) {
   const date = item.observed_at
     ? new Date(item.observed_at).toLocaleDateString(locale, { day: "numeric", month: "short" })
     : "";
-  // Plan §3.2: a missed step shows the moment it should have happened, when the engine has it.
-  const missedWithQuote = item.steps.filter((step) => step.state === "missing" && step.quote);
+  // Plan §3.2: a missed step says what to do next time (v8 advice) and, as context, the moment it
+  // should have happened, when the engine has either.
+  const missed = item.steps.filter((step) => step.state === "missing" && (step.advice || step.quote));
   return (
     <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-4 space-y-2`} data-testid="coach-interaction-row">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -54,10 +55,16 @@ function Row({ item }: { item: CoachInteraction }) {
         })}
         {done ? <li className="pl-1 text-muted-foreground">{done}</li> : null}
       </ul>
-      {missedWithQuote.map((step) => (
-        <p key={step.step_id} className="text-xs text-muted-foreground">
-          {step.label}: <span className="italic">“{step.quote}”</span>
-        </p>
+      {missed.map((step) => (
+        <div key={step.step_id} className="space-y-0.5 text-xs" data-testid="coach-missed-step">
+          <p className="text-foreground">
+            <span className="font-medium">{step.label}:</span>{" "}
+            {step.advice ? step.advice : <span className="italic text-muted-foreground">“{step.quote}”</span>}
+          </p>
+          {step.advice && step.quote ? (
+            <p className="italic text-muted-foreground">“{step.quote}”</p>
+          ) : null}
+        </div>
       ))}
     </li>
   );
