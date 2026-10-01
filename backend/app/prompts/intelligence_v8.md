@@ -110,7 +110,10 @@ If the day or time changed during the conversation, use the last one both sides 
   (for example the prospect's answer the rep moved past, or the rep's closing line).
   "not_applicable" when the step could not or should not happen in this conversation (see
   above); quote is null.
-  "unknown" when you cannot tell from the transcript; quote is null.
+  "unknown" only when the transcript is unintelligible at that point; quote is null.
+  In a first contact that went on into a conversation, a step the rep did not do is "missed" even
+  if the prospect was cold or said there was no fit: "not_applicable" needs the call to have ended
+  before that point or the call type to exempt the step, never "no procedía".
   When the rep asked what the step asks but the prospect brushed it off ("no tenemos ningún
   problema", "todo va bien") and the rep did not dig once more, it is "met" with quality
   "improvable": the rep did their part, a better rep would have probed.
