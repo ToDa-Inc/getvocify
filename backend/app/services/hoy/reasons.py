@@ -100,12 +100,16 @@ def reason(signal: Signal, *, lang: str = "es", lead_tiers: bool = False, now: d
         kind, origin, what = payload["kind"], payload["origin"], _clause(payload["text"])
         if lang == "es":
             if kind == "call":
-                return "Pidió que le llamaras." if origin == "prospect_request" else "Quedaste en llamarle."
+                head = "Pidió que le llamaras" if origin == "prospect_request" else "Quedaste en llamarle"
+                why = _clause(payload.get("why") or "")
+                return f"{head}: {why}." if why else f"{head}."
             if origin == "rep_promise":
                 return f"Le prometiste {what}."
             return f"Te pidió: {what}."
         if kind == "call":
-            return "They asked you to call." if origin == "prospect_request" else "You said you'd call."
+            head = "They asked you to call" if origin == "prospect_request" else "You said you'd call"
+            why = _clause(payload.get("why") or "")
+            return f"{head}: {why}." if why else f"{head}."
         if origin == "rep_promise":
             return f"You promised to {what}."
         return f"They asked: {what}."

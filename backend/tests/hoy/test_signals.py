@@ -267,3 +267,18 @@ def test_a_call_that_dropped_mid_conversation_asks_for_a_retry():
     assert screening_from_call("connected", {"call": {"call_type": "cold_first_contact", "ended_abruptly": False}}) == "connected"
     now = datetime(2026, 9, 26, 10, 0, tzinfo=timezone.utc)
     assert _callback_no_answer({"outcome": "cut_off", "at": "2026-09-26T09:00:00+00:00"}, "es", now) == "Se cortó la llamada hoy. Vuelve a llamar."
+
+
+def test_the_v8_callback_is_the_call_commitment_hoy_shows_with_its_reason():
+    from datetime import datetime, timezone
+    from app.services.hoy.reasons import reason as card_reason
+    from app.services.hoy.signals import signals_for_contact, touch_from_intelligence
+    at = datetime(2026, 9, 24, 9, 0, tzinfo=timezone.utc)
+    intel = {"commitments": [], "objections": [], "next": {"callback": {
+        "needed": True, "who_asked": "prospect", "when": "2026-09-24T12:30:00+02:00",
+        "temporal_precision": "time", "reason": "Estaba recogiendo a los niños"}}}
+    touch = touch_from_intelligence(memo_id="m1", contact_id="42", deal_id=None, at=at, intelligence=intel)
+    now = datetime(2026, 9, 24, 9, 30, tzinfo=timezone.utc)
+    [signal] = [s for s in signals_for_contact([touch], now=now, day_end=datetime(2026, 9, 24, 22, 0, tzinfo=timezone.utc)) if s.type == "commitment_due"]
+    assert signal.payload["why"] == "Estaba recogiendo a los niños"
+    assert card_reason(signal) == "Pidió que le llamaras: estaba recogiendo a los niños."
