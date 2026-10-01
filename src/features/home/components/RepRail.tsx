@@ -7,14 +7,12 @@ import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/
 import { useContactPriorities } from "@/features/today/hooks/useContactPriorities";
 import { useHomeReads } from "@/features/today/hooks/useHomeReads";
 import { useTodayCardActions } from "@/features/today/hooks/useTodayCardActions";
-import { railState, type RailCounts } from "@/lib/home-rail";
+import { railState, type RailCounts, type TodayFocus } from "@/lib/home-rail";
 import { useLanguage } from "@/lib/i18n";
 import type { ProductTranslations } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { dayChipClass, focusLabel, todayHref } from "../day-chips";
 
-const TODAY = "/dashboard/today";
-const chipClass =
-  "inline-flex max-w-full items-baseline gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-[13.5px] text-foreground transition-colors duration-150 hover:border-beige/40 hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none";
 
 /** `undefined` while the first read is in flight, `null` once it failed without data (as on Hoy). */
 function settled<T>(query: { data: T | undefined; isError: boolean }): T | null | undefined {
@@ -22,13 +20,14 @@ function settled<T>(query: { data: T | undefined; isError: boolean }): T | null 
 }
 
 function countRows(counts: RailCounts, copy: ProductTranslations) {
-  return [
-    { key: "needs_ok", label: copy.home_needs_ok, count: counts.needsOk },
-    { key: "tasks", label: copy.home_tasks, count: counts.tasks },
-    { key: "followups", label: copy.home_followups, count: counts.followups },
-    { key: "new", label: copy.home_new, count: counts.fresh },
-    { key: "calls", label: copy.home_calls, count: counts.calls },
-  ].filter((row) => row.count > 0);
+  const rows: { key: TodayFocus; count: number }[] = [
+    { key: "needs_ok", count: counts.needsOk },
+    { key: "tasks", count: counts.tasks },
+    { key: "followups", count: counts.followups },
+    { key: "new", count: counts.fresh },
+    { key: "calls", count: counts.calls },
+  ];
+  return rows.filter((row) => row.count > 0).map((row) => ({ ...row, label: focusLabel(row.key, copy) }));
 }
 
 /**
@@ -36,7 +35,7 @@ function countRows(counts: RailCounts, copy: ProductTranslations) {
  * /today/done 404 without it, and so does the Hoy these rows link to.
  *
  * The rep's day, condensed under Inicio's composer: today's meetings and how much waits in each part
- * of Hoy, one chip each in a row, every chip opening /dashboard/today. Built from the same reads and
+ * of Hoy, one chip each in a row, every chip opening Hoy on that part (/dashboard/today?focus=). Built from the same reads and
  * the same composition as /dashboard/today, so the numbers match what Hoy shows there.
  */
 export function RepRail() {
@@ -125,8 +124,8 @@ export function RepRail() {
           return (
             <li key={item.id ?? item.dedupe_key ?? name} className="max-w-full">
               <Link
-                to={TODAY}
-                className={`${chipClass} ${past ? "opacity-60" : ""}`}
+                to={todayHref("meetings")}
+                className={`${dayChipClass()} ${past ? "opacity-60" : ""}`}
                 title={item.company_name ? `${name} · ${item.company_name}` : name}
               >
                 <span className="shrink-0 tabular-nums text-muted-foreground">{time ?? copy.home_meeting_no_time}</span>
@@ -137,7 +136,7 @@ export function RepRail() {
         })}
         {rows.map((row) => (
           <li key={row.key}>
-            <Link to={TODAY} className={chipClass}>
+            <Link to={todayHref(row.key)} className={dayChipClass()}>
               <span>{row.label}</span>
               <span className="tabular-nums text-muted-foreground">{row.count}</span>
             </Link>

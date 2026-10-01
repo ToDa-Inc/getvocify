@@ -79,3 +79,45 @@ export function railState(view: Pick<HomeView, "state" | "incompleteAt" | "secti
   if (due) return { state: "day", counts, incomplete };
   return { state: incomplete ? "partial" : "loading", counts, incomplete };
 }
+
+/** One part of Hoy that Inicio's chips open on its own (`/dashboard/today?focus=`). */
+export type TodayFocus = "meetings" | "needs_ok" | "tasks" | "followups" | "new" | "calls";
+
+/** The Hoy sections each focus shows; meetings and demos are one chip. */
+const FOCUS_SECTIONS: Record<TodayFocus, readonly string[]> = {
+  meetings: ["meetings", "demos"],
+  needs_ok: ["needs_ok"],
+  tasks: ["tasks"],
+  followups: ["followups"],
+  new: ["new"],
+  calls: ["calls"],
+};
+
+export const TODAY_FOCUSES = Object.keys(FOCUS_SECTIONS) as TodayFocus[];
+
+export function parseTodayFocus(raw: string | null): TodayFocus | null {
+  return TODAY_FOCUSES.includes(raw as TodayFocus) ? (raw as TodayFocus) : null;
+}
+
+/** Whether a Hoy block is painted under a focus: everything without one, only its sections with one. */
+export function focusShows(focus: TodayFocus | null, sectionId: string): boolean {
+  return focus === null || FOCUS_SECTIONS[focus].includes(sectionId);
+}
+
+/** The chips over Hoy, in the order Hoy paints them: each part with something waiting, and how much. */
+export function focusCounts(view: Pick<HomeView, "sections">): { focus: TodayFocus; count: number }[] {
+  const counts = railCounts(view);
+  const meetings = view.sections.reduce(
+    (sum, section) => sum + (section.id === "meetings" || section.id === "demos" ? section.items.length : 0),
+    0,
+  );
+  const all: { focus: TodayFocus; count: number }[] = [
+    { focus: "meetings", count: meetings },
+    { focus: "needs_ok", count: counts.needsOk },
+    { focus: "tasks", count: counts.tasks },
+    { focus: "followups", count: counts.followups },
+    { focus: "new", count: counts.fresh },
+    { focus: "calls", count: counts.calls },
+  ];
+  return all.filter((entry) => entry.count > 0);
+}

@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { HomeSection } from "@shared/ui/home.js";
 import type { TodayItem } from "./today.ts";
-import { RAIL_MEETINGS, railCounts, railState } from "./home-rail.ts";
+import { RAIL_MEETINGS, focusCounts, focusShows, parseTodayFocus, railCounts, railState } from "./home-rail.ts";
 
 function item(id: string, overrides: Partial<TodayItem> = {}): TodayItem {
   return { type: "meeting_today", dedupe_key: id, id, reason: id, origins: [], supporting: [], ...overrides };
@@ -127,5 +127,41 @@ describe("railState", () => {
     for (const state of ["error", "connect", "no_assigned"] as const) {
       assert.equal(railState({ ...base, state }).state, state);
     }
+  });
+});
+
+describe("Hoy focus", () => {
+  it("reads only the focuses Hoy offers from the URL", () => {
+    assert.equal(parseTodayFocus("tasks"), "tasks");
+    assert.equal(parseTodayFocus("needs_ok"), "needs_ok");
+    assert.equal(parseTodayFocus(null), null);
+    assert.equal(parseTodayFocus("upcoming"), null);
+    assert.equal(parseTodayFocus("Tasks"), null);
+  });
+
+  it("shows every block without a focus and only its own sections with one", () => {
+    for (const id of ["meetings", "demos", "tasks", "upcoming", "deals"]) assert.equal(focusShows(null, id), true);
+    assert.equal(focusShows("meetings", "demos"), true);
+    assert.equal(focusShows("meetings", "meetings"), true);
+    assert.equal(focusShows("meetings", "tasks"), false);
+    assert.equal(focusShows("tasks", "tasks"), true);
+    assert.equal(focusShows("tasks", "upcoming"), false);
+    assert.equal(focusShows("tasks", "deals"), false);
+  });
+
+  it("counts every meeting and demo (not the rail's three) and drops empty parts, in Hoy's order", () => {
+    const sections: HomeSection[] = [
+      { id: "demos", items: [meeting("d1", "2026-09-30T16:00:00Z"), meeting("d2", null)] },
+      { id: "meetings", items: [meeting("m1", "2026-09-30T12:00:00Z"), meeting("m2", "2026-09-30T13:00:00Z")] },
+      { id: "tasks", items: cards(14, "t") },
+      { id: "followups", items: [] },
+      { id: "new", items: cards(10, "n") },
+    ];
+    assert.deepEqual(focusCounts({ sections }), [
+      { focus: "meetings", count: 4 },
+      { focus: "tasks", count: 14 },
+      { focus: "new", count: 10 },
+    ]);
+    assert.deepEqual(focusCounts({ sections: [] }), []);
   });
 });
