@@ -272,4 +272,4 @@ def test_an_agreed_callback_is_the_suggested_follow_up_date():
     memo = _memo({"interest": "medium", "next": {"callback": {"needed": True, "when": "2026-10-15T12:30:00+02:00"}}})
     assert ac.suggested_followup_at(memo, {}, NOW) == datetime(2026, 10, 15, 10, 30, tzinfo=timezone.utc)
     past = _memo({"interest": "medium", "next": {"callback": {"needed": True, "when": "2026-09-01T12:30:00+02:00"}}})
-    assert ac.suggested_followup_at(past, {}, NOW) == datetime(2026, 10, 5, 9, 0, tzinfo=timezone.utc)
+    assert ac.suggested_followup_at(past, {}, NOW) == ac.suggested_followup_at(_memo({"interest": "medium"}), {}, NOW)  # a past callback falls back to the wait
