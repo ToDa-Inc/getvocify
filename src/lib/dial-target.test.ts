@@ -10,7 +10,7 @@ import {
   canSendDigits,
   contactInitials,
   dialTargetFromContact,
-  floatingDialerChrome,
+  dialerDock,
   formatCallerIdDisplay,
   formatLiveDuration,
   normalizeDialTarget,
@@ -63,31 +63,16 @@ describe('formatCallerIdDisplay', () => {
   });
 });
 
-describe('floatingDialerChrome', () => {
-  it('opens the sheet only while the panel is expanded', () => {
-    assert.deepEqual(floatingDialerChrome(true, CALL_STATES.IDLE), {
-      sheet: true,
-      fab: false,
-    });
-    assert.deepEqual(floatingDialerChrome(false, CALL_STATES.IDLE), {
-      sheet: false,
-      fab: false,
-    });
+describe('dialerDock', () => {
+  it('shows the panel only while it is open', () => {
+    assert.deepEqual(dialerDock(true, CALL_STATES.IDLE), { panel: true, liveTab: false });
+    assert.deepEqual(dialerDock(false, CALL_STATES.IDLE), { panel: false, liveTab: false });
   });
 
-  it('keeps a FAB when the panel is collapsed during a live call', () => {
-    assert.deepEqual(floatingDialerChrome(false, CALL_STATES.RINGING), {
-      sheet: false,
-      fab: true,
-    });
-    assert.deepEqual(floatingDialerChrome(false, CALL_STATES.ACTIVE), {
-      sheet: false,
-      fab: true,
-    });
-    assert.deepEqual(floatingDialerChrome(true, CALL_STATES.ACTIVE), {
-      sheet: true,
-      fab: false,
-    });
+  it('lights the edge tab when the panel is closed during a live call', () => {
+    assert.deepEqual(dialerDock(false, CALL_STATES.RINGING), { panel: false, liveTab: true });
+    assert.deepEqual(dialerDock(false, CALL_STATES.ACTIVE), { panel: false, liveTab: true });
+    assert.deepEqual(dialerDock(true, CALL_STATES.ACTIVE), { panel: true, liveTab: false });
   });
 });
 
