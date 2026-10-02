@@ -119,8 +119,8 @@ def test_a_week_without_calls_yet_shows_the_latest_week_with_calls():
         _memo("a2", REP, {"open": "met", "pain": "met"}, days_ago=9),
     ]
     body = _client(memos).get("/api/v1/coaching/me/summary").json()
-    assert body["numbers"]["interactions"] == 0  # this week still says what it is
     assert body["steps_week_start"] == "2026-09-14" and body["week_start"] == "2026-09-21"
+    assert body["numbers"]["conversations"] == 2  # the shown week, not an empty one
     opening = next(s for s in body["steps"] if s["step_id"] == "open")
     assert (opening["done"], opening["applicable"]) == (2, 2)
 

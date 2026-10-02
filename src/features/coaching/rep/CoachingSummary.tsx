@@ -117,9 +117,12 @@ function StepStrip({ steps, onOpenProcess, earlierWeek }: { steps: CoachStepRate
   );
 }
 
-function Numbers({ current, previous, flow }: { current: CoachNumbers; previous: CoachNumbers; flow: CoachFlow }) {
-  const { t } = useLanguage();
+function Numbers({ current, previous, flow, earlierWeek }: { current: CoachNumbers; previous: CoachNumbers; flow: CoachFlow; earlierWeek?: string | null }) {
+  const { t, language } = useLanguage();
   const p = t.product;
+  const weekLabel = earlierWeek
+    ? new Date(`${earlierWeek}T12:00:00`).toLocaleDateString(language === "EN" ? "en-GB" : "es-ES", { day: "numeric", month: "short" })
+    : null;
   const tiles = [
     { label: p.coachNumConversations, now: current.conversations, prev: previous.conversations },
     { label: p[meetingsTileKey(flow)], now: current.meetings_agreed, prev: previous.meetings_agreed },
@@ -127,13 +130,17 @@ function Numbers({ current, previous, flow }: { current: CoachNumbers; previous:
   ];
   return (
     <section className={`${CARD_COMPACT} space-y-2`} data-testid="coach-numbers">
-      <h2 className={THEME_TOKENS.typography.sectionTitle}>{p.coachNumbersHeading}</h2>
+      <h2 className={THEME_TOKENS.typography.sectionTitle}>
+        {weekLabel ? p.coachNumbersEarlierWeek.replace("{date}", weekLabel) : p.coachNumbersHeading}
+      </h2>
       <div className="grid gap-3 sm:grid-cols-3">
         {tiles.map((tile) => (
           <div key={tile.label}>
             <p className={THEME_TOKENS.typography.capsLabel}>{tile.label}</p>
             <p className="text-xl text-foreground">{tile.now}</p>
-            <p className="text-xs text-muted-foreground">{numberVsLast(p, tile.prev)}</p>
+            <p className="text-xs text-muted-foreground">
+              {weekLabel ? p.coachVsWeekBefore.replace("{value}", String(tile.prev)) : numberVsLast(p, tile.prev)}
+            </p>
           </div>
         ))}
       </div>
@@ -167,7 +174,12 @@ export function CoachingSummary({ onOpenProcess, flow }: { onOpenProcess: () => 
         onOpenProcess={onOpenProcess}
         earlierWeek={data.steps_week_start && data.steps_week_start !== data.week_start ? data.steps_week_start : null}
       />
-      <Numbers current={data.numbers} previous={data.prev_numbers} flow={data.flow} />
+      <Numbers
+        current={data.numbers}
+        previous={data.prev_numbers}
+        flow={data.flow}
+        earlierWeek={data.steps_week_start && data.steps_week_start !== data.week_start ? data.steps_week_start : null}
+      />
       {conversion ? (
         <p className="px-1 text-sm text-foreground" data-testid="coach-conversion">
           {conversion}

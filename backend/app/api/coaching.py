@@ -423,6 +423,7 @@ async def get_my_coaching_summary(
                 shown_prev = _in_window(ctx["own"], starts[index - 1], starts[index]) if index else []
                 break
     body["steps_week_start"] = engine.madrid_day(shown_start).isoformat()
+    body["numbers"], body["prev_numbers"] = _numbers(shown_rows), _numbers(shown_prev)
     prev_rates = {r["step_id"]: r["rate"] for r in engine.step_rates(shown_prev, steps)}
     body["steps"] = [
         {
