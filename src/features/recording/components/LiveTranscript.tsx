@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowDown } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import type { MeetingDisplayTurn } from '@/lib/meeting-transcript';
 import { bubblesForTurn } from '@/lib/transcript-bubbles';
@@ -26,6 +27,8 @@ interface LiveTranscriptProps {
   turns?: MeetingDisplayTurn[];
   /** Whether transcription is active */
   isActive: boolean;
+  /** Highlights matches of this text and stops following the live edge while set */
+  query?: string;
   /** Live STT error, if the socket or provider failed */
   error?: string | null;
   /** Empty-state copy while listening */
@@ -38,6 +41,7 @@ export function LiveTranscript({
   finalTranscript,
   interimTranscript,
   turns,
+  query,
   isActive,
   error,
   listeningHint = 'Listening... Start speaking to see live transcription',
@@ -46,6 +50,7 @@ export function LiveTranscript({
   const scrollRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
   const [following, setFollowing] = useState(true);
+  const reduceMotion = useReducedMotion();
   const hasContent = turns ? turns.length > 0 : Boolean(finalTranscript || interimTranscript);
 
   const jumpToLive = useCallback(() => {
@@ -58,8 +63,8 @@ export function LiveTranscript({
 
   // Before paint, so new text never flashes below the fold first.
   useLayoutEffect(() => {
-    if (followRef.current) jumpToLive();
-  }, [finalTranscript, interimTranscript, turns, jumpToLive]);
+    if (followRef.current && !query) jumpToLive();
+  }, [finalTranscript, interimTranscript, turns, jumpToLive, query]);
 
   useEffect(() => {
     if (!isActive) setFollowing(true);
@@ -101,7 +106,7 @@ export function LiveTranscript({
             {turns.map((turn) => {
               const you = turn.speaker === 'rep';
               const bubbles = bubblesForTurn(turn.text);
-              if (!bubbles.length) bubbles.push('');
+              const speaking = Boolean(turn.pending);
               return (
                 <div
                   key={turn.key}
@@ -113,26 +118,25 @@ export function LiveTranscript({
                   {!you && turn.label ? (
                     <span className="px-1 text-[11px] font-medium text-beige">{turn.label}</span>
                   ) : null}
-                  {bubbles.map((bubble, index) => {
-                    const lastBubble = index === bubbles.length - 1;
-                    return (
-                      <div
-                        key={index}
-                        className={cn(
-                          'rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed text-foreground animate-in fade-in duration-200 motion-reduce:animate-none',
-                          you ? 'bg-[hsl(36_52%_87%)]' : 'bg-[#f3f0eb]',
-                        )}
-                      >
-                        {bubble}
-                        {lastBubble && turn.pending ? (
-                          <span className="text-muted-foreground/70 italic">
-                            {bubble ? ' ' : ''}
-                            {turn.pending}
-                          </span>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+                  {bubbles.map((bubble, index) => (
+                    <motion.div
+                      key={index}
+                      layout={!reduceMotion}
+                      transition={BUBBLE_RESIZE}
+                      className={cn(
+                        'overflow-hidden rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed text-foreground',
+                        you ? 'bg-[hsl(36_52%_87%)]' : 'bg-[#f3f0eb]',
+                      )}
+                    >
+                      <motion.span layout={reduceMotion ? false : 'position'} className="block">
+                        {highlight(bubble, query)}
+                      </motion.span>
+                    </motion.div>
+                  ))}
+                  {speaking ? (
+                    // Words still settling show as "typing" so bubbles never jump with every guess.
+                    <TypingBubble you={you} />
+                  ) : null}
                 </div>
               );
             })}
@@ -163,5 +167,47 @@ export function LiveTranscript({
         </Button>
       ) : null}
     </div>
+  );
+}
+
+const BUBBLE_RESIZE = { type: 'spring', stiffness: 520, damping: 44, mass: 0.7 } as const;
+
+function TypingBubble({ you }: { you: boolean }) {
+  return (
+    <div
+      aria-label="Speaking"
+      className={cn(
+        'flex h-9 items-center gap-1 rounded-2xl px-3.5 animate-in fade-in duration-200 motion-reduce:animate-none',
+        you ? 'bg-[hsl(36_52%_87%)]' : 'bg-[#f3f0eb]',
+      )}
+    >
+      {[0, 160, 320].map((delay) => (
+        <span
+          key={delay}
+          className="h-1.5 w-1.5 rounded-full bg-foreground/35 animate-pulse motion-reduce:animate-none"
+          style={{ animationDelay: `${delay}ms` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Wraps case-insensitive matches in <mark data-transcript-match> for search. */
+function highlight(text: string, query?: string) {
+  const needle = query?.trim();
+  if (!needle) return text;
+  const parts = text.split(new RegExp(`(${escapeRegExp(needle)})`, 'gi'));
+  return parts.map((part, index) =>
+    index % 2 === 1 ? (
+      <mark key={index} data-transcript-match className="rounded bg-beige/20 px-0.5 text-foreground transition-colors data-[active]:bg-beige/55">
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Calendar, ChevronUp, Copy, Minus, Square } from "lucide-react";
+import { Calendar, ChevronDown, ChevronUp, Copy, Minus, Pause, Play, Search, Square, X } from "lucide-react";
 import { toast } from "sonner";
 import { LiveTranscript } from "@/features/recording/components";
 import {
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/tooltip";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
+import { getDesktopBridge, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
 import { useDesktopMeeting } from "./DesktopMeetingProvider";
 import { LiveAssistPanel } from "./assist/LiveAssistPanel";
 import { useLiveAssist, useLiveAssistEnabled } from "./assist/useLiveAssist";
@@ -21,8 +22,35 @@ export function MeetingLiveView() {
   const meeting = useDesktopMeeting();
   const live = meeting.phase === "live";
   const [transcriptOpen, setTranscriptOpen] = useState(true);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const transcriptRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const open = () => {
+      setTranscriptOpen(true);
+      setSearchOpen(true);
+    };
+    window.addEventListener(TRANSCRIPT_SEARCH_EVENT, open);
+    return () => window.removeEventListener(TRANSCRIPT_SEARCH_EVENT, open);
+  }, []);
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+  };
   const [assistOn, setAssistOn] = useLiveAssistEnabled();
-  const assist = useLiveAssist(meeting.turns, assistOn && live);
+  const assist = useLiveAssist(meeting.turns, assistOn && live && !meeting.paused);
+
+  // The floating pill shows the same live card while it is open.
+  useEffect(() => {
+    const card = assist.active;
+    getDesktopBridge()?.shell.setState({
+      assist: card
+        ? { label: card.label, kind: card.kind, stage: card.stage, bridge: card.bridge, sayThis: card.sayThis, thenAsk: card.thenAsk }
+        : null,
+    });
+  }, [assist.active]);
   const [startedAt] = useState(() =>
     new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   );
@@ -71,7 +99,7 @@ export function MeetingLiveView() {
                 )}
               />
               <span className="tabular-nums">
-                {live ? meeting.elapsed : "Stopped"}
+                {!live ? "Stopped" : meeting.paused ? `Paused · ${meeting.elapsed}` : meeting.elapsed}
               </span>
             </Chip>
           </div>
@@ -99,10 +127,25 @@ export function MeetingLiveView() {
             >
               <div className="min-h-0 overflow-hidden">
                 <div className="flex items-center justify-between gap-2 border-b border-border/50 px-5 py-2.5">
-                  <span className={THEME_TOKENS.typography.capsLabel}>
-                    Transcript
-                  </span>
+                  {searchOpen ? (
+                    <TranscriptSearch
+                      query={query}
+                      onQuery={setQuery}
+                      onClose={closeSearch}
+                      containerRef={transcriptRef}
+                      revision={meeting.turns}
+                    />
+                  ) : (
+                    <span className={THEME_TOKENS.typography.capsLabel}>
+                      Transcript
+                    </span>
+                  )}
                   <div className="flex items-center gap-1">
+                    {!searchOpen ? (
+                      <DockIcon label="Search transcript" onClick={() => setSearchOpen(true)}>
+                        <Search className="h-4 w-4" />
+                      </DockIcon>
+                    ) : null}
                     <DockIcon
                       label="Copy transcript"
                       onClick={() => void copyTranscript()}
@@ -117,14 +160,17 @@ export function MeetingLiveView() {
                     </DockIcon>
                   </div>
                 </div>
+                <div ref={transcriptRef}>
                 <LiveTranscript
                   finalTranscript=""
                   interimTranscript=""
                   turns={meeting.turns}
+                  query={query}
                   isActive={live}
                   listeningHint="You and Them appear here as the meeting goes."
                   className="min-h-[200px] max-h-[min(42vh,460px)] rounded-none border-0 bg-transparent px-5 py-4 shadow-none ring-0"
                 />
+                </div>
               </div>
             </div>
 
@@ -145,6 +191,19 @@ export function MeetingLiveView() {
               />
               {live ? (
                 <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={meeting.paused ? meeting.resume : meeting.pause}
+                        aria-label={meeting.paused ? "Resume recording" : "Pause recording"}
+                        className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/50"
+                      >
+                        {meeting.paused ? <Play className="h-4 w-4 fill-current" /> : <Pause className="h-4 w-4 fill-current" />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">{meeting.paused ? "Resume recording" : "Pause recording"}</TooltipContent>
+                  </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
@@ -291,5 +350,81 @@ function MeetingNotes({
       placeholder="Write notes… Vocify fills in the rest from the conversation."
       className="mt-8 block w-full flex-1 resize-none overflow-hidden bg-transparent text-[17px] leading-8 text-foreground placeholder:text-muted-foreground/45 outline-none"
     />
+  );
+}
+
+/**
+ * Finds text in the live transcript: highlights every match, jumps between them
+ * with Enter / Shift+Enter or the arrows, Esc closes.
+ */
+function TranscriptSearch({
+  query,
+  onQuery,
+  onClose,
+  containerRef,
+  revision,
+}: {
+  query: string;
+  onQuery: (query: string) => void;
+  onClose: () => void;
+  containerRef: React.RefObject<HTMLDivElement>;
+  /** Changes whenever the transcript does, so counts stay current. */
+  revision: unknown;
+}) {
+  const [active, setActive] = useState(0);
+  const [count, setCount] = useState(0);
+
+  useEffect(() => setActive(0), [query]);
+
+  useEffect(() => {
+    const marks = Array.from(
+      containerRef.current?.querySelectorAll<HTMLElement>("mark[data-transcript-match]") ?? [],
+    );
+    setCount(marks.length);
+    if (!marks.length) return;
+    const index = Math.min(active, marks.length - 1);
+    marks.forEach((mark, i) => mark.toggleAttribute("data-active", i === index));
+    marks[index].scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [active, query, revision, containerRef]);
+
+  const step = (delta: number) => {
+    if (!count) return;
+    setActive((current) => (current + delta + count) % count);
+  };
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <input
+        autoFocus
+        value={query}
+        onChange={(event) => onQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            step(event.shiftKey ? -1 : 1);
+          } else if (event.key === "Escape") {
+            onClose();
+          }
+        }}
+        placeholder="Search transcript"
+        aria-label="Search transcript"
+        className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none"
+      />
+      {query.trim() ? (
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground" aria-live="polite">
+          {count ? `${Math.min(active, count - 1) + 1}/${count}` : "0"}
+        </span>
+      ) : null}
+      <DockIcon label="Previous match" onClick={() => step(-1)}>
+        <ChevronUp className="h-4 w-4" />
+      </DockIcon>
+      <DockIcon label="Next match" onClick={() => step(1)}>
+        <ChevronDown className="h-4 w-4" />
+      </DockIcon>
+      <DockIcon label="Close search" onClick={onClose}>
+        <X className="h-4 w-4" />
+      </DockIcon>
+    </div>
   );
 }

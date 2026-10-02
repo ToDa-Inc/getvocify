@@ -220,7 +220,7 @@ def _parse_suggestion(raw: str) -> dict[str, Any]:
     }
 
 
-MEETING_OBJECTION_TYPES = {"price", "timing", "authority", "competitor", "status_quo", "trust", "other"}
+MEETING_OBJECTION_TYPES = {"price", "timing", "authority", "competitor", "status_quo", "trust", "question", "other"}
 
 
 def _silent() -> dict[str, Any]:

@@ -48,3 +48,13 @@ def test_phone_calls_keep_the_existing_coach():
     # Phone mode still fills a nudge when parsing fails; meetings never do.
     assert _suggestion_for_mode("not json", "speakerphone")["say_this"]
     assert _suggestion_for_mode("not json", "meeting")["say_this"] == ""
+
+
+def test_product_questions_are_a_case_of_their_own():
+    result = meeting_suggestion(_raw(objection_type="question", say_this="Sí, se conecta con HubSpot y Pipedrive."))
+    assert result["is_objection"] is True and result["objection_type"] == "question"
+
+
+def test_the_meeting_prompt_limits_questions_to_the_offer_context():
+    assert '"question"' in MEETING_SYSTEM_PROMPT
+    assert "If the context does not answer it" in MEETING_SYSTEM_PROMPT

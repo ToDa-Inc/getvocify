@@ -6,8 +6,6 @@ import {
   cooldownKey,
   coolingDown,
   repActivityKey,
-  CARD_MAX_MS,
-  CARD_MIN_MS,
   type AssistCard,
 } from "@/lib/live-assist";
 import type { MeetingDisplayTurn } from "@/lib/meeting-transcript";
@@ -19,9 +17,9 @@ const PAUSE_MS = 1500;
 const MIN_GAP_MS = 6000;
 
 /**
- * Asks the assist sources after the other side pauses and applies the display
- * rules: one live card, 4–10s on screen, gone once the rep answers, and the same
- * kind of help waits a minute. Past cards stay readable under "Earlier".
+ * Asks the assist sources after the other side pauses. As soon as a source knows
+ * help is coming, a draft with a bridge line shows; the answer replaces it in place.
+ * Display rules live in lib/live-assist (8–25s, stays while the rep answers).
  */
 export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean) {
   const [active, setActive] = useState<AssistCard | null>(null);
@@ -32,7 +30,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean) {
   const lastAskRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastShownRef = useRef<Record<string, number>>({});
-  const repSpokeAtRef = useRef<number | null>(null);
+  const repLastAtRef = useRef<number | null>(null);
   const repKeyRef = useRef("");
 
   const context = enabled ? assistContext(turns) : null;
@@ -41,12 +39,21 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean) {
 
   if (repKey !== repKeyRef.current) {
     repKeyRef.current = repKey;
-    if (repKey) repSpokeAtRef.current = Date.now();
+    if (repKey) repLastAtRef.current = Date.now();
   }
 
   const retire = (card: AssistCard) => {
     setActive((current) => (current?.id === card.id ? null : current));
-    setEarlier((list) => addCard(list, card));
+    // Drafts never reached an answer; only real help is worth keeping in "Earlier".
+    if (card.stage === "ready") setEarlier((list) => addCard(list, card));
+  };
+
+  /** Shows a new card, moving whatever was up into "Earlier". */
+  const present = (card: AssistCard) => {
+    setActive((current) => {
+      if (current && current.id !== card.id && current.stage === "ready") setEarlier((list) => addCard(list, current));
+      return card;
+    });
   };
 
   useEffect(() => {
@@ -59,18 +66,26 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean) {
       const controller = new AbortController();
       abortRef.current = controller;
       setThinking(true);
-      void Promise.all(ASSIST_SOURCES.map((source) => source.request(context, controller.signal))).then((results) => {
+      let draft: AssistCard | null = null;
+      const onDraft = (card: AssistCard) => {
+        if (controller.signal.aborted || draft || coolingDown(card, lastShownRef.current, Date.now())) return;
+        draft = card;
+        present(card);
+      };
+      void Promise.all(ASSIST_SOURCES.map((source) => source.request(context, controller.signal, onDraft))).then((results) => {
         if (controller.signal.aborted) return;
         setThinking(false);
         const now = Date.now();
-        const card = results.find((result) => result && !coolingDown(result, lastShownRef.current, now));
-        if (!card) return;
-        const shown = { ...card, at: now };
-        lastShownRef.current[cooldownKey(shown)] = now;
-        setActive((current) => {
-          if (current) setEarlier((list) => addCard(list, current));
-          return shown;
-        });
+        const card = results.find((result) => result && (draft || !coolingDown(result, lastShownRef.current, now)));
+        if (!card) {
+          // The answer turned out not to be worth showing: withdraw the bridge quietly.
+          if (draft) setActive((current) => (current?.id === draft!.id ? null : current));
+          return;
+        }
+        // The answer takes the draft's place and keeps its clock, so timing counts from first sight.
+        const shown = { ...card, id: draft?.id ?? card.id, at: draft?.at ?? now };
+        lastShownRef.current[cooldownKey(shown)] = shown.at;
+        present(shown);
       });
     }, wait);
     return () => window.clearTimeout(timer);
@@ -78,17 +93,15 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  // Re-check visibility when the card could first step aside, and when it must leave.
+  // While a card is up, re-check the display rules; they depend on time and on the rep speaking.
   useEffect(() => {
     if (!active) return;
-    const timers = [CARD_MIN_MS, CARD_MAX_MS].map((ms) =>
-      window.setTimeout(() => setTick((n) => n + 1), Math.max(0, active.at + ms - Date.now()) + 20),
-    );
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
+    const timer = window.setInterval(() => setTick((n) => n + 1), 500);
+    return () => window.clearInterval(timer);
   }, [active]);
 
   useEffect(() => {
-    if (active && !cardVisible(active, Date.now(), repSpokeAtRef.current)) retire(active);
+    if (active && !cardVisible(active, Date.now(), repLastAtRef.current)) retire(active);
   });
 
   useEffect(() => {

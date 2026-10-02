@@ -36,7 +36,7 @@ import {
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type MeetingDraft } from "@/lib/meeting-draft";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
-import { getDesktopBridge, isDesktopHost } from "@/lib/desktop-host";
+import { getDesktopBridge, isDesktopHost, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
 
@@ -44,6 +44,10 @@ type DesktopMeeting = {
   available: boolean;
   phase: MeetingPhase;
   elapsed: string;
+  /** Recording continues but nothing is transcribed and the timer holds. */
+  paused: boolean;
+  pause: () => void;
+  resume: () => void;
   /** 0–1 loudness of each side, for the live bars. */
   levels: { you: number; them: number };
   error: string | null;
@@ -104,6 +108,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const [phase, setPhaseState] = useState<MeetingPhase>("idle");
   const [transcript, setTranscript] = useState<MeetingTranscript>(EMPTY_MEETING_TRANSCRIPT);
   const [elapsed, setElapsed] = useState("00:00");
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
+  const pausedAtRef = useRef(0);
+  const pausedTotalRef = useRef(0);
   const [levels, setLevels] = useState({ you: 0, them: 0 });
   const levelRef = useRef({ you: 0, them: 0 });
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +134,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const reconnectsRef = useRef(0);
   const startRef = useRef<() => Promise<void>>(async () => {});
   const stopRef = useRef<() => Promise<void>>(async () => {});
+  const pauseRef = useRef<() => void>(() => {});
+  const resumeRef = useRef<() => void>(() => {});
 
   const setPhase = useCallback((next: MeetingPhase) => {
     phaseRef.current = next;
@@ -296,9 +306,37 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     wsRef.current = null;
   }, []);
 
+  /** The island keeps its own clock from this, so it ticks even while WebKit throttles our timers. */
+  const meetingClock = useCallback(
+    () => ({
+      startedAt: draftRef.current?.startedAt ?? Date.now(),
+      pausedMs: pausedTotalRef.current,
+      pausedAt: pausedRef.current ? pausedAtRef.current : null,
+    }),
+    [],
+  );
+
+  const pause = useCallback(() => {
+    if (phaseRef.current !== "live" || pausedRef.current) return;
+    pausedRef.current = true;
+    pausedAtRef.current = Date.now();
+    setPaused(true);
+    getDesktopBridge()?.shell.setState({ paused: true, clock: meetingClock() });
+  }, [meetingClock]);
+
+  const resume = useCallback(() => {
+    if (!pausedRef.current) return;
+    pausedTotalRef.current += Date.now() - pausedAtRef.current;
+    pausedRef.current = false;
+    setPaused(false);
+    getDesktopBridge()?.shell.setState({ paused: false, clock: meetingClock() });
+  }, [meetingClock]);
+
   const stop = useCallback(async () => {
     if (phaseRef.current !== "live") return;
     setPhase("stopping");
+    pausedRef.current = false;
+    setPaused(false);
     const bridge = getDesktopBridge();
     // The pill goes away on the click; finishing the transcript happens behind it.
     bridge?.shell.setState({ listening: false });
@@ -393,11 +431,22 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       navigate(ROUTES.RECORD);
       openSocket();
 
+      let levelsSentAt = 0;
       const send = (channel: MeetingSpeaker) => (pcm: ArrayBuffer) => {
         const side = channel === "rep" ? "you" : "them";
-        levelRef.current[side] = Math.max(levelRef.current[side] * 0.85, pcmLevel(pcm));
+        // Paused: send silence so the session stays open and both channels keep one clock.
+        const audio = pausedRef.current ? new ArrayBuffer(pcm.byteLength) : pcm;
+        if (!pausedRef.current) {
+          levelRef.current[side] = Math.max(levelRef.current[side] * 0.85, pcmLevel(pcm));
+          // Pushed from the audio callbacks, not a timer: timers stall while Vocify is behind the call.
+          const now = performance.now();
+          if (now - levelsSentAt > 100) {
+            levelsSentAt = now;
+            bridge.shell.setState({ levels: { ...levelRef.current } });
+          }
+        }
         const ws = wsRef.current;
-        if (ws?.readyState === WebSocket.OPEN) ws.send(encodeChannelAudio(channel, pcm));
+        if (ws?.readyState === WebSocket.OPEN) ws.send(encodeChannelAudio(channel, audio));
       };
       releaseAudioRef.current = [
         hookMicPcm(ctx, micStream, send("rep")),
@@ -408,17 +457,26 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       ];
 
       setElapsed("00:00");
-      let ticks = 0;
+      pausedRef.current = false;
+      pausedTotalRef.current = 0;
+      setPaused(false);
       timerRef.current = window.setInterval(() => {
         const { you, them } = levelRef.current;
         setLevels({ you, them });
         levelRef.current = { you: you * 0.6, them: them * 0.6 };
-        if (++ticks % 4) return;
-        const next = formatElapsed(Date.now() - startedAt);
-        setElapsed(next);
-        bridge.shell.setState({ elapsed: next });
+        // Computed every tick from the wall clock, so a throttled timer never shows a stale time.
+        const now = Date.now();
+        const held = pausedTotalRef.current + (pausedRef.current ? now - pausedAtRef.current : 0);
+        setElapsed(formatElapsed(now - startedAt - held));
       }, 125);
-      bridge.shell.setState({ listening: true, elapsed: "00:00", lastLine: "", overlay: meetingOverlay(EMPTY_MEETING_TRANSCRIPT) });
+      bridge.shell.setState({
+        listening: true,
+        paused: false,
+        clock: meetingClock(),
+        levels: { you: 0, them: 0 },
+        lastLine: "",
+        overlay: meetingOverlay(EMPTY_MEETING_TRANSCRIPT),
+      });
       await bridge.shell.showOverlay();
     } catch (e) {
       draftRef.current = null;
@@ -427,8 +485,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       wsRef.current = null;
       setPhase("idle");
       fail(e instanceof Error && e.message ? e.message : "Could not start recording.");
+      // A start from the notch island happens with Vocify in the background: bring the error forward.
+      void bridge.shell.hideOverlay();
+      bridge.shell.command("show");
     }
-  }, [clearNotes, fail, navigate, openSocket, releaseAudio, setPhase, updateTranscript, user?.id]);
+  }, [clearNotes, fail, meetingClock, navigate, openSocket, releaseAudio, setPhase, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(
@@ -489,6 +550,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   }, [navigate, sendAll, user?.id]);
 
   startRef.current = start;
+  pauseRef.current = pause;
+  resumeRef.current = resume;
   stopRef.current = stop;
 
   useEffect(() => {
@@ -501,6 +564,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       } else if (name === "listen" || (name === "toggle" && current === "idle")) {
         navigate(ROUTES.RECORD);
         void startRef.current();
+      } else if (name === "pause") {
+        pauseRef.current();
+      } else if (name === "resume") {
+        resumeRef.current();
+      } else if (name === "search") {
+        navigate(ROUTES.RECORD);
+        window.setTimeout(() => window.dispatchEvent(new CustomEvent(TRANSCRIPT_SEARCH_EVENT)), 0);
       }
     });
   }, [navigate]);
@@ -528,6 +598,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       available,
       phase,
       elapsed,
+      paused,
+      pause,
+      resume,
       levels,
       error,
       warning,
@@ -540,7 +613,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, start, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, start, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

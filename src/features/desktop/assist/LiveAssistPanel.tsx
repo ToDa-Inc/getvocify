@@ -60,18 +60,51 @@ export function LiveAssistPanel({
   );
 }
 
+/** Objections read in Vocify beige; product questions in a quiet neutral. */
+function KindChip({ card }: { card: AssistCard }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-medium",
+        card.kind === "question" ? "bg-secondary text-foreground/70" : "bg-beige/10 text-beige",
+      )}
+    >
+      {card.label}
+    </span>
+  );
+}
+
 function NewestCard({ card }: { card: AssistCard }) {
   const [details, setDetails] = useState(false);
   const hasDetails = Boolean(card.why || card.avoid);
   return (
     <div className="space-y-3 rounded-2xl border border-beige/20 bg-card p-4 shadow-[0_8px_24px_-16px_hsl(30_30%_12%/0.25)] animate-in fade-in slide-in-from-top-2 duration-300 motion-reduce:animate-none">
-      <span className="inline-flex rounded-full bg-beige/10 px-2.5 py-0.5 text-[11px] font-medium text-beige">
-        {card.label}
-      </span>
-      <div>
-        <p className="mb-1 text-[11px] font-medium text-muted-foreground">Say this</p>
-        <p className="text-[15px] font-medium leading-snug text-foreground">{card.sayThis}</p>
-      </div>
+      <KindChip card={card} />
+      {card.stage === "draft" ? (
+        <div className="space-y-2">
+          <p className="text-[11px] font-medium text-muted-foreground">Say this while it loads</p>
+          <p className="text-[15px] italic leading-snug text-foreground/80">“{card.bridge}”</p>
+          <p className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+            <span className="flex gap-1" aria-hidden>
+              {[0, 160, 320].map((delay) => (
+                <span
+                  key={delay}
+                  className="h-1 w-1 rounded-full bg-foreground/40 animate-pulse motion-reduce:animate-none"
+                  style={{ animationDelay: `${delay}ms` }}
+                />
+              ))}
+            </span>
+            Writing the answer…
+          </p>
+        </div>
+      ) : (
+        <div key="ready" className="animate-in fade-in duration-300 motion-reduce:animate-none">
+          <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+            {card.kind === "question" ? "Answer" : "Say this"}
+          </p>
+          <p className="text-[15px] font-medium leading-snug text-foreground">{card.sayThis}</p>
+        </div>
+      )}
       {card.thenAsk ? (
         <div className="rounded-xl bg-cream/80 px-3 py-2">
           <p className="mb-0.5 text-[11px] font-medium text-muted-foreground">Next question</p>
@@ -115,7 +148,9 @@ function EarlierCard({ card }: { card: AssistCard }) {
       aria-expanded={open}
       className="block w-full rounded-xl border border-border/60 bg-card/60 px-3 py-2 text-left transition-colors hover:bg-card"
     >
-      <span className="text-[11px] font-medium text-beige">{card.label}</span>
+      <span className={cn("text-[11px] font-medium", card.kind === "question" ? "text-foreground/60" : "text-beige")}>
+        {card.label}
+      </span>
       <p className={cn("text-[13px] leading-snug text-muted-foreground", !open && "line-clamp-2")}>{card.sayThis}</p>
       {open && card.thenAsk ? <p className="mt-1 text-xs text-muted-foreground">→ {card.thenAsk}</p> : null}
     </button>

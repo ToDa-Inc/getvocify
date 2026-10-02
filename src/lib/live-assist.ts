@@ -14,6 +14,12 @@ export type AssistCard = {
   id: string;
   /** Which source produced it, e.g. "objection" or later "battle-card". */
   source: string;
+  /** Pushback to handle, or a product question to answer. */
+  kind: "objection" | "question";
+  /** "draft" while the answer is being written: only the label and a bridge line. */
+  stage: "draft" | "ready";
+  /** Something natural to say straight away while the real answer arrives. */
+  bridge: string;
   /** Short tag such as "Price" or a competitor name. */
   label: string;
   sayThis: string;
@@ -30,7 +36,12 @@ export type AssistCard = {
  */
 export type AssistSource = {
   id: string;
-  request: (context: AssistContext, signal: AbortSignal) => Promise<AssistCard | null>;
+  request: (
+    context: AssistContext,
+    signal: AbortSignal,
+    /** Called as soon as the source knows help is coming, before the full answer. */
+    onDraft?: (draft: AssistCard) => void,
+  ) => Promise<AssistCard | null>;
 };
 
 const MIN_WORDS = 4;
@@ -44,8 +55,65 @@ const OBJECTION_LABEL: Record<string, string> = {
   competitor: "Competitor",
   status_quo: "Status quo",
   trust: "Trust",
+  question: "Question",
   other: "Objection",
 };
+
+/**
+ * Said while the answer is being written. Plain and human on purpose: no "great
+ * question", no "I understand your concern". Edit freely; keep them short.
+ */
+const BRIDGES: Record<string, { es: string; en: string }> = {
+  price: { es: "Es normal mirarlo con lupa…", en: "Makes sense to look at the numbers…" },
+  timing: { es: "Tiene sentido, el momento importa…", en: "Fair, timing matters…" },
+  authority: { es: "Claro, que lo vea quien decide…", en: "Sure, the right people should see it…" },
+  competitor: { es: "Bien que ya tengáis algo…", en: "Good that you already have something…" },
+  status_quo: { es: "Si hoy os funciona, tiene sentido…", en: "If it works today, that makes sense…" },
+  trust: { es: "Normal querer verlo antes…", en: "Fair to want proof first…" },
+  question: { es: "Sí, te cuento…", en: "Sure, here's how it works…" },
+  other: { es: "Te entiendo…", en: "I hear you…" },
+};
+
+/** Spanish unless the words say otherwise; the meeting's language drives the bridge. */
+export function spokenLanguage(text: string): "es" | "en" {
+  const lower = ` ${text.toLowerCase()} `;
+  if (/[¿¡ñáéíóú]/.test(lower)) return "es";
+  const es = (lower.match(/ (que|es|para|pero|con|los|las|una|nos|muy|está|tenemos) /g) ?? []).length;
+  const en = (lower.match(/ (the|is|for|but|with|we|you|it's|that|this|have) /g) ?? []).length;
+  return en > es ? "en" : "es";
+}
+
+export function bridgeLine(type: string, latestTurn: string): string {
+  const lines = BRIDGES[type] ?? BRIDGES.other;
+  return lines[spokenLanguage(latestTurn)];
+}
+
+/**
+ * Reads the answer while it streams: once it says "objection, type X" we can show
+ * the label and a bridge before the wording is done. The server still validates
+ * the final answer; if it ends up silent the draft is withdrawn.
+ */
+export function draftType(partial: string): string | null {
+  if (!/"is_objection"\s*:\s*true/.test(partial)) return null;
+  const type = partial.match(/"objection_type"\s*:\s*"([a-z_]+)"/)?.[1];
+  return type && type !== "none" && type in OBJECTION_LABEL ? type : null;
+}
+
+export function draftCard(type: string, latestTurn: string, at: number): AssistCard {
+  return {
+    id: `objection-${at}`,
+    source: "objection",
+    kind: type === "question" ? "question" : "objection",
+    stage: "draft",
+    bridge: bridgeLine(type, latestTurn),
+    label: OBJECTION_LABEL[type] ?? "Objection",
+    sayThis: "",
+    thenAsk: "",
+    why: "",
+    avoid: "",
+    at,
+  };
+}
 
 /**
  * Ask only after the other side says something substantial; returns the key used
@@ -64,14 +132,18 @@ export function assistContext(turns: MeetingDisplayTurn[]): (AssistContext & { k
 }
 
 /** Only a real objection with something to say becomes a card; no filler advice. */
-export function objectionCard(suggestion: ObjectionSuggestion | null, at: number): AssistCard | null {
+export function objectionCard(suggestion: ObjectionSuggestion | null, at: number, latestTurn = ""): AssistCard | null {
   if (!suggestion?.is_objection) return null;
   const sayThis = suggestion.say_this?.trim();
   if (!sayThis) return null;
+  const type = suggestion.objection_type;
   return {
     id: `objection-${at}`,
     source: "objection",
-    label: OBJECTION_LABEL[suggestion.objection_type] ?? "Objection",
+    kind: type === "question" ? "question" : "objection",
+    stage: "ready",
+    bridge: bridgeLine(type, latestTurn),
+    label: OBJECTION_LABEL[type] ?? "Objection",
     sayThis,
     thenAsk: suggestion.next_question?.trim() ?? "",
     why: suggestion.why_it_works?.trim() ?? "",
@@ -86,9 +158,15 @@ export function addCard(cards: AssistCard[], card: AssistCard, keep = 5): Assist
   return [card, ...cards].slice(0, keep);
 }
 
-/** F12 display rules: a card stays long enough to read, never lingers, never nags. */
-export const CARD_MIN_MS = 4000;
-export const CARD_MAX_MS = 10000;
+/**
+ * Display rules. A card stays while it's being used: at least 8s, through the rep's
+ * answer, gone 2.5s after they finish, never more than 25s. The same kind of help
+ * waits a minute before interrupting again. (Longer than F12's 4–10s: in use, the
+ * card vanished while the rep was reading it out loud.)
+ */
+export const CARD_MIN_MS = 8000;
+export const CARD_MAX_MS = 25000;
+export const REP_DONE_MS = 2500;
 export const CATEGORY_COOLDOWN_MS = 60000;
 
 /** The same kind of help waits a minute before it can interrupt again. */
@@ -101,15 +179,13 @@ export function cooldownKey(card: AssistCard): string {
   return `${card.source}:${card.label}`;
 }
 
-/**
- * A live card shows for at least 4s, at most 10s, and steps aside once the rep
- * starts answering (after those first 4s).
- */
-export function cardVisible(card: AssistCard, now: number, repSpokeAt: number | null): boolean {
+/** `repLastAt`: when the rep last said anything (settled or in progress). */
+export function cardVisible(card: AssistCard, now: number, repLastAt: number | null): boolean {
   const age = now - card.at;
   if (age >= CARD_MAX_MS) return false;
   if (age < CARD_MIN_MS) return true;
-  return !(repSpokeAt !== null && repSpokeAt > card.at);
+  const answered = repLastAt !== null && repLastAt > card.at;
+  return !(answered && now - repLastAt >= REP_DONE_MS);
 }
 
 /** Changes whenever the rep says something new; used to notice they took the floor. */

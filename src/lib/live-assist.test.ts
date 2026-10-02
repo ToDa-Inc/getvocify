@@ -74,14 +74,19 @@ describe("addCard", () => {
 });
 
 describe("display rules", async () => {
-  const { cardVisible, coolingDown, cooldownKey, repActivityKey, CARD_MIN_MS, CARD_MAX_MS, CATEGORY_COOLDOWN_MS } = await import("./live-assist.ts");
+  const { cardVisible, coolingDown, cooldownKey, repActivityKey, CARD_MIN_MS, CARD_MAX_MS, REP_DONE_MS, CATEGORY_COOLDOWN_MS } = await import("./live-assist.ts");
   const card = objectionCard(suggestion(), 1000)!;
 
-  it("stays at least 4s even if the rep talks, and never more than 10s", () => {
+  it("stays at least 8s and never more than 25s", () => {
     assert.equal(cardVisible(card, 1000 + CARD_MIN_MS - 1, 1500), true);
-    assert.equal(cardVisible(card, 1000 + CARD_MIN_MS, 1500), false);
     assert.equal(cardVisible(card, 1000 + CARD_MAX_MS - 1, null), true);
     assert.equal(cardVisible(card, 1000 + CARD_MAX_MS, null), false);
+  });
+
+  it("stays while the rep is answering and leaves once they finish", () => {
+    const later = 1000 + CARD_MIN_MS + 5000;
+    assert.equal(cardVisible(card, later, later - 500), true, "still talking");
+    assert.equal(cardVisible(card, later, later - REP_DONE_MS), false, "done talking");
   });
 
   it("ignores rep speech from before the card appeared", () => {
@@ -100,5 +105,33 @@ describe("display rules", async () => {
     const a = repActivityKey([turn("0", "rep", "Hola"), turn("1", "prospect", "Es caro")]);
     const b = repActivityKey([turn("0", "rep", "Hola"), turn("1", "prospect", "Es caro"), turn("2", "rep", "", "Entiendo")]);
     assert.notEqual(a, b);
+  });
+});
+
+describe("bridge while the answer is written", async () => {
+  const { bridgeLine, draftCard, draftType, spokenLanguage } = await import("./live-assist.ts");
+
+  it("spots the objection type before the answer is finished", () => {
+    assert.equal(draftType('{"is_objection": true, "objection_type": "pri'), null);
+    assert.equal(draftType('{"is_objection": true, "objection_type": "price", "urg'), "price");
+    assert.equal(draftType('{"is_objection": false, "objection_type": "none"'), null);
+    assert.equal(draftType('{"is_objection": true, "objection_type": "made_up"'), null);
+  });
+
+  it("speaks the language they spoke", () => {
+    assert.equal(spokenLanguage("Nos parece caro para el equipo"), "es");
+    assert.equal(spokenLanguage("It's too expensive for the team right now"), "en");
+    assert.equal(bridgeLine("price", "¿Y esto cuánto cuesta?"), "Es normal mirarlo con lupa…");
+    assert.equal(bridgeLine("unknown_type", "that is not for us"), "I hear you…");
+  });
+
+  it("a draft carries only the label and the bridge", () => {
+    const draft = draftCard("question", "¿Se conecta con HubSpot?", 5);
+    assert.deepEqual([draft.stage, draft.kind, draft.label, draft.sayThis], ["draft", "question", "Question", ""]);
+  });
+
+  it("questions become their own kind of card", () => {
+    const card = objectionCard(suggestion({ objection_type: "question", say_this: "Sí, con HubSpot y Pipedrive." }), 1)!;
+    assert.deepEqual([card.kind, card.label, card.stage], ["question", "Question", "ready"]);
   });
 });

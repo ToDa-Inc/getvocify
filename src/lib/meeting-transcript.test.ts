@@ -56,15 +56,27 @@ describe("applyChannelResult", () => {
 });
 
 describe("meetingDisplayTurns", () => {
-  it("keeps settled keys stable and gives a pending paragraph its future key", () => {
+  it("keys settled paragraphs by their first segment and a pending one by its channel", () => {
     const live = feed([["hola", true, "rep"], ["buenas", false, "prospect"]]);
     const rows = meetingDisplayTurns(live);
     assert.deepEqual(rows.map((r) => [r.key, r.label, r.text, r.pending]), [
-      ["0", "You", "hola", ""],
-      ["1", "Them", "", "buenas"],
+      ["s0", "You", "hola", ""],
+      ["live-prospect", "Them", "", "buenas"],
     ]);
     const settled = meetingDisplayTurns(applyChannelResult(live, { text: "buenas tardes", isFinal: true, audioChannel: "prospect" }));
-    assert.deepEqual(settled.map((r) => [r.key, r.text, r.pending]), [["0", "hola", ""], ["1", "buenas tardes", ""]]);
+    assert.deepEqual(settled.map((r) => [r.key, r.text, r.pending]), [["s0", "hola", ""], ["s1", "buenas tardes", ""]]);
+  });
+
+  it("keeps a paragraph's key when a late final is sorted in above its tail", () => {
+    const timedFeed = (events: Array<[string, string, number]>) =>
+      events.reduce(
+        (state, [text, audioChannel, start]) => applyChannelResult(state, { text, isFinal: true, audioChannel, start, end: start + 1 }),
+        EMPTY_MEETING_TRANSCRIPT,
+      );
+    const before = meetingDisplayTurns(timedFeed([["Which", "prospect", 10], ["is it?", "prospect", 12]]));
+    const after = meetingDisplayTurns(timedFeed([["Which", "prospect", 10], ["is it?", "prospect", 12], ["Yes.", "rep", 11]]));
+    assert.deepEqual(before.map((r) => r.key), ["s0"]);
+    assert.deepEqual(after.map((r) => [r.key, r.text]), [["s0", "Which"], ["s2", "Yes."], ["s1", "is it?"]]);
   });
 
   it("continues the same speaker's paragraph instead of opening a new one", () => {
@@ -139,25 +151,29 @@ describe("phraseTail", () => {
 });
 
 describe("meetingOverlay", () => {
-  it("keeps the last turns with their speaker and styled pending tail", async () => {
+  it("sends the whole conversation, untrimmed, with each pending tail", async () => {
     const { meetingOverlay } = await import("./meeting-transcript.ts");
+    const long = "Uno dos tres cuatro cinco seis siete ocho nueve diez. ".repeat(6).trim();
     const state = feed([
       ["Buenas.", true, "rep"],
-      ["Hola, qué tal.", true, "prospect"],
+      [long, true, "prospect"],
+      ["Vale.", true, "rep"],
+      ["Sí.", true, "prospect"],
       ["Te cuento", false, "rep"],
     ]);
-    const { line, lineLabel, recent } = meetingOverlay(state, { turns: 2 });
-    assert.equal(line, "Te cuento");
-    assert.equal(lineLabel, "You");
-    assert.deepEqual(recent.map((t) => [t.you, t.text, t.pending]), [
-      [false, "Hola, qué tal.", ""],
+    const { turns } = meetingOverlay(state);
+    assert.deepEqual(turns.map((t) => [t.you, t.text, t.pending]), [
+      [true, "Buenas.", ""],
+      [false, long, ""],
+      [true, "Vale.", ""],
+      [false, "Sí.", ""],
       [true, "", "Te cuento"],
     ]);
   });
 
   it("is empty before anyone speaks", async () => {
     const { meetingOverlay } = await import("./meeting-transcript.ts");
-    assert.deepEqual(meetingOverlay(EMPTY_MEETING_TRANSCRIPT), { line: "", lineLabel: null, recent: [] });
+    assert.deepEqual(meetingOverlay(EMPTY_MEETING_TRANSCRIPT), { turns: [] });
   });
 });
 
@@ -212,6 +228,14 @@ describe("speech-time order and echo", () => {
       ["Sure, I will send the course today.", "rep", 31, 33],
     ]);
     assert.equal(meetingTurns(state).length, 2);
+  });
+
+  it("settles a tail cut off at stop where it was said, not at the end", () => {
+    const live = [
+      { text: "Hola, te cuento", isFinal: false, audioChannel: "rep", start: 3, end: 4 },
+      { text: "Vale, perfecto.", isFinal: true, audioChannel: "prospect", start: 6, end: 7 },
+    ].reduce(applyChannelResult, EMPTY_MEETING_TRANSCRIPT);
+    assert.equal(meetingUploadText(live), "SPEAKER: S1\nHola, te cuento\n\nSPEAKER: S2\nVale, perfecto.");
   });
 
   it("removes echo from the uploaded transcript too", () => {

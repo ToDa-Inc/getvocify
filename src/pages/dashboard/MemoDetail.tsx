@@ -8,6 +8,7 @@ import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { authorChipLabel, canViewCompanyActivity } from "@/lib/activity-authors";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
+import { CopilotNote } from "@/components/dashboard/CopilotNote";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { shouldPollMemo } from "@/lib/memo-poll";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
@@ -443,7 +444,7 @@ const MemoDetail = () => {
         <div
           className={
             canSeeReview
-              ? "lg:col-span-2 sticky top-20 max-h-[calc(100vh-6rem)] flex flex-col gap-4 self-start overflow-y-auto pr-1 scrollbar-thin"
+              ? "lg:col-span-2 sticky top-20 h-[calc(100vh-6rem)] flex flex-col gap-4 self-start overflow-y-auto pr-1 scrollbar-thin"
               : "space-y-6"
           }
         >
@@ -478,14 +479,22 @@ const MemoDetail = () => {
             </div>
           )}
 
+          {canSeeReview && extraction.summary ? (
+            // Pinned with the transcript so reviewing field updates never scrolls the note away.
+            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-7 shrink-0 max-h-[34vh] overflow-y-auto scrollbar-thin`}>
+              <h3 className={`${THEME_TOKENS.typography.capsLabel} mb-3`}>Call note</h3>
+              <CopilotNote markdown={extraction.summary} />
+            </div>
+          ) : null}
+
           {memo.userNotes?.trim() ? (
-            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 shrink-0`}>
+            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-7 shrink-0 max-h-[18vh] overflow-y-auto scrollbar-thin`}>
               <h3 className={`${THEME_TOKENS.typography.capsLabel} mb-4`}>Your notes</h3>
               <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-foreground">{memo.userNotes}</p>
             </div>
           ) : null}
 
-          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 flex flex-col ${canSeeReview ? "flex-1 min-h-0" : ""}`}>
+          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 flex flex-col ${canSeeReview ? "flex-1 min-h-[220px]" : ""}`}>
             <div className="flex items-center justify-between gap-3 mb-6 shrink-0">
               <h3 className={THEME_TOKENS.typography.capsLabel}>Transcript</h3>
               <div className="flex items-center gap-2">
@@ -521,9 +530,7 @@ const MemoDetail = () => {
                 contactName={reviewContactName || extraction.contactName}
                 className={
                   canSeeReview
-                    ? (memo.audioUrl
-                        ? "max-h-[calc(100vh-22rem)] overflow-y-auto pr-2 scrollbar-thin"
-                        : "max-h-[calc(100vh-16rem)] overflow-y-auto pr-2 scrollbar-thin")
+                    ? "max-h-none min-h-0 flex-1 overflow-y-auto pr-2 scrollbar-thin"
                     : "max-h-[500px] overflow-y-auto pr-2 scrollbar-thin"
                 }
               />
@@ -556,7 +563,6 @@ const MemoDetail = () => {
                 initialContactId={memo?.hubspotContactId || memo?.hubspot_contact_id}
                 fallbackContactName={extraction.contactName || extraction.contact_name}
                 previewRefreshKey={previewRefreshKey}
-                callSummary={extraction.summary}
                 alreadyWritten={memo.status === "approved"}
                 onSuccess={handleSyncSuccess}
                 onContactName={setReviewContactName}

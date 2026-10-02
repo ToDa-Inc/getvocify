@@ -16,6 +16,8 @@ export type MeetingSegment = {
 export type MeetingTranscript = {
   segments: MeetingSegment[];
   interims: Partial<Record<SpeakerKey, string>>;
+  /** When each tail started, so a tail settled at stop still sorts where it was said. */
+  interimStarts?: Partial<Record<SpeakerKey, number>>;
 };
 
 export type MeetingDisplayTurn = {
@@ -62,11 +64,21 @@ export function joinChunks(left: string, right: string): string {
 
 /** Reads a stored transcript, including drafts saved before segments existed. */
 export function normalizeMeetingTranscript(raw: unknown): MeetingTranscript {
-  const value = (raw ?? {}) as { segments?: MeetingSegment[]; turns?: MeetingTurn[]; interims?: MeetingTranscript["interims"] };
+  const value = (raw ?? {}) as {
+    segments?: MeetingSegment[];
+    turns?: MeetingTurn[];
+    interims?: MeetingTranscript["interims"];
+    interimStarts?: MeetingTranscript["interimStarts"];
+  };
   const segments = Array.isArray(value.segments)
     ? value.segments
     : (value.turns ?? []).map((turn) => ({ speaker: turn.speaker, text: turn.text, start: null, end: null }));
-  return { segments, interims: value.interims ?? {} };
+  return { segments, interims: value.interims ?? {}, interimStarts: value.interimStarts ?? {} };
+}
+
+function without<T extends object>(map: T | undefined, key: SpeakerKey): T {
+  const { [key]: _dropped, ...rest } = (map ?? {}) as Record<string, unknown>;
+  return rest as T;
 }
 
 export function applyChannelResult(
@@ -79,17 +91,20 @@ export function applyChannelResult(
   if (!text) {
     // An empty final closes that channel's utterance; an empty interim changes nothing.
     if (!result.isFinal || !state.interims[key]) return state;
-    const { [key]: _closed, ...interims } = state.interims;
-    return { ...state, interims };
-  }
-  if (!result.isFinal) {
-    if (state.interims[key] === text) return state;
-    return { ...state, interims: { ...state.interims, [key]: text } };
+    return { ...state, interims: without(state.interims, key), interimStarts: without(state.interimStarts, key) };
   }
   const start = seconds(result.start);
+  if (!result.isFinal) {
+    if (state.interims[key] === text) return state;
+    const interimStarts = start === null ? state.interimStarts : { ...state.interimStarts, [key]: start };
+    return { ...state, interims: { ...state.interims, [key]: text }, interimStarts };
+  }
   const segment = { speaker, text, start, end: seconds(result.end) ?? start };
-  const { [key]: _settled, ...interims } = state.interims;
-  return { segments: [...state.segments, segment], interims };
+  return {
+    segments: [...state.segments, segment],
+    interims: without(state.interims, key),
+    interimStarts: without(state.interimStarts, key),
+  };
 }
 
 /** Treats every in-progress tail as final, e.g. when the meeting stops mid-sentence. */
@@ -97,9 +112,9 @@ export function settleMeeting(state: MeetingTranscript): MeetingTranscript {
   return SPEAKER_ORDER.reduce<MeetingTranscript>((acc, key) => {
     const text = state.interims[key];
     return text
-      ? applyChannelResult(acc, { text, isFinal: true, audioChannel: speakerFromKey(key) })
+      ? applyChannelResult(acc, { text, isFinal: true, audioChannel: speakerFromKey(key), start: state.interimStarts?.[key] })
       : acc;
-  }, { segments: state.segments, interims: {} });
+  }, { segments: state.segments, interims: {}, interimStarts: {} });
 }
 
 function words(text: string): string[] {
@@ -132,7 +147,11 @@ function isEcho(segment: MeetingSegment, meeting: MeetingSegment[]): boolean {
   return own.length <= 2 ? shared === own.length : shared / own.length >= ECHO_OVERLAP;
 }
 
-const turnsCache = new WeakMap<MeetingSegment[], MeetingTurn[]>();
+/** A turn keyed by the arrival of its first segment, so its bubble keeps its identity as text grows. */
+type KeyedTurn = MeetingTurn & { key: string };
+
+const turnsCache = new WeakMap<MeetingSegment[], KeyedTurn[]>();
+const plainTurnsCache = new WeakMap<MeetingSegment[], MeetingTurn[]>();
 
 /**
  * Settled turns in the order they were spoken: segments sort by start time (untimed
@@ -140,6 +159,14 @@ const turnsCache = new WeakMap<MeetingSegment[], MeetingTurn[]>();
  * the same speaker read as one turn.
  */
 export function meetingTurns(state: MeetingTranscript): MeetingTurn[] {
+  const cached = plainTurnsCache.get(state.segments);
+  if (cached) return cached;
+  const turns = keyedTurns(state).map(({ speaker, text }) => ({ speaker, text }));
+  plainTurnsCache.set(state.segments, turns);
+  return turns;
+}
+
+function keyedTurns(state: MeetingTranscript): KeyedTurn[] {
   const cached = turnsCache.get(state.segments);
   if (cached) return cached;
   let clock = 0;
@@ -149,8 +176,8 @@ export function meetingTurns(state: MeetingTranscript): MeetingTurn[] {
   });
   timed.sort((a, b) => a.at - b.at || a.arrival - b.arrival);
   const meeting = state.segments.filter((segment) => segment.speaker === "prospect");
-  const turns: MeetingTurn[] = [];
-  for (const { segment } of timed) {
+  const turns: KeyedTurn[] = [];
+  for (const { segment, arrival } of timed) {
     if (isEcho(segment, meeting)) continue;
     const last = turns[turns.length - 1];
     if (last && (last.speaker === segment.speaker || segment.speaker === null)) {
@@ -161,7 +188,7 @@ export function meetingTurns(state: MeetingTranscript): MeetingTurn[] {
       last.speaker = segment.speaker;
       last.text = joinChunks(last.text, segment.text);
     } else {
-      turns.push({ speaker: segment.speaker, text: segment.text });
+      turns.push({ key: `s${arrival}`, speaker: segment.speaker, text: segment.text });
     }
   }
   turnsCache.set(state.segments, turns);
@@ -169,12 +196,13 @@ export function meetingTurns(state: MeetingTranscript): MeetingTurn[] {
 }
 
 /**
- * Render-ready paragraphs keyed by position, so React keeps settled bubbles; a
- * pending tail joins its speaker's last paragraph when it continues it.
+ * Render-ready paragraphs keyed by their first segment, so a bubble keeps its identity
+ * when a late final is sorted in above it; a pending tail joins its speaker's last
+ * paragraph when it continues it.
  */
 export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTurn[] {
-  const rows: MeetingDisplayTurn[] = meetingTurns(state).map((turn, index) => ({
-    key: String(index),
+  const rows: MeetingDisplayTurn[] = keyedTurns(state).map((turn) => ({
+    key: turn.key,
     speaker: turn.speaker,
     label: turn.speaker ? SPEAKER_LABEL[turn.speaker] : null,
     text: turn.text,
@@ -190,7 +218,7 @@ export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTur
       continue;
     }
     rows.push({
-      key: String(rows.length),
+      key: `live-${key}`,
       speaker,
       label: speaker ? SPEAKER_LABEL[speaker] : null,
       text: "",
@@ -240,28 +268,15 @@ export type MeetingOverlayTurn = {
   pending: string;
 };
 
-/** What the floating pill shows: the live line, and the last few turns when opened. */
-export function meetingOverlay(
-  state: MeetingTranscript,
-  { turns = 4, lineChars = 64, turnChars = 150 } = {},
-): { line: string; lineLabel: string | null; recent: MeetingOverlayTurn[] } {
-  const rows = meetingDisplayTurns(state);
-  const last = rows[rows.length - 1];
-  const recent = rows.slice(-turns).map((row) => {
-    const full = phraseTail(joinChunks(row.text, row.pending), turnChars);
-    // Keep the settled/pending split on the trimmed text so the tail stays styled.
-    const pending = row.pending && full.endsWith(row.pending) ? row.pending : "";
-    return {
+/** What the notch island shows when opened: the whole conversation, untrimmed. */
+export function meetingOverlay(state: MeetingTranscript): { turns: MeetingOverlayTurn[] } {
+  return {
+    turns: meetingDisplayTurns(state).map((row) => ({
       key: row.key,
       you: row.speaker === "rep",
       label: row.label,
-      text: pending ? full.slice(0, full.length - pending.length).trimEnd() : full,
-      pending,
-    };
-  });
-  return {
-    line: last ? phraseTail(joinChunks(last.text, last.pending), lineChars) : "",
-    lineLabel: last?.label ?? null,
-    recent,
+      text: row.text,
+      pending: row.pending,
+    })),
   };
 }
