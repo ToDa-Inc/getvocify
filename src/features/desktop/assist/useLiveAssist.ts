@@ -21,7 +21,15 @@ const MIN_GAP_MS = 6000;
  * help is coming, a draft with a bridge line shows; the answer replaces it in place.
  * Display rules live in lib/live-assist (8–25s, stays while the rep answers).
  */
-export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, contactId?: string | null) {
+export type LiveAssistCall = {
+  contactId?: string | null;
+  /** From the platform that caught the call. */
+  callMode?: "softphone" | "meeting";
+  /** The call's type: help uses that playbook. */
+  typeKey?: string | null;
+};
+
+export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, call: LiveAssistCall = {}) {
   const [active, setActive] = useState<AssistCard | null>(null);
   const [earlier, setEarlier] = useState<AssistCard[]>([]);
   const [thinking, setThinking] = useState(false);
@@ -34,7 +42,14 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, con
   const repKeyRef = useRef("");
 
   const found = enabled ? assistContext(turns) : null;
-  const context = found && contactId ? { ...found, contactId } : found;
+  const context = found
+    ? {
+        ...found,
+        ...(call.contactId && { contactId: call.contactId }),
+        ...(call.callMode && { callMode: call.callMode }),
+        ...(call.typeKey && { typeKey: call.typeKey }),
+      }
+    : null;
   const key = context?.key ?? "";
   const repKey = repActivityKey(turns);
 
@@ -69,7 +84,15 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, con
       setThinking(true);
       let draft: AssistCard | null = null;
       const onDraft = (card: AssistCard) => {
-        if (controller.signal.aborted || draft || coolingDown(card, lastShownRef.current, Date.now())) return;
+        if (controller.signal.aborted) return;
+        if (draft) {
+          // The same card growing while the answer streams: update it in place.
+          if (card.id !== draft.id) return;
+          draft = card;
+          setActive((current) => (current?.id === card.id ? card : current));
+          return;
+        }
+        if (coolingDown(card, lastShownRef.current, Date.now())) return;
         draft = card;
         present(card);
       };
@@ -121,13 +144,13 @@ const ENABLED_KEY = "vocify_live_assist_on";
 
 function readEnabled(): boolean {
   try {
-    return localStorage.getItem(ENABLED_KEY) === "1";
+    return localStorage.getItem(ENABLED_KEY) !== "0";
   } catch {
-    return false;
+    return true;
   }
 }
 
-/** Off until the rep turns it on (beta, not from their playbook); remembered per Mac. */
+/** On unless the rep turned it off; remembered per Mac. It stays silent until there is something to say. */
 export function useLiveAssistEnabled() {
   const [enabled, setEnabled] = useState(readEnabled);
   const toggle = (next: boolean) => {

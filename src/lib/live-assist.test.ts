@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { addCard, assistContext, objectionCard } from "./live-assist.ts";
+import { addCard, assistContext, objectionCard, partialSayThis } from "./live-assist.ts";
 import type { MeetingDisplayTurn } from "./meeting-transcript.ts";
 
 const turn = (key: string, speaker: "rep" | "prospect", text: string, pending = ""): MeetingDisplayTurn => ({
@@ -133,5 +133,23 @@ describe("bridge while the answer is written", async () => {
   it("questions become their own kind of card", () => {
     const card = objectionCard(suggestion({ objection_type: "question", say_this: "Sí, con HubSpot y Pipedrive." }), 1)!;
     assert.deepEqual([card.kind, card.label, card.stage], ["question", "Question", "ready"]);
+  });
+});
+
+describe("partialSayThis", () => {
+  it("is empty until the answer starts", () => {
+    assert.equal(partialSayThis('{"is_objection": true, "objection_type": "price"'), "");
+  });
+
+  it("grows word by word while the answer streams, and stops at its end", () => {
+    assert.equal(partialSayThis('{"is_objection": true, "say_this": "Lo entiendo, '), "Lo entiendo, ");
+    assert.equal(partialSayThis('{"say_this":"Hola.", "why_it_works": "x'), "Hola.");
+  });
+
+  it("reads escapes, and never shows half of one", () => {
+    assert.equal(partialSayThis('{"say_this": "Dice \\"no\\" y'), 'Dice "no" y');
+    assert.equal(partialSayThis('{"say_this": "Hola \\'), "Hola ");
+    assert.equal(partialSayThis('{"say_this": "caf\\u00'), "caf");
+    assert.equal(partialSayThis('{"say_this": "caf\\u00e9 ya'), "café ya");
   });
 });

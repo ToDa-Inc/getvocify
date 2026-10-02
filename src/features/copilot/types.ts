@@ -31,6 +31,8 @@ export interface SuggestRequest {
   speaker_role?: "prospect" | "rep" | "unknown";
   /** HubSpot contact of the call: adds their history (earlier calls, objections, commitments). */
   contact_id?: string;
+  /** The call's type, decided once for the call: help is grounded in that type's playbook. */
+  sales_motion_key?: string;
 }
 
 export interface SuggestResultEvent {
