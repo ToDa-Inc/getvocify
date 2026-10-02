@@ -8,10 +8,10 @@ import {
 } from "./settings-nav.ts";
 
 describe("visibleSettingsTabs", () => {
-  it("gives the Head of Sales every tab except the rep-personal ones", () => {
+  it("gives the Head of Sales every tab", () => {
     assert.deepEqual(
       visibleSettingsTabs(true).map((t) => t.id),
-      ["crm", "offer", "glossary", "brief", "team", "billing"],
+      ["crm", "calling", "offer", "glossary", "brief", "team", "usage", "billing"],
     );
   });
 
@@ -34,10 +34,10 @@ describe("visibleSettingsTabs", () => {
     assert.equal(ids.includes("theme"), false);
   });
 
-  it("hides Calling and Usage from the Head of Sales", () => {
+  it("shows Calling and Usage to the Head of Sales: they set their own call languages", () => {
     const ids = visibleSettingsTabs(true).map((t) => t.id);
-    assert.equal(ids.includes("calling"), false);
-    assert.equal(ids.includes("usage"), false);
+    assert.equal(ids.includes("calling"), true);
+    assert.equal(ids.includes("usage"), true);
   });
 
   it("gives a rep only the personal tabs", () => {
@@ -59,12 +59,12 @@ describe("firstAllowedSettingsPath", () => {
 });
 
 describe("isSettingsPathAllowed", () => {
-  it("lets the Head of Sales onto every tab they see, and not onto the rep-personal ones", () => {
+  it("lets the Head of Sales onto every tab, flagged ones aside", () => {
     for (const tab of SETTINGS_TABS) {
-      assert.equal(isSettingsPathAllowed(tab.to, true), !tab.repOnly && !tab.flag, tab.id);
+      assert.equal(isSettingsPathAllowed(tab.to, true), !tab.flag, tab.id);
     }
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/calling", true), false);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/usage", true), false);
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/calling", true), true);
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/usage", true), true);
   });
 
   it("blocks a rep from company-wide tabs by direct URL", () => {
