@@ -84,3 +84,14 @@ def test_a_meeting_line_a_little_over_the_asked_length_is_kept_not_silenced():
     assert result["say_this"] == line
     rambling = "x " * 120
     assert meeting_suggestion(json.dumps({"is_objection": True, "objection_type": "trust", "say_this": rambling}))["is_objection"] is False
+
+
+def test_live_help_reasoning_follows_the_setting(monkeypatch):
+    from app.config import settings
+    from app.services.copilot import suggest
+
+    # Gemini Flash-Lite refuses "none"; GPT-6 Luna is ~1 s slower to its first word with "minimal".
+    monkeypatch.setattr(settings, "COPILOT_REASONING_EFFORT", None, raising=False)
+    assert suggest.live_reasoning() == {"reasoning": {"effort": "minimal"}}
+    monkeypatch.setattr(settings, "COPILOT_REASONING_EFFORT", "none", raising=False)
+    assert suggest.live_reasoning() == {"reasoning": {"effort": "none"}}

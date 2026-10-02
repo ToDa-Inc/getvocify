@@ -20,7 +20,9 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Live help can't wait for long hidden reasoning, but some models (gemini-3.5-flash-lite) refuse
 # to switch it off and fail every request with "Reasoning is mandatory". Ask for the least instead;
 # models that don't reason ignore it.
-LIVE_REASONING = {"reasoning": {"effort": "minimal"}}
+def live_reasoning() -> dict[str, Any]:
+    effort = (settings.COPILOT_REASONING_EFFORT or "").strip() or "minimal"
+    return {"reasoning": {"effort": effort}}
 
 
 def _resolve_model(explicit: Optional[str] = None) -> str:
@@ -94,7 +96,7 @@ async def stream_objection_suggestion(
         "temperature": 0.35,
         "stream": True,
         "response_format": {"type": "json_object"},
-        **LIVE_REASONING,
+        **live_reasoning(),
     }
 
     import time
@@ -198,7 +200,7 @@ async def _fallback_non_stream(
         "model": model_used,
         "messages": messages,
         "temperature": 0.35,
-        **LIVE_REASONING,
+        **live_reasoning(),
     }
     resp = await client.post(
         OPENROUTER_URL,
