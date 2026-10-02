@@ -62,12 +62,15 @@ class Track:
     def __init__(self) -> None:
         self.partial_lags: list[float] = []
         self.final_lags: list[float] = []
+        # Providers without word times (MAI): from words first showing to settling.
+        self.settle_lags: list[float] = []
         self.finals: list[tuple[float, float, str]] = []
 
     def summary(self) -> dict[str, Any]:
         return {
             "partial_lag_s": percentiles(self.partial_lags),
             "final_lag_s": percentiles(self.final_lags),
+            "settle_s": percentiles(self.settle_lags),
             "words": sum(len(text.split()) for _, _, text in self.finals),
         }
 
@@ -102,6 +105,7 @@ class LiveReport:
         end: Optional[float],
         text: str,
         timed: bool = True,
+        settle_s: Optional[float] = None,
     ) -> None:
         track = self.tracks.get(provider, {}).get(label)
         if track is None or end is None:
@@ -110,6 +114,8 @@ class LiveReport:
             lag = self.clocks[label].lag(end, time.monotonic())
             if lag is not None:
                 (track.final_lags if final else track.partial_lags).append(lag)
+        if settle_s is not None:
+            track.settle_lags.append(settle_s)
         if final and text.strip():
             track.finals.append((round(start if start is not None else end, 2), round(end, 2), text.strip()))
 

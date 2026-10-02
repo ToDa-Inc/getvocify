@@ -134,17 +134,27 @@ def test_upsampler_turns_16k_into_24k_without_gaps_between_chunks():
     assert steps <= {1, 2}  # a steady ramp: no jump at the chunk edge
 
 
-def test_mai_parts_become_partials_and_finals():
+def test_mai_deltas_settle_whole_words_and_partials_show_the_rest():
     from app.services.live_channel_sessions import MaiStream
 
     stream = MaiStream("rep", "es", None, vocab=[], offset_s=10.0, on_event=_noop)
     assert stream.subprotocols("k") == ["ai-gateway-transcription.v1", "ai-gateway-auth.k"]
-    partial = stream.events({"type": "transcript-partial", "text": "hola qué", "startSecond": 1.0, "durationInSeconds": 0.6})
-    assert partial == [{"kind": "partial", "transcript": "hola qué", "words": [], "start": 11.0, "end": 11.6}]
-    final = stream.events({"type": "transcript-final", "text": "Hola, ¿qué tal?", "startSecond": 1.0, "endSecond": 2.0})
-    assert final[0]["kind"] == "final" and final[0]["end"] == 12.0
-    untimed = MaiStream("rep", "es", None, vocab=[], offset_s=10.0, on_event=_noop)
-    untimed.feed(b"\0" * 32000)  # one second fed, no times in the part
-    assert [(e["start"], e["end"]) for e in untimed.events({"type": "transcript-final", "text": "Vale."})] == [(10.0, 11.0)]
-    assert stream.events({"type": "finish", "text": "", "segments": []}) == [{"kind": "done"}]
-    assert stream.events({"type": "error", "error": {"name": "X", "message": "nope"}}) == [{"kind": "error", "reason": "nope"}]
+    stream.feed(b"\0" * 32000)
+    texts = lambda events: [(e["kind"], e["transcript"]) for e in events]
+    assert texts(stream.events({"type": "transcript-delta", "delta": " No sé si te acuer"})) == [("final", "No sé si te")]
+    # The held half word leads the changing end.
+    assert texts(stream.events({"type": "transcript-partial", "text": "das de mí."})) == [("partial", "acuerdas de mí.")]
+    assert texts(stream.events({"type": "transcript-delta", "delta": "das de"})) == [("final", "acuerdas")]
+    assert texts(stream.events({"type": "transcript-delta", "delta": " mí."})) == [("final", "de mí.")]
+    assert texts(stream.events({"type": "transcript-delta", "delta": ","})) == [("final", ",")]
+    # No times from MAI: a sentence spans from the last one to the audio fed so far.
+    first = MaiStream("rep", "es", None, vocab=[], offset_s=10.0, on_event=_noop)
+    first.feed(b"\0" * 32000)
+    event = first.events({"type": "transcript-delta", "delta": "Hola."})[0]
+    assert (event["start"], event["end"], event["timed"]) == (10.0, 11.0, False)
+    held = MaiStream("rep", "es", None, vocab=[], offset_s=0.0, on_event=_noop)
+    assert texts(held.events({"type": "transcript-delta", "delta": " hasta luego"})) == [("final", "hasta")]
+    done = held.events({"type": "finish", "text": "", "segments": []})
+    assert [(e["kind"], e.get("transcript")) for e in done] == [("final", "luego"), ("done", None)]
+    assert MaiStream("rep", "es", None, vocab=[], offset_s=0.0, on_event=_noop).events(
+        {"type": "error", "error": {"name": "X", "message": "nope"}}) == [{"kind": "error", "reason": "nope"}]

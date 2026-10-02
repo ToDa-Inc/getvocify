@@ -465,6 +465,9 @@ class MaiStream(LiveStream):
         super().__init__(*args, **kwargs)
         self.upsample = Upsampler()
         self.last_end = self.offset_s
+        # A word the last delta may not have finished, and when the words now changing first showed.
+        self.carry = ""
+        self.shown_at: Optional[float] = None
 
     def url(self) -> str:
         return MAI_GATEWAY_URL
@@ -490,33 +493,57 @@ class MaiStream(LiveStream):
         return None  # the gateway has no commit; MAI settles on its own
 
     def events(self, data: dict[str, Any]) -> list[dict[str, Any]]:
+        """`transcript-delta` is newly settled text (it can end mid-word: "acuer" + "das");
+        `transcript-partial` is only the still-changing end after it. Neither carries times, so
+        a sentence ends where the audio fed so far ends."""
         kind = data.get("type")
-        if kind in ("transcript-partial", "transcript-final"):
-            text = data.get("text") or ""
-            start = data.get("startSecond")
-            if isinstance(start, (int, float)):
-                start = start + self.offset_s
-                end = data.get("endSecond")
-                if isinstance(end, (int, float)):
-                    end = end + self.offset_s
-                elif isinstance(data.get("durationInSeconds"), (int, float)):
-                    end = start + data["durationInSeconds"]
-                else:
-                    end = self.offset_s + self.fed_s
-            else:
-                # No times: what has been fed so far bounds it.
-                start, end = self.last_end, self.offset_s + self.fed_s
-            final = kind == "transcript-final"
-            if final:
+        now = time.monotonic()
+        if kind == "transcript-delta":
+            settled = self._settle(data.get("delta") or "")
+            if not settled:
+                return []
+            start, end = self.last_end, max(self.last_end, self.offset_s + self.fed_s)
+            self.last_end = end
+            event = {"kind": "final", "transcript": settled, "words": [], "start": start, "end": end, "timed": False}
+            if self.shown_at is not None:
+                event["settle_s"] = now - self.shown_at
+            self.shown_at = now if self.carry.strip() else None
+            return [event]
+        if kind == "transcript-partial":
+            text = (self.carry + (data.get("text") or "")).strip()
+            if not text:
+                return []
+            if self.shown_at is None:
+                self.shown_at = now
+            end = max(self.last_end, self.offset_s + self.fed_s)
+            return [{"kind": "partial", "transcript": text, "words": [], "start": self.last_end, "end": end, "timed": False}]
+        if kind in ("transcript-final", "finish"):
+            # The whole item again: already sent as deltas; only a held last word is left.
+            rest, self.carry = self.carry.strip(), ""
+            out = []
+            if rest:
+                end = max(self.last_end, self.offset_s + self.fed_s)
+                out.append({"kind": "final", "transcript": rest, "words": [], "start": self.last_end, "end": end, "timed": False})
                 self.last_end = end
-            return [{"kind": "final" if final else "partial", "transcript": text, "words": [], "start": start, "end": end}]
+            if kind == "finish":
+                out.append({"kind": "done"})
+            return out
         if kind == "error":
             error = data.get("error")
             reason = error.get("message") if isinstance(error, dict) else str(error or "MAI error")
             return [{"kind": "error", "reason": reason}]
-        if kind == "finish":
-            return [{"kind": "done"}]
         return []
+
+    def _settle(self, delta: str) -> str:
+        """Settled text up to a whole word. The last word waits for the next delta, which may
+        continue it, unless punctuation closes it."""
+        text = self.carry + delta
+        cut = len(text) if text[-1:] in ".,;:!?…" else text.rfind(" ")
+        if cut <= 0:
+            self.carry = text
+            return ""
+        settled, self.carry = text[:cut], text[cut:]
+        return settled.strip()
 
 
 STREAMS: dict[str, type[LiveStream]] = {"speechmatics": SpeechmaticsStream, "deepgram": DeepgramStream, "mai": MaiStream}
@@ -704,6 +731,8 @@ class ChannelSessions:
                 start=event.get("start"),
                 end=event["end"],
                 text=event.get("transcript") or "",
+                timed=event.get("timed", True),
+                settle_s=event.get("settle_s"),
             )
         elif event["kind"] == "error":
             logger.warning("Live comparison %s %s stopped: %s", stream.provider, stream.label, event.get("reason"))
@@ -740,7 +769,8 @@ class ChannelSessions:
                     start=payload["start"],
                     end=payload["end"],
                     text=transcript,
-                    timed=payload["end"] > stream.live_from_s,
+                    timed=event.get("timed", True) and payload["end"] > stream.live_from_s,
+                    settle_s=event.get("settle_s"),
                 )
             if final and transcript.strip() and "start" in payload:
                 self._after_final(stream.label, payload["start"], payload["end"])
