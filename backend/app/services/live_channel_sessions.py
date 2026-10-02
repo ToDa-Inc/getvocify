@@ -54,6 +54,11 @@ SPEECH_RMS = 100
 # Kept before speech starts, so its first syllable isn't cut, and sent on after it stops.
 PRE_ROLL_S = 0.3
 HANG_S = 0.6
+# MAI settles a sentence's last words only while audio keeps coming: after speech, the side's own
+# quiet goes on out until nothing is left unsettled, for at most this long. On real calls it
+# settled 1.1-2.3 s after speech stopped (once 3.4 s); with only the 0.6 s above it never did
+# until someone spoke again.
+SETTLE_TAIL_S = 3.4
 # A side that stays quiet still sends a moment of silence, or the gateway closes after 5 minutes.
 KEEPALIVE_S = 60.0
 # Nova-3 `multi` code-switches between these; a profile with any other goes to Speechmatics.
@@ -561,6 +566,9 @@ class MaiStream(LiveStream):
         self.quiet: list[bytes] = []
         self.hang = 0.0
         self.sent_at_s = 0.0
+        # Words MAI shows but hasn't settled, and the quiet sent after speech so it can.
+        self.unsettled = ""
+        self.tail_s = 0.0
         # A word the last delta may not have finished, and when the words now changing first showed.
         self.carry = ""
         self.shown_at: Optional[float] = None
@@ -583,11 +591,17 @@ class MaiStream(LiveStream):
         return self.upsample(pcm)
 
     def feed(self, pcm: bytes) -> None:
-        """Sends speech (with a little before and after it); holds silence back."""
+        """Sends speech (with a little before and after it), then the quiet after it until MAI
+        has settled what was said; holds the rest of the silence back."""
         seconds = len(pcm) / BYTES_PER_SECOND
         self.heard_s += seconds
         loud = speech_level(pcm) >= SPEECH_RMS
-        send = loud or self.hang > 1e-6
+        if loud:
+            self.tail_s = 0.0
+        settling = self.unsettled.strip() != "" and self.tail_s < SETTLE_TAIL_S - 1e-6
+        send = loud or self.hang > 1e-6 or settling
+        if not loud and self.hang <= 1e-6 and settling:
+            self.tail_s += seconds
         self.hang = HANG_S if loud else self.hang - seconds
         if send:
             for held in self.quiet:
@@ -619,6 +633,8 @@ class MaiStream(LiveStream):
         kind = data.get("type")
         now = time.monotonic()
         if kind == "transcript-delta":
+            # A partial follows at once with whatever is still unsettled; none means all is.
+            self.unsettled = ""
             settled = self._settle(data.get("delta") or "")
             if not settled:
                 return []
@@ -630,6 +646,7 @@ class MaiStream(LiveStream):
             self.shown_at = now if self.carry.strip() else None
             return [event]
         if kind == "transcript-partial":
+            self.unsettled = data.get("text") or ""
             text = (self.carry + (data.get("text") or "")).strip()
             if not text:
                 return []
@@ -638,6 +655,7 @@ class MaiStream(LiveStream):
             end = max(self.last_end, self.offset_s + self.heard_s)
             return [{"kind": "partial", "transcript": text, "words": [], "start": self.last_end, "end": end, "timed": False}]
         if kind in ("transcript-final", "finish"):
+            self.unsettled = ""
             # The whole item again: already sent as deltas; only a held last word is left.
             rest, self.carry = self.carry.strip(), ""
             out = []
