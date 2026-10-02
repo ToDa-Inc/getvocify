@@ -12,6 +12,8 @@ export type MeetingSegment = {
   end: number | null;
   /** When its words first showed on screen; the live transcript keeps this order so nothing moves. */
   seen?: number;
+  /** Who on the other side said it, when the meeting app showed it (the Mac app reads it). */
+  name?: string | null;
 };
 
 /** Finals in arrival order; each channel keeps its own in-progress tail. */
@@ -35,6 +37,8 @@ export type MeetingDisplayTurn = {
   /** When the paragraph's first and latest words were said (seconds into the call). */
   start?: number | null;
   end?: number | null;
+  /** The person on the other side, when the meeting app showed who was speaking. */
+  name?: string | null;
 };
 
 export const EMPTY_MEETING_TRANSCRIPT: MeetingTranscript = { segments: [], interims: {} };
@@ -276,6 +280,7 @@ type DisplayItem = {
   pending: string;
   start: number | null;
   end: number | null;
+  name?: string | null;
 };
 
 /**
@@ -285,9 +290,13 @@ type DisplayItem = {
 function paragraphFor(item: DisplayItem, rows: MeetingDisplayTurn[]): MeetingDisplayTurn | null {
   const last = rows[rows.length - 1];
   if (!last) return null;
-  if (!last.pending && (last.speaker === item.speaker || item.speaker === null || last.speaker === null)) return last;
+  // Another person on the same side (two guests) starts their own paragraph.
+  const samePerson = (row: MeetingDisplayTurn) => !row.name || !item.name || row.name === item.name;
+  if (!last.pending && samePerson(last) && (last.speaker === item.speaker || item.speaker === null || last.speaker === null)) {
+    return last;
+  }
   const before = rows[rows.length - 2];
-  if (!before || !item.speaker || before.speaker !== item.speaker || before.pending) return null;
+  if (!before || !item.speaker || before.speaker !== item.speaker || before.pending || !samePerson(before)) return null;
   if (last.speaker === item.speaker || last.pending || words(last.text).length > INTERJECTION_WORDS) return null;
   // Said during their paragraph: after it began and before it ended.
   const said = last.start;
@@ -313,17 +322,22 @@ function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[]): MeetingD
       if (item.pending) row.pending = item.pending;
       else row.text = joinChunks(row.text, item.text);
       row.start ??= item.start;
+      if (!row.name && item.name) {
+        row.name = item.name;
+        row.label = item.name;
+      }
       if (item.end != null) row.end = Math.max(row.end ?? item.end, item.end);
       continue;
     }
     rows.push({
       key: `u${item.seen}`,
       speaker: item.speaker,
-      label: item.speaker ? SPEAKER_LABEL[item.speaker] : null,
+      label: item.name || (item.speaker ? SPEAKER_LABEL[item.speaker] : null),
       text: item.text,
       pending: item.pending,
       start: item.start,
       end: item.end,
+      name: item.name ?? null,
     });
   }
   return rows;
@@ -344,6 +358,7 @@ function settledRows(segments: MeetingSegment[]): MeetingDisplayTurn[] {
       pending: "",
       start: segment.start,
       end: segment.end,
+      name: segment.name ?? null,
     }));
   const rows = displayRows(items, []);
   settledRowsCache.set(segments, rows);

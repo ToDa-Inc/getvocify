@@ -342,3 +342,19 @@ describe("paragraphs", () => {
     assert.equal(meetingDisplayTurns(state).length, 3);
   });
 });
+
+describe("names on the other side", () => {
+  it("labels each person the Mac app saw speaking and starts a paragraph when it changes", async () => {
+    const { normalizeMeetingTranscript } = await import("./meeting-transcript.ts");
+    const state = normalizeMeetingTranscript({
+      segments: [
+        { speaker: "prospect", text: "Hola, soy Marta.", start: 1, end: 2, seen: 0, name: "Marta" },
+        { speaker: "prospect", text: "Y yo Juan.", start: 3, end: 4, seen: 1, name: "Juan" },
+        { speaker: "rep", text: "Encantado.", start: 5, end: 6, seen: 2, name: null },
+      ],
+      interims: {},
+      nextSeen: 3,
+    });
+    assert.deepEqual(meetingDisplayTurns(state).map((row) => row.label), ["Marta", "Juan", "You"]);
+  });
+});
