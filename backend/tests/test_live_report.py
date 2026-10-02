@@ -48,3 +48,17 @@ def test_report_says_which_service_and_keeps_what_the_mac_measured():
     assert summary["client"] == {"lag_s": {"rep": {"final": {"p50": 1.2}}}, "reconnects": 0}
     report.from_client({"lag_s": "nonsense"})
     assert report.summary({})["client"]["reconnects"] == 0
+
+
+def test_report_goes_to_the_logs_with_both_transcripts(caplog):
+    import logging
+
+    report = LiveReport(["rep"], compare=True)
+    report.result("speechmatics", "rep", final=True, start=1.0, end=2.0, text="hola qué tal")
+    report.result("deepgram", "rep", final=True, start=1.0, end=2.0, text="hola que tal")
+    with caplog.at_level(logging.INFO, logger="app.services.live_report"):
+        report.log("u1", {"rep": "es"})
+    lines = [r.getMessage() for r in caplog.records]
+    assert lines[0].startswith("Live report ") and '"service": "live"' in lines[0]
+    assert any("speechmatics rep 1/1\n[1.0] hola qué tal" in line for line in lines)
+    assert any("deepgram rep 1/1\n[1.0] hola que tal" in line for line in lines)

@@ -407,7 +407,7 @@ class ChannelSessions:
             if shadow.billed_seconds():
                 record_stt_usage("deepgram", "realtime", shadow.billed_seconds(), channels=1)
         languages = {label: side.language for label, side in self.sides.items()}
-        asyncio.get_running_loop().run_in_executor(None, self.report.save, self.user_id, languages)
+        self.report.log(self.user_id, languages)
 
     async def _send(self, payload: dict[str, Any]) -> None:
         async with self.send_lock:

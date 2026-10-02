@@ -1,11 +1,11 @@
-"""How a live call's transcription performed, saved once the call ends (live_call_reports).
+"""How a live call's transcription performed, written to the service's logs when the call ends.
 
 Speed is measured per side as the time between the audio reaching the service and the text
 for it coming back: a partial's lag is how long the bubble waits for words, a final's is how
 long until they stop changing. Network time to and from the Mac is not in it.
 
 With LIVE_COMPARE_DEEPGRAM on, each side's audio also goes to Deepgram Nova-3 in parallel and
-its text and speed are saved next to Speechmatics', so both can be read against the same call.
+its text and speed are logged next to Speechmatics', so both can be read against the same call.
 Deepgram never reaches the client: the call keeps running on Speechmatics only.
 """
 
@@ -16,6 +16,7 @@ import bisect
 import json
 import logging
 import time
+import uuid
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -28,6 +29,8 @@ DEEPGRAM_LIVE_URL = "wss://api.deepgram.com/v1/listen"
 # Nova-3 `multi` code-switches between these; anything else is transcribed in its own language.
 DEEPGRAM_MULTI = {"en", "es", "fr", "de", "hi", "ru", "pt", "ja", "it", "nl"}
 MAX_KEYTERMS = 50
+# Log lines stay well under the platform's per-line limit.
+LOG_CHUNK = 6000
 
 
 def percentiles(values: list[float]) -> Optional[dict[str, float]]:
@@ -145,23 +148,18 @@ class LiveReport:
             },
         }
 
-    def save(self, user_id: Optional[str], languages: dict[str, str]) -> None:
-        """Blocking: run in a thread. Never raises."""
-        report = self.summary(languages)
-        logger.info("Live report: %s", json.dumps(report))
-        if self.compare:
-            report["transcripts"] = {
-                provider: {label: track.finals for label, track in sides.items()}
-                for provider, sides in self.tracks.items()
-            }
-        try:
-            from app.deps import get_supabase
-
-            get_supabase().table("live_call_reports").insert(
-                {"user_id": user_id if user_id and user_id != "anonymous" else None, "report": report}
-            ).execute()
-        except Exception as e:
-            logger.warning("Live report not saved: %s", e)
+    def log(self, user_id: Optional[str], languages: dict[str, str]) -> None:
+        """Writes the report to the service's logs: one summary line, then each side's text."""
+        call = uuid.uuid4().hex[:8]
+        logger.info("Live report %s user=%s %s", call, user_id, json.dumps(self.summary(languages)))
+        if not self.compare:
+            return
+        for provider, sides in self.tracks.items():
+            for label, track in sides.items():
+                text = "\n".join(f"[{start:.1f}] {words}" for start, _, words in track.finals)
+                parts = [text[i : i + LOG_CHUNK] for i in range(0, len(text), LOG_CHUNK)] or [""]
+                for n, part in enumerate(parts, 1):
+                    logger.info("Live transcript %s %s %s %d/%d\n%s", call, provider, label, n, len(parts), part)
 
 
 class DeepgramShadow:
