@@ -823,7 +823,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       setPaused(false);
       timerRef.current = window.setInterval(() => {
         const { you, them } = levelRef.current;
-        setLevels({ you, them });
+        // Only a change the meter can show re-renders: silence settles at 0 and stays put.
+        const step = (value: number) => Math.round(value * 20) / 20;
+        setLevels((prev) =>
+          prev.you === step(you) && prev.them === step(them) ? prev : { you: step(you), them: step(them) },
+        );
         levelRef.current = { you: you * 0.6, them: them * 0.6 };
         // Computed every tick from the wall clock, so a throttled timer never shows a stale time.
         const now = Date.now();

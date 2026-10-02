@@ -198,16 +198,49 @@ function words(text: string): string[] {
  * The mic also hears the meeting through the speakers. A mic segment whose words
  * were said on the meeting audio at the same moment is that echo, not the rep.
  */
-function isEcho(segment: MeetingSegment, meeting: MeetingSegment[]): boolean {
+/** Finals arrive a few seconds late at most: older call audio can't be heard by a new mic line. */
+const ECHO_LOOKBACK_S = 30;
+
+/** The call's timed sentences, by start: each echo check then looks only at its own moment. */
+type MeetingAudio = MeetingSegment[];
+
+function meetingAudio(segments: MeetingSegment[]): MeetingAudio {
+  return segments
+    .filter((segment) => segment.speaker === "prospect" && segment.start !== null)
+    .sort((a, b) => (a.start as number) - (b.start as number));
+}
+
+const wordsCache = new WeakMap<MeetingSegment, string[]>();
+
+function segmentWords(segment: MeetingSegment): string[] {
+  let cached = wordsCache.get(segment);
+  if (!cached) {
+    cached = words(segment.text);
+    wordsCache.set(segment, cached);
+  }
+  return cached;
+}
+
+function isEcho(segment: MeetingSegment, meeting: MeetingAudio): boolean {
   if (segment.speaker !== "rep" || segment.start === null) return false;
-  const own = words(segment.text);
+  const own = segmentWords(segment);
   if (!own.length) return false;
   const heard = new Set<string>();
-  for (const other of meeting) {
-    if (other.start === null) continue;
-    const otherEnd = other.end ?? other.start;
-    if (other.start <= (segment.end ?? segment.start) + ECHO_WINDOW_S && otherEnd >= segment.start - ECHO_WINDOW_S) {
-      words(other.text).forEach((word) => heard.add(word));
+  const until = (segment.end ?? segment.start) + ECHO_WINDOW_S;
+  // The last call sentence starting by `until`, then back in time only as far as matters.
+  let low = 0;
+  let high = meeting.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if ((meeting[middle].start as number) <= until) low = middle + 1;
+    else high = middle;
+  }
+  for (let index = low - 1; index >= 0; index--) {
+    const other = meeting[index];
+    const otherStart = other.start as number;
+    if (otherStart < segment.start - ECHO_LOOKBACK_S) break;
+    if ((other.end ?? otherStart) >= segment.start - ECHO_WINDOW_S) {
+      segmentWords(other).forEach((word) => heard.add(word));
     }
   }
   if (!heard.size) return false;
@@ -243,7 +276,7 @@ function keyedTurns(state: MeetingTranscript): KeyedTurn[] {
     return { segment, at: clock, arrival };
   });
   timed.sort((a, b) => a.at - b.at || a.arrival - b.arrival);
-  const meeting = state.segments.filter((segment) => segment.speaker === "prospect");
+  const meeting = meetingAudio(state.segments);
   const turns: KeyedTurn[] = [];
   for (const { segment, arrival } of timed) {
     if (isEcho(segment, meeting)) continue;
@@ -267,10 +300,11 @@ function keyedTurns(state: MeetingTranscript): KeyedTurn[] {
 function isEchoTail(state: MeetingTranscript, key: SpeakerKey, pending: string): boolean {
   const start = state.interimStarts?.[key];
   if (key !== "rep" || start === undefined) return false;
-  const meeting = state.segments.filter((segment) => segment.speaker === "prospect");
   const live = state.interims.prospect;
-  if (live) meeting.push({ speaker: "prospect", text: live, start, end: start });
-  return isEcho({ speaker: "rep", text: pending, start, end: start }, meeting);
+  const liveStart = state.interimStarts?.prospect;
+  // What the call says right now counts when it started around the same moment.
+  const now = live && liveStart !== undefined ? [{ speaker: "prospect" as const, text: live, start: liveStart, end: start }] : [];
+  return isEcho({ speaker: "rep", text: pending, start, end: start }, meetingAudio([...state.segments, ...now]));
 }
 
 type DisplayItem = {
@@ -346,7 +380,7 @@ function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[]): MeetingD
 function settledRows(segments: MeetingSegment[]): MeetingDisplayTurn[] {
   const cached = settledRowsCache.get(segments);
   if (cached) return cached;
-  const meeting = segments.filter((segment) => segment.speaker === "prospect");
+  const meeting = meetingAudio(segments);
   const items = segments
     .map((segment, arrival) => ({ segment, seen: segment.seen ?? arrival }))
     .filter(({ segment }) => !isEcho(segment, meeting))
