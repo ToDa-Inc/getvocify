@@ -107,8 +107,6 @@ export type PostCall = {
   meeting: PostCallMeeting | null;
   /** The memo has a call note to read. */
   notes: boolean;
-  /** Asked once, after several skipped emails in a row. */
-  offerStopEmails?: boolean;
   type?: PostCallType | null;
 };
 
@@ -219,9 +217,6 @@ export function pendingItems(postCall: PostCall | null): number {
   if (postCall.meeting && postCall.meeting.state !== "added") count += 1;
   return count;
 }
-
-/** Skipped emails in a row before Vocify asks, once, whether to stop drafting them. */
-export const SKIPS_BEFORE_ASKING = 3;
 
 /** How long Approve can still be undone before the write runs. */
 export const UNDO_MS = 5000;
