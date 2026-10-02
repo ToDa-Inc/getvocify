@@ -25,10 +25,10 @@ const objectionSource: AssistSource = {
             streamed = "";
           } else if (event.type === "token" && onDraft) {
             streamed += event.text;
-            const next = streamedDraft(streamed, context.latestTurn, draft?.at ?? Date.now());
-            if (next && next.sayThis !== draft?.sayThis) {
-              draft = { ...next, id: draft?.id ?? next.id };
-              onDraft(draft);
+            // Once: the label and a loading state. The answer itself arrives whole, with the result.
+            if (!draft) {
+              draft = streamedDraft(streamed, context.latestTurn, Date.now());
+              if (draft) onDraft(draft);
             }
           } else if (event.type === "result") {
             result = event.suggestion;

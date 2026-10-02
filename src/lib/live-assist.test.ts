@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { addCard, assistContext, askAfterMs, objectionCard, partialSayThis, streamedDraft } from "./live-assist.ts";
+import { addCard, assistContext, askAfterMs, objectionCard, streamedDraft } from "./live-assist.ts";
 import type { MeetingDisplayTurn } from "./meeting-transcript.ts";
 
 const turn = (key: string, speaker: "rep" | "prospect", text: string, pending = ""): MeetingDisplayTurn => ({
@@ -139,24 +139,6 @@ describe("bridge while the answer is written", async () => {
   });
 });
 
-describe("partialSayThis", () => {
-  it("is empty until the answer starts", () => {
-    assert.equal(partialSayThis('{"is_objection": true, "objection_type": "price"'), "");
-  });
-
-  it("grows word by word while the answer streams, and stops at its end", () => {
-    assert.equal(partialSayThis('{"is_objection": true, "say_this": "Lo entiendo, '), "Lo entiendo, ");
-    assert.equal(partialSayThis('{"say_this":"Hola.", "why_it_works": "x'), "Hola.");
-  });
-
-  it("reads escapes, and never shows half of one", () => {
-    assert.equal(partialSayThis('{"say_this": "Dice \\"no\\" y'), 'Dice "no" y');
-    assert.equal(partialSayThis('{"say_this": "Hola \\'), "Hola ");
-    assert.equal(partialSayThis('{"say_this": "caf\\u00'), "caf");
-    assert.equal(partialSayThis('{"say_this": "caf\\u00e9 ya'), "café ya");
-  });
-});
-
 describe("askAfterMs", () => {
   it("asks right after their sentence settles", () => {
     assert.equal(askAfterMs({ settled: true }), 300);
@@ -168,15 +150,23 @@ describe("askAfterMs", () => {
 });
 
 describe("streamedDraft", () => {
-  it("shows nothing while only the kind of objection is known, so a card never appears empty and vanishes", () => {
-    assert.equal(streamedDraft('{"is_objection": true, "objection_type": "trust", "say_this": "', "Me da miedo", 1), null);
+  it("a loading card as soon as the kind of objection is known", () => {
+    const card = streamedDraft('{"is_objection": true, "objection_type": "trust", "say_this": "', "Me da miedo", 1);
+    assert.equal(card?.label, "Trust");
+    assert.equal(card?.stage, "draft");
   });
 
-  it("shows the card with the bridge once the answer's first words arrive", () => {
+  it("never shows the answer's words before it is complete, so what the rep reads never changes", () => {
     const card = streamedDraft('{"is_objection": true, "objection_type": "price", "say_this": "Para ocho comerciales', "Es caro", 5);
-    assert.equal(card?.label, "Price");
-    assert.equal(card?.sayThis, "Para ocho comerciales");
-    assert.equal(card?.at, 5);
-    assert.ok(card?.bridge);
+    assert.equal(card?.sayThis, "");
+  });
+
+  it("offers a filler line to say at once while the answer is written, in their language", () => {
+    const card = streamedDraft('{"is_objection": true, "objection_type": "price"', "La verdad es que es caro", 5);
+    assert.equal(card?.bridge, "Es normal mirarlo con lupa…");
+  });
+
+  it("nothing until it knows it is an objection", () => {
+    assert.equal(streamedDraft('{"is_objection": false', "Hola", 1), null);
   });
 });

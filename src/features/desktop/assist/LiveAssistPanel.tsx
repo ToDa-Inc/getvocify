@@ -82,30 +82,26 @@ function NewestCard({ card }: { card: AssistCard }) {
       <KindChip card={card} />
       {card.stage === "draft" ? (
         <div className="space-y-2">
-          <p className="text-[11px] font-medium text-muted-foreground">Say this while it loads</p>
-          <p className="text-[15px] italic leading-snug text-foreground/80">“{card.bridge}”</p>
-          {card.sayThis ? (
-            // The answer appears word by word while it is written.
-            <p className="text-[15px] font-medium leading-snug text-foreground" aria-live="polite">
-              {card.sayThis}
-            </p>
-          ) : (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
-              <span className="flex gap-1" aria-hidden>
-                {[0, 160, 320].map((delay) => (
-                  <span
-                    key={delay}
-                    className="h-1 w-1 rounded-full bg-foreground/40 animate-pulse motion-reduce:animate-none"
-                    style={{ animationDelay: `${delay}ms` }}
-                  />
-                ))}
-              </span>
-              Writing the answer…
-            </p>
-          )}
+          {card.bridge ? (
+            // Something natural to say at once while the answer is written.
+            <p className="text-[15px] italic leading-snug text-foreground/80">“{card.bridge}”</p>
+          ) : null}
+          <p className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+            <span className="flex gap-1" aria-hidden>
+              {[0, 160, 320].map((delay) => (
+                <span
+                  key={delay}
+                  className="h-1 w-1 rounded-full bg-foreground/40 animate-pulse motion-reduce:animate-none"
+                  style={{ animationDelay: `${delay}ms` }}
+                />
+              ))}
+            </span>
+            Preparing a reply…
+          </p>
         </div>
       ) : (
         <div key="ready" className="animate-in fade-in duration-300 motion-reduce:animate-none">
+          {card.bridge ? <p className="mb-1 text-[13px] italic leading-snug text-muted-foreground">“{card.bridge}”</p> : null}
           <p className="mb-1 text-[11px] font-medium text-muted-foreground">
             {card.kind === "question" ? "Answer" : "Say this"}
           </p>

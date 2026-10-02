@@ -40,15 +40,15 @@ describe("the call type during a live call", () => {
 });
 
 describe("proposalDue", () => {
-  it("asks once the conversation has said enough", () => {
+  it("asks once the prospect has explained a little (about half a minute of talk)", () => {
     assert.equal(proposalDue({ words: 40, attempts: 0, picked: false, lastConfident: false }), false);
-    assert.equal(proposalDue({ words: 160, attempts: 0, picked: false, lastConfident: false }), true);
+    assert.equal(proposalDue({ words: 80, attempts: 0, picked: false, lastConfident: false }), true);
   });
 
   it("asks a second time only when the first was unsure, later on", () => {
-    assert.equal(proposalDue({ words: 200, attempts: 1, picked: false, lastConfident: false }), false);
-    assert.equal(proposalDue({ words: 400, attempts: 1, picked: false, lastConfident: false }), true);
-    assert.equal(proposalDue({ words: 400, attempts: 1, picked: false, lastConfident: true }), false);
+    assert.equal(proposalDue({ words: 150, attempts: 1, picked: false, lastConfident: false }), false);
+    assert.equal(proposalDue({ words: 220, attempts: 1, picked: false, lastConfident: false }), true);
+    assert.equal(proposalDue({ words: 220, attempts: 1, picked: false, lastConfident: true }), false);
   });
 
   it("never more than twice, and never once the rep picked", () => {
