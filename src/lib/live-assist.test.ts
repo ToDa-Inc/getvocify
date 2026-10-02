@@ -23,14 +23,14 @@ const suggestion = (overrides = {}) => ({
 });
 
 describe("assistContext", () => {
-  it("asks about their latest settled words with the conversation around them", () => {
+  it("asks about their latest words with the conversation around them, as it is on screen", () => {
     const context = assistContext([
       turn("0", "rep", "Os enseño la demo."),
       turn("1", "prospect", "La verdad es que nos parece bastante caro para el equipo."),
       turn("2", "rep", "", "vale"),
     ]);
     assert.equal(context?.latestTurn, "La verdad es que nos parece bastante caro para el equipo.");
-    assert.equal(context?.transcriptWindow, "You: Os enseño la demo.\nThem: La verdad es que nos parece bastante caro para el equipo.");
+    assert.equal(context?.transcriptWindow, "You: Os enseño la demo.\nThem: La verdad es que nos parece bastante caro para el equipo.\nYou: vale");
   });
 
   it("waits until they said something substantial", () => {
@@ -43,6 +43,11 @@ describe("assistContext", () => {
     const said = `${first} Además ya estamos usando Gong y nos funciona bien.`;
     const context = assistContext([turn("1", "prospect", said)], { turnKey: "1", length: first.length });
     assert.equal(context?.latestTurn, "Además ya estamos usando Gong y nos funciona bien.");
+  });
+
+  it("reads the words still settling too, so a pause is enough to ask", () => {
+    const context = assistContext([turn("1", "prospect", "Ya, pero la verdad", "es que nos parece bastante caro")]);
+    assert.equal(context?.latestTurn, "Ya, pero la verdad es que nos parece bastante caro");
   });
 
   it("a few new words after the last ask are not worth asking about", () => {

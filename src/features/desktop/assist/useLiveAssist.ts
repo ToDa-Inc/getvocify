@@ -9,10 +9,16 @@ import {
   type AssistCard,
 } from "@/lib/live-assist";
 import type { MeetingDisplayTurn } from "@/lib/meeting-transcript";
+import { getDesktopBridge } from "@/lib/desktop-host";
 import { ASSIST_SOURCES } from "./sources";
 
+/** One line in the Mac's live-help log (a test switch on the Mac turns it on). */
+function note(name: string, details: Record<string, unknown> = {}) {
+  getDesktopBridge()?.shell.log?.(name, details);
+}
+
 /** Wait for a pause in what they say before asking. */
-const PAUSE_MS = 1500;
+const PAUSE_MS = 1000;
 /** Never ask more often than this, so help never chases every word. */
 const MIN_GAP_MS = 6000;
 
@@ -61,6 +67,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
   }
 
   const retire = (card: AssistCard) => {
+    note("retire", { label: card.label, stage: card.stage, shownMs: Date.now() - card.at });
     setActive((current) => (current?.id === card.id ? null : current));
     // Drafts never reached an answer; only real help is worth keeping in "Earlier".
     if (card.stage === "ready") setEarlier((list) => addCard(list, card));
@@ -85,6 +92,8 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       const controller = new AbortController();
       abortRef.current = controller;
       setThinking(true);
+      const askedAt = Date.now();
+      note("ask", { latest: context.latestTurn, type: context.typeKey ?? null, mode: context.callMode ?? null });
       let draft: AssistCard | null = null;
       const onDraft = (card: AssistCard) => {
         if (controller.signal.aborted) return;
@@ -95,7 +104,11 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
           setActive((current) => (current?.id === card.id ? card : current));
           return;
         }
-        if (coolingDown(card, lastShownRef.current, Date.now())) return;
+        if (coolingDown(card, lastShownRef.current, Date.now())) {
+          note("draft-cooling", { label: card.label, ms: Date.now() - askedAt });
+          return;
+        }
+        note("draft", { label: card.label, bridge: card.bridge, ms: Date.now() - askedAt });
         draft = card;
         present(card);
       };
@@ -105,6 +118,8 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
         const now = Date.now();
         const card = results.find((result) => result && (draft || !coolingDown(result, lastShownRef.current, now)));
         if (!card) {
+          const cooling = results.find(Boolean);
+          note(cooling ? "answer-cooling" : "silent", { label: cooling?.label ?? null, ms: now - askedAt });
           // The answer turned out not to be worth showing: withdraw the bridge quietly.
           if (draft) setActive((current) => (current?.id === draft!.id ? null : current));
           return;
@@ -112,6 +127,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
         // The answer takes the draft's place and keeps its clock, so timing counts from first sight.
         const shown = { ...card, id: draft?.id ?? card.id, at: draft?.at ?? now };
         lastShownRef.current[cooldownKey(shown)] = shown.at;
+        note("answer", { label: shown.label, sayThis: shown.sayThis, thenAsk: shown.thenAsk, ms: now - askedAt });
         present(shown);
       });
     }, wait);

@@ -152,25 +152,33 @@ export function draftCard(type: string, latestTurn: string, at: number): AssistC
  * Ask only after the other side says something substantial; returns the key used
  * to avoid asking twice about the same words.
  */
+/** What a turn says on screen: its settled words, then the ones still settling. */
+function spoken(turn: MeetingDisplayTurn): string {
+  return [turn.text.trim(), turn.pending.trim()].filter(Boolean).join(" ");
+}
+
 export function assistContext(
   turns: MeetingDisplayTurn[],
   /** What the last ask already covered of their current turn: only the words since then are new. */
   asked?: { turnKey: string; length: number } | null,
 ): (AssistContext & { key: string; turnKey: string; length: number }) | null {
-  const theirs = [...turns].reverse().find((turn) => turn.speaker === "prospect" && turn.text.trim());
+  // Words still settling count: the transcription can take seconds to settle the end of a
+  // sentence, and that end is usually the objection. A pause in what they say is enough.
+  const theirs = [...turns].reverse().find((turn) => turn.speaker === "prospect" && spoken(turn));
   if (!theirs) return null;
+  const said = spoken(theirs);
   // A prospect who says several things in a row stays one turn; help answers the newest of them,
   // never one it already answered.
-  const covered = asked && asked.turnKey === theirs.key && asked.length < theirs.text.length ? asked.length : 0;
-  const fresh = theirs.text.slice(covered).trim();
+  const covered = asked && asked.turnKey === theirs.key && asked.length < said.length ? asked.length : 0;
+  const fresh = said.slice(covered).trim();
   if (fresh.split(/\s+/).length < MIN_WORDS) return null;
   const latestTurn = phraseTail(fresh, LATEST_CHARS).replace(/^…/, "");
   const transcriptWindow = turns
-    .filter((turn) => turn.text.trim())
-    .map((turn) => (turn.label ? `${turn.label}: ${turn.text}` : turn.text))
+    .filter((turn) => spoken(turn))
+    .map((turn) => (turn.label ? `${turn.label}: ${spoken(turn)}` : spoken(turn)))
     .join("\n")
     .slice(-WINDOW_CHARS);
-  return { key: `${theirs.key}:${theirs.text.length}`, turnKey: theirs.key, length: theirs.text.length, latestTurn, transcriptWindow };
+  return { key: `${theirs.key}:${said.length}`, turnKey: theirs.key, length: said.length, latestTurn, transcriptWindow };
 }
 
 /** Only a real objection with something to say becomes a card; no filler advice. */
