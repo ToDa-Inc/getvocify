@@ -173,8 +173,9 @@ def finalize_suggest_result(
         if isinstance(entry, dict) and str(entry.get("guidance") or "").strip()
     }
     if not source_id or source_id not in answer_ids:
+        # Not the playbook's answer (none named, or a wrong id): still shown, as general help.
         return {
-            "suggestion": _strip_advice(suggestion),
+            "suggestion": out,
             "playbook_ready": False,
             "evidence_refs": [],
             "grounded": False,

@@ -133,7 +133,7 @@ def test_evidence_without_an_approved_answer_is_general_help_not_the_playbook():
     result = finalize_suggest_result(call_mode="meeting", suggestion=suggestion, grounding=_grounding())
     assert result["playbook_ready"] is False
     assert result["grounded"] is False
-    assert result["suggestion"]["say_this"] == ""
+    assert result["suggestion"]["say_this"] == "¿Qué coste tiene mantener el proceso actual?"
 
 
 def test_source_id_of_an_entry_without_an_answer_is_not_grounded():
@@ -147,3 +147,23 @@ def test_source_id_of_an_entry_without_an_answer_is_not_grounded():
     suggestion = {"is_objection": True, "say_this": "x", "evidence_refs": ["ev-1"], "source_id": "entry-2"}
     result = finalize_suggest_result(call_mode="meeting", suggestion=suggestion, grounding=grounding)
     assert result["playbook_ready"] is False
+
+
+def test_a_quoted_objection_citing_a_wrong_answer_id_is_kept_as_general_help():
+    # GPT-6 Luna quoted the turn but named the answer "price" instead of "objection:price":
+    # the line was good and was erased, so the card came back empty (2026-10-03 replay).
+    suggestion = {
+        "is_objection": True,
+        "objection_type": "price",
+        "say_this": "Lo entiendo; con ocho comerciales y esas notas en HubSpot, ¿qué inversión os encajaría?",
+        "evidence_refs": ["me parece bastante caro para lo que necesitamos"],
+        "source_id": "price",
+    }
+    result = finalize_suggest_result(
+        call_mode="meeting",
+        suggestion=suggestion,
+        grounding=_grounding(),
+        latest_turn="Ya, pero me parece bastante caro para lo que necesitamos ahora mismo.",
+    )
+    assert result["grounded"] is False
+    assert result["suggestion"]["say_this"].startswith("Lo entiendo; con ocho comerciales")

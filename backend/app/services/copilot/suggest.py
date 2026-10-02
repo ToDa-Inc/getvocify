@@ -20,7 +20,9 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Live help can't wait for long hidden reasoning, but some models (gemini-3.5-flash-lite) refuse
 # to switch it off and fail every request with "Reasoning is mandatory". Ask for the least instead;
 # models that don't reason ignore it.
-LIVE_REASONING = {"reasoning": {"effort": "minimal"}}
+def live_reasoning() -> dict[str, Any]:
+    effort = (settings.COPILOT_REASONING_EFFORT or "").strip() or "minimal"
+    return {"reasoning": {"effort": effort}}
 
 
 def _resolve_model(explicit: Optional[str] = None) -> str:
@@ -94,7 +96,7 @@ async def stream_objection_suggestion(
         "temperature": 0.35,
         "stream": True,
         "response_format": {"type": "json_object"},
-        **LIVE_REASONING,
+        **live_reasoning(),
     }
 
     import time
@@ -198,7 +200,7 @@ async def _fallback_non_stream(
         "model": model_used,
         "messages": messages,
         "temperature": 0.35,
-        **LIVE_REASONING,
+        **live_reasoning(),
     }
     resp = await client.post(
         OPENROUTER_URL,
@@ -254,6 +256,10 @@ def _parse_suggestion(raw: str) -> dict[str, Any]:
     }
 
 
+# The model is asked for MEETING_LINE_MAX characters; a line tied to the call runs a little
+# longer, and silencing it withdrew a card the rep was already reading. Only rambling is dropped.
+MEETING_LINE_SHOW_MAX = 160
+
 MEETING_OBJECTION_TYPES = {"price", "timing", "authority", "competitor", "status_quo", "trust", "question", "other"}
 
 
@@ -282,7 +288,7 @@ def meeting_suggestion(raw: str) -> dict[str, Any]:
         return silent_suggestion()
     objection_type = str(parsed.get("objection_type") or "").strip()
     say_this = " ".join(str(parsed.get("say_this") or "").split())
-    if objection_type not in MEETING_OBJECTION_TYPES or not say_this or len(say_this) > MEETING_LINE_MAX:
+    if objection_type not in MEETING_OBJECTION_TYPES or not say_this or len(say_this) > MEETING_LINE_SHOW_MAX:
         return silent_suggestion()
     next_question = " ".join(str(parsed.get("next_question") or "").split())
     return {
@@ -291,7 +297,7 @@ def meeting_suggestion(raw: str) -> dict[str, Any]:
         "urgency": str(parsed.get("urgency") or "low"),
         "say_this": say_this,
         "why_it_works": str(parsed.get("why_it_works") or "").strip(),
-        "next_question": next_question if len(next_question) <= MEETING_LINE_MAX else "",
+        "next_question": next_question if len(next_question) <= MEETING_LINE_SHOW_MAX else "",
         "dont_say": str(parsed.get("dont_say") or "").strip(),
         # Read by finalize_suggest_result: a playbook answer needs both.
         "evidence_refs": _parse_evidence_refs(parsed.get("evidence_refs")),

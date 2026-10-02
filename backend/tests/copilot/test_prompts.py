@@ -70,3 +70,28 @@ def test_meeting_help_is_said_for_this_conversation_not_copied():
     # The playbook gives the approach, not the words to paste.
     assert "adapted only so it fits" not in PLAYBOOK_USER_SUFFIX
     assert "follows that answer's approach" in PLAYBOOK_USER_SUFFIX
+
+
+def test_a_meeting_line_a_little_over_the_asked_length_is_kept_not_silenced():
+    import json
+
+    from app.services.copilot.suggest import meeting_suggestion
+
+    # Tied to the call, lines run longer than the 90 asked for; silencing them withdrew the card
+    # the rep was already looking at (2026-10-03 test: the question and trust cards).
+    line = "Entiendo el miedo con vuestros ocho comerciales en clínicas dentales: ¿qué os preocupa que escriba mal en HubSpot?"
+    result = meeting_suggestion(json.dumps({"is_objection": True, "objection_type": "trust", "say_this": line}))
+    assert result["say_this"] == line
+    rambling = "x " * 120
+    assert meeting_suggestion(json.dumps({"is_objection": True, "objection_type": "trust", "say_this": rambling}))["is_objection"] is False
+
+
+def test_live_help_reasoning_follows_the_setting(monkeypatch):
+    from app.config import settings
+    from app.services.copilot import suggest
+
+    # Gemini Flash-Lite refuses "none"; GPT-6 Luna is ~1 s slower to its first word with "minimal".
+    monkeypatch.setattr(settings, "COPILOT_REASONING_EFFORT", None, raising=False)
+    assert suggest.live_reasoning() == {"reasoning": {"effort": "minimal"}}
+    monkeypatch.setattr(settings, "COPILOT_REASONING_EFFORT", "none", raising=False)
+    assert suggest.live_reasoning() == {"reasoning": {"effort": "none"}}

@@ -29,7 +29,7 @@ def test_everything_else_stays_silent():
         _raw(is_objection=False),
         _raw(objection_type="none"),
         _raw(say_this="   "),
-        _raw(say_this="x" * 91),
+        _raw(say_this="x" * 161),  # past what is shown (MEETING_LINE_SHOW_MAX)
         "not json",
         "",
     ):
@@ -38,7 +38,7 @@ def test_everything_else_stays_silent():
 
 
 def test_long_follow_up_is_dropped_but_the_line_stays():
-    result = meeting_suggestion(_raw(next_question="y" * 120))
+    result = meeting_suggestion(_raw(next_question="y" * 170))
     assert result["is_objection"] is True and result["next_question"] == ""
 
 
