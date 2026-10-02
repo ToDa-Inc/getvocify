@@ -147,7 +147,8 @@ class LiveReport:
             return
         for provider, sides in self.tracks.items():
             for label, track in sides.items():
-                text = "\n".join(f"[{start:.1f}] {words}" for start, _, words in track.finals)
+                # One line per chunk: a line per sentence hits the platform's log rate limit.
+                text = " ".join(f"[{start:.1f}] {words}" for start, _, words in sorted(track.finals))
                 parts = [text[i : i + LOG_CHUNK] for i in range(0, len(text), LOG_CHUNK)] or [""]
                 for n, part in enumerate(parts, 1):
-                    logger.info("Live transcript %s %s %s %d/%d\n%s", call, provider, label, n, len(parts), part)
+                    logger.info("Live transcript %s %s %s %d/%d %s", call, provider, label, n, len(parts), part)

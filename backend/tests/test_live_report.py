@@ -49,5 +49,6 @@ def test_report_goes_to_the_logs_with_both_transcripts(caplog):
         report.log("u1", {"rep": "es"})
     lines = [r.getMessage() for r in caplog.records]
     assert lines[0].startswith("Live report ") and '"service": "live"' in lines[0]
-    assert any("speechmatics rep 1/1\n[1.0] hola qué tal" in line for line in lines)
-    assert any("deepgram rep 1/1\n[1.0] hola que tal" in line for line in lines)
+    assert any("speechmatics rep 1/1 [1.0] hola qué tal" in line for line in lines)
+    assert any("deepgram rep 1/1 [1.0] hola que tal" in line for line in lines)
+    assert not any("\n" in line for line in lines)
