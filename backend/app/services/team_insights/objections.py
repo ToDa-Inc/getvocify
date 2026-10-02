@@ -136,9 +136,10 @@ def objection_counts(
         bucket[_resolution_bucket(row)] += 1
         if include_guidance and row.get("resolution") == "resolved":
             response = response_text(row.get("response"))
-            if response:
+            if len(response.split()) >= 3:
+                # The tightest real answer reads as an example; the latest one is often a monologue.
                 current = best_example.get(name)
-                if current is None or instant > current[0]:
+                if current is None or (len(response), -instant.timestamp()) < (len(current[1]), -current[0].timestamp()):
                     best_example[name] = (instant, response)
     ordered = []
     for name, parts in tallies.items():

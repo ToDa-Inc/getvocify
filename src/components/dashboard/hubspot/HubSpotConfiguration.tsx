@@ -189,8 +189,6 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
                         default_pipeline_name: p.label,
                         default_stage_id: p.stages[0]?.id || "",
                         default_stage_name: p.stages[0]?.label || "",
-                        meeting_booked_pipeline_id: null,
-                        meeting_booked_stage_id: null,
                       }));
                     }
                   }}
@@ -242,23 +240,36 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
             <div className="relative">
               <select
                 value={config.meeting_booked_stage_id ?? ""}
-                disabled={readOnly || !selectedPipeline}
+                disabled={readOnly || pipelines.length === 0}
                 onChange={(e) => {
                   const stageId = e.target.value || null;
+                  // The stage where reps mark a booked meeting may live in any pipeline (an outbound
+                  // BDR board), not only the one new deals go to.
+                  const owner = stageId ? pipelines.find((pl) => pl.stages.some((st) => st.id === stageId)) : undefined;
                   setConfig((prev) => ({
                     ...prev,
-                    meeting_booked_pipeline_id: stageId ? selectedPipeline?.id ?? null : null,
+                    meeting_booked_pipeline_id: owner?.id ?? null,
                     meeting_booked_stage_id: stageId,
                   }));
                 }}
                 className="w-full h-10 pl-4 pr-10 rounded-full border border-border/40 bg-secondary/5 text-sm text-foreground appearance-none cursor-pointer focus:outline-none disabled:opacity-60"
               >
                 <option value="">{t.product.meetingBookedStageNone}</option>
-                {selectedPipeline?.stages.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
+                {pipelines.length > 1
+                  ? pipelines.map((pl) => (
+                      <optgroup key={pl.id} label={pl.label}>
+                        {pl.stages.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))
+                  : selectedPipeline?.stages.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
             </div>

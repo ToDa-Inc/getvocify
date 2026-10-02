@@ -262,9 +262,10 @@ def test_objections_have_share_answered_and_a_nameless_best_example():
 def test_best_example_is_the_most_recent_call_not_the_latest_extraction():
     older, _ = _call("b-old", at="2026-09-22T09:00:00+00:00")
     newer, _ = _call("b-new", at="2026-09-23T09:00:00+00:00")
-    old_row = _pattern("b-old", "price", resolution="resolved", response="respuesta antigua")
+    # Equally tight answers: the most recent call's wins (its time, not the extraction's).
+    old_row = _pattern("b-old", "price", resolution="resolved", response="primera respuesta aqui")
     new_row = {
-        **_pattern("b-new", "price", resolution="resolved", response="respuesta reciente"),
+        **_pattern("b-new", "price", resolution="resolved", response="segunda respuesta aqui"),
         "created_at": "2026-09-24T00:00:00+00:00",  # extracted earlier than old_row
     }
     body = build_insights(
@@ -278,7 +279,7 @@ def test_best_example_is_the_most_recent_call_not_the_latest_extraction():
         end=datetime(2026, 9, 28, tzinfo=timezone.utc),
         motion="discovery",
     )
-    assert body["objections"][0]["best_example"] == "respuesta reciente"
+    assert body["objections"][0]["best_example"] == "segunda respuesta aqui"
     assert body["objections"][0]["answered"] is False
 
 

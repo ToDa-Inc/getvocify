@@ -220,7 +220,8 @@ export function processHealthView(flow: ProcessHealthFlow, copy: ProductTranslat
   return { tone: entry.tone, title: String(copy[entry.title]), detail };
 }
 
-export const HOS_DEFAULT_PERIOD: HosPeriod = "month";
+// A full window: "this month" is empty for days after the 1st and looks like a team doing nothing.
+export const HOS_DEFAULT_PERIOD: HosPeriod = "last_30";
 
 export type DiagnosisTone = ProcessTone;
 export type Diagnosis = {

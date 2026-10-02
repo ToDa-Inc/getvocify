@@ -232,12 +232,19 @@ def _first_plain_line(summary: str) -> str:
     return ""
 
 
+_NOT_REVIEWED = frozenset({"no_conversation", "not_a_sales_call", "dictated_note"})
+
+
 def review_memos_from(memos: list[dict], *, limit: int = 3) -> list[dict]:
     """Up to three recent conversations that already have a summary. No new read."""
     ranked: list[tuple[str, str, str]] = []
     for memo in memos:
         extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
         intel = (extraction or {}).get("intelligence") if isinstance((extraction or {}).get("intelligence"), dict) else {}
+        call = intel.get("call") if isinstance(intel.get("call"), dict) else {}
+        # What a Head of Sales reviews is a conversation with a prospect, not a test or a dictated note.
+        if call.get("reached_conversation") is False or call.get("call_type") in _NOT_REVIEWED:
+            continue
         outcome = ((intel.get("next") or {}).get("outcome") or {}) if isinstance(intel.get("next"), dict) else {}
         # How the call ended (C04 v8) says more to a Head of Sales than the note's first line.
         line = " ".join(str((outcome or {}).get("text") or "").split()) or _first_plain_line(
@@ -417,7 +424,17 @@ def load_team_adherence_inputs(
         # The guidance of what applies to calls now: a paused or deleted flow contributes nothing, but the
         # company still has a playbook (playbook_present), so adherence stays visible.
         playbook_present = has_published_playbook(supabase, company_id)
-        for snapshot in live_snapshots(supabase, company_id):
+        # Each objection's "how to" comes from the playbook of the calls being read: an SDR's cold
+        # calls answer a price objection with the cold-call playbook's words, not the closing one's.
+        motion_counts: dict[str, int] = {}
+        for meta in memo_meta.values():
+            if meta.get("motion"):
+                motion_counts[str(meta["motion"])] = motion_counts.get(str(meta["motion"]), 0) + 1
+        snapshots = sorted(
+            live_snapshots(supabase, company_id),
+            key=lambda snapshot: -motion_counts.get(str(snapshot.get("sales_motion_key")), 0),
+        )
+        for snapshot in snapshots:
             playbook_entries.extend(snapshot["entries"])
     except _NoRepsInRole:
         pass
