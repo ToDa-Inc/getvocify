@@ -250,6 +250,16 @@ function keyedTurns(state: MeetingTranscript): KeyedTurn[] {
   return turns;
 }
 
+/** The mic hearing the call while it's still being written: never shown as the rep. */
+function isEchoTail(state: MeetingTranscript, key: SpeakerKey, pending: string): boolean {
+  const start = state.interimStarts?.[key];
+  if (key !== "rep" || start === undefined) return false;
+  const meeting = state.segments.filter((segment) => segment.speaker === "prospect");
+  const live = state.interims.prospect;
+  if (live) meeting.push({ speaker: "prospect", text: live, start, end: start });
+  return isEcho({ speaker: "rep", text: pending, start, end: start }, meeting);
+}
+
 type DisplayItem = { seen: number; speaker: MeetingSpeaker | null; text: string; pending: string };
 
 const settledRowsCache = new WeakMap<MeetingSegment[], MeetingDisplayTurn[]>();
@@ -306,7 +316,8 @@ export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTur
   const nextSeen = state.nextSeen ?? state.segments.length;
   const tails = SPEAKER_ORDER.flatMap((key) => {
     const pending = state.interims[key];
-    return pending ? [{ seen: state.interimSeen?.[key] ?? nextSeen, speaker: speakerFromKey(key), text: "", pending }] : [];
+    if (!pending || isEchoTail(state, key, pending)) return [];
+    return [{ seen: state.interimSeen?.[key] ?? nextSeen, speaker: speakerFromKey(key), text: "", pending }];
   }).sort((a, b) => a.seen - b.seen);
   // A tail older than the last settled bubble still goes last: settled bubbles never move.
   return displayRows(tails, rows);

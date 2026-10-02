@@ -299,3 +299,15 @@ describe("resetChannel", () => {
     assert.equal(resetChannel(state, "nobody", 0), state);
   });
 });
+
+describe("echo while still being written", () => {
+  it("hides the mic's tail when it repeats the call, and keeps the rep's own words", () => {
+    const state = [
+      { text: "departamentos de captación", isFinal: false, audioChannel: "prospect", start: 40, end: 41 },
+      { text: "departamentos de", isFinal: false, audioChannel: "rep", start: 40.2, end: 41 },
+    ].reduce(applyChannelResult, EMPTY_MEETING_TRANSCRIPT);
+    assert.deepEqual(meetingDisplayTurns(state).map((row) => row.speaker), ["prospect"]);
+    const own = applyChannelResult(state, { text: "te paso la propuesta", isFinal: false, audioChannel: "rep", start: 41 });
+    assert.deepEqual(meetingDisplayTurns(own).map((row) => row.speaker), ["prospect", "rep"]);
+  });
+});
