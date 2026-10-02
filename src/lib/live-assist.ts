@@ -152,6 +152,13 @@ export function draftCard(type: string, latestTurn: string, at: number): AssistC
  * Ask only after the other side says something substantial; returns the key used
  * to avoid asking twice about the same words.
  */
+/** How long after their last word changed live help asks. A settled sentence is asked about at
+ * once; words still settling only after a real pause, never on a breath mid-sentence (asking
+ * half a sentence finds nothing and holds back the ask about the whole one). */
+export function askAfterMs(input: { settled: boolean }): number {
+  return input.settled ? 300 : 2500;
+}
+
 /** What a turn says on screen: its settled words, then the ones still settling. */
 function spoken(turn: MeetingDisplayTurn): string {
   return [turn.text.trim(), turn.pending.trim()].filter(Boolean).join(" ");
@@ -161,7 +168,7 @@ export function assistContext(
   turns: MeetingDisplayTurn[],
   /** What the last ask already covered of their current turn: only the words since then are new. */
   asked?: { turnKey: string; length: number } | null,
-): (AssistContext & { key: string; turnKey: string; length: number }) | null {
+): (AssistContext & { key: string; turnKey: string; length: number; settled: boolean }) | null {
   // Words still settling count: the transcription can take seconds to settle the end of a
   // sentence, and that end is usually the objection. A pause in what they say is enough.
   const theirs = [...turns].reverse().find((turn) => turn.speaker === "prospect" && spoken(turn));
@@ -178,7 +185,14 @@ export function assistContext(
     .map((turn) => (turn.label ? `${turn.label}: ${spoken(turn)}` : spoken(turn)))
     .join("\n")
     .slice(-WINDOW_CHARS);
-  return { key: `${theirs.key}:${said.length}`, turnKey: theirs.key, length: said.length, latestTurn, transcriptWindow };
+  return {
+    key: `${theirs.key}:${said.length}`,
+    turnKey: theirs.key,
+    length: said.length,
+    settled: !theirs.pending.trim(),
+    latestTurn,
+    transcriptWindow,
+  };
 }
 
 /** Only a real objection with something to say becomes a card; no filler advice. */

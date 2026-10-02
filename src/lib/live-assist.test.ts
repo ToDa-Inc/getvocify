@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { addCard, assistContext, objectionCard, partialSayThis } from "./live-assist.ts";
+import { addCard, assistContext, askAfterMs, objectionCard, partialSayThis } from "./live-assist.ts";
 import type { MeetingDisplayTurn } from "./meeting-transcript.ts";
 
 const turn = (key: string, speaker: "rep" | "prospect", text: string, pending = ""): MeetingDisplayTurn => ({
@@ -48,6 +48,7 @@ describe("assistContext", () => {
   it("reads the words still settling too, so a pause is enough to ask", () => {
     const context = assistContext([turn("1", "prospect", "Ya, pero la verdad", "es que nos parece bastante caro")]);
     assert.equal(context?.latestTurn, "Ya, pero la verdad es que nos parece bastante caro");
+    assert.equal(context?.settled, false);
   });
 
   it("a few new words after the last ask are not worth asking about", () => {
@@ -57,6 +58,7 @@ describe("assistContext", () => {
 
   it("a new turn of theirs is asked about whole", () => {
     const context = assistContext([turn("2", "prospect", "Esto no lo decido yo, lo ve mi director financiero.")], { turnKey: "1", length: 40 });
+    assert.equal(context?.settled, true);
     assert.equal(context?.latestTurn, "Esto no lo decido yo, lo ve mi director financiero.");
   });
 
@@ -173,5 +175,15 @@ describe("partialSayThis", () => {
     assert.equal(partialSayThis('{"say_this": "Hola \\'), "Hola ");
     assert.equal(partialSayThis('{"say_this": "caf\\u00'), "caf");
     assert.equal(partialSayThis('{"say_this": "caf\\u00e9 ya'), "café ya");
+  });
+});
+
+describe("askAfterMs", () => {
+  it("asks right after their sentence settles", () => {
+    assert.equal(askAfterMs({ settled: true }), 300);
+  });
+
+  it("words still settling wait long enough to be a real pause, never a breath mid-sentence", () => {
+    assert.equal(askAfterMs({ settled: false }), 2500);
   });
 });

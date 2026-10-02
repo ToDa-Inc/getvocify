@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   addCard,
+  askAfterMs,
   assistContext,
   cardVisible,
   cooldownKey,
@@ -17,10 +18,8 @@ function note(name: string, details: Record<string, unknown> = {}) {
   getDesktopBridge()?.shell.log?.(name, details);
 }
 
-/** Wait for a pause in what they say before asking. */
-const PAUSE_MS = 1000;
 /** Never ask more often than this, so help never chases every word. */
-const MIN_GAP_MS = 6000;
+const MIN_GAP_MS = 3000;
 
 /**
  * Asks the assist sources after the other side pauses. As soon as a source knows
@@ -83,7 +82,8 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
 
   useEffect(() => {
     if (!context || key === lastKeyRef.current) return;
-    const wait = Math.max(PAUSE_MS, lastAskRef.current + MIN_GAP_MS - Date.now());
+    // A settled sentence is asked about at once; words still settling only after a real pause.
+    const wait = Math.max(askAfterMs({ settled: found!.settled }), lastAskRef.current + MIN_GAP_MS - Date.now());
     const timer = window.setTimeout(() => {
       lastKeyRef.current = key;
       askedRef.current = { turnKey: found!.turnKey, length: found!.length };
