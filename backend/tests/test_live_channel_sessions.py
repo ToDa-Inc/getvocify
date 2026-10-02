@@ -208,6 +208,38 @@ def test_mai_sends_speech_with_a_little_before_and_after_and_holds_silence():
     assert round(stream.heard_s, 1) == 4.1
 
 
+def test_mai_hears_the_quiet_after_speech_until_it_settles_the_last_words():
+    from array import array
+    from app.services.live_channel_sessions import HANG_S, PRE_ROLL_S, SETTLE_TAIL_S, MaiStream
+
+    quiet = bytes(3200)  # 100 ms
+    voice = array("h", [3000, -3000] * 800).tobytes()
+    stream = MaiStream("prospect", "es", None, vocab=[], offset_s=0.0, on_event=_noop)
+    stream.feed(voice)
+    stream.events({"type": "transcript-delta", "delta": " es"})
+    stream.events({"type": "transcript-partial", "text": " más que suficiente."})
+    for _ in range(10):
+        stream.feed(quiet)
+    # The hang, then the quiet keeps going while words are still unsettled.
+    assert round(stream.fed_s, 1) == 1.1
+    stream.events({"type": "transcript-delta", "delta": " más que suficiente."})  # no partial after it: all settled
+    for _ in range(10):
+        stream.feed(quiet)
+    assert round(stream.fed_s, 1) == 1.1
+
+    # MAI never settles: the quiet stops at the cap.
+    stuck = MaiStream("prospect", "es", None, vocab=[], offset_s=0.0, on_event=_noop)
+    stuck.feed(voice)
+    stuck.events({"type": "transcript-partial", "text": " y luego"})
+    for _ in range(int((HANG_S + SETTLE_TAIL_S) * 10) + 30):
+        stuck.feed(quiet)
+    assert round(stuck.fed_s, 1) == round(0.1 + HANG_S + SETTLE_TAIL_S, 1)
+    # Speech again goes out with the moment before it, and starts a fresh tail.
+    stuck.feed(voice)
+    assert round(stuck.fed_s, 1) == round(0.2 + HANG_S + SETTLE_TAIL_S + PRE_ROLL_S, 1)
+    assert stuck.tail_s == 0.0
+
+
 def test_a_quiet_side_still_keeps_its_session_alive():
     from app.services.live_channel_sessions import KEEPALIVE_S, MaiStream
 
