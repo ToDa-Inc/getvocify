@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { FileText, Paperclip, X } from "@phosphor-icons/react";
+import { FileText, Paperclip, X } from "lucide-react";
 import VoiceComposer from "@/features/ask/components/VoiceComposer";
 import { blobBase64, errorCode, playbooksApi } from "@/features/playbooks/api";
 import { Button } from "@/components/ui/button";
@@ -96,10 +96,10 @@ export function PlaybookStart({
         {file ? (
           <div className={cn("flex items-center justify-center rounded-lg border border-border bg-background px-4", minHeight)}>
             <span className="inline-flex items-center gap-2 rounded-full bg-secondary/60 py-1.5 pl-3 pr-1 text-sm text-foreground">
-              <FileText size={14} weight="light" />
+              <FileText size={14} strokeWidth={1.5} />
               <span className="max-w-[16rem] truncate">{file.name}</span>
               <IconAction label={copy.startRemoveFile} disabled={busy} onClick={() => setFile(null)}>
-                <X size={12} weight="light" />
+                <X size={12} strokeWidth={1.5} />
               </IconAction>
             </span>
           </div>
@@ -134,7 +134,7 @@ export function PlaybookStart({
         ) : null}
         {!busy ? (
           <IconAction label={copy.startAttach} onClick={() => input.current?.click()}>
-            <Paperclip size={16} weight="light" />
+            <Paperclip size={16} strokeWidth={1.5} />
           </IconAction>
         ) : null}
         <input

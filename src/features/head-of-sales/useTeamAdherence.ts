@@ -44,3 +44,12 @@ export function useTeamAdherence(period: HosPeriod, salesRole: HosSalesRole, opt
     placeholderData: (previous) => previous,
   });
 }
+
+export function currentTotals(data: HosAdherence | undefined): HosTotals {
+  return {
+    attempts: data?.attempts ?? 0,
+    connected: data?.connected ?? 0,
+    meetings: data?.meetings ?? 0,
+    adherence: data?.adherence ?? null,
+  };
+}

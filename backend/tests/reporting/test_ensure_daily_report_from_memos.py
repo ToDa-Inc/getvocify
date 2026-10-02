@@ -22,6 +22,7 @@ AT_CUTOFF = datetime(2026, 9, 22, 16, 0, tzinfo=timezone.utc)
 MEMO_COLUMNS = {
     "id", "company_id", "user_id", "screening_outcome", "extraction", "capture_started_at", "created_at",
     "source", "source_type", "interaction_kind", "sales_motion_key", "followup",
+    "hubspot_contact_id", "hubspot_deal_id",  # real columns; rep_outcome stays out to cover a DB without 062
 }
 
 
@@ -119,6 +120,10 @@ class FakeSupabase:
             "reports": [],
             "report_deliveries": [],
             "memos": memos,
+            # The rep accepted the meeting Vocify proposed: that is their declaration of the meeting.
+            "meeting_proposals": [
+                {"memo_id": m["id"], "decision": "accepted"} for m in memos if m.get("_rep_booked")
+            ],
             "brief_preferences": [{"user_id": USER, "timezone": MADRID}],
             "team_outcome_observations": [],
             "report_notifications": [],
@@ -163,6 +168,7 @@ def _memo_in_period(*, screening: str = "connected", meeting: bool = False) -> d
         "capture_started_at": captured,
         "created_at": captured,
         "extraction": {"intelligence": intel},
+        "_rep_booked": meeting,
     }
 
 

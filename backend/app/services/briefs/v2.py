@@ -105,7 +105,14 @@ def _timed(intelligence: dict, commitment: Commitment) -> bool:
 
 
 def _bad_moment(intelligence: dict) -> str | None:
-    """The prospect's own words when the call caught them at a bad moment (C04 obstacle)."""
+    """The prospect's own words when the whole call was a bad moment: they could not talk and
+    nothing else happened. A "me pillas en una reunión" halfway through a real conversation, or
+    before booking a meeting, is not that call."""
+    call = intelligence.get("call") if isinstance(intelligence.get("call"), dict) else None
+    if call is not None and call.get("call_type") != "bad_moment":
+        return None
+    if call is None and (intelligence.get("meeting") or {}).get("agreed") is True:
+        return None
     for item in intelligence.get("objections") or []:
         if not isinstance(item, dict) or item.get("kind") != "obstacle" or item.get("category") != "bad_moment":
             continue
@@ -215,6 +222,62 @@ def sdr_hook_line(*, memo: dict, intelligence: dict, tz_name: str, now: datetime
     if pending:
         text = f"{text} Pendiente: {pending}."
     return _line("hook", text, source_ref=memo.get("id"), observed_at=when)
+
+
+def _when_label(value, precision: str | None, *, now: datetime, tz_name: str) -> str | None:
+    due = _as_dt(value)
+    if due is None:
+        return None
+    local = due.astimezone(_zone(tz_name))
+    day = "hoy" if local.date() == now.astimezone(_zone(tz_name)).date() else f"el {_day_label(local, tz_name)}"
+    return f"{day} a las {local:%H:%M}" if precision == "time" else day
+
+
+def _said_in(text: str | None, name: str | None) -> bool:
+    """Whether a line already names this person: the brief never repeats itself."""
+    return bool(text and name and name.split()[0].lower() in text.lower())
+
+
+def sdr_next_lines(*, memo: dict, intelligence: dict, tz_name: str, now: datetime) -> list[dict]:
+    """v8 SDR brief, from the call's own `next` block: what happened, what is owed, and the
+    callback with its reason (or the hook to open with). Every line is a fact of that call."""
+    nxt = intelligence.get("next") if isinstance(intelligence.get("next"), dict) else {}
+    when = next(
+        (value for value in (memo.get("capture_started_at"), memo.get("created_at")) if _as_dt(value)),
+        None,
+    )
+    day = _day_label(when, tz_name)
+    ref = memo.get("id")
+    lines: list[dict] = []
+    outcome = (nxt.get("outcome") or {}).get("text") if isinstance(nxt.get("outcome"), dict) else None
+    # The outcome already says, cleanly, that they could not talk; the raw quote is only a
+    # fallback when there is no outcome (ASR quotes stutter: "estoy estoy en una…").
+    obstacle = None if outcome else _bad_moment(intelligence)
+    if day:
+        lines.append(_line("hook", f"Llamada el {day}: {outcome}" if outcome else f"Llamada el {day}",
+                           source_ref=ref, observed_at=when))
+    if obstacle:
+        lines.append(_line("obstacle", f"No pudo atenderte: «{obstacle}»", source_ref=ref))
+    email = nxt.get("followup_email") if isinstance(nxt.get("followup_email"), dict) else {}
+    referral = nxt.get("referral") if isinstance(nxt.get("referral"), dict) else None
+    if email.get("needed") and email.get("kind") != "calendar_invite" and email.get("content"):
+        to = f" a {email['to']}" if email.get("to") else ""
+        lines.append(_line("pending", f"Le debes un correo{to}: {_lower_first(_strip_final_period(email['content']))}.", source_ref=ref))
+    elif referral and (referral.get("name") or referral.get("role")) and not _said_in(outcome, referral.get("name")):
+        who = " ".join(x for x in (referral.get("name"), f"({referral['role']})" if referral.get("role") and referral.get("name") else referral.get("role")) if x)
+        lines.append(_line("pending", f"Te derivó a {who}.", source_ref=ref))
+    callback = nxt.get("callback") if isinstance(nxt.get("callback"), dict) else {}
+    hook = nxt.get("hook")
+    if callback.get("needed"):
+        label = _when_label(callback.get("when"), callback.get("temporal_precision"), now=now, tz_name=tz_name)
+        label = f" {label}" if label else (f" {callback['when_text']}" if callback.get("when_text") else "")
+        head = f"Te pidió que le llamaras{label}" if callback.get("who_asked") == "prospect" else f"Quedaste en llamarle{label}"
+        reason = _strip_final_period(str(callback.get("reason") or ""))
+        lines.append(_line("why", f"{head}: {_lower_first(reason)}." if reason else f"{head}.", source_ref=ref,
+                           observed_at=callback.get("when")))
+    elif hook:
+        lines.append(_line("why", f"Para abrir: {_lower_first(_strip_final_period(hook))}.", source_ref=ref))
+    return lines[:MAX_LINES]
 
 
 def sdr_why_line(
@@ -427,7 +490,9 @@ def prepare_brief_v2(
     intelligence = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
 
     lines: list[dict] = []
-    if sdr_two_line:
+    if sdr_two_line and isinstance(intelligence.get("next"), dict):
+        lines = sdr_next_lines(memo=latest, intelligence=intelligence, tz_name=tz_name, now=now)
+    elif sdr_two_line:
         # T7: SDR/general, brief for a call - two lines, no playbook `say` line.
         hook = sdr_hook_line(memo=latest, intelligence=intelligence, tz_name=tz_name, now=now)
         if hook:

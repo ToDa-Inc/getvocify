@@ -116,7 +116,7 @@ def activity_counts(rows: list[dict], *, start: datetime, end: datetime) -> dict
         screening = row.get("screening")
         if screening in _SCREENING_ATTEMPTS:
             attempts += 1
-            if screening == "connected":
+            if row.get("conversation", screening == "connected"):
                 connected += 1
         if row.get("meeting_agreed") is True:
             meetings += 1
@@ -127,23 +127,32 @@ def activity_row_from_memo(memo: dict) -> dict | None:
     screening = memo.get("screening_outcome")
     if screening not in _SCREENING_ATTEMPTS:
         return None
-    intel = memo.get("intelligence") or (memo.get("extraction") or {}).get("intelligence") or {}
-    meeting = intel.get("meeting") if isinstance(intel, dict) else {}
-    agreed = meeting.get("agreed") if isinstance(meeting, dict) else None
     observed = memo.get("observed_at") or memo.get("capture_started_at") or memo.get("created_at")
     return {
         "screening": screening,
-        "meeting_agreed": agreed is True,
+        "conversation": memo_had_conversation(memo),
+        "meeting_agreed": memo_meeting_agreed(memo),
         "observed_at": observed,
         "user_id": str(memo.get("user_id") or ""),
     }
 
 
+def memo_had_conversation(memo: dict) -> bool:
+    """A conversation is a connected line where someone actually talked with the rep: the line can
+    connect to a voicemail, a switchboard or silence, which the call reading tells apart. The same
+    definition coaching uses, so the Head of Sales and the rep see one number."""
+    if memo.get("screening_outcome") != "connected":
+        return False
+    extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+    intel = memo.get("intelligence") or (extraction or {}).get("intelligence") or {}
+    call = intel.get("call") if isinstance(intel, dict) and isinstance(intel.get("call"), dict) else {}
+    return call.get("reached_conversation") is not False
+
+
 def memo_meeting_agreed(memo: dict) -> bool:
-    """The discovery goal (meeting_booked) observed in the interaction itself."""
-    intel = memo.get("intelligence") or (memo.get("extraction") or {}).get("intelligence") or {}
-    meeting = intel.get("meeting") if isinstance(intel, dict) else {}
-    return isinstance(meeting, dict) and meeting.get("agreed") is True
+    """The discovery goal (meeting_booked) as the rep declared it: their outcome after the call, or
+    the deal they moved to the company's meeting-booked stage. Never what a model read in the call."""
+    return memo.get("rep_outcome") == "meeting_booked"
 
 
 def activity_by_rep(rows: list[dict], *, start: datetime, end: datetime) -> dict[str, dict]:
@@ -236,19 +245,32 @@ def _first_plain_line(summary: str) -> str:
     return ""
 
 
+_NOT_REVIEWED = frozenset({"no_conversation", "not_a_sales_call", "dictated_note"})
+
+
 def review_memos_from(memos: list[dict], *, limit: int = 3) -> list[dict]:
     """Up to three recent conversations that already have a summary. No new read."""
     ranked: list[tuple[str, str, str]] = []
     for memo in memos:
         extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
-        line = _first_plain_line(str((extraction or {}).get("summary") or ""))
+        intel = (extraction or {}).get("intelligence") if isinstance((extraction or {}).get("intelligence"), dict) else {}
+        call = intel.get("call") if isinstance(intel.get("call"), dict) else {}
+        # What a Head of Sales reviews is a conversation with a prospect, not a test or a dictated note.
+        if call.get("reached_conversation") is False or call.get("call_type") in _NOT_REVIEWED:
+            continue
+        outcome = ((intel.get("next") or {}).get("outcome") or {}) if isinstance(intel.get("next"), dict) else {}
+        # How the call ended (C04 v8) says more to a Head of Sales than the note's first line.
+        line = " ".join(str((outcome or {}).get("text") or "").split()) or _first_plain_line(
+            str((extraction or {}).get("summary") or "")
+        )
         memo_id = str(memo.get("id") or "").strip()
         if not line or not memo_id:
             continue
         stamp = str(memo.get("capture_started_at") or memo.get("created_at") or "")
-        ranked.append((stamp, memo_id, line[:160]))
+        # A call the intelligence read (we know how it ended) comes before an older, unread one.
+        ranked.append((bool(outcome.get("text")) if isinstance(outcome, dict) else False, stamp, memo_id, line[:160]))
     ranked.sort(reverse=True)
-    return [{"memo_id": memo_id, "line": line} for _, memo_id, line in ranked[:limit]]
+    return [{"memo_id": memo_id, "line": line} for _, _, memo_id, line in ranked[:limit]]
 
 
 def _paged(build: Callable[[], object]) -> list[dict]:
@@ -333,14 +355,16 @@ def load_team_adherence_inputs(
         if role_filtered and not member_ids:
             raise _NoRepsInRole()
 
+        columns = (
+            "id,user_id,company_id,playbook_version_id,"
+            "sales_motion_key,screening_outcome,extraction,"
+            "capture_started_at,created_at,hubspot_contact_id,hubspot_deal_id"
+        )
+
         def build_memos():
             query = (
                 supabase.table("memos")
-                .select(
-                    "id,user_id,company_id,playbook_version_id,"
-                    "sales_motion_key,screening_outcome,extraction,"
-                    "capture_started_at,created_at"
-                )
+                .select(columns + extra_columns[0])
                 .gte("created_at", since.isoformat())
             )
             if member_ids:
@@ -357,7 +381,16 @@ def load_team_adherence_inputs(
 
         memo_ids: list[str] = []
         memo_meta: dict[str, dict] = {}
-        for memo in _paged(build_memos):
+        # rep_outcome (migration 062) is read when the column exists.
+        extra_columns = [",rep_outcome"]
+        try:
+            team_memos = _paged(build_memos)
+        except Exception:
+            extra_columns[0] = ""
+            team_memos = _paged(build_memos)
+        from app.services.coaching.crm_meetings import apply_rep_meetings
+
+        for memo in apply_rep_meetings(supabase, team_memos, batch=_IN_BATCH):
             memo_id = str(memo.get("id"))
             memo_ids.append(memo_id)
             memo_meta[memo_id] = {
@@ -405,7 +438,17 @@ def load_team_adherence_inputs(
         # The guidance of what applies to calls now: a paused or deleted flow contributes nothing, but the
         # company still has a playbook (playbook_present), so adherence stays visible.
         playbook_present = has_published_playbook(supabase, company_id)
-        for snapshot in live_snapshots(supabase, company_id):
+        # Each objection's "how to" comes from the playbook of the calls being read: an SDR's cold
+        # calls answer a price objection with the cold-call playbook's words, not the closing one's.
+        motion_counts: dict[str, int] = {}
+        for meta in memo_meta.values():
+            if meta.get("motion"):
+                motion_counts[str(meta["motion"])] = motion_counts.get(str(meta["motion"]), 0) + 1
+        snapshots = sorted(
+            live_snapshots(supabase, company_id),
+            key=lambda snapshot: -motion_counts.get(str(snapshot.get("sales_motion_key")), 0),
+        )
+        for snapshot in snapshots:
             playbook_entries.extend(snapshot["entries"])
     except _NoRepsInRole:
         pass

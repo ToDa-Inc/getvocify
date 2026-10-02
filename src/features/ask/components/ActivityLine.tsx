@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { CaretRight, Check, X } from "@phosphor-icons/react";
+import { ChevronRight, Check, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { askActivitySummary, askToolLabel } from "@/lib/product-catalog";
 import { useLanguage } from "@/lib/i18n";
 import type { AskStep } from "@/lib/ask-thread";
@@ -10,9 +11,9 @@ function StepMark({ status }: { status: AskStep["status"] }) {
     return <span className="ask-pulse h-1.5 w-1.5 rounded-full bg-beige" aria-hidden="true" />;
   }
   return status === "ok" ? (
-    <Check size={11} weight="bold" className="text-beige" aria-hidden="true" />
+    <Check size={11} strokeWidth={2.25} className="text-beige" aria-hidden="true" />
   ) : (
-    <X size={11} weight="bold" className="text-destructive" aria-hidden="true" />
+    <X size={11} strokeWidth={2.25} className="text-destructive" aria-hidden="true" />
   );
 }
 
@@ -77,16 +78,18 @@ export default function ActivityLine({ steps: allSteps, thinking, settled }: { s
   const looked = distinctSteps(steps, (step) => askToolLabel(step.tool, t.product));
   return (
     <div>
-      <button
+      <Button
         type="button"
+        variant="quiet"
+        size="text"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="-ml-1 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[12.5px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="gap-1.5"
       >
-        <Check size={11} weight="bold" className="text-beige" aria-hidden="true" />
+        <Check size={11} strokeWidth={2.25} className="text-beige" aria-hidden="true" />
         {askActivitySummary(looked.length, t.product)}
-        <CaretRight size={10} weight="bold" className={`transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`} aria-hidden="true" />
-      </button>
+        <ChevronRight size={10} strokeWidth={2.25} className={`transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`} aria-hidden="true" />
+      </Button>
       {open ? (
         <div className="ask-enter mt-2 pl-1">
           <Steps steps={looked} />

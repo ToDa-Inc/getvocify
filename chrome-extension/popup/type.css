@@ -283,7 +283,7 @@
 
 .footer-icon-danger:hover {
   background: rgba(180, 35, 24, 0.08);
-  color: #b42318;
+  color: var(--destructive);
 }
 
 .recordings-section.is-collapsed {
@@ -355,12 +355,12 @@
 }
 
 .crm-field-was {
-  color: #b42318;
+  color: var(--destructive);
 }
 
 .crm-field-row.is-override .crm-field-input,
 .crm-field-row.is-override .custom-select-trigger {
-  color: #067647;
+  color: var(--success);
 }
 
 .dialer-postcall {

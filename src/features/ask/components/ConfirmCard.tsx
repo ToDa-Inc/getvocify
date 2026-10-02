@@ -1,4 +1,4 @@
-import { ArrowSquareOut } from "@phosphor-icons/react";
+import { ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
@@ -10,7 +10,7 @@ export default function ConfirmCard({ card, onConfirm, onCancel }: { card: AskCo
   const settled = card.status === "succeeded" || card.status === "cancelled";
   return (
     <div
-      className="ask-enter space-y-3 rounded-xl border border-beige/25 bg-card px-4 py-3.5 shadow-[0_0_0_4px_hsl(var(--beige)/0.06),0_10px_24px_-18px_rgb(40_30_20/0.3)]"
+      className="ask-enter space-y-3 rounded-xl border border-beige/25 bg-card px-4 py-3.5 shadow-medium ring-4 ring-beige/5"
       role="group"
       aria-label={card.summary}
     >
@@ -35,7 +35,7 @@ export default function ConfirmCard({ card, onConfirm, onCancel }: { card: AskCo
           {card.status === "succeeded" && card.url ? (
             <a href={card.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline">
               {t.product.askConfirmOpenCrm}
-              <ArrowSquareOut size={12} weight="light" aria-hidden="true" />
+              <ExternalLink size={12} strokeWidth={1.5} aria-hidden="true" />
             </a>
           ) : null}
         </p>

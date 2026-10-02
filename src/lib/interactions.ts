@@ -225,3 +225,28 @@ export function timeLabel(iso: string, locale: string): string {
   const at = new Date(iso);
   return Number.isNaN(at.getTime()) ? "" : new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(at);
 }
+
+/**
+ * Extract initials from an attendee's name (falling back to email local-part if no name).
+ * Returns up to 2 uppercase initials, or empty string if neither name nor email.
+ */
+export function initialsOf(attendee: { name: string | null; email: string }): string {
+  const text = attendee.name?.trim() || attendee.email.split("@")[0] || "";
+  // Split by whitespace and dots (for names like "john.doe")
+  const parts = text.split(/[\s.]+/).filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0].charAt(0).toLocaleUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toLocaleUpperCase();
+}
+
+/**
+ * Determine the call outcome label for a call memo.
+ * Returns: "voicemail" for screeningOutcome === "voicemail",
+ *          "no_response" for screeningOutcome === "no_response",
+ *          otherwise "connected" when audioDuration > 0.
+ */
+export function callOutcome(memo: { screeningOutcome?: string | null; audioDuration: number }): "voicemail" | "no_response" | "connected" {
+  if (memo.screeningOutcome === "voicemail") return "voicemail";
+  if (memo.screeningOutcome === "no_response") return "no_response";
+  return "connected";
+}

@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronDown, Search } from "lucide-react";
+import { Check, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Toggle } from "@/components/ui/toggle";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import {
   crmKeys,
@@ -18,6 +19,8 @@ import {
 import { DEFAULT_HUBSPOT_CONFIG, loadHubSpotSetup, type HubSpotObjectTab } from "@/lib/api/hubspot-setup";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 
 const OBJECTS: { id: HubSpotObjectTab; key: FieldListKey; label: string }[] = [
   { id: "deals", key: "allowed_deal_fields", label: "Deals" },
@@ -228,22 +231,21 @@ export const HubSpotFieldPermissions = () => {
             );
           })}
         {members.length > 0 && (
-          <div className="relative">
-            <select
-              aria-label={p.fieldPermsPerson}
-              value={activeScope.kind === "member" ? activeScope.userId : ""}
-              onChange={(e) => e.target.value && pickScope({ kind: "member", userId: e.target.value })}
-              className="h-8 pl-3 pr-8 rounded-full border border-border/40 bg-secondary/5 text-[12px] text-foreground appearance-none cursor-pointer focus:outline-none"
-            >
-              <option value="">{p.fieldPermsPerson}</option>
+          <Select
+            value={activeScope.kind === "member" ? activeScope.userId : ""}
+            onValueChange={(userId) => userId && pickScope({ kind: "member", userId })}
+          >
+            <SelectTrigger size="sm" className="w-auto" aria-label={p.fieldPermsPerson}>
+              <SelectValue placeholder={p.fieldPermsPerson} />
+            </SelectTrigger>
+            <SelectContent>
               {members.map((m) => (
-                <option key={m.user_id} value={m.user_id}>
+                <SelectItem key={m.user_id} value={m.user_id}>
                   {(m.full_name || m.email) + (m.fields ? " •" : "")}
-                </option>
+                </SelectItem>
               ))}
-            </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/40 pointer-events-none" />
-          </div>
+            </SelectContent>
+          </Select>
         )}
       </div>
       {!salesRolesOn && <p className="text-xs text-muted-foreground">{p.fieldPermsRolesOff}</p>}
@@ -313,22 +315,20 @@ export const HubSpotFieldPermissions = () => {
           {candidates.map((c) => {
             const on = shown.includes(c.name);
             return (
-              <button
+              <Toggle
                 key={c.name}
-                type="button"
-                aria-pressed={on}
+                variant="chip"
+                pressed={on}
                 disabled={inherits}
-                onClick={() => toggle(c.name)}
-                className={`flex items-center justify-between px-3 py-2 rounded-xl border text-left transition-all ${
-                  on ? "bg-beige/10 border-beige/30 text-beige" : "bg-background border-border/20 text-muted-foreground"
-                } ${inherits ? "opacity-70 cursor-default" : "hover:border-border/40"}`}
+                onPressedChange={() => toggle(c.name)}
+                className="h-auto w-full justify-between rounded-xl px-3 py-2 text-left disabled:opacity-70"
               >
                 <span className="flex flex-col min-w-0">
                   <span className="text-[11px] font-bold truncate">{c.label}</span>
                   <span className="text-[9px] font-mono opacity-40 truncate">{c.name}</span>
                 </span>
                 {on && <Check className="h-3 w-3 shrink-0 ml-2" />}
-              </button>
+              </Toggle>
             );
           })}
           {candidates.length === 0 && (
@@ -342,7 +342,7 @@ export const HubSpotFieldPermissions = () => {
           type="button"
           onClick={save}
           disabled={saving || !draft}
-          className="flex-1 bg-beige text-cream hover:bg-beige-dark rounded-full text-[11px] font-medium h-10"
+          className="flex-1 bg-beige text-cream hover:bg-beige/90 rounded-full text-[11px] font-medium h-10"
         >
           {saving ? <VocifySpinner size={12} /> : null}
           {p.fieldPermsSave.replace("{name}", scopeName)}

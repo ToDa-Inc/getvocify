@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ClockCounterClockwise, Plus } from "@phosphor-icons/react";
+import { History, Plus } from "lucide-react";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { IconAction } from "@/components/ui/icon-action";
 import AskThread from "@/features/ask/components/AskThread";
@@ -130,11 +130,11 @@ export function InicioPage() {
       <div className={cn("relative flex min-w-0 flex-col md:flex-1", inChat && "min-h-0 flex-1")}>
         <div className="relative z-10 flex shrink-0 justify-end gap-0.5">
           <IconAction label={p.askHistory} onClick={toggleHistory}>
-            <ClockCounterClockwise size={16} weight={historyOpen ? "fill" : "light"} />
+            <History size={16} strokeWidth={historyOpen ? 2.25 : 1.5} />
           </IconAction>
           {inChat ? (
             <IconAction label={p.home.newChat} shortcut={p.home.newChatKey} onClick={goHome}>
-              <Plus size={16} weight="light" />
+              <Plus size={16} strokeWidth={1.5} />
             </IconAction>
           ) : null}
         </div>

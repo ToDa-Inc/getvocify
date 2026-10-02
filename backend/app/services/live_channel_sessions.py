@@ -377,16 +377,8 @@ class ChannelSessions:
                 stream.task.cancel()
             seconds = stream.billed_seconds()
             if seconds:
-                # A database write: off the event loop, other calls keep streaming meanwhile.
-                await asyncio.to_thread(
-                    record_stt_usage,
-                    "speechmatics",
-                    "realtime",
-                    seconds,
-                    channels=1,
-                    model="enhanced",
-                    meta={"stt_mode": "copilot_channels", "language": stream.language, "channel": stream.label},
-                )
+                # Fire and forget: the ledger writes in a thread, other calls keep streaming.
+                record_stt_usage("speechmatics", "realtime", seconds, channels=1, tier="enhanced")
 
     async def _send(self, payload: dict[str, Any]) -> None:
         async with self.send_lock:

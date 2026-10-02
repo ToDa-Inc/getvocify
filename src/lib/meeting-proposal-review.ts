@@ -29,7 +29,7 @@ export type MeetingProposalPhrases = {
   reconcile: string;
 };
 
-export function meetingProposalReadErrorView(title: string, phrases: MeetingProposalPhrases) {
+export function meetingProposalReadErrorView(title: string, phrases?: MeetingProposalPhrases) {
   return {
     visible: true as const,
     title,
@@ -38,4 +38,26 @@ export function meetingProposalReadErrorView(title: string, phrases: MeetingProp
     omit: false,
     phrases,
   };
+}
+
+/** "mar, 29 sept · 16:00 CEST": the meeting's own clock, never the raw ISO string. */
+export function meetingWhen(iso: string | null | undefined, timeZone: string | null | undefined, locale: string): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const format = (zone: string | undefined) => {
+    const day = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", timeZone: zone }).format(date);
+    const time = new Intl.DateTimeFormat(locale, {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: zone,
+      timeZoneName: zone ? "short" : undefined,
+    }).format(date);
+    return `${day} · ${time}`;
+  };
+  try {
+    return format(timeZone || undefined);
+  } catch {
+    return format(undefined);
+  }
 }

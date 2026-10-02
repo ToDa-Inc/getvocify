@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { CompanyRow } from "@/features/playbooks/components/CompanyRow";
+import { CallTypePanel } from "@/features/playbooks/components/CallTypePanel";
+import { CompanyKnowledge } from "@/features/playbooks/components/CompanyKnowledge";
 import { IntakePanel } from "@/features/playbooks/components/IntakePanel";
-import { PlaybookRow } from "@/features/playbooks/components/PlaybookRow";
-import { ProcessFooter } from "@/features/playbooks/components/ProcessFooter";
-import { RuleLine } from "@/features/playbooks/components/RuleLine";
+import { ProcessNav, type NavItem } from "@/features/playbooks/components/ProcessNav";
+import { RuleChange } from "@/features/playbooks/components/RuleChange";
 import { useIntake } from "@/features/playbooks/hooks/useIntake";
 import { usePlaybookProcess } from "@/features/playbooks/hooks/usePlaybookProcess";
 import { BASE_KEYS, COMPANY_ROW } from "@/features/playbooks/keys";
@@ -11,34 +11,35 @@ import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
-import { addableTypes, countLine, rowState, ruleNeeded } from "@/lib/playbook-doc";
+import { addableTypes, publishState, publishSwitch, ruleNeeded, usedForLine } from "@/lib/playbook-doc";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 
 /**
- * "Vuestro proceso" (plan §14–16): one way in for the whole company, one row per call type
- * (plus "Vuestra empresa"), one action to turn changes on. This component only arranges the
- * pieces; the data and actions live in usePlaybookProcess and useIntake.
+ * "Vuestro proceso" (plan §14–16) as a list and a detail: on the left "Vuestra empresa" and
+ * one entry per call type, on the right the one that is open, in tabs. Nothing grows the page:
+ * choosing is one click, and each playbook's layers are tabs instead of one long scroll. One
+ * way in for the whole company (the intake box); each call type publishes its own changes. This
+ * component only arranges the pieces; the data and actions live in usePlaybookProcess and
+ * useIntake.
  */
 export function PlaybookList() {
   const { t } = useLanguage();
   const copy = t.product.pb2;
   const process = usePlaybookProcess();
-  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
   const [browse, setBrowse] = useState(false);
   const [deleteKey, setDeleteKey] = useState<string | null>(null);
   const intake = useIntake({
     refresh: process.refresh,
     onDone: (key) => {
-      setOpenKey(key);
+      if (key) setPicked(key);
       setBrowse(true);
     },
   });
   const { canEdit, empty, list } = process;
-  const showIntake = canEdit && ((empty && !browse) || intake.open);
-  const toggleOpen = (key: string) => setOpenKey((current) => (current === key ? null : key));
 
   if (list.isError) {
     return (
@@ -61,92 +62,114 @@ export function PlaybookList() {
     );
   }
 
-  return (
-    <div className={cn(card, "px-5 md:px-7")}>
-      {showIntake ? <IntakePanel intake={intake} alone={empty} name={process.name} onTemplate={() => setBrowse(true)} /> : null}
+  // First time: the intake box is the whole section. One paste fills everything.
+  if (canEdit && empty && !browse) {
+    return (
+      <div className={cn(card, "px-5 md:px-7")}>
+        <IntakePanel intake={intake} alone name={process.name} onTemplate={() => setBrowse(true)} />
+      </div>
+    );
+  }
 
-      {empty && !browse ? null : (
-        <>
-          {intake.found || intake.foundCompany ? (
-            <div className={cn("space-y-0.5 pt-5 text-sm text-foreground", THEME_TOKENS.motion.fadeIn)} role="status">
-              {intake.found ? (
-                <p>{intake.found === 1 ? copy.foundOne : copy.foundMany.replace("{count}", String(intake.found))}</p>
-              ) : null}
-              {intake.foundCompany ? (
-                <p className="text-muted-foreground">{copy.foundCompany.replace("{summary}", intake.foundCompany)}</p>
-              ) : null}
-            </div>
+  const items: NavItem[] = process.rows.map((row) => ({
+    key: row.key,
+    label: process.name(row.key),
+    state: publishState(row.status, process.details[row.key]),
+    role: row.role && row.role !== "any" ? copy.ruleRoles[row.role] : null,
+  }));
+  const fallbackKey = items.find((item) => item.state !== "empty")?.key ?? items[0]?.key ?? COMPANY_ROW;
+  const selected = picked === COMPANY_ROW || items.some((item) => item.key === picked) ? (picked as string) : fallbackKey;
+  const row = process.rows.find((item) => item.key === selected);
+  const item = items.find((entry) => entry.key === selected);
+
+  const detail = () => {
+    if (canEdit && intake.open) {
+      return <IntakePanel intake={intake} alone={false} name={process.name} onTemplate={() => setBrowse(true)} />;
+    }
+    if (selected === COMPANY_ROW || !row || !item) {
+      return (
+        <CompanyKnowledge
+          key={process.docVersion}
+          canEdit={canEdit}
+          onSaved={process.companySaved}
+        />
+      );
+    }
+    const rule = process.ruleOf(row.key);
+    const line = usedForLine(row.key, rule, process.routing, process.goalOf(row.key), {
+      ...copy,
+      roles: copy.ruleRoles,
+      channels: copy.ruleChannels,
+      contacts: copy.ruleContacts,
+      stages: copy.ruleStages,
+      join: copy.ruleJoin,
+    });
+    return (
+      <CallTypePanel
+        key={`${row.key}:${process.docVersion}`}
+        row={row}
+        label={item.label}
+        role={item.role}
+        state={item.state}
+        switchOn={publishSwitch(row.status, process.details[row.key])}
+        canEdit={canEdit}
+        busy={process.busyKey === row.key}
+        // The two base flows empty instead of disappearing, so an empty one has nothing to delete.
+        deletable={item.state !== "empty" || !BASE_KEYS.includes(row.key)}
+        template={process.template(row.key)}
+        onPublish={() => void process.publish(row.key)}
+        onSwitch={(on) => void process.toggle(row.key, on)}
+        onDelete={() => setDeleteKey(row.key)}
+        onSaved={() => void process.refresh()}
+        registerFlush={(flush) => process.registerFlush(row.key, flush)}
+        meta={
+          <p className={THEME_TOKENS.typography.capsLabel}>
+            {line}
+            {canEdit && ruleNeeded(process.rows, row.key, process.routing) ? (
+              <>
+                {" · "}
+                <RuleChange rule={rule} stages={process.stages} onSave={(next) => process.saveRule(row.key, next)} />
+              </>
+            ) : null}
+          </p>
+        }
+      />
+    );
+  };
+
+  return (
+    <div className={cn(card, "space-y-4 p-4 md:p-6")}>
+      {intake.found || intake.foundCompany ? (
+        <div className={cn("space-y-0.5 bg-beige/10 px-4 py-2.5 text-sm text-foreground", THEME_TOKENS.radius.control, THEME_TOKENS.motion.fadeIn)} role="status">
+          {intake.found ? <p>{intake.found === 1 ? copy.foundOne : copy.foundMany.replace("{count}", String(intake.found))}</p> : null}
+          {intake.foundCompany ? (
+            <p className="text-muted-foreground">{copy.foundCompany.replace("{summary}", intake.foundCompany)}</p>
           ) : null}
-          <ul className="py-1">
-            <CompanyRow
-              open={openKey === COMPANY_ROW}
-              summary={process.companySummary}
-              canEdit={canEdit}
-              documentVersion={process.docVersion}
-              onToggleOpen={() => toggleOpen(COMPANY_ROW)}
-              onSaved={process.companySaved}
-            />
-            {process.rows.map((row) => {
-              const state = rowState(row.status, process.details[row.key]);
-              const goal = process.goalOf(row.key);
-              return (
-                <PlaybookRow
-                  key={row.key}
-                  row={row}
-                  label={process.name(row.key)}
-                  state={state}
-                  counts={countLine(process.details[row.key], copy)}
-                  open={openKey === row.key}
-                  canEdit={canEdit}
-                  busy={process.busyKey === row.key}
-                  // The two base flows empty instead of disappearing, so an empty one has nothing to delete.
-                  deletable={state !== "empty" || !BASE_KEYS.includes(row.key)}
-                  documentVersion={process.docVersion}
-                  template={process.template(row.key)}
-                  onToggleOpen={() => toggleOpen(row.key)}
-                  onSwitch={(on) => void process.toggle(row.key, on)}
-                  onDelete={() => setDeleteKey(row.key)}
-                  onSaved={() => void process.refresh()}
-                  registerFlush={(flush) => process.registerFlush(row.key, flush)}
-                  meta={
-                    <>
-                      {goal && copy.goals[goal] ? <p className={THEME_TOKENS.typography.capsLabel}>{copy.goals[goal]}</p> : null}
-                      {state === "paused" ? <p className={THEME_TOKENS.typography.capsLabel}>{copy.pausedLine}</p> : null}
-                      {canEdit && ruleNeeded(process.rows, row.key, process.routing) ? (
-                        <RuleLine
-                          rule={process.ruleOf(row.key)}
-                          stages={process.stages}
-                          onSave={(rule) => process.saveRule(row.key, rule)}
-                        />
-                      ) : null}
-                    </>
-                  }
-                />
-              );
-            })}
-          </ul>
-          {canEdit ? (
-            <ProcessFooter
-              showAddFromDoc={!showIntake}
-              onAddFromDoc={() => intake.setOpen(true)}
-              addable={addableTypes(process.types, process.motions)}
-              stages={process.stages}
-              showAddType={process.routing}
-              onTypeAdded={(key) => {
-                void process.refresh();
-                setOpenKey(key);
-              }}
-              pendingCount={process.pending.length}
-              activating={process.activating}
-              onActivate={() =>
-                void process.activate().then((ok) => {
-                  if (ok) intake.clearFound();
-                })
-              }
-            />
-          ) : null}
-        </>
-      )}
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-4 md:flex-row md:gap-6">
+        <ProcessNav
+          items={items}
+          selected={intake.open ? "" : selected}
+          companyFilled={Boolean(process.companySummary)}
+          canEdit={canEdit}
+          onSelect={(key) => {
+            if (intake.open) intake.close();
+            intake.clearFound();
+            setPicked(key);
+          }}
+          onImport={() => intake.setOpen(true)}
+          addable={addableTypes(process.types, process.motions)}
+          stages={process.stages}
+          showAddType={process.routing}
+          onTypeAdded={(key) => {
+            void process.refresh();
+            setPicked(key);
+          }}
+        />
+        <div className="min-w-0 flex-1">{detail()}</div>
+      </div>
 
       <ConfirmAction
         open={deleteKey !== null}
@@ -162,10 +185,7 @@ export function PlaybookList() {
         onConfirm={() => {
           const key = deleteKey;
           if (!key) return;
-          void process.remove(key).then((ok) => {
-            if (ok && openKey === key) setOpenKey(null);
-            setDeleteKey(null);
-          });
+          void process.remove(key).then(() => setDeleteKey(null));
         }}
       />
     </div>

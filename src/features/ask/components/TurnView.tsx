@@ -37,7 +37,7 @@ export default function TurnView({ message, isLast, onRetry, onChoose, onConfirm
   if (message.role === "user") {
     return (
       <div className="ask-enter flex justify-end">
-        <p className="max-w-[85%] whitespace-pre-line rounded-[20px] rounded-br-md border border-[hsl(var(--hairline))] bg-secondary/70 px-4 py-2.5 text-[15px] leading-relaxed text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.6)] [overflow-wrap:anywhere]">
+        <p className="max-w-[85%] whitespace-pre-line rounded-[20px] rounded-br-md border border-[hsl(var(--hairline))] bg-secondary/70 px-4 py-2.5 text-[15px] leading-relaxed text-foreground [overflow-wrap:anywhere]">
           {message.text}
         </p>
       </div>
@@ -77,7 +77,7 @@ export default function TurnView({ message, isLast, onRetry, onChoose, onConfirm
           {message.callTargets.map((target) => (
             <li
               key={`${target.connection_id ?? ""}:${target.contact_id}`}
-              className="ask-enter flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--hairline))] bg-card py-1.5 pl-4 pr-1.5 shadow-[0_1px_2px_rgb(40_30_20/0.04)] transition-colors hover:border-beige/25"
+              className="ask-enter flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--hairline))] bg-card py-1.5 pl-4 pr-1.5 shadow-soft transition-colors hover:border-beige/25"
             >
               <div className="min-w-0">
                 <p className="truncate text-[15px] text-foreground">{target.contact_name || t.product.today_unknown_contact}</p>

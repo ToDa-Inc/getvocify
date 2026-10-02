@@ -74,7 +74,7 @@ const AdminCompaniesPage = () => {
               <tr><td colSpan={5} className="px-5 py-8 text-muted-foreground">No companies found.</td></tr>
             ) : (
               companies.map((c: Record<string, unknown>) => (
-                <tr key={String(c.id)} className="border-b border-border/30 last:border-0 hover:bg-secondary/10">
+                <tr key={String(c.id)} className="border-b border-border/30 last:border-0 hover:bg-secondary/60">
                   <td className={td}>
                     <Link
                       to={`/admin/companies/${c.id}`}

@@ -72,14 +72,30 @@ def test_is_conversation_rules():
     assert interaction_row(_memo(obs, audio_duration=None))["is_conversation"] is True
 
 
-def test_meeting_from_intelligence_or_rep_outcome():
+def test_meeting_comes_only_from_the_rep_outcome():
     obs = [_obs("a", "met")]
     assert interaction_row(_memo(obs))["meeting_agreed"] is False
     assert interaction_row(_memo(obs, rep_outcome="meeting_booked"))["meeting_agreed"] is True
     assert interaction_row(_memo(obs, rep_outcome="other"))["meeting_agreed"] is False
     memo = _memo(obs)
     memo["extraction"]["intelligence"]["meeting"] = {"agreed": True}
-    assert interaction_row(memo)["meeting_agreed"] is True
+    assert interaction_row(memo)["meeting_agreed"] is False  # never read into the transcript
+
+
+def test_a_meeting_step_is_settled_by_what_the_rep_declared():
+    obs = [_obs("a", "met"), {"step_id": "cierre", "label": "Cerrar la meeting", "status": "unknown",
+                              "judged_by": "rep_outcome", "outcome": "meeting_booked"}]
+    def state(**over):
+        return {s["step_id"]: s["state"] for s in interaction_row(_memo(obs, **over))["steps"]}["cierre"]
+    assert state() == "no_evidence"
+    assert state(rep_outcome="meeting_booked") == "done"
+    assert state(rep_outcome="follow_up") == "missing"
+
+
+def test_a_call_with_no_conversation_is_not_evaluated():
+    memo = _memo([_obs("a", "missed")])
+    memo["extraction"]["intelligence"]["call"] = {"call_type": "no_conversation", "reached_conversation": False}
+    assert interaction_row(memo)["is_conversation"] is False
 
 
 def test_step_rates_ignore_no_evidence_and_not_reached():
@@ -214,3 +230,30 @@ def test_repeated_step_observations_keep_the_first():
         ("a", "done", "primera"), ("b", "missing", None),
     ]
     assert step_rates([row], STEPS)[0]["applicable"] == 1
+
+
+def test_only_a_call_that_runs_the_whole_process_can_complete_it():
+    from app.services.coaching.rep_coaching import process_complete
+    memo = _memo([_obs("a", "met"), _obs("b", "not_applicable")])
+    memo["extraction"]["intelligence"]["call"] = {"call_type": "follow_up", "reached_conversation": True}
+    assert process_complete(interaction_row(memo)) is False
+    memo["extraction"]["intelligence"]["call"] = {"call_type": "cold_first_contact", "reached_conversation": True}
+    assert process_complete(interaction_row(memo)) is True
+
+
+def test_an_improvable_step_counts_as_done_and_is_counted_apart():
+    obs = [{"step_id": "a", "label": "A", "status": "met", "quality": "improvable", "advice": "Pregunta un dato más."},
+           {"step_id": "b", "label": "B", "status": "met", "quality": "solid"}]
+    row = interaction_row(_memo(obs))
+    states = {s["step_id"]: s for s in row["steps"]}
+    assert states["a"]["state"] == "improvable" and states["a"]["advice"] == "Pregunta un dato más."
+    assert states["b"]["state"] == "done"
+    [rate] = step_rates([row], [{"step_id": "a", "label": "A"}])
+    assert (rate["done"], rate["improvable"], rate["applicable"], rate["rate"]) == (1, 1, 1, 1.0)
+
+
+def test_the_call_line_is_how_v8_says_it_ended():
+    memo = _memo([_obs("a", "met")])
+    memo["extraction"]["intelligence"]["next"] = {"outcome": {"text": "Aceptó una demo el viernes a las 9:30"}}
+    assert interaction_row(memo)["summary_line"] == "Aceptó una demo el viernes a las 9:30"
+    assert interaction_row(_memo([_obs("a", "met")]))["summary_line"] == "Primera frase real. Otra."

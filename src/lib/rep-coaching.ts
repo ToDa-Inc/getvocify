@@ -2,9 +2,19 @@
 import type { ProductTranslations } from "./product-catalog.ts";
 
 export type CoachFlow = "sdr" | "ae";
-export type StepState = "done" | "missing" | "no_evidence" | "not_reached";
+export type StepState = "done" | "improvable" | "missing" | "no_evidence" | "not_reached";
 
-export type CoachStepRate = { step_id: string; label: string; rate: number | null; prev_rate: number | null; peer_median: number | null };
+export type CoachStepRate = {
+  step_id: string;
+  label: string;
+  rate: number | null;
+  prev_rate: number | null;
+  peer_median: number | null;
+  /** The counts behind the rate (absent from older backends): done includes improvable. */
+  done?: number;
+  improvable?: number;
+  applicable?: number;
+};
 export type CoachNumbers = { conversations: number; meetings_agreed: number; process_complete: number; interactions: number };
 export type CoachFocus = {
   step_id: string;
@@ -22,6 +32,10 @@ export type CoachSummary = {
   available_flows?: CoachFlow[];
   motion: string;
   week_start: string;
+  /** Monday of the week "Tu semana" shows: this week, or the latest week with calls when this one has none yet. */
+  numbers_week_start?: string;
+  /** "Tus pasos" covers the last `weeks` weeks: one week holds too few calls where a step applies. */
+  steps_window?: { weeks: number; conversations: number };
   steps: CoachStepRate[];
   numbers: CoachNumbers;
   prev_numbers: CoachNumbers;
@@ -29,7 +43,14 @@ export type CoachSummary = {
   conversion: CoachConversion | null;
   playbook_published: boolean;
 };
-export type CoachInteractionStep = { step_id: string; label: string; state: StepState; quote: string | null };
+export type CoachInteractionStep = {
+  step_id: string;
+  label: string;
+  state: StepState;
+  quote: string | null;
+  /** C04 v8: what to do next time in this call's terms; absent on older calls. */
+  advice?: string | null;
+};
 export type CoachInteraction = {
   memo_id: string;
   user_id: string;
@@ -44,22 +65,23 @@ export type CoachInteraction = {
 export type CoachInteractions = { items: CoachInteraction[] };
 export type CoachProcess = {
   weeks: string[];
-  steps: { step_id: string; label: string; by_week: { done: number; applicable: number; rate: number | null }[]; rate: number | null; peer_median: number | null }[];
+  steps: { step_id: string; label: string; by_week: { done: number; applicable: number; rate: number | null }[]; rate: number | null; done?: number; applicable?: number; peer_median: number | null }[];
   objections: { category: string; total: number; resolved: number; open: number }[];
 };
 export type CoachExamples = {
   steps: { step_id: string; label: string; criterion: string; example: string; moments: { quote: string }[] }[];
-  objections: { category: string; guidance: string; best_response: string }[];
+  objections: { category: string; label?: string | null; guidance: string; best_response: string }[];
 };
 
 type Product = ProductTranslations;
 export type CoachKey = Extract<keyof Product, `coach${string}`>;
 export type CoachTone = "success" | "warning" | "muted";
 
-export const STEP_STATES: StepState[] = ["done", "missing", "no_evidence", "not_reached"];
+export const STEP_STATES: StepState[] = ["done", "improvable", "missing", "no_evidence", "not_reached"];
 
 export const STATE_VIEW: Record<StepState, { glyph: string; labelKey: CoachKey; tone: CoachTone; counted: boolean }> = {
   done: { glyph: "✅", labelKey: "coachStateDone", tone: "success", counted: true },
+  improvable: { glyph: "🟡", labelKey: "coachStateImprovable", tone: "warning", counted: true },
   missing: { glyph: "❌", labelKey: "coachStateMissing", tone: "warning", counted: true },
   no_evidence: { glyph: "❔", labelKey: "coachStateNoEvidence", tone: "muted", counted: false },
   not_reached: { glyph: "⚪", labelKey: "coachStateNotReached", tone: "muted", counted: false },
@@ -73,6 +95,16 @@ export function stateView(state: string) {
 export function formatPercent(rate: number | null | undefined): string {
   if (rate === null || rate === undefined || Number.isNaN(rate)) return "—";
   return `${Math.round(rate * 100)} %`;
+}
+
+/** Below this many calls where a step applied, a rate says nothing ("0 %" of one call): show the count. */
+export const MIN_CALLS_FOR_RATE = 3;
+
+/** "62 %" with enough calls behind it, "1 de 2" with fewer, "—" with none. */
+export function rateOrCount(p: Product, done: number, applicable: number, rate: number | null | undefined): string {
+  if (!applicable) return "—";
+  if (applicable < MIN_CALLS_FOR_RATE) return fill(p.coachStepCount, { done, applicable });
+  return formatPercent(rate);
 }
 
 export const TREND_DEAD_BAND = 0.05;
@@ -94,6 +126,13 @@ export function trendArrow(trend: Trend): string {
 
 function fill(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (_, key: string) => String(values[key] ?? ""));
+}
+
+/** "1 de 3 · 1 mejorable(s)": the counts behind a step's rate; null when the backend sends none. */
+export function stepCountLine(p: Product, step: Pick<CoachStepRate, "done" | "improvable" | "applicable">): string | null {
+  if (step.applicable === undefined || step.done === undefined) return null;
+  const count = fill(p.coachStepCount, { done: step.done, applicable: step.applicable });
+  return step.improvable ? `${count} · ${fill(p.coachStepImprovable, { count: step.improvable })}` : count;
 }
 
 export function focusTitle(p: Product, focus: Pick<CoachFocus, "label">): string {

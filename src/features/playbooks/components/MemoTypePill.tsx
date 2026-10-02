@@ -9,14 +9,14 @@ import {
 import { api } from "@/shared/lib/api-client";
 import { errorCode, playbooksApi } from "@/features/playbooks/api";
 import { useLanguage } from "@/lib/i18n";
-import { motionLabel } from "@/lib/motion-label";
+import { memoTypeLine, memoTypeName } from "@/lib/interactions";
 import { toast } from "sonner";
 
 type MemoPlaybook = {
   sales_motion_key: string | null;
   playbook_version_id: string | null;
   can_change: boolean;
-  /** Read from the conversation by Vocify, not confirmed by anyone yet. */
+  /** Named by the call reading, not confirmed by anyone yet. */
   suggested?: boolean;
   options: { key: string; label: string | null }[];
 };
@@ -25,8 +25,9 @@ const PILL = "inline-flex h-7 items-center gap-1.5 rounded-full border border-bo
 
 /**
  * What kind of call this was (its playbook type), as a pill. Choosing another re-scores the
- * call against that playbook. A sparkle marks a type Vocify suggested that nobody has
- * confirmed; it goes once someone picks. Renders nothing without a type.
+ * call against that playbook; Interna is offered too and is never scored. A sparkle marks a
+ * type the call reading suggested that nobody has confirmed; it goes once someone picks.
+ * Renders nothing without a type.
  */
 export function MemoTypePill({ memoId }: { memoId: string }) {
   const { t } = useLanguage();
@@ -41,7 +42,8 @@ export function MemoTypePill({ memoId }: { memoId: string }) {
   const data = query.data;
   if (!data?.sales_motion_key) return null;
 
-  const name = (motion: string, label?: string | null) => label || copy.typeLabels[motion] || motionLabel(motion, t.product.motions);
+  const names = { typeLabels: copy.typeLabels, motions: t.product.motions, internal: t.product.interactions.internal };
+  const name = (motion: string, label?: string | null) => memoTypeName(motion, label, names);
   const current = name(data.sales_motion_key, data.options.find((option) => option.key === data.sales_motion_key)?.label);
   const others = data.options.filter((option) => option.key !== data.sales_motion_key);
   const mark = data.suggested ? <Sparkles className="h-3 w-3 text-beige" aria-hidden /> : null;
@@ -50,7 +52,15 @@ export function MemoTypePill({ memoId }: { memoId: string }) {
     try {
       await playbooksApi.changeMemoPlaybook(memoId, next.key);
       queryClient.setQueryData<MemoPlaybook>(key, { ...data, sales_motion_key: next.key, suggested: false });
-      toast(copy.memoPlaybookRequeued.replace("{name}", name(next.key, next.label)));
+      // The coaching card reads the score again (Interna shows "not scored" at once).
+      void queryClient.invalidateQueries({ queryKey: ["memo-score", memoId] });
+      // Interna is not scored again, so it says so instead of "scoring again as".
+      toast(
+        memoTypeLine(next.key, name(next.key, next.label), {
+          memoPlaybook: copy.memoPlaybookRequeued,
+          memoPlaybookInternal: copy.memoPlaybookInternal,
+        }),
+      );
     } catch (error) {
       toast.error(errorCode(error) === "not_published" ? copy.memoPlaybookNotPublished : copy.memoPlaybookFailed);
     }

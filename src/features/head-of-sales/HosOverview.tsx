@@ -1,16 +1,29 @@
 import { Link } from "react-router-dom";
-import { Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ArrowDownRight, ArrowUpRight, Download, Minus } from "lucide-react";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import {
+  countDelta,
+  hosOutcomes,
   percentText,
+  rateDelta,
   repActivityCsv,
   repActivityRows,
+  shareOf,
   teamActivityFooter,
+  type Delta,
   type HosPeriod,
   type HosRep,
 } from "@/lib/head-of-sales";
 import { repFlowAdherenceText } from "@/lib/team-insights";
+
+export type ManagerTotals = {
+  attempts: number | null;
+  connected: number | null;
+  meetings: number | null;
+  adherence: number | null;
+};
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 const HEAD = "px-3 py-2.5 text-left text-[12px] font-normal text-muted-foreground whitespace-nowrap";
@@ -19,6 +32,118 @@ const CELL = "px-3 py-2.5 text-sm text-foreground tabular-nums whitespace-nowrap
 function count(value: number | null | undefined, digits = 0): string {
   if (value == null) return "—";
   return new Intl.NumberFormat("es-ES", { maximumFractionDigits: digits }).format(value);
+}
+
+function Tile({ label, value, delta, hint, testId }: { label: string; value: string; delta: Delta; hint?: string; testId: string }) {
+  const { t } = useLanguage();
+  const p = t.product;
+  const Icon = delta?.direction === "up" ? ArrowUpRight : delta?.direction === "down" ? ArrowDownRight : Minus;
+  return (
+    <div className={`${card} p-4 flex flex-col gap-1.5`} data-testid={testId}>
+      <p className={THEME_TOKENS.typography.capsLabel}>{label}</p>
+      <p className="text-[1.75rem] leading-none tracking-tight text-foreground tabular-nums">{value}</p>
+      <p className="text-xs text-muted-foreground">
+        {delta ? (
+          <>
+            <span className="inline-flex items-center gap-0.5 text-foreground">
+              <Icon className="h-3.5 w-3.5" aria-hidden />
+              {delta.text === "new" ? p.hosNew : delta.text}
+            </span>{" "}
+            {p.hosVsPrevious}
+          </>
+        ) : (
+          p.hosNoComparison
+        )}
+      </p>
+      {hint ? <p className="text-xs text-muted-foreground/80">{hint}</p> : null}
+    </div>
+  );
+}
+
+export function HosKpiTiles({ current, previous }: { current: ManagerTotals; previous: ManagerTotals | null }) {
+  const { t } = useLanguage();
+  const p = t.product;
+  const connectedShare = current.attempts != null && current.connected != null ? shareOf(current.connected, current.attempts) : null;
+  const meetingShare = current.connected != null && current.meetings != null ? shareOf(current.meetings, current.connected) : null;
+  return (
+    <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+      <Tile testId="hos-kpi-attempts" label={p.teamActivityAttempts} value={count(current.attempts)} delta={countDelta(current.attempts, previous?.attempts)} />
+      <Tile
+        testId="hos-kpi-connected"
+        label={p.teamActivityConnected}
+        value={count(current.connected)}
+        delta={countDelta(current.connected, previous?.connected)}
+        hint={connectedShare == null ? undefined : p.hosOfAttempts.replace("{rate}", percentText(connectedShare))}
+      />
+      <Tile
+        testId="hos-kpi-meetings"
+        label={p.teamActivityMeetings}
+        value={count(current.meetings)}
+        delta={countDelta(current.meetings, previous?.meetings)}
+        hint={meetingShare == null ? undefined : p.hosOfConversations.replace("{rate}", percentText(meetingShare))}
+      />
+      <Tile testId="hos-kpi-adherence" label={p.hosAdherence} value={percentText(current.adherence)} delta={rateDelta(current.adherence, previous?.adherence)} />
+    </div>
+  );
+}
+
+/** Resumen, under the tiles: win rate + won + lost as one quiet line. Hidden without CRM outcomes. */
+export function HosOutcomesRow({ won, lost, crmCoverage, sampleLimited }: {
+  won: number | null | undefined;
+  lost: number | null | undefined;
+  crmCoverage: unknown;
+  sampleLimited?: boolean;
+}) {
+  const { t } = useLanguage();
+  const p = t.product;
+  const outcomes = hosOutcomes({ won, lost, crmCoverage, sampleLimited });
+  if (!outcomes) return null;
+  const line = (outcomes.winRate == null ? p.hosOutcomesLineNoRate : p.hosOutcomesLine)
+    .replace("{rate}", percentText(outcomes.winRate))
+    .replace("{won}", String(outcomes.won))
+    .replace("{lost}", String(outcomes.lost));
+  return (
+    <p className="px-1 text-sm text-muted-foreground tabular-nums" data-testid="hos-outcomes">
+      {line}
+    </p>
+  );
+}
+
+/** Plan §3.1: attempts → conversations → meetings, each bar a share of the first step. */
+export function HosFunnel({ current }: { current: ManagerTotals }) {
+  const { t } = useLanguage();
+  const p = t.product;
+  const steps = [
+    { label: p.teamActivityAttempts, value: current.attempts ?? 0 },
+    { label: p.teamActivityConnected, value: current.connected ?? 0 },
+    { label: p.teamActivityMeetings, value: current.meetings ?? 0 },
+  ];
+  const top = steps[0].value;
+  return (
+    <section className={`${card} p-5`} aria-labelledby="hos-funnel" data-testid="hos-funnel">
+      <h2 id="hos-funnel" className={THEME_TOKENS.typography.sectionTitle}>{p.hosFunnelHeading}</h2>
+      <ol className="mt-4 space-y-3">
+        {steps.map((step, index) => {
+          const width = top ? Math.max((step.value / top) * 100, step.value ? 2 : 0) : 0;
+          const prev = index ? steps[index - 1].value : null;
+          return (
+            <li key={step.label} className="grid grid-cols-[8.5rem_minmax(0,1fr)_4rem] items-center gap-3">
+              <span className="text-[13px] text-muted-foreground truncate">{step.label}</span>
+              <div className="h-6 rounded-md bg-secondary/40 overflow-hidden" aria-hidden>
+                <div className="h-full rounded-r-[4px] bg-beige" style={{ width: `${width}%` }} />
+              </div>
+              <span className="text-right text-sm tabular-nums text-foreground">
+                {count(step.value)}
+                {index > 0 ? (
+                  <span className="block text-[11px] text-muted-foreground">{percentText(shareOf(step.value, prev ?? 0))}</span>
+                ) : null}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
 }
 
 /** `showRepDetail` only gates the SDR/AE flow-adherence columns (MANAGER_HOME_ENABLED); the name
@@ -58,21 +183,17 @@ export function HosPeopleTable({ reps, showRepDetail, csvName, period, stale = f
           <h3 className={THEME_TOKENS.typography.sectionTitle}>{p.hosPeopleHeading}</h3>
           <p className="text-xs text-muted-foreground mt-1">{p.hosPeopleSubtitle}</p>
         </div>
-        <button
-          type="button"
-          onClick={download}
-          disabled={stale}
-          className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:pointer-events-none"
-        >
-          <Download className="h-3.5 w-3.5" aria-hidden />
+        <Button type="button" variant="outline" size="sm" onClick={download} disabled={stale} className="shrink-0">
+          <Download aria-hidden strokeWidth={1.5} />
           {p.hosDownloadCsv}
-        </button>
+        </Button>
       </div>
-      <div className="overflow-x-auto">
+      {/* One scroll region: the header stays and the name column stays while a wide table scrolls sideways. */}
+      <div className="app-scroll max-h-[min(70vh,44rem)] overflow-auto">
         <table className="w-full min-w-[560px]" data-testid="hos-people-table">
-          <thead className="border-y border-border/60">
+          <thead className="sticky top-0 z-10 border-y border-border/60 bg-card">
             <tr>
-              <th scope="col" className={HEAD}>{p.hosColName}</th>
+              <th scope="col" className={`${HEAD} sticky left-0 z-20 bg-card`}>{p.hosColName}</th>
               {showRole ? <th scope="col" className={HEAD}>{p.hosColRole}</th> : null}
               <th scope="col" className={`${HEAD} text-right`}>{p.hosColAttempts}</th>
               <th scope="col" className={`${HEAD} text-right`}>{p.hosColConversations}</th>
@@ -86,7 +207,7 @@ export function HosPeopleTable({ reps, showRepDetail, csvName, period, stale = f
           <tbody className="divide-y divide-border/40">
             {rows.map((row) => (
               <tr key={row.userId} data-testid="hos-people-row">
-                <th scope="row" className={`${CELL} font-normal text-left`}>
+                <th scope="row" className={`${CELL} sticky left-0 bg-card font-normal text-left`}>
                   <Link className="underline-offset-2 hover:underline" to={`/dashboard/insights/rep/${row.userId}?period=${period}`}>
                     {row.name}
                   </Link>

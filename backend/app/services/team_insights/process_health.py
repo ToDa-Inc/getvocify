@@ -20,6 +20,9 @@ from app.services.playbooks.motion import goal_for
 FOLLOWS_THRESHOLD = 0.7
 # Below this many interactions in a group there is no rate and no verdict.
 MIN_GROUP = 10
+# Below this many reached goals (meetings the reps declared) in the whole flow, "0 % against 0 %"
+# compares nothing: no verdict either.
+MIN_OUTCOMES = 3
 # Goal-rate gap (absolute) that counts as a real difference between the groups.
 MIN_GAP = 0.05
 # Share of interactions that follow the playbook below which the fix is coaching.
@@ -70,6 +73,9 @@ def _flow_health(motion: str, rows: list[dict]) -> dict:
     deviates_rate = _rate(cells["deviates_goal"], deviates_n)
     share = follows_n / len(rows) if rows else None
     verdict = _verdict(follows_n, deviates_n, follows_rate, deviates_rate, share)
+    outcomes = cells["follows_goal"] + cells["deviates_goal"]
+    if verdict in ("playbook_underperforms", "no_difference", "coach_reps", "playbook_works") and outcomes < MIN_OUTCOMES:
+        verdict = "few_outcomes"
     return {
         **base,
         "verdict": verdict,
@@ -79,6 +85,7 @@ def _flow_health(motion: str, rows: list[dict]) -> dict:
         "deviates_goal_rate": deviates_rate,
         "min_group": MIN_GROUP,
         "needed": max(0, MIN_GROUP - follows_n) if verdict == "insufficient_data" else 0,
+        "outcomes": outcomes,
     }
 
 

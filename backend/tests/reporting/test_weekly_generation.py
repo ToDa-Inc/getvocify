@@ -61,6 +61,8 @@ def _flags(**flags) -> list[dict]:
 def _db(*, flags=None, memos=None, prefs=None, members=None, extra=None) -> FakeDB:
     tables = {
         "memos": [MONDAY_MEMO] if memos is None else memos,
+        # The rep accepted Monday's meeting in Vocify: their declaration, which the report counts.
+        "meeting_proposals": [{"memo_id": "m-mon", "decision": "accepted"}],
         "interaction_patterns": [],
         "reports": [],
         "report_notifications": [],

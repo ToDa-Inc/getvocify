@@ -1,9 +1,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { ArrowUp, Stop } from "@phosphor-icons/react";
+import { ArrowUp, Square } from "lucide-react";
 import { api } from "@/shared/lib/api-client";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { IconAction } from "@/components/ui/icon-action";
 import { useLanguage } from "@/lib/i18n";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
 import VoiceComposer from "./VoiceComposer";
 
 // One line of text is exactly as tall as the buttons beside it (36px): 22px line + 7px padding top and bottom.
@@ -26,22 +25,9 @@ async function transcribe(blob: Blob): Promise<string> {
 /** The composer's primary action: filled when there is something to send, like the Record button elsewhere. */
 function PrimaryAction({ label, disabled, onClick, children }: { label: string; disabled?: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex">
-          <button
-            type="button"
-            aria-label={label}
-            disabled={disabled}
-            onClick={onClick}
-            className={`inline-flex h-9 w-9 items-center justify-center rounded-full bg-beige text-cream shadow-[inset_0_1px_0_rgb(255_255_255/0.25),0_1px_2px_rgb(40_30_20/0.2)] transition-[background-color,opacity,transform] duration-150 hover:bg-beige-dark disabled:bg-muted-foreground/20 disabled:text-muted-foreground disabled:shadow-none ${THEME_TOKENS.motion.tapScale}`}
-          >
-            {children}
-          </button>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top">{label}</TooltipContent>
-    </Tooltip>
+    <IconAction label={label} tone="primary" disabled={disabled} onClick={onClick}>
+      {children}
+    </IconAction>
   );
 }
 
@@ -104,11 +90,11 @@ export default function Composer({
         <VoiceComposer onText={onChange} transcribe={transcribe} />
         {busy ? (
           <PrimaryAction label={t.product.askStop} onClick={onStop}>
-            <Stop size={13} weight="fill" />
+            <Square size={13} strokeWidth={1.5} fill="currentColor" />
           </PrimaryAction>
         ) : (
           <PrimaryAction label={t.product.askSend} disabled={!canSend} onClick={onSend}>
-            <ArrowUp size={16} weight="bold" />
+            <ArrowUp size={16} strokeWidth={2.25} />
           </PrimaryAction>
         )}
       </div>

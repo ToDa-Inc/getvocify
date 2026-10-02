@@ -17,6 +17,7 @@ import { yearlyDiscountPercent } from "@/lib/billing-access";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { StripeCheckoutPanel } from "@/components/billing/StripeCheckoutPanel";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 
 const RETURN_PATH = "/dashboard/settings/billing";
@@ -178,36 +179,21 @@ const BillingPage = () => {
         ) : null}
         {canManage && data.configured && (
           <div className="flex flex-wrap items-center gap-3 pt-2">
-            <div className="inline-flex items-center rounded-full border border-border/40 bg-secondary/5 p-1">
-              {(
-                [
-                  { value: "monthly" as const, label: "Monthly" },
-                  { value: "yearly" as const, label: "Yearly" },
-                ]
-              ).map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setInterval(option.value)}
-                  className={`inline-flex items-center rounded-full px-4 h-8 text-xs font-medium transition-colors ${
-                    interval === option.value
-                      ? "bg-beige text-cream"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {option.label}
-                  {option.value === "yearly" && yearlySave > 0 && (
-                    <span
-                      className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] leading-none ${
-                        interval === "yearly" ? "bg-cream/20 text-cream" : "bg-beige/15 text-beige"
-                      }`}
-                    >
-                      −{yearlySave}%
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
+            <Segmented<"monthly" | "yearly">
+              value={interval}
+              onValueChange={setInterval}
+              options={[
+                {
+                  value: "monthly",
+                  label: "Monthly",
+                },
+                {
+                  value: "yearly",
+                  label: yearlySave > 0 ? `Yearly −${yearlySave}%` : "Yearly",
+                },
+              ]}
+              aria-label="Billing interval"
+            />
           </div>
         )}
       </div>
@@ -308,8 +294,8 @@ const BillingPage = () => {
                   }}
                   className={`w-full rounded-full h-11 ${
                     highlighted
-                      ? "bg-beige text-cream hover:bg-beige-dark"
-                      : "bg-secondary/20 text-foreground hover:bg-secondary/30"
+                      ? "bg-beige text-cream hover:bg-beige/90"
+                      : "bg-secondary/20 text-foreground hover:bg-secondary/60"
                   }`}
                 >
                   {pendingPlan === plan.id ? (

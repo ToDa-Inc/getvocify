@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus } from "@phosphor-icons/react";
+import { Plus } from "lucide-react";
 import { errorCode, playbooksApi } from "@/features/playbooks/api";
 import { RuleEditor } from "@/features/playbooks/components/RuleEditor";
 import { linkButton } from "@/features/playbooks/styles";
@@ -57,7 +57,7 @@ export function AddTypeMenu({
     >
       <PopoverTrigger asChild>
         <button type="button" className={linkButton}>
-          <Plus size={12} weight="light" />
+          <Plus size={12} strokeWidth={1.5} />
           {copy.addType}
         </button>
       </PopoverTrigger>

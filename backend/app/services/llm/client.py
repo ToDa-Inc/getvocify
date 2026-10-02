@@ -57,6 +57,7 @@ class LLMClient:
         provider: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict:
         return await self.router.chat_json(
             messages,
@@ -65,6 +66,7 @@ class LLMClient:
             provider=provider,
             timeout=timeout,
             max_retries=max_retries,
+            reasoning_effort=reasoning_effort,
         )
 
     async def chat_tools(

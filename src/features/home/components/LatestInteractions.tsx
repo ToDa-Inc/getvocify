@@ -30,6 +30,12 @@ export function LatestInteractions({ manager }: { manager: boolean }) {
   // Who recorded it, for a manager: only when it was someone else, not "You" on every row.
   const authorOf = (memo: Memo) => (manager && memo.userId !== user?.id ? memo.authorName?.trim() || null : null);
 
+  // Fade-out at the bottom of the list: mask-image linear-gradient over roughly the last 64-72px
+  const fadeOutStyle = {
+    maskImage: "linear-gradient(to bottom, black calc(100% - 72px), transparent 100%)",
+    WebkitMaskImage: "linear-gradient(to bottom, black calc(100% - 72px), transparent 100%)",
+  };
+
   return (
     <section aria-labelledby="home-latest" className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3 px-3">
@@ -72,7 +78,9 @@ export function LatestInteractions({ manager }: { manager: boolean }) {
       ) : empty ? (
         <p className={cn(THEME_TOKENS.typography.body, "px-3 py-2")}>{copy.emptyFiltered}</p>
       ) : (
-        <InteractionList items={feed.items} options={options} labelOf={labelOf} authorOf={authorOf} stale={feed.isPlaceholderData} />
+        <div style={fadeOutStyle}>
+          <InteractionList items={feed.items} options={options} labelOf={labelOf} authorOf={authorOf} stale={feed.isPlaceholderData} />
+        </div>
       )}
     </section>
   );

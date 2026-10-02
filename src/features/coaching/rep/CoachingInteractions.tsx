@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { Toggle } from "@/components/ui/toggle";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   STEP_STATES,
   type CoachFlow,
@@ -14,7 +16,9 @@ import {
 import { CoachEmpty, CoachError, CoachLoading } from "./CoachingState";
 import { useCoachInteractions, useCoachSummary } from "./useRepCoaching";
 
-const SELECT = "rounded-full border border-border bg-card px-4 py-1.5 text-sm text-foreground";
+/** Sentinels for empty filter states (showing all items). */
+const FILTER_NONE_STEP = "__none_step__";
+const FILTER_NONE_STATE = "__none_state__";
 
 function Row({ item }: { item: CoachInteraction }) {
   const { t, language } = useLanguage();
@@ -25,8 +29,11 @@ function Row({ item }: { item: CoachInteraction }) {
   const date = item.observed_at
     ? new Date(item.observed_at).toLocaleDateString(locale, { day: "numeric", month: "short" })
     : "";
-  // Plan §3.2: a missed step shows the moment it should have happened, when the engine has it.
-  const missedWithQuote = item.steps.filter((step) => step.state === "missing" && step.quote);
+  // Plan §3.2: a missed step says what to do next time (v8 advice) and, as context, the moment it
+  // should have happened, when the engine has either.
+  const missed = item.steps.filter(
+    (step) => (step.state === "missing" && (step.advice || step.quote)) || (step.state === "improvable" && step.advice),
+  );
   return (
     <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-4 space-y-2`} data-testid="coach-interaction-row">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -54,10 +61,19 @@ function Row({ item }: { item: CoachInteraction }) {
         })}
         {done ? <li className="pl-1 text-muted-foreground">{done}</li> : null}
       </ul>
-      {missedWithQuote.map((step) => (
-        <p key={step.step_id} className="text-xs text-muted-foreground">
-          {step.label}: <span className="italic">“{step.quote}”</span>
-        </p>
+      {missed.map((step) => (
+        <div key={step.step_id} className="space-y-0.5 text-xs" data-testid="coach-missed-step">
+          <p className="text-foreground">
+            <span className="font-medium">
+              {step.label}
+              {step.state === "improvable" ? ` (${String(p.coachStateImprovable).toLowerCase()})` : ""}:
+            </span>{" "}
+            {step.advice ? step.advice : <span className="italic text-muted-foreground">“{step.quote}”</span>}
+          </p>
+          {step.advice && step.quote ? (
+            <p className="italic text-muted-foreground">“{step.quote}”</p>
+          ) : null}
+        </div>
       ))}
     </li>
   );
@@ -74,30 +90,47 @@ export function CoachingInteractions({ flow }: { flow?: CoachFlow | null }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3" data-testid="coach-interaction-filters">
-        <select aria-label={p.coachFilterStep} className={SELECT} value={filters.stepId} onChange={(e) => setFilters({ ...filters, stepId: e.target.value })}>
-          <option value="">{p.coachFilterAllSteps}</option>
-          {steps.map((step) => (
-            <option key={step.step_id} value={step.step_id}>
-              {step.label}
-            </option>
-          ))}
-        </select>
-        <select aria-label={p.coachFilterState} className={SELECT} value={filters.state} onChange={(e) => setFilters({ ...filters, state: e.target.value })}>
-          <option value="">{p.coachFilterAllStates}</option>
-          {STEP_STATES.map((state) => (
-            <option key={state} value={state}>
-              {String(p[stateView(state).labelKey])}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          aria-pressed={filters.meetingOnly}
-          onClick={() => setFilters({ ...filters, meetingOnly: !filters.meetingOnly })}
-          className={`rounded-full border border-border px-3.5 py-1.5 text-sm ${filters.meetingOnly ? "bg-beige text-cream" : "bg-card text-muted-foreground"}`}
+        <Select
+          value={filters.stepId || FILTER_NONE_STEP}
+          onValueChange={(v) => setFilters({ ...filters, stepId: v === FILTER_NONE_STEP ? "" : v })}
+        >
+          <SelectTrigger aria-label={p.coachFilterStep} variant="chip">
+            <SelectValue placeholder={p.coachFilterAllSteps} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={FILTER_NONE_STEP}>{p.coachFilterAllSteps}</SelectItem>
+            {steps.map((step) => (
+              <SelectItem key={step.step_id} value={step.step_id}>
+                {step.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={filters.state || FILTER_NONE_STATE}
+          onValueChange={(v) => setFilters({ ...filters, state: v === FILTER_NONE_STATE ? "" : v })}
+        >
+          <SelectTrigger aria-label={p.coachFilterState} variant="chip">
+            <SelectValue placeholder={p.coachFilterAllStates} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={FILTER_NONE_STATE}>{p.coachFilterAllStates}</SelectItem>
+            {STEP_STATES.map((state) => (
+              <SelectItem key={state} value={state}>
+                {String(p[stateView(state).labelKey])}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Toggle
+          variant="chip"
+          size="sm"
+          pressed={filters.meetingOnly}
+          onPressedChange={() => setFilters({ ...filters, meetingOnly: !filters.meetingOnly })}
+          aria-label={p.coachFilterMeeting}
         >
           {p.coachFilterMeeting}
-        </button>
+        </Toggle>
       </div>
       {query.isError ? (
         <CoachError onRetry={() => void query.refetch()} />

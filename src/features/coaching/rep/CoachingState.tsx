@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -18,9 +19,9 @@ export function CoachError({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="flex flex-wrap items-center gap-3" role="alert" data-testid="coach-error">
       <p className={THEME_TOKENS.typography.body}>{p.coachLoadFailed}</p>
-      <button type="button" onClick={onRetry} className="rounded-full border border-border bg-card px-3.5 py-1 text-xs text-foreground hover:border-beige/25">
+      <Button type="button" variant="outline" size="sm" onClick={onRetry}>
         {p.coachRetry}
-      </button>
+      </Button>
     </div>
   );
 }

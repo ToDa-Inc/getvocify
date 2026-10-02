@@ -156,14 +156,15 @@ def test_how_to_is_none_without_a_matching_playbook_entry():
     assert result[0]["how_to"] is None
 
 
-def test_best_example_is_the_most_recent_resolved_response():
+def test_best_example_is_the_tightest_resolved_response():
     rows = [
         _row(category="price", resolution="resolved", observed_at="2026-09-22T10:00:00Z", response="Le mostré el ROI a 6 meses."),
         _row(category="price", resolution="resolved", observed_at="2026-09-23T10:00:00Z", response="Comparamos el coste total, no solo la licencia."),
         _row(category="price", resolution="open", observed_at="2026-09-24T10:00:00Z", response="Sin respuesta clara todavía."),
     ]
     result = objection_counts(rows, start=_WEEK_START, end=_WEEK_END, include_guidance=True)
-    assert result[0]["best_example"] == "Comparamos el coste total, no solo la licencia."
+    # The tightest real answer reads as an example; the latest one is often a long monologue.
+    assert result[0]["best_example"] == "Le mostré el ROI a 6 meses."
 
 
 def test_best_example_ignores_unresolved_and_empty_responses():
@@ -242,3 +243,11 @@ def test_playbook_tab_flag_on_adds_how_to_and_best_example():
     category = body["objection_categories"][0]
     assert category["how_to"] == "Ancla en el ROI."
     assert category["best_example"] == "Le mostré el ROI."
+
+
+def test_the_best_example_is_the_text_people_read_not_its_storage():
+    from app.services.team_insights.objections import response_text
+    assert response_text('{"text": "Te lo enseño en 20 minutos."}') == "Te lo enseño en 20 minutos."
+    assert response_text({"text": "Vale,  sin problema."}) == "Vale, sin problema."
+    long = "Mira, lo entiendo. " * 30
+    assert len(response_text(long)) <= 245 and response_text(long).endswith("…")

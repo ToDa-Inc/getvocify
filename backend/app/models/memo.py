@@ -160,6 +160,8 @@ class Memo(MemoBase):
     after_call: Optional[dict] = None
     # What the rep typed while a desktop meeting recorded.
     userNotes: Optional[str] = None
+    # Meeting attendees: name and email from calendar event (for dashboard avatars on meeting rows)
+    attendees: List[dict] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

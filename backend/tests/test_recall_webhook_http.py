@@ -576,3 +576,119 @@ def test_failure_confirmation_reads_recalls_record():
     failed = {"recordings": [{"media_shortcuts": {"transcript": {"status": {"code": "failed"}}}}]}
     assert bot_failure_confirmed(failed, "transcript.failed")
     assert not bot_failure_confirmed(failed, "bot.fatal")
+
+
+def _calendar_bot_done_mocks(event_detail_status: int, event_json: dict):
+    respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": BOT_ID,
+                "join_at": "2026-10-01T10:00:00Z",
+                "metadata": {
+                    "source": "calendar",
+                    "environment": settings.ENVIRONMENT,
+                    "user_id": "rep-1",
+                    "company_id": "co-1",
+                    "calendar_event_id": "evt-1",
+                },
+                "recordings": [
+                    {"media_shortcuts": {"transcript": {"data": {"download_url": "https://cdn.example/t.json"}}}}
+                ],
+            },
+        )
+    )
+    respx.get("https://cdn.example/t.json").mock(
+        return_value=httpx.Response(200, json=[{"participant": {"name": "Marta"}, "words": [{"text": "Hola"}]}])
+    )
+    respx.get("https://eu-central-1.recall.ai/api/v2/calendar-events/evt-1/").mock(
+        return_value=httpx.Response(event_detail_status, json=event_json)
+    )
+
+
+def _complete_calendar_bot(supabase):
+    def fake_reserve(sb, **kwargs):
+        sb.tables["memos"].append({**_memo_row(), "user_id": kwargs["user_id"], "company_id": kwargs["company_id"]})
+
+    with (
+        patch("app.services.meetings.recall_bot.reserve_capture", fake_reserve),
+        patch("app.services.meetings.recall_bot.CompanyService") as company_service,
+        patch("app.api.memos.start_extraction_from_transcript", AsyncMock()),
+    ):
+        company_service.return_value.get_membership.return_value = SimpleNamespace(sales_role="closer")
+        # The body's metadata is only a hint; what counts is the bot detail Recall's API returns.
+        payload = {"event": "bot.done", "data": {"bot": {"id": BOT_ID, "metadata": {"source": "calendar"}}}}
+        return _post_payload(supabase, payload)
+
+
+@respx.mock
+def test_a_calendar_meeting_stores_its_guests_as_attendees_without_the_rep_or_rooms():
+    supabase = _Supabase(
+        {
+            "memos": [],
+            "user_profiles": [],
+            "calendar_connections": [{"user_id": "rep-1", "email": "rep@acme.com", "status": "connected"}],
+        }
+    )
+    _calendar_bot_done_mocks(
+        200,
+        {
+            "id": "evt-1",
+            "raw": {
+                "attendees": [
+                    {"email": "rep@acme.com", "self": True},
+                    {"email": "Marta@Client.com", "displayName": "Marta Ruiz"},
+                    {"email": "sala-1@resource.calendar.google.com", "resource": True},
+                ]
+            },
+        },
+    )
+
+    response = _complete_calendar_bot(supabase)
+
+    assert response.status_code == 200
+    memo = supabase.tables["memos"][0]
+    assert memo["transcript_complete"] is True
+    assert memo["attendees"] == [{"email": "marta@client.com", "name": "Marta Ruiz"}]
+
+
+@respx.mock
+def test_a_failed_attendee_lookup_never_fails_the_capture():
+    supabase = _Supabase({"memos": [], "user_profiles": []})
+    _calendar_bot_done_mocks(500, {"error": "boom"})
+
+    response = _complete_calendar_bot(supabase)
+
+    assert response.status_code == 200
+    memo = supabase.tables["memos"][0]
+    assert memo["transcript_complete"] is True
+    assert not memo.get("attendees")
+
+
+@respx.mock
+def test_a_desktop_style_bot_without_a_calendar_event_has_no_attendees_and_no_lookup():
+    supabase = _Supabase({"memos": [_memo_row()], "user_profiles": []})
+    respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": BOT_ID,
+                "recordings": [
+                    {"media_shortcuts": {"transcript": {"data": {"download_url": "https://cdn.example/t.json"}}}}
+                ],
+            },
+        )
+    )
+    respx.get("https://cdn.example/t.json").mock(
+        return_value=httpx.Response(200, json=[{"participant": {"name": "Marta"}, "words": [{"text": "Hola"}]}])
+    )
+    event_lookup = respx.get("https://eu-central-1.recall.ai/api/v2/calendar-events/evt-1/").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    with patch("app.api.memos.start_extraction_from_transcript", AsyncMock()):
+        response = _post_payload(supabase, {"event": "bot.done", "data": {"bot": {"id": BOT_ID}}})
+
+    assert response.status_code == 200
+    assert not event_lookup.called
+    assert not supabase.tables["memos"][0].get("attendees")

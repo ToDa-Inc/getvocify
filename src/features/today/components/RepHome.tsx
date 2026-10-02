@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Microphone } from "@phosphor-icons/react";
+import { ArrowLeft, Mic } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
 import { afterActionError, composeHome, itemKey, type HomeRow, type HomeView } from "@shared/ui/home.js";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
@@ -344,7 +343,7 @@ export function RepHome() {
           <div className="flex items-center justify-between gap-3">
             <Link
               to="/dashboard"
-              className="-ml-2 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[13.5px] text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
+              className="-ml-2 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[13.5px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
             >
               <ArrowLeft aria-hidden className="h-4 w-4" />
               {copy.navHome}
@@ -352,7 +351,7 @@ export function RepHome() {
             <div className="flex items-center gap-2">
               <span className="text-[13px] capitalize text-muted-foreground">{longDate(now, copy.hourLocale)}</span>
               <IconAction label={copy.today_capture} onClick={() => setCaptureOpen((open) => !open)}>
-                <Microphone size={16} weight="light" />
+                <Mic size={16} strokeWidth={1.5} />
               </IconAction>
             </div>
           </div>

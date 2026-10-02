@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
@@ -260,6 +261,7 @@ async def get_coaching_best(
 
 _OWN_WEEKS = FLOW_WEEKS  # also the window that decides a general rep's flow
 _PEER_WEEKS = 4
+STEP_WINDOW_WEEKS = 4
 _MAX_MOMENTS = 3
 _MIN_PEERS = 3  # an anonymous example needs this many distinct contributors
 
@@ -289,9 +291,20 @@ def _rep_context(
     week_start, week_end = madrid_week_bounds()
     # The flow is always resolved over the FLOW_WEEKS window, whatever `weeks` shows.
     flow_start = _week_starts(FLOW_WEEKS)[0]
-    all_own = _rows_of(
-        reads.load_memos(supabase, membership.company_id, [membership.user_id], start=min(starts[0], flow_start))
-    )
+    peer_start = starts[-1] - timedelta(weeks=_PEER_WEEKS - 1)
+    # The rep's calls, their teammates and the teammates' calls do not depend on each other: read
+    # them at once instead of one round trip after another.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        own_future = pool.submit(
+            reads.load_memos, supabase, membership.company_id, [membership.user_id], start=min(starts[0], flow_start)
+        )
+        peer_ids = reads.load_peer_ids(supabase, membership.company_id, membership.user_id) if peers else []
+        peer_future = (
+            pool.submit(reads.load_memos, supabase, membership.company_id, peer_ids, start=peer_start)
+            if peer_ids else None
+        )
+        all_own = _rows_of(own_future.result())
+        peer_memos = peer_future.result() if peer_future else []
     playbooks: dict[str, dict] = {}
 
     def playbook_for(motion: str) -> dict:
@@ -312,9 +325,7 @@ def _rep_context(
     )
     peer_rows_by_user: dict[str, list[dict]] = {}
     if peers and playbook["published"]:
-        peer_start = starts[-1] - timedelta(weeks=_PEER_WEEKS - 1)
-        peer_ids = reads.load_peer_ids(supabase, membership.company_id, membership.user_id)
-        for row in _rows_of(reads.load_memos(supabase, membership.company_id, peer_ids, start=peer_start, motion=motion)):
+        for row in _rows_of([memo for memo in peer_memos if memo.get("sales_motion_key") == motion]):
             peer_rows_by_user.setdefault(row["user_id"], []).append(row)
     return {
         "flow": flow,
@@ -412,16 +423,44 @@ async def get_my_coaching_summary(
     if not ctx["playbook"]["published"]:
         return body
     medians = ctx["peer_medians"]
-    prev_rates = {r["step_id"]: r["rate"] for r in engine.step_rates(prev_week, steps)}
+    # "Tu semana": a week with no calls yet shows the rep's latest week with calls, not zeros.
+    shown_start, shown_rows, shown_prev = ctx["week_start"], this_week, prev_week
+    if not this_week:
+        starts = ctx["week_starts"]
+        for index in range(len(starts) - 2, -1, -1):
+            rows = _in_window(ctx["own"], starts[index], starts[index + 1])
+            if rows:
+                shown_start, shown_rows = starts[index], rows
+                shown_prev = _in_window(ctx["own"], starts[index - 1], starts[index]) if index else []
+                break
+    body["numbers_week_start"] = engine.madrid_day(shown_start).isoformat()
+    body["numbers"], body["prev_numbers"] = _numbers(shown_rows), _numbers(shown_prev)
+    # "Tus pasos": one week holds a handful of calls where a step applies (follow-ups and calls cut
+    # at the door owe only the opening), so a rate over it is noise. The last STEP_WINDOW_WEEKS
+    # weeks, against the same span before.
+    starts = ctx["week_starts"]
+    window_start = starts[-STEP_WINDOW_WEEKS] if len(starts) >= STEP_WINDOW_WEEKS else starts[0]
+    window_rows = _in_window(ctx["own"], window_start, ctx["week_end"])
+    before_start = starts[-2 * STEP_WINDOW_WEEKS] if len(starts) >= 2 * STEP_WINDOW_WEEKS else starts[0]
+    window_prev = _in_window(ctx["own"], before_start, window_start)
+    body["steps_window"] = {
+        "weeks": STEP_WINDOW_WEEKS,
+        "conversations": sum(1 for r in window_rows if r.get("is_conversation", True)),
+    }
+    prev_rates = {r["step_id"]: r["rate"] for r in engine.step_rates(window_prev, steps)}
     body["steps"] = [
         {
             "step_id": r["step_id"],
             "label": r["label"],
             "rate": r["rate"],
+            # The counts behind the rate: "0 %" of one call is not "0 %" of twenty.
+            "done": r["done"],
+            "improvable": r["improvable"],
+            "applicable": r["applicable"],
             "prev_rate": prev_rates[r["step_id"]],
             "peer_median": medians.get(r["step_id"]),
         }
-        for r in engine.step_rates(this_week, steps)
+        for r in engine.step_rates(window_rows, steps)
     ]
     # No peer tie-break: the Head of Sales column and the messages (rep_focus) choose the
     # focus without it, so every surface names the same step. peer_median is still shown.
@@ -446,7 +485,7 @@ async def get_my_coaching_summary(
 @router.get("/coaching/me/interactions")
 async def get_my_coaching_interactions(
     step_id: Optional[str] = Query(None),
-    state: Optional[Literal["done", "missing", "no_evidence", "not_reached"]] = Query(None),
+    state: Optional[Literal["done", "improvable", "missing", "no_evidence", "not_reached"]] = Query(None),
     meeting: Optional[bool] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     flow: Optional[Flow] = Query(None),
@@ -493,6 +532,8 @@ async def get_my_coaching_process(
                 for w in per_week
             ],
             "rate": total["rate"],
+            "done": total["done"],
+            "applicable": total["applicable"],
             "peer_median": ctx["peer_medians"].get(total["step_id"]),
         })
     patterns = reads.load_patterns(supabase, [r["memo_id"] for r in ctx["own"]])
@@ -533,6 +574,11 @@ async def get_coaching_examples(
     )
     memo_users = {r["memo_id"]: r["user_id"] for r in peer_rows}
     contributors = _peer_objection_contributors(patterns, memo_users, start=window_start, end=ctx["week_end"])
+    # The company's own objection ("Mándame un email") shows by its name, not as "custom".
+    own_labels = [
+        " ".join(str(entry.get("label")).split()) for entry in ctx["playbook"]["entries"]
+        if str(entry.get("category") or "").strip().lower() == "custom" and entry.get("label")
+    ]
     seen = set()
     for item in counted:
         seen.add(item["name"])
@@ -541,6 +587,7 @@ async def get_coaching_examples(
         body["objections"].append(
             {
                 "category": item["name"],
+                "label": own_labels[0] if item["name"] == "custom" and len(own_labels) == 1 else None,
                 "guidance": item["how_to"],
                 "best_response": item["best_example"] if enough else None,
             }
@@ -549,7 +596,10 @@ async def get_coaching_examples(
         category = str(entry.get("category") or "").strip().lower()
         if category and category not in seen and entry.get("guidance"):
             seen.add(category)
-            body["objections"].append(
-                {"category": category, "guidance": " ".join(str(entry["guidance"]).split()), "best_response": None}
-            )
+            body["objections"].append({
+                "category": category,
+                "label": " ".join(str(entry.get("label")).split()) if category == "custom" and entry.get("label") else None,
+                "guidance": " ".join(str(entry["guidance"]).split()),
+                "best_response": None,
+            })
     return body

@@ -4,10 +4,13 @@ import { reportKeys, reportsApi } from "@/lib/api/reports";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import {
+  stepCountLine,
   conversionSentence,
   focusTitle,
   focusWhy,
   formatPercent,
+  MIN_CALLS_FOR_RATE,
+  rateOrCount,
   latestSelfReportId,
   meetingsTileKey,
   numberVsLast,
@@ -74,12 +77,17 @@ function FocusCard({ focus }: { focus: CoachFocus }) {
   );
 }
 
-function StepStrip({ steps, onOpenProcess }: { steps: CoachStepRate[]; onOpenProcess: () => void }) {
+function StepStrip({ steps, onOpenProcess, span }: { steps: CoachStepRate[]; onOpenProcess: () => void; span?: { weeks: number; conversations: number } }) {
   const { t } = useLanguage();
   const p = t.product;
   return (
     <section className={`${CARD_COMPACT} space-y-2`} data-testid="coach-step-strip">
       <h2 className={THEME_TOKENS.typography.sectionTitle}>{p.coachStepsHeading}</h2>
+      {span ? (
+        <p className="text-xs text-muted-foreground">
+          {p.coachStepsWindow.replace(/{weeks}/g, String(span.weeks)).replace("{count}", String(span.conversations))}
+        </p>
+      ) : null}
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {steps.map((step) => {
           const arrow = trendArrow(trendOf(step.rate, step.prev_rate));
@@ -93,9 +101,13 @@ function StepStrip({ steps, onOpenProcess }: { steps: CoachStepRate[]; onOpenPro
             >
               <p className="text-sm text-foreground">{step.label}</p>
               <p className="mt-0.5 text-base text-foreground">
-                {formatPercent(step.rate)} {arrow ? <span className="text-muted-foreground">{arrow}</span> : null}
+                {rateOrCount(p, step.done, step.applicable, step.rate)}{" "}
+                {arrow && step.applicable >= MIN_CALLS_FOR_RATE ? <span className="text-muted-foreground">{arrow}</span> : null}
               </p>
-              {step.rate !== null ? (
+              {step.applicable >= MIN_CALLS_FOR_RATE && stepCountLine(p, step) ? (
+                <p className="text-xs text-muted-foreground">{stepCountLine(p, step)}</p>
+              ) : null}
+              {step.rate !== null && step.applicable >= MIN_CALLS_FOR_RATE ? (
                 <div className="relative mt-1 h-1 rounded-full bg-muted-foreground/15">
                   <div className="h-1 rounded-full bg-beige" style={{ width: `${Math.round(step.rate * 100)}%` }} />
                   {step.peer_median !== null ? (
@@ -111,9 +123,12 @@ function StepStrip({ steps, onOpenProcess }: { steps: CoachStepRate[]; onOpenPro
   );
 }
 
-function Numbers({ current, previous, flow }: { current: CoachNumbers; previous: CoachNumbers; flow: CoachFlow }) {
-  const { t } = useLanguage();
+function Numbers({ current, previous, flow, earlierWeek }: { current: CoachNumbers; previous: CoachNumbers; flow: CoachFlow; earlierWeek?: string | null }) {
+  const { t, language } = useLanguage();
   const p = t.product;
+  const weekLabel = earlierWeek
+    ? new Date(`${earlierWeek}T12:00:00`).toLocaleDateString(language === "EN" ? "en-GB" : "es-ES", { day: "numeric", month: "short" })
+    : null;
   const tiles = [
     { label: p.coachNumConversations, now: current.conversations, prev: previous.conversations },
     { label: p[meetingsTileKey(flow)], now: current.meetings_agreed, prev: previous.meetings_agreed },
@@ -121,13 +136,17 @@ function Numbers({ current, previous, flow }: { current: CoachNumbers; previous:
   ];
   return (
     <section className={`${CARD_COMPACT} space-y-2`} data-testid="coach-numbers">
-      <h2 className={THEME_TOKENS.typography.sectionTitle}>{p.coachNumbersHeading}</h2>
+      <h2 className={THEME_TOKENS.typography.sectionTitle}>
+        {weekLabel ? p.coachNumbersEarlierWeek.replace("{date}", weekLabel) : p.coachNumbersHeading}
+      </h2>
       <div className="grid gap-3 sm:grid-cols-3">
         {tiles.map((tile) => (
           <div key={tile.label}>
             <p className={THEME_TOKENS.typography.capsLabel}>{tile.label}</p>
             <p className="text-xl text-foreground">{tile.now}</p>
-            <p className="text-xs text-muted-foreground">{numberVsLast(p, tile.prev)}</p>
+            <p className="text-xs text-muted-foreground">
+              {weekLabel ? p.coachVsWeekBefore.replace("{value}", String(tile.prev)) : numberVsLast(p, tile.prev)}
+            </p>
           </div>
         ))}
       </div>
@@ -156,8 +175,13 @@ export function CoachingSummary({ onOpenProcess, flow }: { onOpenProcess: () => 
           <p className="text-foreground">{hasData ? p.coachFocusNone : p.coachNoData}</p>
         </section>
       )}
-      <StepStrip steps={data.steps} onOpenProcess={onOpenProcess} />
-      <Numbers current={data.numbers} previous={data.prev_numbers} flow={data.flow} />
+      <StepStrip steps={data.steps} onOpenProcess={onOpenProcess} span={data.steps_window} />
+      <Numbers
+        current={data.numbers}
+        previous={data.prev_numbers}
+        flow={data.flow}
+        earlierWeek={data.numbers_week_start && data.numbers_week_start !== data.week_start ? data.numbers_week_start : null}
+      />
       {conversion ? (
         <p className="px-1 text-sm text-foreground" data-testid="coach-conversion">
           {conversion}

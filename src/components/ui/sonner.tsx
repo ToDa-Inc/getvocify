@@ -1,14 +1,15 @@
-import { useTheme } from "next-themes";
+import { useAppliedTheme } from "@/lib/theme-store";
 import { Toaster as Sonner, toast } from "sonner";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme();
+  // Toasts follow what is painted: the dashboard's theme, light everywhere else.
+  const theme = useAppliedTheme();
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={theme}
       className="toaster group"
       position="bottom-right"
       offset={24}

@@ -171,6 +171,9 @@ class _Table:
         self._filters.append((column, value))
         return self
 
+    def limit(self, _count):
+        return self
+
     def execute(self):
         if self._mode == "insert":
             self._rows.append(self._pending)
@@ -281,6 +284,16 @@ def test_the_memo_reads_the_saved_note_and_skips_a_superseded_pattern():
     bare = TestClient(app).get("/api/v1/memos/memo-1/objections").json()
     assert bare["coverage"] == "unavailable"
     assert bare["patterns"] == []
+
+    # The intelligence read the call and found none: that is a complete "no objections".
+    analysed = _Multi()
+    analysed.tables = {
+        "interaction_annotations": [], "interaction_patterns": [],
+        "memos": [{"id": "memo-1", "company_id": "co-1",
+                   "extraction": {"intelligence": {"prompt_version": "intelligence_v8", "objections": []}}}],
+    }
+    app.dependency_overrides[get_supabase] = lambda: analysed
+    assert TestClient(app).get("/api/v1/memos/memo-1/objections").json()["coverage"] == "complete"
 
 
 def _pg_env() -> dict[str, str]:

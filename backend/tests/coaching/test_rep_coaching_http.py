@@ -42,7 +42,8 @@ def _memo(memo_id, user, statuses, *, days_ago=0, motion="discovery", agreed=Fal
     ]
     memo = {
         "id": memo_id, "user_id": user, "company_id": COMPANY, "sales_motion_key": motion,
-        "screening_outcome": "connected", "audio_duration": 90, "rep_outcome": None,
+        # `agreed`: the rep declared the meeting booked after the call (the only source of it).
+        "screening_outcome": "connected", "audio_duration": 90, "rep_outcome": "meeting_booked" if agreed else None,
         "capture_started_at": at, "created_at": at,
         "extraction": {"summary": f"Resumen {memo_id}", "intelligence": {
             "playbook_observations": obs, "meeting": {"agreed": agreed}}},
@@ -102,14 +103,28 @@ def test_summary_self_scope_and_focus():
     assert body["week_start"] == "2026-09-21"
     assert body["numbers"] == {"conversations": 1, "meetings_agreed": 1, "process_complete": 1, "interactions": 1}
     assert body["prev_numbers"]["interactions"] == 3
+    # Tus pasos covers the last four weeks (this one and the three before): one week is too few calls.
     opening = next(s for s in body["steps"] if s["step_id"] == "open")
-    assert opening["rate"] == 1.0 and opening["prev_rate"] == pytest.approx(0.3333, abs=1e-3)
+    assert (opening["done"], opening["applicable"]) == (2, 4) and opening["prev_rate"] is None
+    assert body["steps_window"] == {"weeks": 4, "conversations": 4}
     assert body["focus"]["step_id"] == "open" and body["focus"]["criterion"] == "Se presenta"
     assert body["focus"]["example"] == "Hola, soy Ana"
     assert len(body["focus"]["progress"]) == 5
     assert body["focus"]["week_total"] == {"done": 1, "applicable": 1, "rate": 1.0}
     assert body["focus"]["achieved"] is False
     assert body["conversion"] is None
+
+
+def test_a_week_without_calls_yet_shows_the_latest_week_with_calls():
+    memos = [
+        _memo("a1", REP, {"open": "met", "pain": "missed"}, days_ago=10),
+        _memo("a2", REP, {"open": "met", "pain": "met"}, days_ago=9),
+    ]
+    body = _client(memos).get("/api/v1/coaching/me/summary").json()
+    assert body["numbers_week_start"] == "2026-09-14" and body["week_start"] == "2026-09-21"
+    assert body["numbers"]["conversations"] == 2  # the shown week, not an empty one
+    opening = next(s for s in body["steps"] if s["step_id"] == "open")
+    assert (opening["done"], opening["applicable"]) == (2, 2)
 
 
 def test_ae_flow_uses_closing_playbook():
@@ -169,7 +184,7 @@ def test_interactions_filters_and_order():
     assert ids("?meeting=false") == ["c", "a"]
     assert client.get("/api/v1/coaching/me/interactions?state=bogus").status_code == 422
     item = client.get("/api/v1/coaching/me/interactions").json()["items"][0]
-    assert item["steps"][0] == {"step_id": "open", "label": "open", "state": "missing", "quote": None}
+    assert item["steps"][0] == {"step_id": "open", "label": "open", "state": "missing", "quote": None, "advice": None}
 
 
 def test_process_by_week_and_objections():
@@ -227,7 +242,7 @@ def test_examples_need_three_distinct_peers_for_moments_and_best_response():
     body = _client(_winning_memos(two), patterns=patterns, peers=two).get("/api/v1/coaching/examples").json()
     opening = next(s for s in body["steps"] if s["step_id"] == "open")
     assert opening["moments"] == []
-    assert body["objections"] == [{"category": "price", "guidance": "Habla de valor", "best_response": None}]
+    assert body["objections"] == [{"category": "price", "label": None, "guidance": "Habla de valor", "best_response": None}]
 
 
 def test_examples_one_peer_with_many_memos_is_still_one_peer():

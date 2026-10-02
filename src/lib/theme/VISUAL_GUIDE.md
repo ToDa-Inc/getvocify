@@ -1,54 +1,52 @@
-# Vocify Visual Theme Engine 🎨
+# Vocify visual system
 
-This system is built using **Design Tokens**. Instead of hardcoding colors and shadows in every file, we use a centralized "Brain" (`src/lib/theme/tokens.ts`). 
+One recipe per element. If a control already exists below, use it; if it does not fit, add a token
+or a variant here, never an inline one-off. `npm run lint:ui` fails on the drift this guide prevents.
 
-### Why this matters:
-1.  **Instant Global Updates**: Change the `premium` card style in the token file, and every "Record" box, "Billing" box, and "Sidebar" card updates automatically across the entire app.
-2.  **Consistency**: Ensures the exact same beige, corner radius, and shadow is used everywhere.
-3.  **Clean Code**: Components read like a story (e.g., `THEME_TOKENS.cards.premium`) rather than a mess of CSS classes.
+## Where things live
 
----
+| What | Where |
+|---|---|
+| Base colors, radii (all three apps) | `shared/tokens/tokens.json` → `node scripts/build-tokens.mjs` |
+| Dashboard theme, dark mode | `src/index.css` |
+| Glass, shadows, motion (wins over `index.css`) | `src/lib/theme/materials.css` |
+| Element recipes | `src/lib/theme/tokens.ts` (`THEME_TOKENS`, `MENU_TOKENS`) |
+| Components | `src/components/ui/` |
+| Shared across web / extension / desktop | `shared/ui/` → `node scripts/sync-shared.mjs` |
 
-## 🏗️ Core Tokens (`THEME_TOKENS`)
+## Surfaces
 
-### 1. Typography
-*   `pageTitle`: Clean, black-weight Inter for the **Dashboard**.
-*   `editorialHeader`: The signature **Serif Italic** font used specifically for the **Landing Page** to maintain a premium, editorial feel.
-*   `accentTitle`: Used for the second word in headers (The "Beige" word).
-*   `capsLabel`: Small, uppercase, tracked-out labels for metadata.
+- **Paper** (`bg-card` + hairline): content. Cards, lists, forms.
+- **Glass** (`glass-panel`, `glass-nav`, `glass-menu`, `glass-segment`): floating chrome only, nav,
+  menus, popovers, the selected pill. Never a content card.
+- **Shadows**: `shadow-soft` (rest), `shadow-medium` (raised), `shadow-large` (floating). Tailwind's
+  `sm/md/lg/xl/2xl` are mapped onto the same three. No arbitrary `shadow-[...]`.
 
-### 2. The "Premium Light" Card (`cards.premium`)
-This is our signature style. It combines:
-*   **Glassmorphism**: `white/40` background with `backdrop-blur-xl`.
-*   **Inner Shadow (Lighting)**: Subtle highlight on top-left, depth on bottom-right.
-*   **Tactile Feel**: High-quality shadows that make boxes feel like physical objects.
+## Controls
 
-### 3. Radius
-*   `card`: 2rem (32px) for list items.
-*   `container`: 3rem to 4rem (48px-64px) for major sections like the "Record" card.
+| Need | Use |
+|---|---|
+| Main action of a block | `<Button>` (default, one per block) |
+| Secondary | `<Button variant="outline">` (glass) |
+| Quiet text action | `<Button variant="quiet" size="text">` |
+| Red text action / filled red | `variant="dangerGhost"` / `variant="destructive"` |
+| Icon-only action | `<IconAction label>` (tooltip + pending). `tone="primary"` for the filled one, `pressed` for toggles |
+| Pick one of 2–4 values of a setting | `<Segmented>` |
+| Switch views of one page | `Tabs` (+ `segmentList` / `segmentTab` for the pill look) |
+| On/off choice, several allowed | `<Toggle variant="chip">` |
+| Pick from a list | `<Select>` (`variant="field"` in forms, `"chip"` for filters) |
+| Menu of actions | `DropdownMenu` (`tone="danger"` for delete / sign out) |
+| 2–4 values inside a menu | `DropdownMenuSegmented` (theme, language) |
+| Loading | `VocifySpinner` (`tone="onFill"` on a beige button), `VocifyLoader` for a page |
+| Row hover | `hover:bg-secondary/60` (`interaction.rowHover`) |
 
----
+## Rules
 
-## 🧩 Reusable Patterns (`V_PATTERNS`)
-
-*   `dashboardHeader`: Standard spacing for page titles.
-*   `focusBox`: The layout for high-impact action areas.
-*   `listItem`: Standard padding and transitions for clickable list items.
-
----
-
-## 🎨 Palette Reference
-*   **Primary**: `Beige` (hsl(35 25% 35%))
-*   **Background**: `Creme/White` (hsl(40 33% 96%))
-*   **Text**: `Foreground/Black` (hsl(0 0% 4%))
-
----
-
-### How to use in code:
-```tsx
-import { THEME_TOKENS } from "@/lib/theme/tokens";
-
-<div className={THEME_TOKENS.cards.premium}>
-  <h1 className={THEME_TOKENS.typography.pageTitle}>Hello</h1>
-</div>
-```
+- Status colors are tokens: `text-destructive`, `text-success`, `text-warning`, `text-beige`,
+  `text-muted-foreground` (`THEME_TOKENS.colors.*`). No Tailwind palette, no hex, no `bg-white`.
+- A selected option in a list carries a check on the right, never a bullet.
+- One icon set: `lucide-react`, `strokeWidth` 1.5 for the thin look. Icons that move on a state
+  change are `AnimIcon`.
+- Hover, focus and pending always exist; menus and glass respect `prefers-reduced-motion` and
+  `prefers-reduced-transparency`.
+- The marketing site (`src/components/landing`) has its own palette and is outside the guard.

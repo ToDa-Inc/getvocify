@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { toast } from "sonner";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { useAuth } from "@/features/auth";
 import { authApi, authKeys } from "@/features/auth/api";
 import type { User } from "@/features/auth/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const OPTIONS = [
   { code: "es", label: "Spanish" },
@@ -80,43 +82,47 @@ export const TranscriptionLanguageSettings = () => {
 
       <div className="space-y-2">
         <label className={THEME_TOKENS.typography.capsLabel}>Main language</label>
-        <select
+        <Select
           value={primary}
-          onChange={(e) => {
-            const next = e.target.value;
+          onValueChange={(next) => {
             setPrimary(next);
             setExtras((prev) => prev.filter((c) => c !== next));
           }}
-          className="h-11 w-full rounded-full border border-border/40 bg-secondary/5 px-6 text-sm font-bold"
         >
-          {OPTIONS.map((opt) => (
-            <option key={opt.code} value={opt.code}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {OPTIONS.map((opt) => (
+              <SelectItem key={opt.code} value={opt.code}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-2">
         <p className={THEME_TOKENS.typography.capsLabel}>Also spoken on calls</p>
         <div className="flex flex-wrap gap-2">
-          {OPTIONS.filter((opt) => opt.code !== primary).map((opt) => {
-            const on = extras.includes(opt.code);
-            return (
-              <button
-                key={opt.code}
-                type="button"
-                onClick={() => toggleExtra(opt.code)}
-                className={`rounded-full px-4 h-9 text-xs font-medium border transition-colors ${
-                  on
-                    ? "bg-beige text-cream border-beige"
-                    : "bg-secondary/5 text-foreground border-border/40 hover:bg-secondary/10"
-                }`}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
+          {OPTIONS.filter((opt) => opt.code !== primary).map((opt) => (
+            <Toggle
+              key={opt.code}
+              pressed={extras.includes(opt.code)}
+              onPressedChange={(pressed) => {
+                if (pressed) {
+                  setExtras((prev) => [...prev, opt.code]);
+                } else {
+                  setExtras((prev) => prev.filter((c) => c !== opt.code));
+                }
+              }}
+              variant="chip"
+              size="sm"
+              aria-label={opt.label}
+            >
+              {opt.label}
+            </Toggle>
+          ))}
         </div>
       </div>
 

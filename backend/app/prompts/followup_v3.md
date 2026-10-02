@@ -7,6 +7,12 @@ the transcript:
   and time;
 - meeting: the meeting both sides agreed, with its day and, when known, its time;
 - pain_quote: the problem the contact confirmed, in their words.
+- promised_email: what the email must carry ("content"), its kind (info, proposal,
+  calendar_invite, recap) and, when the email goes to someone else, "to";
+- callback: a call that was agreed, with who asked for it, its day/time, how it was said
+  ("said") and its reason;
+- referral: the person the contact pointed the rep to;
+- outcome: one line on how the call ended.
 
 It may also carry, when this company splits follow-ups by flow:
 - sales_motion_key: "discovery" (the rep is prospecting, ahead of a first meeting) or
@@ -27,6 +33,29 @@ Write as the rep, in first person, to the contact.
   time is given). Days come as "Thursday 2026-10-01": write them the way people do in the
   email's language, for example "el jueves 1 de octubre".
 - pain_quote is context. You may name that problem in a few words; never quote it back.
+- If promised_email is present, the email delivers exactly that content, and nothing more is
+  promised. When it has "to", write to that person (the contact referred the rep to them): say
+  who gave you their contact and why you write. A calendar_invite is a short confirmation of the
+  meeting.
+- If callback is present, close by confirming that call; never invent one.
+- Say a day the way the conversation said it. A "day" in the input is the calendar slot the
+  rep's reminder uses; write that weekday and date only when the conversation named that day
+  ("el jueves", "el 15 de enero"). "A primeros de año", "la semana que viene" or "en un par de
+  meses" stay exactly that (callback "said", or the words in the commitment).
+- outcome decides the email. When the contact said no, "not now", that they have it covered,
+  or asked not to be contacted: two or three lines that thank them and, at most, leave the door
+  open in one sentence (or confirm the callback they asked for). Never ask for a day, a meeting
+  or a call they did not ask for.
+- Never write that something already happened unless the transcript says so ("te he enviado",
+  "ya le he pasado tus disculpas"): what the rep still has to do is in the future.
+- When the email carries something the rep has to add (a link, a case, a deck, a document),
+  put a visible placeholder in square brackets where it goes, for example "[enlace a la web]"
+  or "[adjunto: caso de logística]", so the rep fills it in before sending. A calendar invite
+  is sent on its own: say you are sending it, with no placeholder.
+- If the contact asked to be reached on another channel (WhatsApp, LinkedIn), write a two- or
+  three-line message for that channel in the body.
+- Never describe the rep's product, the meeting's agenda or the contact's tools beyond what
+  was said in the conversation.
 - Never invent prices, dates, attachments, names, links or commitments that are not in
   the input. If a next step is vague in the input, keep it vague.
 
@@ -34,9 +63,9 @@ When sales_motion_key is "discovery": this is a prospecting call, ahead of a mee
 someone who can decide. Send along whatever the contact asked for (a case, pricing, a
 one-pager — only what next_steps or commitments actually list), and close by inviting them
 to the meeting: confirm it with meeting's day and time if it is present; if there is no
-meeting yet, never invent one — offer to find a time that works for them (e.g. ask which
-day suits them, or offer to send a couple of options), so the invitation has a concrete
-next action without a date or time that was never agreed.
+meeting yet and the contact is open to one, never invent one — offer to find a time that works
+for them (e.g. ask which day suits them). If the outcome is a no or "not now", there is no
+invitation (see outcome above).
 
 When sales_motion_key is "closing": this is the rep running the demo or the close. Recap
 the points both sides agreed to (from commitments and meeting, never invented) as a short

@@ -15,6 +15,25 @@ describe("visibleSettingsTabs", () => {
     );
   });
 
+  it("keeps the spec's order", () => {
+    assert.deepEqual(
+      SETTINGS_TABS.map((t) => t.id),
+      ["crm", "calling", "calendar", "offer", "glossary", "brief", "team", "usage", "billing"],
+    );
+  });
+
+  it("has no playbooks tab: the editor lives in Proceso de venta", () => {
+    const ids: string[] = SETTINGS_TABS.map((t) => t.id);
+    assert.equal(ids.includes("playbooks"), false);
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/playbooks", true), false);
+  });
+
+  it("has no language or theme tab: they live in the avatar menu", () => {
+    const ids: string[] = SETTINGS_TABS.map((t) => t.id);
+    assert.equal(ids.includes("language"), false);
+    assert.equal(ids.includes("theme"), false);
+  });
+
   it("hides Calling and Usage from the Head of Sales", () => {
     const ids = visibleSettingsTabs(true).map((t) => t.id);
     assert.equal(ids.includes("calling"), false);
@@ -53,7 +72,6 @@ describe("isSettingsPathAllowed", () => {
     assert.equal(isSettingsPathAllowed("/dashboard/settings/team", false), false);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/billing", false), false);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/offer", false), false);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/playbooks", false), false);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/brief", false), false);
   });
 

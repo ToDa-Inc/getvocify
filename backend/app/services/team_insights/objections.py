@@ -77,6 +77,29 @@ def _guidance_by_category(playbook_entries: list[dict] | None) -> dict[str, str]
     return mapping
 
 
+EXAMPLE_MAX_CHARS = 240
+
+
+def response_text(value) -> str:
+    """The rep's answer as a reader sees it: the text of a stored {"text": ...} (dict or JSON string),
+    in one line, cut at a sentence end when a monologue runs long."""
+    import json
+
+    if isinstance(value, str) and value.strip().startswith("{"):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            pass
+    if isinstance(value, dict):
+        value = value.get("text") or ""
+    text = " ".join(str(value or "").split())
+    if len(text) <= EXAMPLE_MAX_CHARS:
+        return text
+    cut = text[:EXAMPLE_MAX_CHARS]
+    end = max(cut.rfind(". "), cut.rfind("? "), cut.rfind("! "))
+    return (cut[:end + 1] if end > EXAMPLE_MAX_CHARS // 3 else cut.rsplit(" ", 1)[0]) + " …"
+
+
 def objection_counts(
     rows: list[dict],
     *,
@@ -112,10 +135,11 @@ def objection_counts(
         bucket = tallies.setdefault(name, {"resolved": 0, "open": 0, "unknown": 0})
         bucket[_resolution_bucket(row)] += 1
         if include_guidance and row.get("resolution") == "resolved":
-            response = " ".join(str(row.get("response") or "").split())
-            if response:
+            response = response_text(row.get("response"))
+            if len(response.split()) >= 3:
+                # The tightest real answer reads as an example; the latest one is often a monologue.
                 current = best_example.get(name)
-                if current is None or instant > current[0]:
+                if current is None or (len(response), -instant.timestamp()) < (len(current[1]), -current[0].timestamp()):
                     best_example[name] = (instant, response)
     ordered = []
     for name, parts in tallies.items():

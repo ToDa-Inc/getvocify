@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Gear, Minus, Phone } from "@phosphor-icons/react";
+import { Minus, Phone, Settings } from "lucide-react";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { ROUTES } from "@/shared/lib/constants";
 import { useCallingConfig } from "@/features/calls/useCallingConfig";
@@ -80,7 +80,7 @@ export const FloatingDialer = ({
           onClick={() => onOpenChange(false)}
           className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
         >
-          <Gear size={16} weight="light" />
+          <Settings size={16} strokeWidth={1.5} />
         </Link>
         <button
           type="button"
@@ -88,7 +88,7 @@ export const FloatingDialer = ({
           onClick={() => onOpenChange(false)}
           className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
         >
-          <Minus size={16} weight="light" />
+          <Minus size={16} strokeWidth={1.5} />
         </button>
       </div>
     ) : null;
@@ -147,7 +147,7 @@ export const FloatingDialer = ({
           aria-label={`Llamada en curso, ${fabLabel}`}
           className={`fixed bottom-5 right-5 z-50 flex items-center gap-2 pl-3 pr-3.5 py-2 ${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.pill}`}
         >
-          <Phone size={14} weight="light" className="text-beige" />
+          <Phone size={14} strokeWidth={1.5} className="text-beige" />
           <span className="text-[13px] font-medium tabular-nums text-foreground">{fabLabel}</span>
         </button>
       ) : null}

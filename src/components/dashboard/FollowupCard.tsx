@@ -37,8 +37,11 @@ export function FollowupCard({
   memoId,
   onSendReady,
   onStatus,
+  fallbackTo,
 }: {
   memoId: string;
+  /** The CRM contact picked on the update page; used when the call itself had no email. */
+  fallbackTo?: string | null;
   onSendReady?: (send: (() => void) | null) => void;
   /** The draft's status, for the review's Email tab (shown while writing, ready or sent). */
   onStatus?: (status: FollowupView["status"] | null) => void;
@@ -77,10 +80,10 @@ export function FollowupCard({
           return;
         }
         const channel = value === "whatsapp" ? "whatsapp" : "email";
-        if (channel === "email" && sendFromVocify && view.to) {
+        if (channel === "email" && sendFromVocify && (view.to || fallbackTo)) {
           setIsSending(true);
           try {
-            const next = await memosApi.sendFollowup(memoId, { to: view.to, subject, body });
+            const next = await memosApi.sendFollowup(memoId, { to: view.to || fallbackTo!, subject, body });
             queryClient.setQueryData(["memo-followup", memoId], next);
             toast.success(t.product.followupSentToast);
           } finally {
@@ -88,7 +91,8 @@ export function FollowupCard({
           }
           return;
         }
-        const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body, mailClient: (value ?? undefined) as "default" | "gmail" | "outlook" | undefined });
+        const to = view.to || fallbackTo || undefined;
+        const target = composeTarget({ channel, to, phone: view.phone, subject, body, mailClient: (value ?? undefined) as "default" | "gmail" | "outlook" | undefined });
         const url = target.ok ? target.url : target.fallback;
         if (!url) return;
         if (!target.ok) {
@@ -102,7 +106,7 @@ export function FollowupCard({
         toast.error(t.product.followupCompleteFailed);
       }
     },
-    [memoId, queryClient, t.product, sendFromVocify, isSending],
+    [memoId, queryClient, t.product, sendFromVocify, isSending, fallbackTo],
   );
 
   const view = useMemo(() => (data ? { ...data, mailClient: savedMailClient() } : data), [data]);
@@ -120,7 +124,7 @@ export function FollowupCard({
     onStatus?.(data?.status ?? null);
   }, [onStatus, data?.status]);
 
-  const canSend = data?.status === "ready" && Boolean(data.to || data.phone) && !isSending;
+  const canSend = data?.status === "ready" && Boolean(data.to || fallbackTo || data.phone) && !isSending;
 
   useEffect(() => {
     if (!onSendReady) return;

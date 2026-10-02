@@ -696,7 +696,7 @@ async def get_today(
         limit=SDR_SOURCE_LIMIT if sections_enabled else DEFAULT_LIMIT,
     )
     directory = memo_directory(memos + (handoff_memos or []))
-    _stamp_contact_names(view, visible, directory)
+    _stamp_contact_names(view, visible, directory, _dialled_numbers(supabase, view))
     sections_view: dict | None = None
     if sections_enabled:
         # Every card was ranked (SDR_SOURCE_LIMIT); each section takes its own cap, and
@@ -762,7 +762,22 @@ def _memo_directory(supabase, user_id: str) -> tuple[dict[str, NamePair], dict[s
     return memo_directory(_user_memos(supabase, user_id))
 
 
-def _stamp_contact_names(view: dict, signals: list[dict], directory: tuple[dict, dict]) -> None:
+def _dialled_numbers(supabase, view: dict) -> dict[str, str]:
+    """The number dialled for each unanswered-call card still without a name. Never raises."""
+    ids = [
+        str(item.get("dedupe_key"))[len("callback:call:"):] for item in view.get("items") or []
+        if not item.get("contact_name") and str(item.get("dedupe_key") or "").startswith("callback:call:")
+    ]
+    if not ids:
+        return {}
+    try:
+        rows = supabase.table("outbound_calls").select("id,to_number").in_("id", ids).execute().data or []
+    except Exception:
+        return {}
+    return {str(row["id"]): str(row["to_number"]) for row in rows if row.get("to_number")}
+
+
+def _stamp_contact_names(view: dict, signals: list[dict], directory: tuple[dict, dict], dialled: dict | None = None) -> None:
     by_memo, by_contact = directory
     row_by_key = {row.get("dedupe_key"): row for row in signals if row.get("dedupe_key")}
     for item in view.get("items") or []:
@@ -774,6 +789,11 @@ def _stamp_contact_names(view: dict, signals: list[dict], directory: tuple[dict,
             found = by_contact.get(str(item.get("contact_id") or ""))
             if found:
                 name, company = found
+        if not name and not item.get("contact_name"):
+            # A call nobody answered has no memo to name it: the number dialled is better than "Contacto".
+            name = str((row.get("payload") or {}).get("phone") or "").strip() or (dialled or {}).get(
+                str(item.get("dedupe_key") or "").removeprefix("callback:call:")
+            ) or None
         if name:
             item["contact_name"] = name
         if company:

@@ -239,3 +239,55 @@ def test_a_stored_signal_of_a_type_this_build_does_not_rank_is_skipped_not_fatal
     cards, folded = rank_cards([stale, *live], now=NOW)
     assert all(card.primary.type != "legacy_nudge" for card in cards) and cards
     assert rank_cards([stale], now=NOW) == ([], 0)
+
+
+def test_a_connected_call_the_reading_saw_as_a_bad_moment_asks_for_a_retry():
+    from app.services.hoy.signals import screening_from_call
+    bad = {"call": {"call_type": "bad_moment"}}
+    assert screening_from_call("connected", bad) == "bad_moment"
+    assert screening_from_call(None, {"call": {"call_type": "no_conversation"}}) == "no_response"
+    assert screening_from_call("voicemail", bad) == "voicemail"  # telephony knows best
+    assert screening_from_call("connected", {"call": {"call_type": "follow_up"}}) == "connected"
+    assert screening_from_call(None, None) is None
+
+
+def test_bad_moment_retry_card_says_they_could_not_talk():
+    from datetime import datetime, timezone
+    from app.services.hoy.reasons import _callback_no_answer
+    now = datetime(2026, 9, 26, 10, 0, tzinfo=timezone.utc)
+    text = _callback_no_answer({"outcome": "bad_moment", "at": "2026-09-25T10:00:00+00:00"}, "es", now)
+    assert text == "Le llamaste ayer y no podía hablar. Vuelve a intentarlo."
+
+
+def test_a_call_that_dropped_mid_conversation_asks_for_a_retry():
+    from datetime import datetime, timezone
+    from app.services.hoy.reasons import _callback_no_answer
+    from app.services.hoy.signals import screening_from_call
+    assert screening_from_call("connected", {"call": {"call_type": "cold_first_contact", "ended_abruptly": True}}) == "cut_off"
+    assert screening_from_call("connected", {"call": {"call_type": "cold_first_contact", "ended_abruptly": False}}) == "connected"
+    now = datetime(2026, 9, 26, 10, 0, tzinfo=timezone.utc)
+    assert _callback_no_answer({"outcome": "cut_off", "at": "2026-09-26T09:00:00+00:00"}, "es", now) == "Se cortó la llamada hoy. Vuelve a llamar."
+
+
+def test_the_v8_callback_is_the_call_commitment_hoy_shows_with_its_reason():
+    from datetime import datetime, timezone
+    from app.services.hoy.reasons import reason as card_reason
+    from app.services.hoy.signals import signals_for_contact, touch_from_intelligence
+    at = datetime(2026, 9, 24, 9, 0, tzinfo=timezone.utc)
+    intel = {"commitments": [], "objections": [], "next": {"callback": {
+        "needed": True, "who_asked": "prospect", "when": "2026-09-24T12:30:00+02:00",
+        "temporal_precision": "time", "reason": "Estaba recogiendo a los niños"}}}
+    touch = touch_from_intelligence(memo_id="m1", contact_id="42", deal_id=None, at=at, intelligence=intel)
+    now = datetime(2026, 9, 24, 9, 30, tzinfo=timezone.utc)
+    [signal] = [s for s in signals_for_contact([touch], now=now, day_end=datetime(2026, 9, 24, 22, 0, tzinfo=timezone.utc)) if s.type == "commitment_due"]
+    assert signal.payload["why"] == "Estaba recogiendo a los niños"
+    assert card_reason(signal) == "Pidió que le llamaras: estaba recogiendo a los niños."
+
+
+def test_a_dropped_call_that_got_somewhere_is_not_retried_as_if_nothing_happened():
+    from app.services.hoy.signals import screening_from_call
+    reached = {"call": {"call_type": "cold_first_contact", "ended_abruptly": True, "phase_reached": "closing"}}
+    assert screening_from_call("connected", reached) == "connected"
+    promised = {"call": {"call_type": "cold_first_contact", "ended_abruptly": True, "phase_reached": "discovery"},
+                "commitments": [{"text": "enviar caso"}]}
+    assert screening_from_call("connected", promised) == "connected"

@@ -126,6 +126,9 @@ class OpenRouterProvider(BaseLLMProvider):
             "model": model or self.model,
             "messages": messages,
             "temperature": temperature,
+            # Without a cap OpenRouter reserves the model's whole output window (65k on Gemini)
+            # against the account balance, so a low balance fails calls that need a few k.
+            "max_tokens": settings.LLM_MAX_OUTPUT_TOKENS,
             "usage": {"include": True},
         }
         if response_format:
@@ -199,7 +202,7 @@ class OpenRouterProvider(BaseLLMProvider):
                     self.last_call_meta = openrouter_call_meta(data, requested_model=model_used)
                     usage = self.last_call_meta
                     inc_llm_request("success", PROVIDER_NAME, usage.get("model") or model_used)
-                    record_llm_usage(PROVIDER_NAME, usage, duration_ms=round(elapsed_ms))
+                    record_llm_usage(PROVIDER_NAME, usage)
                     logger.info(
                         "LLM chat success",
                         extra=log_domain(
@@ -399,9 +402,7 @@ class OpenRouterProvider(BaseLLMProvider):
             {"model": acc.model, "usage": acc.usage}, requested_model=model_used
         )
         inc_llm_request("success", PROVIDER_NAME, self.last_call_meta["model"])
-        record_llm_usage(
-            PROVIDER_NAME, self.last_call_meta, duration_ms=round((time.perf_counter() - t0) * 1000)
-        )
+        record_llm_usage(PROVIDER_NAME, self.last_call_meta)
         logger.info(
             "LLM stream success",
             extra=log_domain(
@@ -426,15 +427,30 @@ class OpenRouterProvider(BaseLLMProvider):
         temperature: float = 0.0,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict:
-        content = await self.chat(
-            messages,
-            model=model,
-            temperature=temperature,
-            response_format={"type": "json_object"},
-            timeout=timeout,
-            max_retries=max_retries,
-        )
+        if reasoning_effort:
+            # How much the model thinks before answering: most of a Gemini call's cost is these
+            # tokens, and a classification needs few of them.
+            message = await self._complete(
+                messages, model=model, temperature=temperature,
+                response_format={"type": "json_object"}, timeout=timeout, max_retries=max_retries,
+                # "low"/"medium"/"high", or a token budget ("1200") that keeps reasoning but caps it.
+                extra={"reasoning": {"max_tokens": int(reasoning_effort)} if str(reasoning_effort).isdigit()
+                       else {"effort": reasoning_effort}},
+            )
+            content = message.get("content")
+            if content is None:
+                raise ValueError("Empty model response")
+        else:
+            content = await self.chat(
+                messages,
+                model=model,
+                temperature=temperature,
+                response_format={"type": "json_object"},
+                timeout=timeout,
+                max_retries=max_retries,
+            )
         try:
             parsed = extract_json(content)
             log_json_parsed(parsed)

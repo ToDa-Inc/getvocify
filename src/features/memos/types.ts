@@ -203,6 +203,8 @@ export interface Memo {
 
   /** Per-run STT / sanitize / extract timings and LLM prompt snapshots */
   pipelineMeta?: Nullable<PipelineMeta>;
+  /** Attendees of a meeting (when interactionKind is "meeting") */
+  attendees?: Array<{ name: string | null; email: string }>;
 }
 
 export interface PipelineMeta {

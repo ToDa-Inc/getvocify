@@ -34,7 +34,7 @@ test('long mailto falls back to subject-only draft', () => {
 
 test('gmail and outlook compose URLs', () => {
   assert.match(composeTarget({ channel: 'email', to: 'a@b.co', subject: 'S', body: 'B', mailClient: 'gmail' }).url,
-    /^https:\/\/mail\.google\.com\/mail\/\?extsrc=mailto&url=mailto%3Aa%40b\.co%3Fsubject%3DS%26body%3DB$/);
+    /^https:\/\/mail\.google\.com\/mail\/\?view=cm&fs=1&to=a%40b\.co&su=S&body=B$/);
   assert.match(composeTarget({ channel: 'email', to: 'a@b.co', subject: 'S', body: 'B', mailClient: 'outlook' }).url,
     /^https:\/\/outlook\.office\.com\/mail\/deeplink\/compose\?to=a%40b\.co&subject=S&body=B$/);
 });
@@ -47,7 +47,7 @@ test('whatsapp strips formatting; rejects missing numbers and bad emails', () =>
 
 test('no address still opens a draft in every mail client', () => {
   assert.equal(composeTarget({ channel: 'email', to: '', subject: 'S', body: 'B', mailClient: 'gmail' }).url,
-    'https://mail.google.com/mail/?extsrc=mailto&url=mailto%3A%3Fsubject%3DS%26body%3DB');
+    'https://mail.google.com/mail/?view=cm&fs=1&su=S&body=B');
   assert.equal(composeTarget({ channel: 'email', subject: 'S', mailClient: 'outlook' }).url,
     'https://outlook.office.com/mail/deeplink/compose?subject=S');
   assert.equal(composeTarget({ channel: 'email', subject: 'S' }).url, 'mailto:?subject=S');

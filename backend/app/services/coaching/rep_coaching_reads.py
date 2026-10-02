@@ -7,10 +7,36 @@ from datetime import datetime
 from app.services.playbooks.live import live_snapshot
 from app.services.team_insights.aggregate import load_team_reps
 
-_MEMO_COLUMNS = (
+_MEMO_BASE = (
     "id,user_id,company_id,sales_motion_key,screening_outcome,audio_duration,"
-    "extraction,capture_started_at,created_at"
+    "capture_started_at,created_at,hubspot_contact_id,hubspot_deal_id"
 )
+# Only the parts of the analysis coaching reads: the whole extraction (evidence, the call read turn
+# by turn, CRM fields) is several times heavier and made every coaching screen wait for it.
+_EXTRACTION_PARTS = (
+    "observations:extraction->intelligence->playbook_observations,"
+    "call_type:extraction->intelligence->call->>call_type,"
+    "reached_conversation:extraction->intelligence->call->reached_conversation,"
+    "outcome:extraction->intelligence->next->outcome,"
+    "summary:extraction->>summary"
+)
+_MEMO_COLUMNS = _MEMO_BASE + "," + _EXTRACTION_PARTS
+_MEMO_COLUMNS_FULL = _MEMO_BASE + ",extraction"
+
+
+def _as_extraction(row: dict) -> dict:
+    """The trimmed row back in the shape the coaching engine reads (extraction.intelligence...)."""
+    if "extraction" in row or "observations" not in row:
+        return row
+    out = {k: v for k, v in row.items() if k not in ("observations", "call_type", "reached_conversation", "outcome", "summary")}
+    call = {k: row.get(k) for k in ("call_type", "reached_conversation") if row.get(k) is not None}
+    intelligence = {"playbook_observations": row.get("observations")}
+    if call:
+        intelligence["call"] = call
+    if row.get("outcome"):
+        intelligence["next"] = {"outcome": row["outcome"]}
+    out["extraction"] = {"intelligence": intelligence, "summary": row.get("summary")}
+    return out
 _PATTERN_COLUMNS = "memo_id,category,kind,resolution,response,superseded,created_at"
 _PAGE_SIZE = 1000
 _IN_BATCH = 100
@@ -40,7 +66,7 @@ def load_memos(
     rep_outcome is selected when the column exists."""
     if not user_ids:
         return []
-    for columns in (_MEMO_COLUMNS + ",rep_outcome", _MEMO_COLUMNS):
+    for columns in (_MEMO_COLUMNS + ",rep_outcome", _MEMO_COLUMNS, _MEMO_COLUMNS_FULL + ",rep_outcome", _MEMO_COLUMNS_FULL):
         try:
             rows: list[dict] = []
             for batch in _batches(list(user_ids)):
@@ -59,8 +85,13 @@ def load_memos(
                     if len(page) < _PAGE_SIZE:
                         break
                     offset += _PAGE_SIZE
+            rows = [_as_extraction(row) for row in rows]
             rows.sort(key=lambda row: (str(row.get("created_at") or ""), str(row.get("id") or "")))
-            return rows
+            # A meeting the rep marked in the CRM (the deal moved to the meeting-booked stage) is
+            # their declaration too: it settles the meeting step like rep_outcome does.
+            from app.services.coaching.crm_meetings import apply_rep_meetings
+
+            return apply_rep_meetings(supabase, rows, batch=_IN_BATCH)
         except Exception:
             continue
     return []

@@ -237,8 +237,9 @@ export type Diagnosis = {
   href: string | null;
 };
 
-const PROCESS_HREF = "/dashboard/process";
-const TEAM_HREF = "/dashboard/insights";
+/** Where a process problem is fixed (the playbooks, in Ajustes) and where people are read (Equipo → Personas). */
+export const PROCESS_HREF = "/dashboard/process";
+const TEAM_HREF = "/dashboard/insights?tab=people";
 
 /** Lower = more severe. Only verdicts that say something about the flow have an entry. */
 const DIAGNOSIS_BY_VERDICT: Partial<Record<ProcessHealthVerdict, { severity: number; tone: DiagnosisTone; key: Diagnosis["key"]; href: string | null }>> = {

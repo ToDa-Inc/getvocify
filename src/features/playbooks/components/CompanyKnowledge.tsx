@@ -1,27 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Trash } from "@phosphor-icons/react";
+import { toast } from "sonner";
+import { ArrowUpRight, SquarePen, Plus, Sparkles, Swords, Trophy, Users, type LucideIcon as Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { IconAction } from "@/components/ui/icon-action";
+import { TabCount, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
-import { errorCode, playbooksApi } from "@/features/playbooks/api";
-import { linkButton } from "@/features/playbooks/styles";
+import { useTeamAdherence } from "@/features/head-of-sales/useTeamAdherence";
+import { errorCode, playbooksApi, type CompanyFillScope, type FillSource } from "@/features/playbooks/api";
+import { CompleteButton, DocRow, ItemMenu } from "@/features/playbooks/components/DocParts";
+import { FillBox } from "@/features/playbooks/components/FillBox";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
+import { SaveStatus } from "@/features/playbooks/components/SaveStatus";
+import { CompanyIcon } from "@/features/playbooks/icons";
+import { itemBody, itemTitle, linkButton } from "@/features/playbooks/styles";
+import { HOS_DEFAULT_PERIOD } from "@/lib/head-of-sales";
 import { useLanguage } from "@/lib/i18n";
 import { AUTOSAVE_MS, type SaveState } from "@/lib/playbook-doc";
 import {
+  COMPANY_TABS,
+  COMPANY_TAB_ORDER,
+  ITEM_LINE,
   ITEM_TITLE,
-  SECTION_ORDER,
   blankItem,
   cleanKnowledge,
-  isEmptyKnowledge,
-  visibleSections,
+  suggestedCompetitors,
+  tabCount,
+  tabFilled,
+  type CompanyTab,
   type Knowledge,
   type KnowledgeList,
   type KnowledgeSection,
@@ -41,56 +46,64 @@ const LAYOUT: Record<KnowledgeSection, { texts: TextKey[]; list?: KnowledgeList;
   pricing: { texts: ["pricing"] },
   notes: { texts: ["notes"] },
 };
-const ITEM_FIELDS: Record<KnowledgeList, string[]> = {
-  personas: ["cares_about", "language", "measured_on"],
-  proofs: ["situation", "change", "number", "tags"],
-  competitors: ["win_when", "lose_when", "they_like", "landmines", "how_to_talk"],
-  triggers: ["how_to_use"],
+const LONG_TEXTS: TextKey[] = ["value_long", "notes", "pricing"];
+const TAB_ICONS: Record<CompanyTab, Icon> = {
+  customer: Users,
+  value: Sparkles,
+  proofs: Trophy,
+  competitors: Swords,
+  notes: SquarePen,
 };
-
-const labelCell = "pt-1 text-xs text-muted-foreground";
-const row = "grid items-start gap-x-4 md:grid-cols-[minmax(0,11rem)_minmax(0,1fr)]";
+const MAX_SUGGESTED = 5;
 
 /**
- * "Vuestra empresa" (plan §15, layer 2): who you sell to, the value story, customer stories,
- * competitors… Given once, used as context everywhere, never scored. Only sections with
- * content are on screen; the rest are one "+ Sección" away. Changes save themselves and
- * apply at once (nothing to turn on: nothing here is a rubric).
+ * "Vuestra empresa" (plan §15, layer 2): who you sell to, the offer, customer stories,
+ * competitors… Given once, used as context everywhere, never scored. Five tabs, one pattern:
+ * every item is a bold name and one line, edited where it is read; what is missing Vocify writes
+ * ("Completar", or anything said to "Dile a Vocify"). Changes save themselves and apply at once
+ * (nothing here is a rubric).
  */
 export function CompanyKnowledge({ canEdit, onSaved }: { canEdit: boolean; onSaved?: () => void }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
   const [load, setLoad] = useState<"loading" | "error" | "ready">("loading");
   const [knowledge, setKnowledge] = useState<Knowledge>({});
-  const [added, setAdded] = useState<KnowledgeSection[]>([]);
-  const [editing, setEditing] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [tab, setTab] = useState<CompanyTab>("customer");
+  // The item that was just added, to focus its name.
+  const [focus, setFocus] = useState<string | null>(null);
+  const [filling, setFilling] = useState<string | null>(null);
   const updatedAt = useRef<string | null>(null);
   const latest = useRef(knowledge);
   latest.current = knowledge;
   const savedRef = useRef(onSaved);
   savedRef.current = onSaved;
+  // Competitors the team's calls mention: the Sales process page already reads this (same cache).
+  const adherence = useTeamAdherence(HOS_DEFAULT_PERIOD, "all");
+
+  const adopt = useCallback((doc: { knowledge?: Knowledge | null; updated_at: string | null }) => {
+    setKnowledge(doc.knowledge ?? {});
+    updatedAt.current = doc.updated_at;
+    setDirty(false);
+  }, []);
 
   const reload = useCallback(async () => {
     setLoad("loading");
     try {
-      const doc = await playbooksApi.company();
-      setKnowledge(doc.knowledge ?? {});
-      updatedAt.current = doc.updated_at;
-      setDirty(false);
+      adopt(await playbooksApi.company());
       setSaveState("idle");
       setLoad("ready");
     } catch {
       setLoad("error");
     }
-  }, []);
+  }, [adopt]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  const save = useCallback(async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     setSaveState("saving");
     try {
       const doc = await playbooksApi.saveCompany(cleanKnowledge(latest.current), updatedAt.current);
@@ -98,8 +111,10 @@ export function CompanyKnowledge({ canEdit, onSaved }: { canEdit: boolean; onSav
       setDirty(false);
       setSaveState("saved");
       savedRef.current?.();
+      return true;
     } catch (error) {
       setSaveState(errorCode(error) === "stale_knowledge" ? "stale" : "error");
+      return false;
     }
   }, []);
 
@@ -113,6 +128,36 @@ export function CompanyKnowledge({ canEdit, onSaved }: { canEdit: boolean; onSav
     setKnowledge(next);
     setDirty(true);
     if (saveState === "saved") setSaveState("idle");
+  };
+
+  /**
+   * "Dile a Vocify": what is typed is saved first, then the request goes to Vocify, which saves
+   * the result at once; one toast says what changed, with an undo. Throws, so the box can say why.
+   */
+  const fill = async (source: FillSource, target: string, scope?: CompanyFillScope) => {
+    setFilling(target);
+    try {
+      if (dirty && !(await save())) throw new Error("unsaved");
+      const before = latest.current;
+      const result = await playbooksApi.fillCompany(source, updatedAt.current, scope);
+      if (!result.filled.length) {
+        toast(result.summary || copy.fillNothing);
+        return;
+      }
+      adopt(result);
+      setSaveState("saved");
+      savedRef.current?.();
+      toast(result.summary || copy.fillDone, { action: { label: copy.undo, onClick: () => edit(() => before) } });
+    } catch (error) {
+      if (errorCode(error) === "stale_knowledge") setSaveState("stale");
+      throw error;
+    } finally {
+      setFilling(null);
+    }
+  };
+  /** A "Completar": the request is written for the manager and only that part may change. */
+  const ask = (request: string, target: string, scope: CompanyFillScope) => {
+    void fill({ kind: "text", payload: request }, target, scope).catch(() => toast.error(copy.fillFailed));
   };
 
   if (load === "loading") {
@@ -134,244 +179,300 @@ export function CompanyKnowledge({ canEdit, onSaved }: { canEdit: boolean; onSav
     );
   }
 
-  const editable = canEdit && editing;
-  const sections = visibleSections(knowledge, added);
-  const missing = SECTION_ORDER.filter((section) => !sections.includes(section));
-  const saveLabel =
-    saveState === "saving" ? copy.saving : saveState === "saved" && !dirty ? copy.saved : saveState === "error" ? copy.saveError : saveState === "stale" ? copy.stale : null;
+  const editable = canEdit;
+  // A rep only sees the tabs that say something.
+  const tabs = editable ? COMPANY_TAB_ORDER : COMPANY_TAB_ORDER.filter((item) => tabFilled(knowledge, item));
+  const activeTab = tabs.includes(tab) ? tab : tabs[0];
+  const busy = filling !== null;
 
-  const setText = (key: TextKey, value: string) => edit((current) => ({ ...current, [key]: value }));
-  const listOf = (list: KnowledgeList) => ((knowledge[list] ?? []) as Record<string, unknown>[]);
-  const setItem = (list: KnowledgeList, index: number, field: string, value: unknown) =>
+  const listOf = (list: KnowledgeList) => (knowledge[list] ?? []) as Record<string, string>[];
+  const setItem = (list: KnowledgeList, index: number, field: string, value: string) =>
     edit((current) => ({
       ...current,
-      [list]: ((current[list] ?? []) as Record<string, unknown>[]).map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+      [list]: ((current[list] ?? []) as Record<string, string>[]).map((item, i) => (i === index ? { ...item, [field]: value } : item)),
     }));
-  const addItem = (list: KnowledgeList) =>
-    edit((current) => ({ ...current, [list]: [...((current[list] ?? []) as Record<string, unknown>[]), blankItem(list)] }));
+  const addItem = (list: KnowledgeList, name = "") => {
+    const index = listOf(list).length;
+    edit((current) => ({
+      ...current,
+      [list]: [...((current[list] ?? []) as Record<string, string>[]), { ...blankItem(list), [ITEM_TITLE[list]]: name }],
+    }));
+    if (!name) setFocus(`${list}:${index}`);
+  };
   const removeItem = (list: KnowledgeList, index: number) =>
-    edit((current) => ({ ...current, [list]: ((current[list] ?? []) as Record<string, unknown>[]).filter((_, i) => i !== index) }));
+    edit((current) => ({ ...current, [list]: ((current[list] ?? []) as Record<string, string>[]).filter((_, i) => i !== index) }));
 
-  const addButton = (onClick: () => void, label = copy.addItem) => (
-    <button
-      type="button"
-      className={linkButton}
-      onClick={onClick}
-    >
-      <Plus size={12} weight="light" />
-      {label}
-    </button>
-  );
+  const dot = <span className="mt-2 h-1.5 w-1.5 rounded-full bg-beige" aria-hidden />;
 
-  const textRow = (key: TextKey) => {
+  /** A text field as an item: its name in bold and the text as its line. */
+  const textRow = (key: TextKey, section: KnowledgeSection) => {
     const value = knowledge[key] ?? "";
     if (!editable && !value.trim()) return null;
     return (
-      <div key={key} className={cn(row, "py-1.5")}>
-        <p className={labelCell}>{copy.fields[key]}</p>
+      <DocRow key={key} lead={dot} title={<p className={itemTitle}>{copy.fields[key]}</p>}>
         {editable ? (
-          <InlineTextarea className="text-sm" value={value} placeholder={copy.fields[key]} aria-label={copy.fields[key]} onChange={(event) => setText(key, event.target.value)} />
+          <InlineTextarea
+            className={itemBody}
+            value={value}
+            placeholder={copy.fieldHints[key]}
+            aria-label={copy.fields[key]}
+            onKeyDown={(event) => {
+              if (!LONG_TEXTS.includes(key) && event.key === "Enter") event.preventDefault();
+            }}
+            onChange={(event) => edit((current) => ({ ...current, [key]: event.target.value }))}
+          />
         ) : (
-          <p className="whitespace-pre-line pt-1 text-sm leading-relaxed text-foreground">{value}</p>
+          <p className={cn(itemBody, "whitespace-pre-line")}>{value}</p>
         )}
-      </div>
+        {/* Free notes are the manager's own: nothing for Vocify to complete. */}
+        {editable && !value.trim() && key !== "notes" ? (
+          <div className="pt-1">
+            <CompleteButton
+              label={copy.complete}
+              pending={filling === key}
+              disabled={busy}
+              onClick={() =>
+                ask(
+                  copy.reqTab.replace("{section}", copy.sections[section]).replace("{fields}", copy.fields[key]),
+                  key,
+                  { texts: [key] },
+                )
+              }
+            />
+          </div>
+        ) : null}
+      </DocRow>
     );
   };
 
-  const listBlock = (list: KnowledgeList) => {
-    const title = ITEM_TITLE[list];
-    const items = listOf(list);
+  const differentiators = () => {
+    const items = knowledge.differentiators ?? [];
+    if (!editable && !items.some((item) => item.trim())) return null;
+    const update = (next: (list: string[]) => string[]) => edit((current) => ({ ...current, differentiators: next(current.differentiators ?? []) }));
     return (
-      <div className="space-y-1">
-        {list === "personas" && (items.length || editable) ? <p className={cn(labelCell, "pt-2")}>{copy.fields.personas}</p> : null}
+      <DocRow key="differentiators" lead={dot} title={<p className={itemTitle}>{copy.fields.differentiators}</p>}>
+        <ul className="space-y-0.5">
+          {items.map((item, index) => (
+            <li key={index} className="group/diff flex items-start gap-2">
+              <span className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" aria-hidden />
+              {editable ? (
+                <InlineTextarea
+                  className={cn(itemBody, "flex-1")}
+                  value={item}
+                  placeholder={copy.fieldHints.differentiators}
+                  aria-label={copy.fields.differentiators}
+                  autoFocus={focus === `differentiators:${index}`}
+                  onChange={(event) => update((list) => list.map((value, i) => (i === index ? event.target.value : value)))}
+                  onBlur={() => {
+                    if (!items[index]?.trim()) update((list) => list.filter((_, i) => i !== index));
+                  }}
+                />
+              ) : (
+                <p className={itemBody}>{item}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+        {editable ? (
+          <Button
+            type="button"
+            variant="quiet"
+            size="text"
+            onClick={() => {
+              setFocus(`differentiators:${items.length}`);
+              update((list) => [...list, ""]);
+            }}
+            className="gap-1"
+          >
+            <Plus size={12} strokeWidth={1.5} />
+            {copy.addDifferentiator}
+          </Button>
+        ) : null}
+      </DocRow>
+    );
+  };
+
+  const listBlock = (list: KnowledgeList, section: KnowledgeSection, withTitle: boolean) => {
+    const title = ITEM_TITLE[list];
+    const lineKey = ITEM_LINE[list];
+    const items = listOf(list);
+    const named = items.filter((item) => String(item[title] ?? "").trim());
+    if (!editable && named.length === 0) return null;
+    const known = new Set(named.map((item) => String(item[title]).trim().toLowerCase()));
+    const suggested =
+      editable && list === "competitors" ? suggestedCompetitors(adherence.data?.competitor_mentions, known).slice(0, MAX_SUGGESTED) : [];
+    return (
+      <div key={list}>
+        {withTitle ? <h4 className={cn(THEME_TOKENS.typography.groupTitle, "pt-4")}>{copy.fields[list] ?? copy.sections[section]}</h4> : null}
+        {items.length === 0 && editable ? <p className="pt-2 text-sm text-muted-foreground">{copy.listEmpty[list]}</p> : null}
         <ul>
           {items.map((item, index) => {
             const name = String(item[title] ?? "");
+            const line = String(item[lineKey] ?? "");
             if (!editable && !name.trim()) return null;
+            const target = `${list}:${index}`;
             return (
-              <li key={index} className="group space-y-0.5 border-t border-border/40 py-2.5 first:border-t-0">
-                <div className="flex items-start gap-1">
-                  {editable ? (
+              <DocRow
+                key={index}
+                lead={dot}
+                title={
+                  editable ? (
                     <InlineTextarea
-                      className="flex-1 text-[15px]"
+                      className={itemTitle}
                       value={name}
-                      placeholder={copy.itemTitles[list]}
+                      placeholder={copy.fieldHints[title === "name" ? `${list}_name` : title] ?? copy.itemTitles[list]}
                       aria-label={copy.itemTitles[list]}
-                      autoFocus={!name && index === items.length - 1}
+                      autoFocus={focus === target}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") event.preventDefault();
                       }}
                       onChange={(event) => setItem(list, index, title, event.target.value.replace(/\n/g, " "))}
                     />
                   ) : (
-                    <p className="flex-1 text-[15px] text-foreground">{name}</p>
-                  )}
-                  {editable ? (
-                    <span className="opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-                      <IconAction label={t.product.playbookEditorRemove} tone="danger" onClick={() => removeItem(list, index)}>
-                        <Trash size={14} weight="light" />
-                      </IconAction>
-                    </span>
-                  ) : null}
-                </div>
-                {ITEM_FIELDS[list].map((field) => {
-                  const raw = item[field];
-                  const value = Array.isArray(raw) ? raw.join(", ") : String(raw ?? "");
-                  if (!editable && !value.trim()) return null;
-                  return (
-                    <div key={field} className={row}>
-                      <p className={labelCell}>{copy.fields[field]}</p>
-                      {editable ? (
-                        <InlineTextarea
-                          className="text-sm text-muted-foreground focus:text-foreground"
-                          value={value}
-                          aria-label={copy.fields[field]}
-                          onChange={(event) =>
-                            setItem(list, index, field, field === "tags" ? event.target.value.split(",") : event.target.value)
-                          }
-                        />
-                      ) : (
-                        <p className="whitespace-pre-line pt-1 text-sm text-muted-foreground">{value}</p>
-                      )}
-                    </div>
-                  );
-                })}
-              </li>
+                    <p className={itemTitle}>{name}</p>
+                  )
+                }
+                side={
+                  editable ? (
+                    <ItemMenu
+                      label={copy.itemMenu.replace("{name}", name || copy.itemTitles[list])}
+                      actions={[{ label: t.product.playbookEditorRemove, danger: true, onSelect: () => removeItem(list, index) }]}
+                    />
+                  ) : null
+                }
+              >
+                {editable ? (
+                  <InlineTextarea
+                    className={itemBody}
+                    value={line}
+                    placeholder={copy.fieldHints[lineKey]}
+                    aria-label={copy.fields[lineKey]}
+                    onChange={(event) => setItem(list, index, lineKey, event.target.value)}
+                  />
+                ) : line ? (
+                  <p className={itemBody}>{line}</p>
+                ) : null}
+                {editable && name.trim() && !line.trim() ? (
+                  <div className="pt-1">
+                    <CompleteButton
+                      label={copy.complete}
+                      pending={filling === target}
+                      disabled={busy}
+                      onClick={() =>
+                        ask(
+                          copy.reqItem
+                            .replace("{name}", name)
+                            .replace("{section}", copy.sections[section])
+                            .replace("{fields}", copy.fields[lineKey]),
+                          target,
+                          { list, name },
+                        )
+                      }
+                    />
+                  </div>
+                ) : null}
+              </DocRow>
             );
           })}
         </ul>
-        {editable ? addButton(() => addItem(list)) : null}
+        {editable ? (
+          <div className="flex flex-wrap items-center gap-1 pt-2">
+            <Button type="button" variant="quiet" size="text" onClick={() => addItem(list)} className="gap-1">
+              <Plus size={12} strokeWidth={1.5} />
+              {copy.addItemOf[list]}
+            </Button>
+            {suggested.length ? (
+              <>
+                <span className="pl-2 text-xs text-muted-foreground">{copy.mentionedInCalls}:</span>
+                {suggested.map((mention) => (
+                  <Button
+                    key={mention.name}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addItem(list, mention.name)}
+                    className="h-auto px-2.5 py-0.5 text-xs"
+                  >
+                    + {mention.name} · {mention.count}
+                  </Button>
+                ))}
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   };
 
-  const stringsBlock = () => {
-    const items = knowledge.differentiators ?? [];
-    if (!editable && !items.some((item) => item.trim())) return null;
+  const section = (key: KnowledgeSection, withTitle: boolean) => {
+    const layout = LAYOUT[key];
+    const rows = [...layout.texts.map((text) => textRow(text, key)), layout.strings ? differentiators() : null].filter(Boolean);
     return (
-      <div className={cn(row, "py-1.5")}>
-        <p className={labelCell}>{copy.fields.differentiators}</p>
-        <div className="space-y-0.5">
-          {items.map((item, index) =>
-            editable ? (
-              <div key={index} className="group flex items-start gap-1">
-                <InlineTextarea
-                  className="flex-1 text-sm"
-                  value={item}
-                  aria-label={copy.fields.differentiators}
-                  autoFocus={!item && index === items.length - 1}
-                  onChange={(event) =>
-                    edit((current) => ({
-                      ...current,
-                      differentiators: (current.differentiators ?? []).map((value, i) => (i === index ? event.target.value : value)),
-                    }))
-                  }
-                />
-                <span className="opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-                  <IconAction
-                    label={t.product.playbookEditorRemove}
-                    tone="danger"
-                    onClick={() =>
-                      edit((current) => ({ ...current, differentiators: (current.differentiators ?? []).filter((_, i) => i !== index) }))
-                    }
-                  >
-                    <Trash size={14} weight="light" />
-                  </IconAction>
-                </span>
-              </div>
-            ) : item.trim() ? (
-              <p key={index} className="pt-1 text-sm text-foreground">
-                {item}
-              </p>
-            ) : null,
-          )}
-          {editable ? addButton(() => edit((current) => ({ ...current, differentiators: [...(current.differentiators ?? []), ""] }))) : null}
-        </div>
-      </div>
+      <section key={key} aria-label={copy.sections[key]}>
+        {withTitle && rows.length > 0 ? <h4 className={cn(THEME_TOKENS.typography.groupTitle, "pt-4")}>{copy.sections[key]}</h4> : null}
+        {rows.length > 0 ? <ul>{rows}</ul> : null}
+        {layout.list ? listBlock(layout.list, key, withTitle || layout.texts.length > 0) : null}
+      </section>
     );
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0 space-y-0.5">
-          <p className={THEME_TOKENS.typography.capsLabel}>{copy.companyHint}</p>
-          {canEdit ? (
-            <p className={THEME_TOKENS.typography.capsLabel}>
-              {copy.productNote} ·{" "}
-              <Link to="/dashboard/settings/offer" className="text-foreground underline-offset-4 hover:underline">
-                {copy.edit.toLowerCase()}
-              </Link>
-            </p>
-          ) : null}
+    <div className="space-y-5">
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0 space-y-1">
+          <h3 className={cn(THEME_TOKENS.typography.panelTitle, "flex items-center gap-2.5")}>
+            <CompanyIcon size={20} strokeWidth={1.5} className="text-muted-foreground" />
+            {copy.companyTitle}
+          </h3>
+          <p className={THEME_TOKENS.typography.capsLabel}>
+            {copy.companyHint}
+            {canEdit ? (
+              <>
+                {" · "}
+                <Link to="/dashboard/settings/offer" className="inline-flex items-center gap-0.5 text-foreground underline-offset-4 hover:underline">
+                  {copy.productLink}
+                  <ArrowUpRight size={11} strokeWidth={1.75} />
+                </Link>
+              </>
+            ) : null}
+          </p>
         </div>
         {canEdit ? (
-          <div className="flex items-center gap-2">
-            {saveLabel ? (
-              saveState === "error" || saveState === "stale" ? (
-                <button
-                  type="button"
-                  className={cn(THEME_TOKENS.typography.capsLabel, "text-warning underline-offset-4 hover:underline")}
-                  onClick={() => (saveState === "stale" ? void reload() : void save())}
-                >
-                  {saveLabel}
-                </button>
-              ) : (
-                <span className={THEME_TOKENS.typography.capsLabel} role="status">
-                  {saveLabel}
-                </span>
-              )
-            ) : null}
-            <Button type="button" variant="ghost" size="sm" onClick={() => setEditing((value) => !value)}>
-              {editing ? copy.done : copy.edit}
-            </Button>
+          <div className="self-end sm:self-start">
+            <SaveStatus state={saveState} dirty={dirty} onRetry={() => void save()} onReload={() => void reload()} />
           </div>
         ) : null}
       </div>
 
-      {isEmptyKnowledge(knowledge) && added.length === 0 ? (
-        <p className={THEME_TOKENS.typography.body}>{canEdit ? copy.companyEmpty : t.product.playbookEditorReadOnlyEmpty}</p>
-      ) : null}
+      {tabs.length === 0 ? (
+        <p className={THEME_TOKENS.typography.body}>{t.product.playbookEditorReadOnlyEmpty}</p>
+      ) : (
+        <Tabs value={activeTab} onValueChange={(value) => setTab(value as CompanyTab)}>
+          <TabsList aria-label={copy.companyTitle}>
+            {tabs.map((item) => {
+              const TabIcon = TAB_ICONS[item];
+              return (
+                <TabsTrigger key={item} value={item}>
+                  <TabIcon size={15} strokeWidth={1.5} />
+                  {copy.companyTabs[item]}
+                  <TabCount value={tabCount(knowledge, item)} />
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+          {tabs.map((item) => (
+            <TabsContent key={item} value={item}>
+              {COMPANY_TABS[item].map((key) => section(key, COMPANY_TABS[item].length > 1))}
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
 
-      {sections.map((section) => {
-        const layout = LAYOUT[section];
-        return (
-          <section key={section} className={cn("space-y-1", THEME_TOKENS.motion.fadeIn)} aria-label={copy.sections[section]}>
-            <h3 className={THEME_TOKENS.typography.capsLabel}>{copy.sections[section]}</h3>
-            {layout.texts.map(textRow)}
-            {layout.strings ? stringsBlock() : null}
-            {layout.list ? listBlock(layout.list) : null}
-          </section>
-        );
-      })}
-
-      {canEdit && missing.length > 0 ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className={linkButton}
-            >
-              <Plus size={12} weight="light" />
-              {copy.addSection}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {missing.map((section) => (
-              <DropdownMenuItem
-                key={section}
-                onSelect={() => {
-                  setAdded((current) => [...current, section]);
-                  setEditing(true);
-                  const list = LAYOUT[section].list;
-                  if (list && listOf(list).length === 0) addItem(list);
-                }}
-              >
-                {copy.sections[section]}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+      {canEdit ? (
+        // Floats at the bottom of the screen: the list scrolls under it (glass), always one step away.
+        <div className="sticky bottom-4 z-10 pt-2">
+          <FillBox placeholder={copy.fillCompanyPlaceholder} busy={busy} submit={(source) => fill(source, "box")} />
+        </div>
       ) : null}
     </div>
   );

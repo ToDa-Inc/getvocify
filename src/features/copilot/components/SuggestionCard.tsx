@@ -112,7 +112,7 @@ export function SuggestionCard({
         )}
         {suggestion.dont_say && (
           <div>
-            <p className="text-[10px] font-medium text-red-500/80 mb-1">
+            <p className="text-[10px] font-medium text-destructive/80 mb-1">
               Don&apos;t say
             </p>
             <p className="text-xs text-muted-foreground leading-relaxed">{suggestion.dont_say}</p>

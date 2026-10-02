@@ -6,11 +6,16 @@ from datetime import date, datetime, timedelta, timezone
 from statistics import median
 from zoneinfo import ZoneInfo
 
+from app.services.playbooks.outcome_steps import MEETING_BOOKED, status_from_rep_outcome
+
 _MADRID = ZoneInfo("Europe/Madrid")
 
 _STATE = {"met": "done", "missed": "missing", "unknown": "no_evidence", "not_applicable": "not_reached"}
-STATES = frozenset(_STATE.values())
+STATES = frozenset(_STATE.values()) | {"improvable"}
+DONE_STATES = frozenset({"done", "improvable"})
 _NOT_A_CONVERSATION = frozenset({"voicemail", "no_response"})
+# Call types (C04 v8 `call.call_type`) whose conversation is meant to go through every step.
+FULL_PROCESS_CALLS = frozenset({"cold_first_contact", "discovery_meeting", "other"})
 MIN_CONVERSATION_SECONDS = 30
 
 FOCUS_MIN_APPLICABLE = 3
@@ -57,6 +62,12 @@ def _duration(value) -> float | None:
     return float(value)
 
 
+def _outcome_line(intel: dict) -> str:
+    nxt = intel.get("next") if isinstance(intel.get("next"), dict) else {}
+    outcome = nxt.get("outcome") if isinstance(nxt.get("outcome"), dict) else {}
+    return " ".join(str(outcome.get("text") or "").split())
+
+
 def interaction_row(memo: dict) -> dict | None:
     """One interaction as coaching sees it, or None when it carries no step observations."""
     extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
@@ -71,7 +82,10 @@ def interaction_row(memo: dict) -> dict | None:
     conversation = memo.get("screening_outcome") not in _NOT_A_CONVERSATION and (
         duration is None or duration >= MIN_CONVERSATION_SECONDS
     )
-    meeting = intel.get("meeting") if isinstance(intel.get("meeting"), dict) else {}
+    call = intel.get("call") if isinstance(intel.get("call"), dict) else {}
+    if call.get("reached_conversation") is False:
+        conversation = False
+    rep_outcome = memo.get("rep_outcome")
     steps: list[dict] = []
     seen_steps: set[str] = set()
     for item in observations:
@@ -81,11 +95,18 @@ def interaction_row(memo: dict) -> dict | None:
         if step_id in seen_steps:  # a step is observed once per interaction: keep the first
             continue
         seen_steps.add(step_id)
+        status = item.get("status")
+        if item.get("judged_by") == "rep_outcome" and status == "unknown":
+            status = status_from_rep_outcome(str(item.get("outcome") or ""), rep_outcome)
+        state = _STATE.get(status, "no_evidence")
+        if state == "done" and item.get("quality") == "improvable":
+            state = "improvable"  # done, and the advice says how to do it better
         steps.append({
             "step_id": step_id,
             "label": str(item.get("label") or step_id),
-            "state": _STATE.get(item.get("status"), "no_evidence"),
+            "state": state,
             "quote": item.get("quote") or None,
+            "advice": item.get("advice") or None,
         })
     return {
         "memo_id": str(memo.get("id") or ""),
@@ -93,9 +114,13 @@ def interaction_row(memo: dict) -> dict | None:
         "observed_at": observed.isoformat(),
         "motion": memo.get("sales_motion_key"),
         "is_conversation": conversation,
-        "meeting_agreed": meeting.get("agreed") is True or memo.get("rep_outcome") == "meeting_booked",
+        # v8 call type: only a call that runs the whole process can complete it.
+        "full_process": call.get("call_type") in FULL_PROCESS_CALLS if call else True,
+        # Booked is what the rep declared after the call, never read into the transcript.
+        "meeting_agreed": rep_outcome == MEETING_BOOKED,
         "duration_s": duration,
-        "summary_line": _first_plain_line(str(extraction.get("summary") or ""))[:SUMMARY_MAX_CHARS],
+        # v8 says how the call ended, with who said what worked out; older calls keep the note's line.
+        "summary_line": (_outcome_line(intel) or _first_plain_line(str(extraction.get("summary") or "")))[:SUMMARY_MAX_CHARS],
         "steps": steps,
     }
 
@@ -112,11 +137,13 @@ def step_rates(rows: list[dict], steps: list[dict]) -> list[dict]:
     for step in steps:
         step_id = str(step.get("step_id"))
         states = [s["state"] for row in conversations for s in row["steps"] if s["step_id"] == step_id]
-        done, missing = states.count("done"), states.count("missing")
+        improvable = states.count("improvable")
+        done, missing = states.count("done") + improvable, states.count("missing")
         out.append({
             "step_id": step_id,
             "label": str(step.get("label") or step_id),
             "done": done,
+            "improvable": improvable,
             "missing": missing,
             "applicable": done + missing,
             "rate": _rate(done, done + missing),
@@ -125,11 +152,12 @@ def step_rates(rows: list[dict], steps: list[dict]) -> list[dict]:
 
 
 def process_complete(row: dict) -> bool:
-    """A conversation with no step missing and at least one done."""
-    if not row.get("is_conversation", True):
+    """A conversation with no step missing and at least one done. A follow-up or a call cut at
+    the door only had its opening to do: getting it right is not the full process."""
+    if not row.get("is_conversation", True) or not row.get("full_process", True):
         return False
     states = [s["state"] for s in row["steps"]]
-    return "missing" not in states and "done" in states
+    return "missing" not in states and any(s in DONE_STATES for s in states)
 
 
 def choose_focus(rows_prev_week: list[dict], steps: list[dict], peer_rates: dict | None = None) -> dict | None:

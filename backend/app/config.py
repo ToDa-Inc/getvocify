@@ -323,6 +323,13 @@ class Settings(BaseSettings):
     MICROSOFT_CALENDAR_CLIENT_ID: Optional[str] = None
     MICROSOFT_CALENDAR_CLIENT_SECRET: Optional[str] = None
     INTELLIGENCE_MODEL: str = "google/gemini-3.8-flash"
+    # Output cap on every OpenRouter call (see providers/openrouter.py). A long call reading
+    # (every rep turn listed) plus a v8 verdict stays well under it.
+    LLM_MAX_OUTPUT_TOKENS: int = 16000
+    # C04 v8: how much each pass may reason ("low" | "medium" | "high"; None = the model's
+    # default). Reasoning tokens are most of a Gemini call's cost.
+    INTELLIGENCE_READING_EFFORT: Optional[str] = None
+    INTELLIGENCE_JUDGE_EFFORT: Optional[str] = None
     # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
     FOLLOWUP_MODEL: Optional[str] = "google/gemini-3.8-flash"
 

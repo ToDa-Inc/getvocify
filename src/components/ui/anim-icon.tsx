@@ -9,7 +9,7 @@ export type AnimIconHandle = { play: (play?: string) => void };
 type AnimIconProps = {
   name: AnimIconName;
   size?: number;
-  /** Match the neighbours: 2 beside Lucide, 1.5 beside Phosphor light. */
+  /** Match the neighbours: the app draws Lucide at 1.5 for its thin look, 2 where it keeps the default. */
   stroke?: number;
   /** Held state: refresh "busy", copy "done", phone "ringing". */
   state?: string | false | null;

@@ -45,6 +45,7 @@ class BaseLLMProvider(ABC):
         temperature: float = 0.0,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict:
         """Chat with JSON response, parse and return dict."""
         ...

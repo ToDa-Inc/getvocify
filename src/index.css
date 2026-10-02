@@ -447,3 +447,9 @@
 
   .ring-beige { --tw-ring-color: hsl(var(--beige)); }
 }
+
+/* Memo review pane: the shared follow-up card's controls on the pane's scale (secondary 32px / 13px,
+ * quiet text actions 28px / 12px). The extension and desktop keep the shared sizes. */
+.review-pane .v-pill { min-height: 32px; padding: 0 14px; font-size: 13px; }
+.review-pane .v-text-action { padding: 6px 4px; font-size: 12px; }
+.review-pane .v-mail-client { width: 28px; height: 28px; }

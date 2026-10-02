@@ -1,4 +1,4 @@
-import { BookOpenText, Quotes } from "@phosphor-icons/react";
+import { BookOpenText, Quote } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { isManagerRole } from "@/lib/nav";
@@ -25,7 +25,7 @@ function EvidenceChip({ n, evidence }: { n: number; evidence?: AskEvidence }) {
   const context = playbook
     ? [evidence.category ? objectionDisplayName(evidence.category, p.objections) : null, evidence.rep ? teamFlowFilterLabel(evidence.rep, p, p.motions) : null]
     : [evidence.rep, evidence.at ? new Date(evidence.at).toLocaleDateString(p.hourLocale, { day: "numeric", month: "short" }) : null];
-  const Icon = playbook ? BookOpenText : Quotes;
+  const Icon = playbook ? BookOpenText : Quote;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -36,19 +36,19 @@ function EvidenceChip({ n, evidence }: { n: number; evidence?: AskEvidence }) {
           }`}
           aria-label={`${playbook ? p.askPlaybookSource : p.askEvidenceFrom} ${n}`}
         >
-          <Icon size={10} weight={playbook ? "bold" : "light"} aria-hidden="true" />
+          <Icon size={10} strokeWidth={playbook ? 2.25 : 1.5} aria-hidden="true" />
           {n}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="glass-card-strong w-72 space-y-2 rounded-xl p-3.5">
+      <PopoverContent align="start" className="w-72 space-y-2 p-3.5">
         <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-          <Icon size={12} weight="light" aria-hidden="true" />
+          <Icon size={12} strokeWidth={1.5} aria-hidden="true" />
           {[who, ...context].filter(Boolean).join(" · ")}
         </p>
         <p className="text-[13.5px] leading-relaxed text-foreground">“{evidence.quote}”</p>
         {playbook ? (
           <Link
-            to={isManagerRole(user?.company?.role) ? "/dashboard/settings/playbooks" : "/dashboard/coach?tab=playbook"}
+            to={isManagerRole(user?.company?.role) ? "/dashboard/process" : "/dashboard/coach?tab=playbook"}
             className="inline-block text-[13px] text-primary underline-offset-4 hover:underline"
           >
             {p.navPlaybook}

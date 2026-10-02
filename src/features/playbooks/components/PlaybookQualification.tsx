@@ -1,37 +1,42 @@
 import { useState } from "react";
-import { Plus, Trash } from "@phosphor-icons/react";
+import { Plus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { ConfirmAction } from "@/components/ui/confirm-action";
-import { IconAction } from "@/components/ui/icon-action";
-import { playbooksApi } from "@/features/playbooks/api";
-import { QUALIFICATION_TEMPLATES_KEY } from "@/features/playbooks/keys";
-import { linkButton } from "@/features/playbooks/styles";
+import { playbooksApi, type QualificationTemplate } from "@/features/playbooks/api";
+import { CompleteButton, DocRow, ItemMenu, NumberMark } from "@/features/playbooks/components/DocParts";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
+import { QUALIFICATION_TEMPLATES_KEY } from "@/features/playbooks/keys";
+import { itemBody, itemTitle, linkButton } from "@/features/playbooks/styles";
 import { useLanguage } from "@/lib/i18n";
-import {
-  MAX_CRITERIA,
-  MAX_CRITERION_FIELD,
-  MAX_CRITERION_LABEL,
-  newStepKey,
-  type EditorCriterion,
-} from "@/lib/playbook-editor";
+import { matchedMethod } from "@/lib/playbook-doc";
+import { MAX_CRITERIA, MAX_CRITERION_LABEL, newStepKey, type EditorCriterion } from "@/lib/playbook-editor";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 
-type Patch = Partial<Omit<EditorCriterion, "key">>;
+type Role = "sdr" | "ae";
 
 /**
- * "Qué tiene que salir de la llamada": what the rep has to find out, and how a good answer
- * sounds. Vocify looks for each one in every call. Empty, it offers BANT/MEDDIC/MEDDPICC as
- * a starting point; read-only and empty, it isn't shown at all.
+ * "Qué tiene que salir de la llamada": the usual methods for this call type's role (BANT, CHAMP,
+ * ANUM, GPCT for an SDR call; MEDDIC, MEDDPICC, SPICED, BANT for an AE meeting) as one click, or
+ * the company's own. Each criterion is what to find out, in bold, and how a good answer sounds.
  */
 export function PlaybookQualification({
   criteria,
   editable,
+  role,
+  completingKey,
+  busy,
+  onComplete,
   onChange,
 }: {
   criteria: EditorCriterion[];
   editable: boolean;
+  /** The call type's role; null shows every method. */
+  role: Role | null;
+  /** The criterion Vocify is writing for; `busy` while it writes anything. */
+  completingKey?: string | null;
+  busy?: boolean;
+  onComplete?: (item: EditorCriterion) => void;
   onChange: (next: EditorCriterion[]) => void;
 }) {
   const { t, language } = useLanguage();
@@ -43,80 +48,129 @@ export function PlaybookQualification({
     queryKey: QUALIFICATION_TEMPLATES_KEY,
     queryFn: playbooksApi.qualificationTemplates,
     enabled: editable,
-    retry: false,
+    // Static data: one retry, so a network blip doesn't leave the methods off the screen.
+    retry: 1,
     staleTime: 60 * 60 * 1000,
   });
 
   if (!editable && criteria.length === 0) return null;
 
-  const patch = (key: string, next: Patch) =>
+  const all = templates.data?.templates ?? [];
+  const methods = role ? all.filter((template) => template.roles.includes(role)) : all;
+  const current = matchedMethod(criteria, all);
+  const patch = (key: string, next: Partial<EditorCriterion>) =>
     onChange(criteria.map((item) => (item.key === key ? { ...item, ...next } : item)));
   const add = () => {
     const key = newStepKey();
     setFocusKey(key);
-    onChange([...criteria, { key, label: "", good: "", bad: "", why: "" }]);
+    onChange([...criteria, { key, label: "", good: "" }]);
   };
-  const applyTemplate = (key: string) => {
-    const template = templates.data?.templates.find((item) => item.key === key);
-    const items = (template?.criteria[lang] ?? []).map((item) => ({ ...item, key: newStepKey() }));
-    if (!items.length) return;
-    if (criteria.some((item) => item.label.trim())) setPending(items);
+  const apply = (template: QualificationTemplate) => {
+    const items = template.criteria[lang].map((item) => ({ ...item, key: newStepKey() }));
+    if (criteria.some((item) => item.label.trim()) && current !== template.key) setPending(items);
     else onChange(items);
   };
 
-  const chips = (templates.data?.templates ?? []).map((template) => (
-    <button
-      key={template.key}
-      type="button"
-      className="rounded-full border border-border px-3 py-1 text-[13px] text-foreground hover:bg-secondary/60"
-      onClick={() => applyTemplate(template.key)}
-    >
-      {template.label}
-    </button>
-  ));
-
   return (
-    <section className="space-y-1" aria-label={copy.qualHeading}>
-      <h3 className={THEME_TOKENS.typography.capsLabel}>{copy.qualHeading}</h3>
-      {criteria.length === 0 ? (
-        <div className="space-y-2 py-1">
-          <p className="text-sm text-muted-foreground">{copy.qualEmpty}</p>
-          <div className="flex flex-wrap items-center gap-2">
-            {chips}
+    <section aria-label={copy.qualHeading}>
+      {editable ? (
+        <>
+          <p className={cn(THEME_TOKENS.typography.capsLabel, "pt-1")}>{role ? copy.qualHint[role] : copy.qualHintAny}</p>
+          <div className="flex flex-wrap gap-2 pb-2 pt-3">
+            {methods.map((template) => {
+              const on = current === template.key;
+              return (
+                <button
+                  key={template.key}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => apply(template)}
+                  className={cn(
+                    "min-w-[9.5rem] rounded-xl border bg-card px-3.5 py-2.5 text-left transition-colors",
+                    on ? "border-primary ring-1 ring-primary" : "border-border/70 hover:border-border",
+                  )}
+                >
+                  <span className="block text-sm font-semibold text-foreground">{template.label}</span>
+                  <span className="block text-xs text-muted-foreground">{template.summary[lang]}</span>
+                </button>
+              );
+            })}
             <button
               type="button"
-              className={linkButton}
               onClick={add}
+              className="min-w-[9.5rem] rounded-xl border border-dashed border-border px-3.5 py-2.5 text-left transition-colors hover:border-primary"
             >
-              <Plus size={12} weight="light" />
-              {copy.qualAdd}
+              <span className="block text-sm font-semibold text-foreground">+ {copy.qualCustom}</span>
+              <span className="block text-xs text-muted-foreground">{copy.qualCustomHint}</span>
             </button>
           </div>
-        </div>
-      ) : (
-        <ul>
-          {criteria.map((item) => (
-            <CriterionItem
-              key={item.key}
-              item={item}
-              editable={editable}
-              autoFocus={focusKey === item.key}
-              onChange={(next) => patch(item.key, next)}
-              onRemove={() => onChange(criteria.filter((other) => other.key !== item.key))}
-            />
-          ))}
-        </ul>
-      )}
+        </>
+      ) : null}
+
+      <ul>
+        {criteria.map((item) => (
+          <DocRow
+            key={item.key}
+            lead={<NumberMark n="?" />}
+            title={
+              editable ? (
+                <InlineTextarea
+                  className={itemTitle}
+                  value={item.label}
+                  maxLength={MAX_CRITERION_LABEL + 20}
+                  placeholder={copy.qualLabel}
+                  aria-label={copy.qualLabel}
+                  autoFocus={focusKey === item.key}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.preventDefault();
+                  }}
+                  onChange={(event) => patch(item.key, { label: event.target.value.replace(/\n/g, " ") })}
+                />
+              ) : (
+                <p className={itemTitle}>{item.label}</p>
+              )
+            }
+            side={
+              editable ? (
+                <ItemMenu
+                  label={copy.itemMenu.replace("{name}", item.label || copy.qualLabel)}
+                  actions={[
+                    {
+                      label: t.product.playbookEditorRemove,
+                      danger: true,
+                      onSelect: () => onChange(criteria.filter((other) => other.key !== item.key)),
+                    },
+                  ]}
+                />
+              ) : null
+            }
+          >
+            {editable ? (
+              <InlineTextarea
+                className={itemBody}
+                value={item.good ?? ""}
+                placeholder={copy.qualGood}
+                aria-label={copy.qualGood}
+                onChange={(event) => patch(item.key, { good: event.target.value })}
+              />
+            ) : item.good ? (
+              <p className={itemBody}>{item.good}</p>
+            ) : null}
+            {editable && item.label.trim() && !item.good?.trim() && onComplete ? (
+              <div className="pt-1">
+                <CompleteButton label={copy.complete} pending={completingKey === item.key} disabled={busy} onClick={() => onComplete(item)} />
+              </div>
+            ) : null}
+          </DocRow>
+        ))}
+      </ul>
       {editable && criteria.length > 0 && criteria.length < MAX_CRITERIA ? (
-        <button
-          type="button"
-          className={linkButton}
-          onClick={add}
-        >
-          <Plus size={12} weight="light" />
+        <button type="button" className={cn(linkButton, "mt-2")} onClick={add}>
+          <Plus size={12} strokeWidth={1.5} />
           {copy.qualAdd}
         </button>
       ) : null}
+
       <ConfirmAction
         open={pending !== null}
         onOpenChange={(open) => {
@@ -133,103 +187,5 @@ export function PlaybookQualification({
         }}
       />
     </section>
-  );
-}
-
-function CriterionItem({
-  item,
-  editable,
-  autoFocus,
-  onChange,
-  onRemove,
-}: {
-  item: EditorCriterion;
-  editable: boolean;
-  autoFocus: boolean;
-  onChange: (patch: Patch) => void;
-  onRemove: () => void;
-}) {
-  const { t } = useLanguage();
-  const copy = t.product.pb2;
-  const [open, setOpen] = useState(false);
-  const hasBad = Boolean(item.bad?.trim());
-  const hasWhy = Boolean(item.why?.trim());
-
-  if (!editable) {
-    return (
-      <li className="grid items-start gap-x-5 border-t border-border/40 py-3 first:border-t-0 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
-        <p className="text-[15px] text-foreground">{item.label}</p>
-        <div className="space-y-0.5">
-          {item.good ? <p className="text-sm text-muted-foreground">{item.good}</p> : null}
-          {item.bad ? (
-            <p className="text-xs text-muted-foreground">
-              {copy.qualBad} {item.bad}
-            </p>
-          ) : null}
-        </div>
-      </li>
-    );
-  }
-
-  return (
-    <li className="group grid items-start gap-x-5 gap-y-0.5 border-t border-border/40 py-2 first:border-t-0 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
-      <InlineTextarea
-        className="text-[15px]"
-        value={item.label}
-        maxLength={MAX_CRITERION_LABEL + 20}
-        placeholder={copy.qualLabel}
-        aria-label={copy.qualLabel}
-        autoFocus={autoFocus}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.preventDefault();
-        }}
-        onChange={(event) => onChange({ label: event.target.value.replace(/\n/g, " ") })}
-      />
-      <div className="min-w-0 space-y-0.5">
-        <div className="flex items-start gap-1">
-          <InlineTextarea
-            className="flex-1 text-sm text-muted-foreground focus:text-foreground"
-            value={item.good ?? ""}
-            placeholder={copy.qualGood}
-            aria-label={copy.qualGood}
-            aria-invalid={(item.good ?? "").length > MAX_CRITERION_FIELD}
-            onChange={(event) => onChange({ good: event.target.value })}
-          />
-          <span className="opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-            <IconAction label={t.product.playbookEditorRemove} tone="danger" onClick={onRemove}>
-              <Trash size={14} weight="light" />
-            </IconAction>
-          </span>
-        </div>
-        {open || hasBad ? (
-          <InlineTextarea
-            className={cn("text-xs text-muted-foreground focus:text-foreground", THEME_TOKENS.motion.fadeIn)}
-            value={item.bad ?? ""}
-            placeholder={copy.qualBad}
-            aria-label={copy.qualBad}
-            onChange={(event) => onChange({ bad: event.target.value })}
-          />
-        ) : null}
-        {open || hasWhy ? (
-          <InlineTextarea
-            className={cn("text-xs text-muted-foreground focus:text-foreground", THEME_TOKENS.motion.fadeIn)}
-            value={item.why ?? ""}
-            placeholder={copy.qualWhy}
-            aria-label={copy.qualWhy}
-            onChange={(event) => onChange({ why: event.target.value })}
-          />
-        ) : null}
-        {!open && !(hasBad && hasWhy) ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground"
-            onClick={() => setOpen(true)}
-          >
-            <Plus size={10} weight="light" />
-            {copy.objDetails}
-          </button>
-        ) : null}
-      </div>
-    </li>
   );
 }

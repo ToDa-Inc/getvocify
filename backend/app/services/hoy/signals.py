@@ -42,7 +42,60 @@ TIER: dict[str, int] = {
 DEFAULT_LIMIT = 7
 # Last attempt outcomes (telephony/call_screening.resolve_screening_outcome) that count as
 # "no answer" for a callback_no_answer card - a real conversation never happened after them.
-UNANSWERED_OUTCOMES: frozenset[str] = frozenset({"no_response", "voicemail"})
+UNANSWERED_OUTCOMES: frozenset[str] = frozenset({"no_response", "voicemail", "bad_moment", "cut_off"})
+# C04 v8 call types that mean the same thing when telephony screening did not say it: nobody
+# picked up for real, or they could not talk and the call ended at once.
+_UNANSWERED_CALL_TYPES = {"no_conversation": "no_response", "bad_moment": "bad_moment"}
+
+
+def _with_v8_callback(commitments: tuple, intelligence: dict) -> tuple:
+    """C04 v8 `next.callback`: the agreed callback, with its reason, is the call commitment Hoy,
+    the brief and the CRM task all read. It completes a dated call commitment that lacks a reason,
+    or becomes one when C04 listed none."""
+    nxt = intelligence.get("next") if isinstance(intelligence.get("next"), dict) else {}
+    callback = nxt.get("callback") if isinstance(nxt.get("callback"), dict) else {}
+    if not callback.get("needed"):
+        return commitments
+    why = " ".join(str(callback.get("reason") or "").split()) or None
+    origin = "prospect_request" if callback.get("who_asked") == "prospect" else "rep_promise"
+    calls = [c for c in commitments if c.kind == "call"]
+    if calls:
+        return tuple(
+            Commitment(kind=c.kind, origin=c.origin, text=c.text, due_at=c.due_at, why=c.why or why)
+            if c.kind == "call" else c
+            for c in commitments
+        )
+    raw = callback.get("when")
+    try:
+        due = datetime.fromisoformat(str(raw).replace("Z", "+00:00")) if raw else None
+    except ValueError:
+        due = None
+    if due is None or due.tzinfo is None:
+        return commitments
+    return commitments + (Commitment(kind="call", origin=origin, text="volver a llamar", due_at=due, why=why),)
+
+
+def screening_from_call(screening_outcome: Optional[str], intelligence: Optional[dict]) -> Optional[str]:
+    """The telephony outcome when it says the call went unanswered; otherwise what the call
+    reading saw (a "connected" call can still be a voicemail or a "me pillas fatal")."""
+    if screening_outcome in UNANSWERED_OUTCOMES:
+        return screening_outcome
+    call = (intelligence or {}).get("call") if isinstance(intelligence, dict) else None
+    derived = _UNANSWERED_CALL_TYPES.get((call or {}).get("call_type")) if isinstance(call, dict) else None
+    if not derived and isinstance(call, dict) and call.get("ended_abruptly") is True and not _something_came_out(intelligence, call):
+        derived = "cut_off"  # the line dropped mid-conversation: nothing was closed
+    return derived or screening_outcome
+
+
+def _something_came_out(intelligence: dict, call: dict) -> bool:
+    """A call that dropped after it got somewhere (a pitch, a close, an agreed callback, meeting or
+    promise) is followed up on what it left, not retried as if it never happened."""
+    if call.get("phase_reached") in ("pitch", "closing"):
+        return True
+    nxt = intelligence.get("next") if isinstance(intelligence.get("next"), dict) else {}
+    callback = nxt.get("callback") if isinstance(nxt.get("callback"), dict) else {}
+    meeting = intelligence.get("meeting") if isinstance(intelligence.get("meeting"), dict) else {}
+    return bool(callback.get("needed") or meeting.get("agreed") or intelligence.get("commitments"))
 
 
 @dataclass(frozen=True)
@@ -51,6 +104,8 @@ class Commitment:
     origin: Literal["prospect_request", "rep_promise"]
     text: str
     due_at: datetime
+    # C04 v8: why this call is owed, in the call's terms ("estaba recogiendo a los niños").
+    why: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -127,7 +182,10 @@ def signals_for_contact(
             out.append(Signal(
                 "commitment_due",
                 due_at=commitment.due_at,
-                payload={"kind": commitment.kind, "origin": commitment.origin, "text": commitment.text},
+                payload={
+                    "kind": commitment.kind, "origin": commitment.origin, "text": commitment.text,
+                    **({"why": commitment.why} if commitment.why else {}),
+                },
                 dedupe_key=commitment_key(last.memo_id, commitment.kind, commitment.due_at),
                 **base,
             ))
@@ -345,6 +403,7 @@ def touch_from_intelligence(
                 text=item.get("text") or "",
                 due_at=due,
             ),)
+        commitments = _with_v8_callback(commitments, intelligence)
         deal_closed = intelligence.get("deal_closed") is True
     elif legacy_objections and history_complete:
         objections = (("other", legacy_objections),)

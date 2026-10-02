@@ -282,3 +282,16 @@ def test_postgres_keeps_both_revisions_and_one_current_frequency():
         proc.terminate()
         proc.wait(timeout=8)
         shutil.rmtree(datadir, ignore_errors=True)
+
+
+def test_a_new_analysis_retires_every_older_objection_of_the_memo():
+    from app.services.intelligence.patterns import apply_projection, frequency
+    existing = [
+        {"memo_id": "m1", "pattern_id": "objection:old-1", "input_revision": "r1", "superseded": False},
+        {"memo_id": "m1", "pattern_id": "objection:old-2", "input_revision": "r1", "superseded": False},
+        {"memo_id": "m2", "pattern_id": "objection:x", "input_revision": "r9", "superseded": False},
+    ]
+    incoming = [{"memo_id": "m1", "pattern_id": "objection:o1", "input_revision": "r2"}]
+    rows = apply_projection(existing, incoming)
+    assert frequency([r for r in rows if r["memo_id"] == "m1"]) == 1  # not 3: the re-read replaced them
+    assert frequency([r for r in rows if r["memo_id"] == "m2"]) == 1  # another memo is untouched

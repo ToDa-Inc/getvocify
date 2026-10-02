@@ -35,9 +35,6 @@ def _interaction_from_memo(memo: dict) -> dict | None:
     screening = memo.get("screening_outcome")
     if screening not in _SCREENING:
         return None
-    intel = (memo.get("extraction") or {}).get("intelligence") or {}
-    meeting = intel.get("meeting") if isinstance(intel, dict) else {}
-    agreed = meeting.get("agreed") if isinstance(meeting, dict) else None
     captured = _parse_iso(memo.get("capture_started_at") or memo.get("created_at"))
     if captured is None:
         return None
@@ -48,8 +45,11 @@ def _interaction_from_memo(memo: dict) -> dict | None:
         "memo_id": str(memo_id),
         "captured_at": captured,
         "screening": screening,
-        "connected": screening == "connected",
-        "meeting_agreed": agreed is True,
+        # Connected and someone talked (not a voicemail or silence the call reading caught): coaching's definition.
+        "connected": screening == "connected"
+        and ((((memo.get("extraction") or {}).get("intelligence") or {}).get("call") or {}).get("reached_conversation") is not False),
+        # The rep's declaration (after-call outcome, accepted proposal, CRM stage), never the model's reading.
+        "meeting_agreed": memo.get("rep_outcome") == "meeting_booked",
     }
 
 
@@ -82,16 +82,11 @@ def _outcomes_for_snapshot(observations: list[dict] | None, *, user_id: str) -> 
 
 def _load_recent_memos_for_tick(supabase, since_iso: str) -> list[dict]:
     """Load memos that might fall in a local day window (row or capture time since *since*)."""
-    columns = "id,company_id,user_id,screening_outcome,extraction,capture_started_at,created_at"
+    columns = "id,company_id,user_id,screening_outcome,extraction,capture_started_at,created_at,hubspot_contact_id,hubspot_deal_id"
     by_id: dict[str, dict] = {}
     for column in ("created_at", "capture_started_at"):
         try:
-            result = (
-                supabase.table("memos")
-                .select(columns)
-                .gte(column, since_iso)
-                .execute()
-            )
+            result = _with_outcome(lambda cols: supabase.table("memos").select(cols).gte(column, since_iso).execute(), columns)
         except Exception:
             logger.exception("daily report tick: list recent memos failed (%s)", column)
             continue
@@ -99,23 +94,30 @@ def _load_recent_memos_for_tick(supabase, since_iso: str) -> list[dict]:
             memo_id = row.get("id")
             if memo_id is not None:
                 by_id[str(memo_id)] = row
-    return list(by_id.values())
+    from app.services.coaching.crm_meetings import apply_rep_meetings
+
+    return apply_rep_meetings(supabase, list(by_id.values()))
+
+
+def _with_outcome(run, columns: str):
+    """The query with rep_outcome (migration 062) when the column exists, without it otherwise."""
+    try:
+        return run(columns + ",rep_outcome")
+    except Exception:
+        return run(columns)
 
 
 def _load_memos_for_user(supabase, *, company_id: str, user_id: str) -> list[dict]:
     try:
-        result = (
-            supabase.table("memos")
-            .select(
-                "id,user_id,company_id,source,source_type,interaction_kind,"
-                "screening_outcome,extraction,capture_started_at,created_at,"
-                "sales_motion_key,followup"
-            )
-            .eq("company_id", company_id)
-            .eq("user_id", user_id)
-            .execute()
+        result = _with_outcome(
+            lambda cols: supabase.table("memos").select(cols).eq("company_id", company_id).eq("user_id", user_id).execute(),
+            "id,user_id,company_id,source,source_type,interaction_kind,"
+            "screening_outcome,extraction,capture_started_at,created_at,"
+            "sales_motion_key,followup,hubspot_contact_id,hubspot_deal_id",
         )
-        return list(result.data or [])
+        from app.services.coaching.crm_meetings import apply_rep_meetings
+
+        return apply_rep_meetings(supabase, list(result.data or []))
     except Exception:
         logger.exception("daily report: load memos failed")
         return []

@@ -220,8 +220,7 @@ class SpeechmaticsBatchService:
                     "batch",
                     float(seconds),
                     channels=2 if channel else 1,
-                    model=BATCH_OPERATING_POINT,
-                    meta={"job_id": job_id},
+                    tier=BATCH_OPERATING_POINT,
                 )
         except Exception:
             logger.warning("Speechmatics batch usage not recorded for %s", job_id, exc_info=True)

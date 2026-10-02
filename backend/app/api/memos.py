@@ -263,6 +263,7 @@ def _memo_from_row(
             interactionKind=interaction_kind_of(memo_data),
             salesMotionKey=memo_data.get("sales_motion_key"),
             userNotes=memo_data.get("user_notes"),
+            attendees=memo_data.get("attendees") or [],
         )
     except Exception as e:
         logger.exception("Failed to build Memo from row %s: %s", memo_data.get("id"), e)
@@ -280,6 +281,51 @@ def _call_date_from_memo(memo_data: Optional[dict]) -> Optional[str]:
         return str(meta["call_date"])[:10]
     created = memo_data.get("created_at")
     return str(created)[:10] if created else None
+
+
+async def _read_call_first(
+    supabase: Client,
+    memo_id: str,
+    transcript: str,
+    *,
+    profile: Optional[dict],
+    call_date: Optional[str],
+) -> tuple[Optional[dict], str]:
+    """C04 v8 pipeline (INTELLIGENCE_CALL_READING_ENABLED): read the call before the CRM pass,
+    so the note and the fields know who said what and what kind of call it was. Off, or on any
+    failure, the CRM pass runs exactly as before on the transcript it was given."""
+    from app.services.feature_flags import is_enabled
+    from app.services.intelligence.call_reading import read_call
+    from app.services.intelligence.extract import CALL_READING_FLAG, call_context
+    from app.services.llm import LLMClient
+
+    try:
+        rows = supabase.table("memos").select(
+            "id,company_id,user_id,hubspot_contact_id,created_at"
+        ).eq("id", str(memo_id)).limit(1).execute().data or []
+        memo = rows[0] if rows else {}
+        if not memo or not is_enabled(supabase, memo.get("company_id"), CALL_READING_FLAG):
+            return None, transcript
+        context = call_context(supabase, memo)
+        if profile and profile.get("company_name") and not context.get("company_name"):
+            context["company_name"] = profile["company_name"]
+        from app.config import settings
+
+        from app.services.playbooks.type_classifier import reading_playbooks
+
+        reading, relabeled, _ = await read_call(
+            transcript, LLMClient(), model=settings.INTELLIGENCE_MODEL,
+            captured_at=str(call_date or memo.get("created_at") or ""),
+            # The same read names the playbook the call was, from the company's own types.
+            playbooks=reading_playbooks(memo.get("company_id")),
+            **context,
+        )
+        if reading is not None and context.get("company_name"):
+            reading = {**reading, "rep_company": context["company_name"]}
+        return reading, relabeled
+    except Exception:
+        logger.warning("call reading before extraction failed", extra={"memo_id": str(memo_id)}, exc_info=True)
+        return None, transcript
 
 
 @scoped("extract")
@@ -371,10 +417,6 @@ async def extract_memo_async(
                 glossary_terms=len(glossary or []),
                 has_product_context=bool((product_context or "").strip()),
             )
-            # The call's type is read from the conversation while the fields are extracted.
-            from app.services.playbooks.type_classifier import apply_memo_type, classify_memo_type
-
-            call_type = asyncio.create_task(classify_memo_type(supabase, memo_id, transcript))
             transcript, glossary_text = prepare_transcript_for_extraction(
                 transcript,
                 glossary,
@@ -382,6 +424,9 @@ async def extract_memo_async(
                 extra_names=[profile.get("full_name"), profile.get("company_name")],
                 two_party=is_two_party_source(source_type),
                 speakers_verified=speakers_are_verified((memo_row or {}).get("transcript_stt_meta")),
+            )
+            call_reading, transcript = await _read_call_first(
+                supabase, memo_id, transcript, profile=profile, call_date=call_date,
             )
             extraction = await extraction_service.extract(
                 transcript,
@@ -391,17 +436,24 @@ async def extract_memo_async(
                 product_context=product_context,
                 existing_values=existing_values,
                 call_date=call_date,
+                call_reading=call_reading,
                 user_notes=user_notes,
             )
 
-        # Pinned before the memo is ready and before the hooks: the island and the memo page
-        # read the type as soon as it's ready, and the call is scored against it.
-        apply_memo_type(supabase, memo_id, await call_type)
+        stored_extraction = extraction.model_dump()
+        if call_reading:
+            # C04 reuses it instead of reading the same call a second time.
+            stored_extraction["call_reading"] = call_reading
+        # The reading also said which playbook the call was. Pinned before the memo is ready and
+        # before the hooks: the island and the memo page read it at once, and scoring uses it.
+        from app.services.playbooks.type_classifier import apply_reading_type
+
+        apply_reading_type(supabase, memo_id, call_reading)
         update_memo_row(
             supabase,
             memo_id,
             extraction_complete_update(
-                extraction.model_dump(),
+                stored_extraction,
                 datetime.utcnow().isoformat(),
             ),
         )
@@ -925,7 +977,7 @@ async def upload_transcript_and_extract(
         payload["pipeline_meta"] = {"call_source": call_source}
     user_notes = (body.notes or "").strip()[:USER_NOTES_MAX_CHARS] or None
     if user_notes:
-        # Only written when present, so memos without notes never depend on migration 072.
+        # Only written when present, so memos without notes never depend on migration 073.
         payload["user_notes"] = user_notes
     created = insert_memo_row(supabase, pin_playbook=True, payload=payload)
 

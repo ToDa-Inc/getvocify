@@ -206,7 +206,7 @@ async def _draft(supabase: Any, memo: dict, llm: Any, *, prompt_version: str, by
 
 
 def read_followup_preference(supabase: Any, user_id: str) -> bool:
-    """Whether this rep wants drafts. A missing row or column (before migration 073) means yes."""
+    """Whether this rep wants drafts. A missing row or column (before migration 074) means yes."""
     try:
         rows = (
             supabase.table("user_profiles").select("followup_suggestions").eq("id", user_id).limit(1).execute().data

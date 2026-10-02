@@ -292,7 +292,7 @@ def test_the_memo_routes_are_registered_on_the_real_router():
     assert "put" in schema["/api/v1/playbooks/{sales_motion_key}/rule"]
 
 
-def test_get_says_when_the_type_is_jevs_suggestion():
-    memo = {**_memo(), "pipeline_meta": {"playbook_pin": {"source": "jev", "confidence": 0.9}}}
+def test_get_says_when_the_type_is_the_call_readings_suggestion():
+    memo = {**_memo(), "pipeline_meta": {"playbook_pin": {"source": "reading"}}}
     body = _client(_Db(memo)).get(f"/api/v1/memos/{MEMO}/playbook").json()
     assert body["suggested"] is True

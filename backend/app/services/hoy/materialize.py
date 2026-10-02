@@ -13,6 +13,7 @@ from app.services.hoy.signals import (
     Signal,
     Touch,
     never_contacted_signal,
+    screening_from_call,
     signals_for_contact,
     touch_from_intelligence,
 )
@@ -118,7 +119,7 @@ def contact_touches(memos: list[dict]) -> tuple[dict[str, list], dict[str, bool]
             connection_id=memo.get("connection_id"),
             intelligence=shaped if shaped.get("objections") or shaped.get("commitments") or shaped.get("interest") else None,
             history_complete=True,
-            screening_outcome=memo.get("screening_outcome"),
+            screening_outcome=screening_from_call(memo.get("screening_outcome"), intelligence),
             followup_at=_stored_followup_at(memo),
             rep_outcome=memo.get("rep_outcome"),
         )
@@ -283,7 +284,7 @@ def read_hoy_calls(supabase, *, user_id: str) -> list[dict]:
     try:
         stored = (
             supabase.table("outbound_calls")
-            .select("id,hubspot_contact_id,hubspot_deal_id,call_disposition,created_at")
+            .select("id,hubspot_contact_id,hubspot_deal_id,call_disposition,created_at,to_number")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
             .limit(HOY_CALL_LIMIT)
@@ -338,7 +339,9 @@ def callback_no_answer_from_calls(
             deal_id=str(call.get("hubspot_deal_id")) if call.get("hubspot_deal_id") else None,
             source_memo_id="",
             due_at=None,
-            payload={"outcome": disposition, "at": at.isoformat()},
+            # The number dialled names the card when no call ever gave us the contact's name.
+            payload={"outcome": disposition, "at": at.isoformat(),
+                     **({"phone": str(call["to_number"])} if call.get("to_number") else {})},
             dedupe_key=f"callback:call:{call_id}",
             connection_id=None,
         ))

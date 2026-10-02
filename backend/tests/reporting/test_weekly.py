@@ -113,6 +113,8 @@ def _memo(memo_id: str, at: str, screening: str, meeting: bool = False) -> dict:
         "capture_started_at": at,
         "created_at": at,
         "extraction": {"intelligence": intel},
+        # A meeting counts when the rep declared it, never because the model read one.
+        **({"rep_outcome": "meeting_booked"} if meeting else {}),
     }
 
 

@@ -5,7 +5,7 @@ import {
   type MeetingChecklistPayload,
 } from "@/lib/memo-meeting-checklist";
 import { api } from "@/shared/lib/api-client";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { Check, Circle } from "lucide-react";
 
 async function fetchMeetingChecklist(memoId: string): Promise<MeetingChecklistPayload | null> {
   try {
@@ -18,7 +18,9 @@ async function fetchMeetingChecklist(memoId: string): Promise<MeetingChecklistPa
   }
 }
 
-export function MemoMeetingChecklist({ memoId }: { memoId: string }) {
+/** The playbook steps of this call, inside the coaching "Process" card. `showProgress` is off when
+ * the score line above already says "Pasos 4/5", so the count is never said twice. */
+export function MemoMeetingChecklist({ memoId, showProgress = true }: { memoId: string; showProgress?: boolean }) {
   const { t } = useLanguage();
   const p = t.product;
   const query = useQuery({
@@ -31,28 +33,23 @@ export function MemoMeetingChecklist({ memoId }: { memoId: string }) {
     progressTemplate: p.teamAdherenceOf,
     doneLabel: p.checklistDone,
   });
-  if (!view) return null;
+  if (!view || !view.steps.length) return null;
 
   return (
-    <section aria-labelledby="meeting-checklist-title" className="mb-6 space-y-3">
-      <h2 id="meeting-checklist-title" className={THEME_TOKENS.typography.capsLabel}>
-        {p.coachingProcessHeading}
-      </h2>
-      <p className="text-sm text-muted-foreground">{view.progress}</p>
-      <ul className="space-y-2">
+    <div className="space-y-2">
+      {showProgress ? <p className="text-[15px] tabular-nums text-foreground">{view.progress}</p> : null}
+      <ul className="space-y-1.5">
         {view.steps.map((step) => (
-          <li key={step.label} className="text-sm text-foreground">
+          <li key={step.label} className="flex items-center gap-2.5 text-sm">
             {step.kind === "met" ? (
-              <>
-                {step.label}{" "}
-                <span className="text-muted-foreground">{step.doneLabel}</span>
-              </>
+              <Check className="h-3.5 w-3.5 shrink-0 text-success" aria-label={step.doneLabel} />
             ) : (
-              step.label
+              <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" aria-hidden />
             )}
+            <span className={step.kind === "met" ? "text-foreground" : "text-muted-foreground"}>{step.label}</span>
           </li>
         ))}
       </ul>
-    </section>
+    </div>
   );
 }

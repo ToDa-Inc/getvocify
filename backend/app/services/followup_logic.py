@@ -31,9 +31,19 @@ LIST_WINDOW = timedelta(days=7)
 LIST_LIMIT = 50
 
 
+# What the call reading says was not a conversation with a prospect: no email to write.
+_NO_EMAIL_CALLS = frozenset({"no_conversation", "not_a_sales_call", "dictated_note"})
+
+
 def is_eligible(memo: dict) -> bool:
-    """A real conversation with an extraction. Voicemail and no-answer never get a draft."""
+    """A real conversation with an extraction. Voicemail and no-answer never get a draft, nor does
+    a call the reading found was not a conversation with a prospect (wrong number, a test)."""
     if (memo.get("screening_outcome") or "") in SKIPPED_SCREENING:
+        return False
+    extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+    call = ((extraction.get("intelligence") or {}).get("call") if isinstance(extraction.get("intelligence"), dict) else None) \
+        or extraction.get("call_reading")
+    if isinstance(call, dict) and (call.get("reached_conversation") is False or call.get("call_type") in _NO_EMAIL_CALLS):
         return False
     if not (memo.get("transcript") or "").strip():
         return False
@@ -129,7 +139,36 @@ def c04_facts(block: dict, tz_name: Optional[str]) -> dict:
                                 **_when(item.get("due_at"), item.get("temporal_precision"), tz)})
     raw = block.get("meeting") if isinstance(block.get("meeting"), dict) else {}
     meeting = _when(raw.get("starts_at"), raw.get("precision"), tz) if raw.get("agreed") is True else {}
-    return {"commitments": commitments, "meeting": meeting or None, "pain_quote": pain_quote(block)}
+    facts = {"commitments": commitments, "meeting": meeting or None, "pain_quote": pain_quote(block)}
+    facts.update(_next_facts(block, tz))
+    return facts
+
+
+def _next_facts(block: dict, tz) -> dict:
+    """C04 v8 `next`: what the email has to carry and to whom, the callback it can announce,
+    and how the call ended. Absent keys mean C04 did not say it."""
+    nxt = block.get("next") if isinstance(block.get("next"), dict) else None
+    if not nxt:
+        return {}
+    out: dict = {}
+    outcome = nxt.get("outcome") if isinstance(nxt.get("outcome"), dict) else {}
+    if outcome.get("text"):
+        out["outcome"] = outcome["text"]
+    email = nxt.get("followup_email") if isinstance(nxt.get("followup_email"), dict) else {}
+    if email.get("needed"):
+        out["promised_email"] = {k: email.get(k) for k in ("kind", "content", "to") if email.get(k)}
+    callback = nxt.get("callback") if isinstance(nxt.get("callback"), dict) else {}
+    if callback.get("needed"):
+        out["callback"] = {
+            **({"who_asked": callback["who_asked"]} if callback.get("who_asked") else {}),
+            **_when(callback.get("when"), callback.get("temporal_precision"), tz),
+            **({"said": callback["when_text"]} if callback.get("when_text") else {}),
+            **({"reason": callback["reason"]} if callback.get("reason") else {}),
+        }
+    referral = nxt.get("referral") if isinstance(nxt.get("referral"), dict) else None
+    if referral and (referral.get("name") or referral.get("role")):
+        out["referral"] = {k: referral.get(k) for k in ("name", "role") if referral.get(k)}
+    return out
 
 
 def parse_draft(payload: object) -> Optional[dict]:

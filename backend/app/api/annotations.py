@@ -116,4 +116,14 @@ async def get_objections(
         )
     except Exception:
         return objection_view(notes=[], patterns=[], readable=False)
-    return objection_view(notes=notes.data or [], patterns=patterns.data or [], readable=True)
+    try:
+        memo = (
+            supabase.table("memos").select("extraction").eq("id", memo_id)
+            .eq("company_id", membership.company_id).limit(1).execute()
+        ).data or [{}]
+    except Exception:
+        memo = [{}]  # unknown whether it was analysed: never claim "no objections"
+    extraction = memo[0].get("extraction") if isinstance(memo[0].get("extraction"), dict) else {}
+    block = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
+    analysed = bool(block.get("prompt_version")) and isinstance(block.get("objections"), list)
+    return objection_view(notes=notes.data or [], patterns=patterns.data or [], readable=True, analysed=analysed)

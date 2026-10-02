@@ -39,14 +39,17 @@ export function VocifyLoader({ size = "md", className, label }: VocifyLoaderProp
 type VocifySpinnerProps = {
   className?: string;
   size?: number;
+  /** `onFill`: light track and arc, for a spinner sitting on a beige or red button. */
+  tone?: "default" | "onFill";
 };
 
 /** Extension-style circular spinner (matches chrome-extension `.mini-spinner`). */
-export function VocifySpinner({ className, size = 12 }: VocifySpinnerProps) {
+export function VocifySpinner({ className, size = 12, tone = "default" }: VocifySpinnerProps) {
   return (
     <span
       className={cn(
-        "inline-block shrink-0 rounded-full border-[1.5px] border-foreground/10 border-t-beige animate-spin motion-reduce:animate-none",
+        "inline-block shrink-0 rounded-full border-[1.5px] animate-spin motion-reduce:animate-none",
+        tone === "onFill" ? "border-cream/30 border-t-cream" : "border-foreground/10 border-t-beige",
         className,
       )}
       style={{ width: size, height: size }}
