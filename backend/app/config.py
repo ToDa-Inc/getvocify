@@ -50,8 +50,9 @@ class Settings(BaseSettings):
     # Realtime language when the client sends `multi`. Must be an ISO code (`es`, `en`, …).
     # `auto` is batch-only — eu2 rejects wss://…/v2/auto with HTTP 404.
     SPEECHMATICS_RT_LANGUAGE: Optional[str] = None
-    # Live calls also stream to Deepgram Nova-3 in parallel; both transcripts go to the logs to compare.
-    LIVE_COMPARE_DEEPGRAM: bool = False
+    # Live calls also stream to the other provider (Speechmatics or Deepgram) in parallel; both
+    # transcripts and their speed go to the logs to compare.
+    LIVE_COMPARE_STT: bool = False
 
     # LLM provider routing: openrouter | vertex_ai
     LLM_PROVIDER: str = "openrouter"

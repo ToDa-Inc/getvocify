@@ -4,31 +4,22 @@ Speed is measured per side as the time between the audio reaching the service an
 for it coming back: a partial's lag is how long the bubble waits for words, a final's is how
 long until they stop changing. Network time to and from the Mac is not in it.
 
-With LIVE_COMPARE_DEEPGRAM on, each side's audio also goes to Deepgram Nova-3 in parallel and
-its text and speed are logged next to Speechmatics', so both can be read against the same call.
-Deepgram never reaches the client: the call keeps running on Speechmatics only.
+With LIVE_COMPARE_STT on, each side's audio also goes to the other provider (Speechmatics or
+Deepgram) in parallel and its text and speed are logged next to the one the call uses, so both
+can be read against the same call. The other provider never reaches the client.
 """
 
 from __future__ import annotations
 
-import asyncio
 import bisect
 import json
 import logging
 import time
 import uuid
 from typing import Any, Optional
-from urllib.parse import urlencode
-
-import websockets
-
 logger = logging.getLogger(__name__)
 
 BYTES_PER_SECOND = 16000 * 2
-DEEPGRAM_LIVE_URL = "wss://api.deepgram.com/v1/listen"
-# Nova-3 `multi` code-switches between these; anything else is transcribed in its own language.
-DEEPGRAM_MULTI = {"en", "es", "fr", "de", "hi", "ru", "pt", "ja", "it", "nl"}
-MAX_KEYTERMS = 50
 # Log lines stay well under the platform's per-line limit.
 LOG_CHUNK = 6000
 
@@ -82,18 +73,17 @@ class Track:
 
 
 class LiveReport:
-    def __init__(self, labels: list[str], *, compare: bool, service: str = "live") -> None:
+    def __init__(self, labels: list[str], *, providers: list[str], service: str = "live") -> None:
+        """`providers`: the one the call uses first, then the one compared with it, if any."""
         self.labels = labels
-        self.compare = compare
+        self.providers = providers
+        self.compare = len(providers) > 1
         self.service = service
         # What the Mac measured: the delay the rep sees, network included.
         self.client: Optional[dict[str, Any]] = None
         self.started = time.monotonic()
         self.clocks = {label: AudioClock() for label in labels}
-        self.tracks: dict[str, dict[str, Track]] = {
-            provider: {label: Track() for label in labels}
-            for provider in (["speechmatics", "deepgram"] if compare else ["speechmatics"])
-        }
+        self.tracks: dict[str, dict[str, Track]] = {provider: {label: Track() for label in labels} for provider in providers}
         self.restarts: list[dict[str, Any]] = []
 
     def audio(self, label: str, nbytes: int) -> None:
@@ -129,14 +119,15 @@ class LiveReport:
             self.client = {"lag_s": lags, "reconnects": data.get("reconnects")}
 
     def restarted(self, label: str, language: str, from_s: float) -> None:
-        """Speechmatics sends this side's text from `from_s` again, in `language`."""
+        """The call's provider sends this side's text from `from_s` again, in `language`."""
         self.restarts.append({"side": label, "language": language, "from_s": round(from_s, 1)})
-        track = self.tracks["speechmatics"][label]
+        track = self.tracks[self.providers[0]][label]
         track.finals = [f for f in track.finals if f[0] < from_s]
 
     def summary(self, languages: dict[str, str]) -> dict[str, Any]:
         return {
             "service": self.service,
+            "provider": self.providers[0],
             "client": self.client,
             "duration_s": round(time.monotonic() - self.started, 1),
             "audio_s": {label: round(clock.total, 1) for label, clock in self.clocks.items()},
@@ -160,81 +151,3 @@ class LiveReport:
                 parts = [text[i : i + LOG_CHUNK] for i in range(0, len(text), LOG_CHUNK)] or [""]
                 for n, part in enumerate(parts, 1):
                     logger.info("Live transcript %s %s %s %d/%d\n%s", call, provider, label, n, len(parts), part)
-
-
-class DeepgramShadow:
-    """One side's audio to Deepgram Nova-3, results to the report only. Failures stay here."""
-
-    def __init__(self, label: str, language: str, keyterms: list[str], api_key: str, report: LiveReport) -> None:
-        self.label = label
-        self.language = "multi" if language in DEEPGRAM_MULTI else language
-        self.keyterms = keyterms[:MAX_KEYTERMS]
-        self.api_key = api_key
-        self.report = report
-        self.queue: asyncio.Queue = asyncio.Queue()
-        self.started_at: Optional[float] = None
-        self.ended_at: Optional[float] = None
-        self.task = asyncio.create_task(self._run())
-
-    def feed(self, pcm: bytes) -> None:
-        self.queue.put_nowait(pcm)
-
-    def end(self) -> None:
-        self.queue.put_nowait(None)
-
-    def url(self) -> str:
-        params: list[tuple[str, str]] = [
-            ("model", "nova-3"),
-            ("language", self.language),
-            ("encoding", "linear16"),
-            ("sample_rate", "16000"),
-            ("channels", "1"),
-            ("interim_results", "true"),
-            ("smart_format", "true"),
-            ("punctuate", "true"),
-            ("endpointing", "300"),
-        ]
-        params += [("keyterm", term) for term in self.keyterms]
-        return f"{DEEPGRAM_LIVE_URL}?{urlencode(params)}"
-
-    async def _run(self) -> None:
-        try:
-            async with websockets.connect(self.url(), additional_headers={"Authorization": f"Token {self.api_key}"}) as ws:
-                self.started_at = time.monotonic()
-                await asyncio.gather(self._send(ws), self._receive(ws))
-        except Exception as e:
-            logger.warning("Deepgram comparison %s (%s) stopped: %s", self.label, self.language, e)
-        finally:
-            self.ended_at = time.monotonic()
-
-    async def _send(self, ws: Any) -> None:
-        while True:
-            item = await self.queue.get()
-            if item is None:
-                await ws.send(json.dumps({"type": "CloseStream"}))
-                return
-            await ws.send(item)
-
-    async def _receive(self, ws: Any) -> None:
-        async for raw in ws:
-            data = json.loads(raw)
-            if data.get("type") != "Results":
-                continue
-            alternatives = (data.get("channel") or {}).get("alternatives") or [{}]
-            text = alternatives[0].get("transcript") or ""
-            if not text:
-                continue
-            start = float(data.get("start") or 0.0)
-            self.report.result(
-                "deepgram",
-                self.label,
-                final=bool(data.get("is_final")),
-                start=start,
-                end=start + float(data.get("duration") or 0.0),
-                text=text,
-            )
-
-    def billed_seconds(self) -> float:
-        if not self.started_at:
-            return 0.0
-        return (self.ended_at or time.monotonic()) - self.started_at

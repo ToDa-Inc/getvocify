@@ -1,7 +1,9 @@
-"""Live call transcription with one Speechmatics stream per side, each in its own language.
+"""Live call transcription, one stream per side: Deepgram Nova-3, or Speechmatics per language.
 
 The client streams both sides as AddChannelAudio (`rep` = mic, `prospect` = the call).
-Each side starts in the profile's main language. When the profile lists languages that
+Deepgram Nova-3 `multi` transcribes Spanish and English, mixed, and settles text fastest; a
+profile with a language it can't transcribe well (Catalan) goes to Speechmatics instead.
+There, each side starts in the profile's main language. When the profile lists languages that
 start can't transcribe (e.g. Catalan for a Spanish rep), a few seconds of that side's
 speech go through Deepgram language ID; if it is confidently another language, that side
 restarts in it and its buffered audio is replayed, so nothing said is lost. The client is
@@ -21,12 +23,13 @@ import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
+from urllib.parse import urlencode
 
 import websockets
 
 from app.config import settings
 from app.services.glossary import GlossaryService
-from app.services.live_report import DeepgramShadow, LiveReport
+from app.services.live_report import LiveReport
 from app.services.session_entities import normalize_stt_languages
 from app.services.stt_channels import speechmatics_words
 from app.services.usage import record_stt_usage
@@ -34,6 +37,10 @@ from app.services.usage import record_stt_usage
 logger = logging.getLogger(__name__)
 
 SPEECHMATICS_RT_URL = "wss://eu2.rt.speechmatics.com/v2"
+DEEPGRAM_LIVE_URL = "wss://api.deepgram.com/v1/listen"
+# Nova-3 `multi` code-switches between these; a profile with any other goes to Speechmatics.
+DEEPGRAM_MULTI = {"en", "es", "fr", "de", "hi", "ru", "pt", "ja", "it", "nl"}
+MAX_KEYTERMS = 50
 BYTES_PER_SECOND = 16000 * 2
 # Seconds of a side's speech at which its language is checked while it is still unknown.
 OPENING_CHECKS_S = (4.0, 10.0, 20.0)
@@ -161,8 +168,21 @@ class PcmBuffer:
         return bytes(self.data[start - self.dropped : max(start, end) - self.dropped]), start / BYTES_PER_SECOND
 
 
-class SpeechmaticsStream:
-    """One side's realtime session. Audio fed before it is ready waits in order."""
+def live_provider(profile: list[str]) -> str:
+    """Deepgram Nova-3 transcribes Spanish and English, mixed, and settles text fastest. A
+    profile with a language it can't transcribe well (Catalan) stays on Speechmatics, which
+    also checks each side's language and switches mid-call."""
+    if not settings.DEEPGRAM_API_KEY:
+        return "speechmatics"
+    return "deepgram" if all(code in DEEPGRAM_MULTI for code in detection_languages(profile)) else "speechmatics"
+
+
+class LiveStream:
+    """One side's realtime session with one provider. Audio fed before it is ready waits in
+    order. Results go to `on_event` as {"kind": partial|final|utterance_end|error|warning,
+    "transcript", "start", "end", "words"}, in seconds since the side began."""
+
+    provider = ""
 
     def __init__(
         self,
@@ -172,14 +192,14 @@ class SpeechmaticsStream:
         *,
         vocab: list[dict[str, Any]],
         offset_s: float,
-        on_message: Callable[["SpeechmaticsStream", dict[str, Any]], Awaitable[None]],
+        on_event: Callable[["LiveStream", dict[str, Any]], Awaitable[None]],
     ) -> None:
         self.label = label
         self.language = language
         self.domain = domain
         self.vocab = vocab
         self.offset_s = offset_s
-        self.on_message = on_message
+        self.on_event = on_event
         self.queue: asyncio.Queue = asyncio.Queue()
         self.ready = asyncio.Event()
         self.finished = asyncio.Event()
@@ -188,6 +208,74 @@ class SpeechmaticsStream:
         self.task: Optional[asyncio.Task] = None
         # A restarted side's stream first catches up on replayed audio: not timed until it is live.
         self.live_from_s = 0.0
+
+    def feed(self, pcm: bytes) -> None:
+        self.queue.put_nowait(pcm)
+
+    def force_end(self) -> None:
+        self.queue.put_nowait("force")
+
+    def end(self) -> None:
+        self.queue.put_nowait(None)
+
+    def start(self, api_key: str) -> None:
+        self.task = asyncio.create_task(self._run(api_key))
+
+    def billed_seconds(self) -> float:
+        if not self.started_at:
+            return 0.0
+        return (self.ended_at or time.monotonic()) - self.started_at
+
+    async def _run(self, api_key: str) -> None:
+        try:
+            async with websockets.connect(self.url(), additional_headers=self.headers(api_key)) as ws:
+                await self.opened(ws)
+                await asyncio.gather(self._send(ws), self._receive(ws))
+        except Exception as e:
+            logger.error("%s %s stream (%s) failed: %s", self.provider, self.label, self.language, e)
+            await self.on_event(self, {"kind": "error", "reason": str(e)})
+        finally:
+            self.ended_at = time.monotonic()
+            self.ready.set()
+            self.finished.set()
+
+    async def _send(self, ws: Any) -> None:
+        await self.ready.wait()
+        seq = 0
+        while True:
+            item = await self.queue.get()
+            if item is None:
+                await ws.send(json.dumps(self.end_message(seq)))
+                return
+            if item == "force":
+                await ws.send(json.dumps(self.force_message()))
+                continue
+            seq += 1
+            await ws.send(item)
+
+    async def _receive(self, ws: Any) -> None:
+        async for raw in ws:
+            if isinstance(raw, bytes):
+                continue
+            for event in self.events(json.loads(raw)):
+                await self.on_event(self, event)
+                if event["kind"] in ("done", "error"):
+                    return
+
+    def words(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return items
+
+    # Per provider
+    def url(self) -> str: raise NotImplementedError
+    def headers(self, api_key: str) -> dict[str, str]: raise NotImplementedError
+    async def opened(self, ws: Any) -> None: raise NotImplementedError
+    def end_message(self, seq: int) -> dict[str, Any]: raise NotImplementedError
+    def force_message(self) -> dict[str, Any]: raise NotImplementedError
+    def events(self, data: dict[str, Any]) -> list[dict[str, Any]]: raise NotImplementedError
+
+
+class SpeechmaticsStream(LiveStream):
+    provider = "speechmatics"
 
     def config(self) -> dict[str, Any]:
         cfg: dict[str, Any] = {
@@ -205,74 +293,132 @@ class SpeechmaticsStream:
             cfg["additional_vocab"] = self.vocab
         return cfg
 
-    def feed(self, pcm: bytes) -> None:
-        self.queue.put_nowait(pcm)
+    def url(self) -> str:
+        return f"{SPEECHMATICS_RT_URL}/{self.language}"
 
-    def force_end(self) -> None:
-        self.queue.put_nowait({"message": "ForceEndOfUtterance"})
+    def headers(self, api_key: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {api_key}"}
 
-    def end(self) -> None:
-        self.queue.put_nowait(None)
+    async def opened(self, ws: Any) -> None:
+        await ws.send(
+            json.dumps(
+                {
+                    "message": "StartRecognition",
+                    "audio_format": {"type": "raw", "encoding": "pcm_s16le", "sample_rate": 16000},
+                    "transcription_config": self.config(),
+                }
+            )
+        )
 
-    def start(self, api_key: str) -> None:
-        self.task = asyncio.create_task(self._run(api_key))
+    def end_message(self, seq: int) -> dict[str, Any]:
+        return {"message": "EndOfStream", "last_seq_no": seq}
 
-    async def _run(self, api_key: str) -> None:
-        url = f"{SPEECHMATICS_RT_URL}/{self.language}"
-        try:
-            async with websockets.connect(url, additional_headers={"Authorization": f"Bearer {api_key}"}) as ws:
-                await ws.send(
-                    json.dumps(
-                        {
-                            "message": "StartRecognition",
-                            "audio_format": {"type": "raw", "encoding": "pcm_s16le", "sample_rate": 16000},
-                            "transcription_config": self.config(),
-                        }
-                    )
-                )
-                await asyncio.gather(self._send(ws), self._receive(ws))
-        except Exception as e:
-            logger.error("Speechmatics %s stream (%s) failed: %s", self.label, self.language, e)
-            await self.on_message(self, {"message": "Error", "reason": str(e)})
-        finally:
-            self.ended_at = time.monotonic()
+    def force_message(self) -> dict[str, Any]:
+        return {"message": "ForceEndOfUtterance"}
+
+    def events(self, data: dict[str, Any]) -> list[dict[str, Any]]:
+        kind = data.get("message")
+        meta = data.get("metadata") or {}
+        start, end = meta.get("start_time"), meta.get("end_time")
+        at = (start + self.offset_s) if isinstance(start, (int, float)) else None
+        until = (end + self.offset_s) if isinstance(end, (int, float)) else at
+        if kind == "RecognitionStarted":
+            self.started_at = time.monotonic()
             self.ready.set()
-            self.finished.set()
+            return []
+        if kind in ("AddPartialTranscript", "AddTranscript"):
+            return [
+                {
+                    "kind": "final" if kind == "AddTranscript" else "partial",
+                    "transcript": meta.get("transcript", ""),
+                    "words": speechmatics_words(data, self.offset_s),
+                    "start": at,
+                    "end": until,
+                }
+            ]
+        if kind == "EndOfUtterance":
+            return [{"kind": "utterance_end", "forced": bool(meta.get("forced") or data.get("forced")), "start": at, "end": until}]
+        if kind == "Error":
+            return [{"kind": "error", "reason": data.get("reason", "Unknown error")}]
+        if kind == "Warning":
+            return [{"kind": "warning", "reason": data.get("reason")}]
+        if kind == "EndOfTranscript":
+            return [{"kind": "done"}]
+        return []
 
-    async def _send(self, ws: Any) -> None:
-        await self.ready.wait()
-        seq = 0
-        while True:
-            item = await self.queue.get()
-            if item is None:
-                await ws.send(json.dumps({"message": "EndOfStream", "last_seq_no": seq}))
-                return
-            if isinstance(item, dict):
-                await ws.send(json.dumps(item))
-                continue
-            seq += 1
-            await ws.send(item)
 
-    async def _receive(self, ws: Any) -> None:
-        async for raw in ws:
-            data = json.loads(raw)
-            kind = data.get("message")
-            if kind == "RecognitionStarted":
-                self.started_at = time.monotonic()
-                self.ready.set()
-                continue
-            await self.on_message(self, data)
-            if kind in ("EndOfTranscript", "Error"):
-                return
+class DeepgramStream(LiveStream):
+    """Nova-3 `multi`: Spanish and English (and the other languages it code-switches), mixed."""
 
-    def billed_seconds(self) -> float:
-        if not self.started_at:
-            return 0.0
-        return (self.ended_at or time.monotonic()) - self.started_at
+    provider = "deepgram"
+
+    def url(self) -> str:
+        params: list[tuple[str, str]] = [
+            ("model", "nova-3"),
+            ("language", "multi" if self.language in DEEPGRAM_MULTI else self.language),
+            ("encoding", "linear16"),
+            ("sample_rate", "16000"),
+            ("channels", "1"),
+            ("interim_results", "true"),
+            ("smart_format", "true"),
+            ("punctuate", "true"),
+            ("endpointing", "300"),
+        ]
+        params += [("keyterm", v["content"]) for v in self.vocab[:MAX_KEYTERMS] if v.get("content")]
+        return f"{DEEPGRAM_LIVE_URL}?{urlencode(params)}"
+
+    def headers(self, api_key: str) -> dict[str, str]:
+        return {"Authorization": f"Token {api_key}"}
+
+    async def opened(self, ws: Any) -> None:
+        self.started_at = time.monotonic()
+        self.ready.set()
+
+    def end_message(self, seq: int) -> dict[str, Any]:
+        return {"type": "CloseStream"}
+
+    def force_message(self) -> dict[str, Any]:
+        return {"type": "Finalize"}
+
+    def events(self, data: dict[str, Any]) -> list[dict[str, Any]]:
+        kind = data.get("type")
+        if kind == "Results":
+            alternative = ((data.get("channel") or {}).get("alternatives") or [{}])[0]
+            start = float(data.get("start") or 0.0) + self.offset_s
+            final = bool(data.get("is_final"))
+            words = [
+                {
+                    "text": str(w.get("punctuated_word") or w.get("word") or ""),
+                    "speaker": None,
+                    "is_punct": False,
+                    "start_ms": int((float(w.get("start") or 0.0) + self.offset_s) * 1000),
+                    "end_ms": int((float(w.get("end") or 0.0) + self.offset_s) * 1000),
+                }
+                for w in alternative.get("words") or []
+            ]
+            out = [
+                {
+                    "kind": "final" if final else "partial",
+                    "transcript": alternative.get("transcript") or "",
+                    "words": words,
+                    "start": start,
+                    "end": start + float(data.get("duration") or 0.0),
+                }
+            ]
+            if final and data.get("speech_final") and alternative.get("transcript"):
+                out.append({"kind": "utterance_end", "forced": False, "start": out[0]["start"], "end": out[0]["end"]})
+            return out
+        if kind == "Error":
+            return [{"kind": "error", "reason": data.get("description") or data.get("message") or "Deepgram error"}]
+        return []
+
+
+STREAMS: dict[str, type[LiveStream]] = {"speechmatics": SpeechmaticsStream, "deepgram": DeepgramStream}
 
 
 class ChannelSessions:
-    """Both sides of a call, each in its own stream, with language checks when the profile needs them."""
+    """Both sides of a call, each in its own stream: Deepgram, or Speechmatics with language
+    checks when the profile has a language Deepgram can't transcribe."""
 
     def __init__(
         self,
@@ -290,37 +436,44 @@ class ChannelSessions:
         self.user_id = user_id
         self.labels = labels
         self.profile = normalize_stt_languages(profile_languages)
-        self.api_key = (
-            settings.SPEECHMATICS_API_KEY
+        self.keys = {
+            "speechmatics": settings.SPEECHMATICS_API_KEY
             or os.environ.get("SPEECHMATICS_API_KEY")
-            or os.environ.get("SPEECHNATICS_API_KEY")
-        )
+            or os.environ.get("SPEECHNATICS_API_KEY"),
+            "deepgram": settings.DEEPGRAM_API_KEY,
+        }
+        self.provider = live_provider(self.profile)
         start_language, start_domain = session_language(language, self.profile)
         self.detect = (
             detect
+            and self.provider == "speechmatics"
             and bool(settings.DEEPGRAM_API_KEY)
             and needs_detection(self.profile, start_language, start_domain)
         )
         self.vocab = GlossaryService().format_for_speechmatics(glossary) if glossary else []
         self.sides = {label: SideLanguage(start_language, start_domain) for label in labels}
         self.buffers = {label: PcmBuffer() for label in labels}
-        self.active: dict[str, SpeechmaticsStream] = {}
-        self.streams: list[SpeechmaticsStream] = []
+        self.active: dict[str, LiveStream] = {}
+        self.streams: list[LiveStream] = []
         self.checks: set[asyncio.Task] = set()
         self.send_lock = asyncio.Lock()
         self.closing = False
-        compare = settings.LIVE_COMPARE_DEEPGRAM and bool(settings.DEEPGRAM_API_KEY)
-        self.report = LiveReport(labels, compare=compare, service=service)
-        self.shadows: dict[str, DeepgramShadow] = {}
+        # The other provider on the same audio, for the call's report only.
+        other = "speechmatics" if self.provider == "deepgram" else "deepgram"
+        self.shadow_provider = other if settings.LIVE_COMPARE_STT and self.keys[other] else None
+        providers = [self.provider] + ([self.shadow_provider] if self.shadow_provider else [])
+        self.report = LiveReport(labels, providers=providers, service=service)
+        self.shadows: dict[str, LiveStream] = {}
 
     async def run(self) -> None:
-        await self._send({"type": "connected", "model": "realtime", "mode": "copilot_channels"})
-        if not self.api_key:
-            await self._send({"type": "Error", "provider": "speechmatics", "error": "Speechmatics API key not configured"})
+        await self._send({"type": "connected", "model": "realtime", "mode": "copilot_channels", "provider": self.provider})
+        if not self.keys[self.provider]:
+            await self._send({"type": "Error", "provider": self.provider, "error": f"{self.provider} API key not configured"})
             return
         logger.info(
-            "Live channels: %s in %s (language checks %s, profile %s)",
+            "Live channels: %s on %s in %s (language checks %s, profile %s)",
             self.labels,
+            self.provider,
             self.sides[self.labels[0]].language,
             "on" if self.detect else "off",
             self.profile,
@@ -328,19 +481,20 @@ class ChannelSessions:
         for label in self.labels:
             side = self.sides[label]
             self.active[label] = self._open(label, side.language, side.domain, offset_s=0.0)
-            if self.report.compare:
-                keyterms = [v["content"] for v in self.vocab if v.get("content")]
-                self.shadows[label] = DeepgramShadow(
-                    label, side.language, keyterms, settings.DEEPGRAM_API_KEY or "", self.report
+            if self.shadow_provider:
+                shadow = STREAMS[self.shadow_provider](
+                    label, side.language, side.domain, vocab=self.vocab, offset_s=0.0, on_event=self._on_shadow
                 )
+                shadow.start(self.keys[self.shadow_provider] or "")
+                self.shadows[label] = shadow
         try:
             await self._read_client()
         finally:
             await self._finish()
 
-    def _open(self, label: str, language: str, domain: Optional[str], *, offset_s: float) -> SpeechmaticsStream:
-        stream = SpeechmaticsStream(label, language, domain, vocab=self.vocab, offset_s=offset_s, on_message=self._on_stream)
-        stream.start(self.api_key or "")
+    def _open(self, label: str, language: str, domain: Optional[str], *, offset_s: float) -> LiveStream:
+        stream = STREAMS[self.provider](label, language, domain, vocab=self.vocab, offset_s=offset_s, on_event=self._on_stream)
+        stream.start(self.keys[self.provider] or "")
         self.streams.append(stream)
         return stream
 
@@ -378,56 +532,61 @@ class ChannelSessions:
 
     async def _finish(self) -> None:
         self.closing = True
-        for stream in self.active.values():
+        for stream in [*self.active.values(), *self.shadows.values()]:
             stream.end()
-        for shadow in self.shadows.values():
-            shadow.end()
         current = list(self.active.values())
         try:
             await asyncio.wait_for(asyncio.gather(*(s.finished.wait() for s in current)), FINISH_TIMEOUT_S)
         except asyncio.TimeoutError:
             logger.warning("Live channels: a stream did not finish in %ss", FINISH_TIMEOUT_S)
         if self.shadows:
-            await asyncio.wait({s.task for s in self.shadows.values()}, timeout=3.0)
+            await asyncio.wait({s.task for s in self.shadows.values() if s.task}, timeout=3.0)
         for task in self.checks:
             task.cancel()
         try:
             await self._send({"type": "EndOfTranscript"})
         except Exception:
             pass
-        for stream in self.streams:
+        for stream in [*self.streams, *self.shadows.values()]:
             if stream.task and not stream.task.done():
                 stream.task.cancel()
             seconds = stream.billed_seconds()
             if seconds:
                 # Fire and forget: the ledger writes in a thread, other calls keep streaming.
-                record_stt_usage("speechmatics", "realtime", seconds, channels=1, tier="enhanced")
-        for shadow in self.shadows.values():
-            shadow.task.cancel()
-            if shadow.billed_seconds():
-                record_stt_usage("deepgram", "realtime", shadow.billed_seconds(), channels=1)
-        languages = {label: side.language for label, side in self.sides.items()}
-        self.report.log(self.user_id, languages)
+                tier = "enhanced" if stream.provider == "speechmatics" else ""
+                record_stt_usage(stream.provider, "realtime", seconds, channels=1, tier=tier)
+        self.report.log(self.user_id, {label: side.language for label, side in self.sides.items()})
 
     async def _send(self, payload: dict[str, Any]) -> None:
         async with self.send_lock:
             await self.client.send_json(payload)
 
-    async def _on_stream(self, stream: SpeechmaticsStream, data: dict[str, Any]) -> None:
+    async def _on_shadow(self, stream: LiveStream, event: dict[str, Any]) -> None:
+        if event["kind"] in ("partial", "final") and event.get("end") is not None and (event.get("transcript") or "").strip():
+            self.report.result(
+                stream.provider,
+                stream.label,
+                final=event["kind"] == "final",
+                start=event.get("start"),
+                end=event["end"],
+                text=event.get("transcript") or "",
+            )
+        elif event["kind"] == "error":
+            logger.warning("Live comparison %s %s stopped: %s", stream.provider, stream.label, event.get("reason"))
+
+    async def _on_stream(self, stream: LiveStream, event: dict[str, Any]) -> None:
         if self.active.get(stream.label) is not stream:
             return  # replaced by a stream in the side's real language
-        kind = data.get("message")
-        offset = stream.offset_s
-        if kind in ("AddPartialTranscript", "AddTranscript"):
-            meta = data.get("metadata") or {}
-            transcript = meta.get("transcript", "")
-            words = speechmatics_words(data, offset)
+        kind = event["kind"]
+        if kind in ("partial", "final"):
+            transcript = event.get("transcript") or ""
+            words = event.get("words") or []
             if not transcript and not words:
                 return
-            final = kind == "AddTranscript"
+            final = kind == "final"
             payload: dict[str, Any] = {
                 "type": "Results",
-                "provider": "speechmatics",
+                "provider": stream.provider,
                 "is_final": final,
                 "channel": {"alternatives": [{"transcript": transcript, "confidence": 0.99 if final else 0.5}]},
                 "audio_channel": stream.label,
@@ -435,13 +594,13 @@ class ChannelSessions:
             }
             if words:
                 payload["words"] = words
-            if isinstance(meta.get("start_time"), (int, float)):
-                payload["start"] = meta["start_time"] + offset
-                payload["end"] = meta.get("end_time", meta["start_time"]) + offset
+            if event.get("start") is not None:
+                payload["start"] = event["start"]
+                payload["end"] = event.get("end", event["start"])
             await self._send(payload)
             if "end" in payload:
                 self.report.result(
-                    "speechmatics",
+                    stream.provider,
                     stream.label,
                     final=final,
                     start=payload["start"],
@@ -451,23 +610,22 @@ class ChannelSessions:
                 )
             if final and transcript.strip() and "start" in payload:
                 self._after_final(stream.label, payload["start"], payload["end"])
-        elif kind == "EndOfUtterance":
-            meta = data.get("metadata") or {}
+        elif kind == "utterance_end":
             await self._send(
                 {
                     "type": "EndOfUtterance",
-                    "forced": bool(meta.get("forced") or data.get("forced")),
-                    "start_time": meta.get("start_time", 0) + offset if meta.get("start_time") is not None else None,
-                    "end_time": meta.get("end_time", 0) + offset if meta.get("end_time") is not None else None,
+                    "forced": event.get("forced", False),
+                    "start_time": event.get("start"),
+                    "end_time": event.get("end"),
                     "audio_channel": stream.label,
                 }
             )
-        elif kind == "Error":
-            reason = data.get("reason", "Unknown error")
-            logger.error("Speechmatics %s error: %s", stream.label, reason)
-            await self._send({"type": "Error", "provider": "speechmatics", "error": reason})
-        elif kind == "Warning":
-            logger.warning("Speechmatics %s warning: %s", stream.label, data.get("reason"))
+        elif kind == "error":
+            reason = event.get("reason") or "Unknown error"
+            logger.error("%s %s error: %s", stream.provider, stream.label, reason)
+            await self._send({"type": "Error", "provider": stream.provider, "error": reason})
+        elif kind == "warning":
+            logger.warning("%s %s warning: %s", stream.provider, stream.label, event.get("reason"))
 
     def _after_final(self, label: str, start: float, end: float) -> None:
         side = self.sides[label]

@@ -1,4 +1,4 @@
-from app.services.live_report import AudioClock, DeepgramShadow, LiveReport, percentiles
+from app.services.live_report import AudioClock, LiveReport, percentiles
 
 
 def test_lag_is_time_since_the_audio_arrived():
@@ -11,7 +11,7 @@ def test_lag_is_time_since_the_audio_arrived():
 
 
 def test_restart_drops_text_sent_again_and_untimed_results_keep_text():
-    report = LiveReport(["rep", "prospect"], compare=False)
+    report = LiveReport(["rep", "prospect"], providers=["speechmatics"])
     report.audio("rep", 32000 * 3)
     report.result("speechmatics", "rep", final=True, start=0.5, end=1.0, text="hola")
     report.result("speechmatics", "rep", final=True, start=2.0, end=2.5, text="bon dia", timed=False)
@@ -29,22 +29,11 @@ def test_percentiles():
     assert percentiles([1.0, 2.0, 3.0, 4.0]) == {"p50": 3.0, "p90": 4.0, "max": 4.0, "n": 4}
 
 
-def test_deepgram_url_uses_multi_for_spanish_and_its_own_language_otherwise():
-    class Fake(DeepgramShadow):
-        def __init__(self, language, terms):
-            self.language = "multi" if language in {"es", "en"} else language
-            self.keyterms = terms
-
-    assert "language=multi" in Fake("es", ["Vocify"]).url()
-    assert "keyterm=Vocify" in Fake("es", ["Vocify"]).url()
-    assert "language=ca" in Fake("ca", []).url()
-
-
 def test_report_says_which_service_and_keeps_what_the_mac_measured():
-    report = LiveReport(["rep"], compare=False, service="api")
+    report = LiveReport(["rep"], providers=["deepgram"], service="api")
     report.from_client({"type": "ClientReport", "lag_s": {"rep": {"final": {"p50": 1.2}}}, "reconnects": 0})
     summary = report.summary({"rep": "es"})
-    assert summary["service"] == "api"
+    assert summary["service"] == "api" and summary["provider"] == "deepgram"
     assert summary["client"] == {"lag_s": {"rep": {"final": {"p50": 1.2}}}, "reconnects": 0}
     report.from_client({"lag_s": "nonsense"})
     assert report.summary({})["client"]["reconnects"] == 0
@@ -53,7 +42,7 @@ def test_report_says_which_service_and_keeps_what_the_mac_measured():
 def test_report_goes_to_the_logs_with_both_transcripts(caplog):
     import logging
 
-    report = LiveReport(["rep"], compare=True)
+    report = LiveReport(["rep"], providers=["speechmatics", "deepgram"])
     report.result("speechmatics", "rep", final=True, start=1.0, end=2.0, text="hola qué tal")
     report.result("deepgram", "rep", final=True, start=1.0, end=2.0, text="hola que tal")
     with caplog.at_level(logging.INFO, logger="app.services.live_report"):

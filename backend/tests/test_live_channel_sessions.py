@@ -76,3 +76,44 @@ def test_buffer_keeps_recent_audio_addressed_by_time():
     assert start == 1.0 and len(pcm) == 64000
     pcm, start = buf.slice(2.5, 2.75)
     assert start == 2.5 and len(pcm) == 8000
+
+
+def test_deepgram_unless_the_profile_has_a_language_it_cannot_transcribe(monkeypatch):
+    from app.services import live_channel_sessions as live
+
+    monkeypatch.setattr(live.settings, "DEEPGRAM_API_KEY", "key")
+    assert live.live_provider([]) == "deepgram"
+    assert live.live_provider(["es"]) == "deepgram"
+    assert live.live_provider(["es", "en"]) == "deepgram"
+    assert live.live_provider(["es", "ca"]) == "speechmatics"
+    monkeypatch.setattr(live.settings, "DEEPGRAM_API_KEY", None)
+    assert live.live_provider(["es"]) == "speechmatics"
+
+
+def _noop(*_):
+    return None
+
+
+def test_deepgram_results_become_partials_finals_and_utterance_ends():
+    from app.services.live_channel_sessions import DeepgramStream
+
+    stream = DeepgramStream("rep", "es", None, vocab=[{"content": "Vocify"}], offset_s=10.0, on_event=_noop)
+    assert "language=multi" in stream.url() and "keyterm=Vocify" in stream.url()
+    words = [{"word": "hola", "punctuated_word": "Hola,", "start": 1.0, "end": 1.3}]
+    partial = stream.events({"type": "Results", "is_final": False, "start": 1.0, "duration": 0.5,
+                             "channel": {"alternatives": [{"transcript": "Hola,", "words": words}]}})
+    assert partial == [{"kind": "partial", "transcript": "Hola,", "start": 11.0, "end": 11.5,
+                        "words": [{"text": "Hola,", "speaker": None, "is_punct": False, "start_ms": 11000, "end_ms": 11300}]}]
+    final = stream.events({"type": "Results", "is_final": True, "speech_final": True, "start": 1.0, "duration": 0.5,
+                           "channel": {"alternatives": [{"transcript": "Hola."}]}})
+    assert [e["kind"] for e in final] == ["final", "utterance_end"]
+    assert stream.events({"type": "Metadata"}) == []
+
+
+def test_speechmatics_messages_become_the_same_events():
+    from app.services.live_channel_sessions import SpeechmaticsStream
+
+    stream = SpeechmaticsStream("prospect", "es", "bilingual-en", vocab=[], offset_s=2.0, on_event=_noop)
+    event = stream.events({"message": "AddTranscript", "metadata": {"transcript": "Vale.", "start_time": 1.0, "end_time": 1.4}, "results": []})
+    assert event == [{"kind": "final", "transcript": "Vale.", "words": [], "start": 3.0, "end": 3.4}]
+    assert stream.events({"message": "EndOfTranscript"}) == [{"kind": "done"}]
