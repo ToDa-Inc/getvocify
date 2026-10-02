@@ -15,6 +15,8 @@ import { useAuth } from "@/features/auth";
 import { memosApi, memoKeys } from "@/features/memos/api";
 import { isProcessing } from "@/features/memos/types";
 import { crmApi } from "@/lib/api/crm";
+import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
+import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
 import { api } from "@/shared/lib/api-client";
 import { ROUTES } from "@/shared/lib/constants";
 import {
@@ -55,6 +57,8 @@ import {
   meetingFrom,
   pollDelayMs,
   retypedTo,
+  summaryLines,
+  withEdits,
   type PostCall,
 } from "@/lib/post-call";
 import { playbooksApi } from "@/features/playbooks/api";
@@ -132,6 +136,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { t } = useLanguage();
+  const integrations = useIntegrations();
+  const connected = integrations.data?.find((connection) => connection.status === "connected")?.provider;
+  /** The CRM the island names in its card; read when a call ends. */
+  const crmNameRef = useRef<string | null>(null);
+  crmNameRef.current = connected ? CRM_PROVIDER_CONFIGS[connected as CRMProvider]?.name ?? null : null;
   /** A type's name as the memo page shows it: the company's label, else the catalog's. */
   const typeName = useCallback(
     (key: string, label?: string | null) => label || t.product.pb2.typeLabels[key] || motionLabel(key, t.product.motions),
@@ -452,6 +461,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         email: null,
         meeting: null,
         notes: false,
+        crm: crmNameRef.current,
       };
       postCallRef.current = { run, state, proposed: [] };
       getDesktopBridge()?.shell.setState({ postCall: state });
@@ -495,6 +505,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         ...crmForType(type?.key, crm),
         meeting: meetingFrom(proposal?.proposal ?? null),
         notes: Boolean(memo.extraction?.summary?.trim() || memo.userNotes?.trim()),
+        summary: summaryLines(memo.extraction?.summary),
       });
 
       // The email draft is written after the CRM changes; it joins the card when it's ready.
@@ -540,6 +551,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         case "approve": {
           if (current.state.stage !== "ready" || !current.state.canApprove) return;
           const omit = (Array.isArray(action.omit) ? action.omit : []).map(String);
+          const edits = action.edits && typeof action.edits === "object" ? (action.edits as Record<string, unknown>) : null;
           const kept = current.state.changes.length - omit.filter((key) => current.state.changes.some((c) => c.key === key)).length;
           if (kept <= 0) return;
           showPostCall({ stage: "applying", undoUntil: Date.now() + UNDO_MS });
@@ -550,7 +562,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               const extraction = buildApproveExtraction({
                 // The same record the review screen hands to buildApproveExtraction.
                 memoExtraction: (memo.extraction ?? null) as unknown as Record<string, unknown> | null,
-                updates: current.proposed.filter((update) => !omit.includes(proposedFieldKey(update) ?? "")),
+                updates: withEdits(current.proposed, edits).filter((update) => !omit.includes(proposedFieldKey(update) ?? "")),
                 omittedKeys: omit,
                 summary: memo.extraction?.summary ?? "",
                 nextSteps: memo.extraction?.nextSteps ?? [],
@@ -560,7 +572,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               showPostCall({ stage: "done", applied: kept, undoUntil: undefined });
               memoChanged(memoId);
             } catch {
-              fail({ stage: "review", canApprove: false, undoUntil: undefined, note: "Couldn't update HubSpot. Review it in Vocify" });
+              const crm = current.state.crm ?? "the CRM";
+              fail({ stage: "review", canApprove: false, undoUntil: undefined, note: `Couldn't update ${crm}. Review it in Vocify` });
             }
           }, UNDO_MS);
           return;

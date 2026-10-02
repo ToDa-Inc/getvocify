@@ -11,6 +11,8 @@ export type ProposedUpdate = {
   new_value?: string | number | null;
   current_value?: string | number | null;
   options?: unknown[];
+  /** The options are a checkbox list: several values, joined with ";". */
+  multiple?: boolean | null;
 };
 
 export type ExtractionRecord = Record<string, unknown> & {

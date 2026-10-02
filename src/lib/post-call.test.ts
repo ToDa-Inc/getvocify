@@ -11,6 +11,8 @@ import {
   pendingItems,
   pollDelayMs,
   retypedTo,
+  summaryLines,
+  withEdits,
   type PostCall,
 } from "./post-call.ts";
 
@@ -23,9 +25,38 @@ describe("changesFrom", () => {
       { field_name: "notes", field_label: "Notes", new_value: "" },
     ]);
     assert.deepEqual(changes, [
-      { key: "contacts:hs_lead_status", label: "Lead status", from: "NEW", to: "IN_PROGRESS", check: false },
-      { key: "deals:amount", label: "Amount", from: null, to: "196", check: true },
+      { key: "contacts:hs_lead_status", label: "Lead status", object: "contact", from: "NEW", to: "IN_PROGRESS", value: "IN_PROGRESS", options: [], multiple: false, check: false },
+      { key: "deals:amount", label: "Amount", object: "deal", from: null, to: "196", value: "196", options: [], multiple: false, check: true },
     ]);
+  });
+
+  it("shows option labels, keeps the values to write, and knows a checkbox list", () => {
+    const [stage, tools] = changesFrom([
+      {
+        field_name: "lifecyclestage", field_label: "Lifecycle stage", object_type: "contacts",
+        current_value: "lead", new_value: "opportunity",
+        options: [{ value: "lead", label: "Lead" }, { value: "opportunity", label: "Opportunity" }],
+      },
+      {
+        field_name: "tools", field_label: "Tools", object_type: "companies", new_value: "excel;holded", multiple: true,
+        options: [{ value: "excel", label: "Excel" }, { value: "holded", label: "Holded" }, { value: "", label: "—" }],
+      },
+    ]);
+    assert.equal(stage.from, "Lead");
+    assert.equal(stage.to, "Opportunity");
+    assert.equal(stage.value, "opportunity");
+    assert.equal(stage.multiple, false);
+    assert.equal(tools.object, "company");
+    assert.equal(tools.to, "Excel, Holded");
+    assert.equal(tools.multiple, true);
+    assert.deepEqual(tools.options.map((option) => option.value), ["excel", "holded"]);
+  });
+
+  it("offers no options on fields the review screen doesn't let the rep edit", () => {
+    const [note] = changesFrom([
+      { field_name: "description", field_label: "Note", new_value: "x", options: [{ value: "x", label: "X" }] },
+    ]);
+    assert.deepEqual(note.options, []);
   });
 
   it("only flags what the extraction scored under 'needs review'; unknown confidence is not a flag", () => {
@@ -61,9 +92,35 @@ describe("crmFor", () => {
   });
 });
 
+describe("withEdits", () => {
+  const proposed = [
+    { field_name: "lifecyclestage", field_label: "Stage", object_type: "contacts", new_value: "lead", options: [{ value: "lead" }, { value: "customer" }] },
+    { field_name: "tools", field_label: "Tools", object_type: "companies", new_value: "excel", multiple: true, options: [{ value: "excel" }, { value: "holded" }] },
+    { field_name: "jobtitle", field_label: "Job title", object_type: "contacts", new_value: "CEO" },
+  ];
+
+  it("writes the option the rep picked, and several for a checkbox list", () => {
+    const next = withEdits(proposed, { "contacts:lifecyclestage": "customer", "companies:tools": "excel;holded" });
+    assert.deepEqual(next.map((update) => update.new_value), ["customer", "excel;holded", "CEO"]);
+  });
+
+  it("ignores a pick outside the field's options, and free-text fields", () => {
+    const next = withEdits(proposed, { "contacts:lifecyclestage": "made-up", "contacts:jobtitle": "Founder" });
+    assert.deepEqual(next.map((update) => update.new_value), ["lead", "excel", "CEO"]);
+  });
+});
+
+describe("summaryLines", () => {
+  it("turns the note's markdown into a few plain lines", () => {
+    assert.equal(summaryLines("## Call\n- **Pain:** 6 h a week\n\n* Budget 12k\n1. Send proposal"), "Call\nPain: 6 h a week\nBudget 12k\nSend proposal");
+    assert.equal(summaryLines("a\nb\nc", 2), "a\nb");
+    assert.equal(summaryLines("  "), null);
+  });
+});
+
 describe("emailFrom", () => {
   it("only shows a draft that exists", () => {
-    assert.deepEqual(emailFrom({ status: "ready", recipientName: "Marta" }), { state: "ready", to: "Marta" });
+    assert.deepEqual(emailFrom({ status: "ready", recipientName: "Marta" }), { state: "ready", to: "Marta", subject: null, preview: null });
     assert.equal(emailFrom({ status: "generating" }), null);
     assert.equal(emailFrom({ status: "unavailable" }), null);
     assert.equal(emailFrom(null), null);

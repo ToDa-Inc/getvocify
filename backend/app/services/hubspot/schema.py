@@ -341,6 +341,8 @@ class HubSpotSchemaService:
                     for opt in prop.options
                     if not opt.hidden
                 ]
+                # A checkbox list takes several values, joined with ";".
+                spec["multiple"] = prop.fieldType == "checkbox"
             
             curated_specs.append(spec)
             
