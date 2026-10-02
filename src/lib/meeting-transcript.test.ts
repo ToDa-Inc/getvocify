@@ -369,9 +369,16 @@ describe("bubbles never jump", () => {
   });
 
   it("the words a final doesn't cover stay in the same bubble", () => {
-    let state = feed([["hola qué tal estás", false, "rep"], ["Hola, qué tal", true, "rep"]]);
+    let state = applyChannelResult(EMPTY_MEETING_TRANSCRIPT, { text: "hola qué tal estás", isFinal: false, audioChannel: "rep", start: 1, end: 2.4 });
+    state = applyChannelResult(state, { text: "Hola, qué tal", isFinal: true, audioChannel: "rep", start: 1, end: 2 });
     assert.deepEqual(meetingDisplayTurns(state).map((row) => [row.key, row.text, row.pending]), [["u0", "Hola, qué tal", "estás"]]);
-    state = applyChannelResult(state, { text: "estás?", isFinal: true, audioChannel: "rep" });
+    state = applyChannelResult(state, { text: "estás?", isFinal: true, audioChannel: "rep", start: 2, end: 2.5 });
     assert.deepEqual(meetingDisplayTurns(state).map((row) => [row.key, row.text, row.pending]), [["u0", "Hola, qué tal estás?", ""]]);
+  });
+
+  it("a final for the whole tail that drops a word leaves nothing behind", () => {
+    let state = applyChannelResult(EMPTY_MEETING_TRANSCRIPT, { text: "vale vale perfecto", isFinal: false, audioChannel: "rep", start: 1, end: 2 });
+    state = applyChannelResult(state, { text: "Vale, perfecto.", isFinal: true, audioChannel: "rep", start: 1, end: 2 });
+    assert.deepEqual(meetingDisplayTurns(state).map((row) => [row.text, row.pending]), [["Vale, perfecto.", ""]]);
   });
 });

@@ -24,6 +24,8 @@ export type MeetingTranscript = {
   interimStarts?: Partial<Record<SpeakerKey, number>>;
   /** When each tail first showed; its final keeps the same place and bubble. */
   interimSeen?: Partial<Record<SpeakerKey, number>>;
+  /** Where each tail's audio reaches: a final ending before it leaves words still to come. */
+  interimEnds?: Partial<Record<SpeakerKey, number>>;
   /** Next `seen` to hand out. */
   nextSeen?: number;
 };
@@ -125,6 +127,7 @@ export function applyChannelResult(
       interims: without(state.interims, key),
       interimStarts: without(state.interimStarts, key),
       interimSeen: without(state.interimSeen, key),
+      interimEnds: without(state.interimEnds, key),
     };
   }
   const start = seconds(result.start);
@@ -133,11 +136,14 @@ export function applyChannelResult(
   if (!result.isFinal) {
     if (state.interims[key] === text) return state;
     const interimStarts = start === null ? state.interimStarts : { ...state.interimStarts, [key]: start };
-    if (openSeen !== undefined) return { ...state, interims: { ...state.interims, [key]: text }, interimStarts };
+    const tailEnd = seconds(result.end);
+    const interimEnds = tailEnd === null ? without(state.interimEnds, key) : { ...state.interimEnds, [key]: tailEnd };
+    if (openSeen !== undefined) return { ...state, interims: { ...state.interims, [key]: text }, interimStarts, interimEnds };
     return {
       ...state,
       interims: { ...state.interims, [key]: text },
       interimStarts,
+      interimEnds,
       interimSeen: { ...state.interimSeen, [key]: nextSeen },
       nextSeen: nextSeen + 1,
     };
@@ -145,7 +151,11 @@ export function applyChannelResult(
   const end = seconds(result.end) ?? start;
   const segment = { speaker, text, start, end, seen: openSeen ?? nextSeen };
   const tail = state.interims[key];
-  const rest = tail ? tailRemainder(tail, text) : null;
+  const tailEnd = state.interimEnds?.[key];
+  // Only when the tail's audio goes past the final's: then more is coming for those words
+  // (Speechmatics settles part of a sentence). A final for the whole tail (Deepgram) that
+  // dropped a word must not leave it on screen.
+  const rest = tail && end !== null && tailEnd !== undefined && end < tailEnd - 0.05 ? tailRemainder(tail, text) : null;
   if (rest) {
     // The tail's words this final doesn't cover stay on screen, in the same bubble, until
     // the next partial replaces them: dropping them would blank the end for a moment.
@@ -198,6 +208,7 @@ export function resetChannel(state: MeetingTranscript, audioChannel: unknown, fr
     interims: without(state.interims, key),
     interimStarts: without(state.interimStarts, key),
     interimSeen: without(state.interimSeen, key),
+    interimEnds: without(state.interimEnds, key),
   };
 }
 
@@ -211,7 +222,7 @@ export function settleMeeting(state: MeetingTranscript): MeetingTranscript {
           { text, isFinal: true, audioChannel: speakerFromKey(key), start: state.interimStarts?.[key] },
         )
       : acc;
-  }, { ...state, interims: {}, interimStarts: {}, interimSeen: {} });
+  }, { ...state, interims: {}, interimStarts: {}, interimSeen: {}, interimEnds: {} });
 }
 
 function words(text: string): string[] {
