@@ -254,9 +254,10 @@ def review_memos_from(memos: list[dict], *, limit: int = 3) -> list[dict]:
         if not line or not memo_id:
             continue
         stamp = str(memo.get("capture_started_at") or memo.get("created_at") or "")
-        ranked.append((stamp, memo_id, line[:160]))
+        # A call the intelligence read (we know how it ended) comes before an older, unread one.
+        ranked.append((bool(outcome.get("text")) if isinstance(outcome, dict) else False, stamp, memo_id, line[:160]))
     ranked.sort(reverse=True)
-    return [{"memo_id": memo_id, "line": line} for _, memo_id, line in ranked[:limit]]
+    return [{"memo_id": memo_id, "line": line} for _, _, memo_id, line in ranked[:limit]]
 
 
 def _paged(build: Callable[[], object]) -> list[dict]:

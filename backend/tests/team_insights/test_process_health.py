@@ -94,3 +94,9 @@ def test_closing_goal_is_not_measurable_per_interaction_so_no_verdict_is_invente
 def test_unscored_and_motionless_rows_are_ignored():
     rows = [_row(0, 0, True, unknown=3), {**_row(9, 1, True), "motion": None}]
     assert process_health(rows) == []
+
+
+def test_no_conclusion_when_almost_no_call_reached_the_goal():
+    # 0 % against 0 % compares nothing: the reps marked no meeting in either group.
+    rows = _rows(MIN_GROUP, follows=True, goal_hits=0) + _rows(MIN_GROUP, follows=False, goal_hits=1)
+    assert _flow(process_health(rows))["verdict"] == "few_outcomes"

@@ -183,6 +183,7 @@ export type ProcessHealthVerdict =
   | "no_difference"
   | "no_comparison"
   | "insufficient_data"
+  | "few_outcomes"
   | "goal_not_measurable";
 
 export type ProcessHealthFlow = {
@@ -207,6 +208,7 @@ const VERDICT_COPY: Record<ProcessHealthVerdict, { tone: ProcessTone; title: key
   no_difference: { tone: "process", title: "hosVerdictNoDifferenceTitle", detail: "hosVerdictNoDifferenceDetail" },
   no_comparison: { tone: "neutral", title: "hosVerdictNoComparisonTitle", detail: "hosVerdictNoComparisonDetail" },
   insufficient_data: { tone: "neutral", title: "hosVerdictInsufficientTitle", detail: "hosVerdictInsufficientDetail" },
+  few_outcomes: { tone: "neutral", title: "hosVerdictFewOutcomesTitle", detail: "hosVerdictFewOutcomesDetail" },
   goal_not_measurable: { tone: "neutral", title: "hosVerdictNotMeasurableTitle", detail: "hosVerdictNotMeasurableDetail" },
 };
 
