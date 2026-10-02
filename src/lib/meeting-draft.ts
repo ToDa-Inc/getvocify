@@ -11,7 +11,11 @@ export type MeetingDraft = {
   notes?: string;
   /** The CRM contact on screen when the call started; the memo is born with it. */
   contact?: { hubspotId: string; name: string | null };
+  /** Where the call happened, as the Mac saw it: the app or page, and whether that makes it a call or a meeting. */
+  source?: CallSourceInfo;
 };
+
+export type CallSourceInfo = { name: string; kind: "call" | "meeting" | null };
 
 function isDraft(value: unknown): value is MeetingDraft {
   const draft = value as MeetingDraft | null;

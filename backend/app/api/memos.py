@@ -371,6 +371,10 @@ async def extract_memo_async(
                 glossary_terms=len(glossary or []),
                 has_product_context=bool((product_context or "").strip()),
             )
+            # The call's type is read from the conversation while the fields are extracted.
+            from app.services.playbooks.type_classifier import apply_memo_type, classify_memo_type
+
+            call_type = asyncio.create_task(classify_memo_type(supabase, memo_id, transcript))
             transcript, glossary_text = prepare_transcript_for_extraction(
                 transcript,
                 glossary,
@@ -390,6 +394,9 @@ async def extract_memo_async(
                 user_notes=user_notes,
             )
 
+        # Pinned before the memo is ready and before the hooks: the island and the memo page
+        # read the type as soon as it's ready, and the call is scored against it.
+        apply_memo_type(supabase, memo_id, await call_type)
         update_memo_row(
             supabase,
             memo_id,
@@ -770,6 +777,9 @@ class UploadTranscriptRequest(BaseModel):
     notes: Optional[str] = None
     # The CRM contact the call was with, known live from the record on screen (desktop).
     hubspot_contact_id: Optional[str] = Field(default=None, pattern=r"^\d{1,32}$")
+    # The app the call happened in, as the desktop saw it (e.g. "Google Meet", "Zoom"): context
+    # for reading the call's type.
+    call_source: Optional[str] = Field(default=None, max_length=60)
 
 
 @router.post("/upload-transcript", response_model=UploadResponse)
@@ -884,6 +894,9 @@ async def upload_transcript_and_extract(
     if body.hubspot_contact_id:
         # Born with its contact: playbook routing, extraction and the review target use it.
         payload["hubspot_contact_id"] = body.hubspot_contact_id
+    call_source = (body.call_source or "").strip()
+    if call_source:
+        payload["pipeline_meta"] = {"call_source": call_source}
     user_notes = (body.notes or "").strip()[:USER_NOTES_MAX_CHARS] or None
     if user_notes:
         # Only written when present, so memos without notes never depend on migration 072.

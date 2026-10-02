@@ -45,6 +45,39 @@ export type PostCallMeeting = {
   when: string | null;
 };
 
+/** What the call was scored as (its type), and the other published types it can be changed to. */
+export type PostCallType = { key: string; label: string; options: { key: string; label: string }[] };
+
+type MemoPlaybookView = {
+  sales_motion_key?: string | null;
+  can_change?: boolean;
+  options?: { key: string; label: string | null }[];
+};
+
+/** The type row, or null when the memo has none. Options only when the viewer can change it. */
+export function callTypeFrom(
+  view: MemoPlaybookView | null | undefined,
+  name: (key: string, label?: string | null) => string,
+): PostCallType | null {
+  const key = view?.sales_motion_key;
+  if (!key) return null;
+  const all = (view?.options ?? []).map((option) => ({ key: option.key, label: name(option.key, option.label) }));
+  return {
+    key,
+    label: all.find((option) => option.key === key)?.label ?? name(key),
+    options: view?.can_change ? all.filter((option) => option.key !== key) : [],
+  };
+}
+
+/** The type row after choosing `key`: the old one goes back among the options, in `order`. */
+export function retypedTo(type: PostCallType, key: string, order: string[]): PostCallType | null {
+  const next = type.options.find((option) => option.key === key);
+  if (!next) return null;
+  const options = [...type.options.filter((option) => option.key !== key), { key: type.key, label: type.label }];
+  options.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+  return { key, label: next.label, options };
+}
+
 export type PostCall = {
   memoId: string;
   contactName: string | null;
@@ -63,6 +96,7 @@ export type PostCall = {
   notes: boolean;
   /** Asked once, after several skipped emails in a row. */
   offerStopEmails?: boolean;
+  type?: PostCallType | null;
 };
 
 type Update = ProposedUpdate & { extraction_confidence?: number | null };

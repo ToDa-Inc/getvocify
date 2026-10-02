@@ -111,6 +111,8 @@ export const memosApi = {
       notes?: string;
       /** The HubSpot contact the call was with, known live (desktop). */
       hubspotContactId?: string;
+      /** The app the call happened in (desktop), e.g. "Google Meet". */
+      callSource?: string;
     } = {},
   ): Promise<UploadMemoResponse> => {
     return api.post<UploadMemoResponse>('/memos/upload-and-extract', {
@@ -120,6 +122,7 @@ export const memosApi = {
       speakers_verified: Boolean(options.speakersVerified),
       notes: options.notes?.trim() || undefined,
       hubspot_contact_id: options.hubspotContactId || undefined,
+      call_source: options.callSource || undefined,
     });
   },
 

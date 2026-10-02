@@ -234,10 +234,11 @@ def test_get_lists_the_published_types_and_says_the_author_can_change_it():
     }
 
 
-def test_get_can_change_needs_the_routing_flag(monkeypatch):
+def test_get_the_author_can_change_it_without_the_routing_flag(monkeypatch):
+    # The type can be wrong whatever decided it (rules or Jev): its author can always fix it.
     monkeypatch.setattr(settings, "PLAYBOOK_ROUTING_ENABLED", False)
     body = _client(_Db(_memo())).get(f"/api/v1/memos/{MEMO}/playbook").json()
-    assert body["can_change"] is False
+    assert body["can_change"] is True
     assert body["sales_motion_key"] == "closing"
 
 

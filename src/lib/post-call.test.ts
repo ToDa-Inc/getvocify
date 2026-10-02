@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  callTypeFrom,
   changesFrom,
   crmFor,
   defaultKept,
@@ -8,6 +9,7 @@ import {
   meetingFrom,
   pendingItems,
   pollDelayMs,
+  retypedTo,
   type PostCall,
 } from "./post-call.ts";
 
@@ -101,5 +103,49 @@ describe("pollDelayMs", () => {
   it("checks quickly at first, then gently", () => {
     assert.equal(pollDelayMs(0), 1500);
     assert.equal(pollDelayMs(30), 4000);
+  });
+});
+
+describe("callTypeFrom", () => {
+  const name = (key: string, label?: string | null) => label || { discovery: "Cold call", closing: "Demo and close" }[key] || key;
+  const view = {
+    sales_motion_key: "discovery",
+    can_change: true,
+    options: [
+      { key: "discovery", label: null },
+      { key: "closing", label: "Demo de producto" },
+      { key: "internal", label: null },
+    ],
+  };
+
+  it("names the call's type and offers the others when it can be changed", () => {
+    assert.deepEqual(callTypeFrom(view, name), {
+      key: "discovery",
+      label: "Cold call",
+      options: [
+        { key: "closing", label: "Demo de producto" },
+        { key: "internal", label: "internal" },
+      ],
+    });
+  });
+
+  it("shows it without options to someone who can't change it, and nothing without a type", () => {
+    assert.deepEqual(callTypeFrom({ ...view, can_change: false }, name)?.options, []);
+    assert.equal(callTypeFrom({ ...view, sales_motion_key: null }, name), null);
+    assert.equal(callTypeFrom(null, name), null);
+  });
+
+  it("puts the old type back among the options, in the page's order", () => {
+    const type = callTypeFrom(view, name)!;
+    const next = retypedTo(type, "closing", ["discovery", "closing", "internal"]);
+    assert.deepEqual(next, {
+      key: "closing",
+      label: "Demo de producto",
+      options: [
+        { key: "discovery", label: "Cold call" },
+        { key: "internal", label: "internal" },
+      ],
+    });
+    assert.equal(retypedTo(type, "nope", []), null);
   });
 });

@@ -235,6 +235,27 @@ class JevClient:
             patch["_abstained"] = abstained
         return patch
 
+    async def classify_choice(
+        self,
+        state: dict[str, Any],
+        name: str,
+        instructions: str,
+        criteria: dict[str, str],
+    ) -> Optional[tuple[str, float]]:
+        """One choice among `criteria` ({choice: what it means}) with Jev's confidence, or None
+        when Jev is unavailable or answers outside the choices."""
+        answers = await self._post_systemone(
+            state, {name: {"type": "choice", "instructions": instructions, "criteria": criteria}}
+        )
+        raw = answers.get(name) if isinstance(answers, dict) else None
+        if not isinstance(raw, dict) or raw.get("choice") not in criteria:
+            return None
+        try:
+            confidence = float(raw.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            return None
+        return str(raw["choice"]), confidence
+
     async def classify_questions(
         self,
         state: dict[str, Any],

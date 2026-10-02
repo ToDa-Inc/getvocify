@@ -58,6 +58,8 @@ export type VocifyDesktopBridge = {
     onCallPages(cb: (payload: { urls: string[] }) => void): () => void;
     /** The detected call ended (the call app let go of the mic). */
     onCallEnded?(cb: () => void): () => void;
+    /** Where the detected call happens; null when it can't be told. */
+    onCallSource?(cb: (source: { name: string; kind: "call" | "meeting" | null } | null) => void): () => void;
   };
   /** The global record shortcut. Missing in older builds. */
   shortcut?: {

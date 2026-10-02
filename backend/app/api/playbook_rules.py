@@ -30,7 +30,7 @@ from app.services.playbooks.catalog import (
 )
 from app.services.playbooks.live import live_version_id
 from app.services.playbooks.repository import get_playbook_repository
-from app.services.playbooks.routing import merge_pin_meta, motions_and_stored, routing_enabled
+from app.services.playbooks.routing import merge_pin_meta, motions_and_stored
 from app.services.playbooks.versions import can_publish
 
 logger = logging.getLogger(__name__)
@@ -180,7 +180,8 @@ async def get_memo_playbook(
     return {
         "sales_motion_key": memo.get("sales_motion_key") or None,
         "playbook_version_id": memo.get("playbook_version_id") or None,
-        "can_change": bool(can_edit and routing_enabled(supabase, membership.company_id)),
+        # The author or a manager can always correct what the call was.
+        "can_change": bool(can_edit),
         # Interna last, as on the list chip: it has no playbook, so it needs no published one.
         "options": [*_published_options(membership), {"key": INTERNAL_KEY, "label": None}],
     }

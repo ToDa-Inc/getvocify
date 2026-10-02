@@ -38,7 +38,7 @@ import {
   type MeetingSpeaker,
   type MeetingTranscript,
 } from "@/lib/meeting-transcript";
-import { meetingStartedLabel, sortDrafts, type MeetingDraft } from "@/lib/meeting-draft";
+import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, MEMO_CHANGED_EVENT, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
 import { islandCallContact, latestOnly, type CallPreview } from "@/lib/call-contact";
@@ -46,12 +46,17 @@ import {
   POST_CALL_GIVE_UP_MS,
   SKIPS_BEFORE_ASKING,
   UNDO_MS,
+  callTypeFrom,
   crmFor,
   emailFrom,
   meetingFrom,
   pollDelayMs,
+  retypedTo,
   type PostCall,
 } from "@/lib/post-call";
+import { playbooksApi } from "@/features/playbooks/api";
+import { useLanguage } from "@/lib/i18n";
+import { motionLabel } from "@/lib/motion-label";
 import { buildApproveExtraction, proposedFieldKey, type ProposedUpdate } from "@/lib/extraction-omit";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
@@ -122,6 +127,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { t } = useLanguage();
+  /** A type's name as the memo page shows it: the company's label, else the catalog's. */
+  const typeName = useCallback(
+    (key: string, label?: string | null) => label || t.product.pb2.typeLabels[key] || motionLabel(key, t.product.motions),
+    [t],
+  );
 
   const [phase, setPhaseState] = useState<MeetingPhase>("idle");
   const [transcript, setTranscript] = useState<MeetingTranscript>(EMPTY_MEETING_TRANSCRIPT);
@@ -140,17 +151,26 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const [contact, setContact] = useState<MeetingDraft["contact"] | null>(null);
   /** Who the call detected by the island is with; the next recording takes it. */
   const callContactRef = useRef<MeetingDraft["contact"] | null>(null);
+  /** Where the detected call happens (app or page), as the Mac told us. */
+  const callSourceRef = useRef<CallSourceInfo | null>(null);
   /** The memo the island is following after a call; `cancelled` stops an older follow. */
   const postCallRef = useRef<{
     run: { cancelled: boolean };
     state: PostCall;
     proposed: ProposedUpdate[];
     undoTimer?: number;
+    /** Every type the call could be, in the order the memo page lists them. */
+    typeOrder?: string[];
   } | null>(null);
 
   const phaseRef = useRef<MeetingPhase>("idle");
   const transcriptRef = useRef<MeetingTranscript>(EMPTY_MEETING_TRANSCRIPT);
-  const draftRef = useRef<{ id: string; startedAt: number; contact?: MeetingDraft["contact"] } | null>(null);
+  const draftRef = useRef<{
+    id: string;
+    startedAt: number;
+    contact?: MeetingDraft["contact"];
+    source?: CallSourceInfo;
+  } | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const recoveredForRef = useRef<string | null>(null);
   const userIdRef = useRef("");
@@ -239,8 +259,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const sendDraft = useCallback(
     async (draft: MeetingDraft): Promise<string> => {
       const res = await memosApi.uploadTranscriptAndExtract(meetingUploadText(draft.transcript), {
-        // A recording with the CRM contact on screen is that contact's call.
-        interactionKind: draft.contact ? "call" : "meeting",
+        // The app the call happened in says call or meeting; without it, a recording with the
+        // CRM contact on screen is that contact's call.
+        interactionKind: draft.source?.kind ?? (draft.contact ? "call" : "meeting"),
+        callSource: draft.source?.name,
         sourceType: "meeting_transcript",
         speakersVerified: true,
         notes: draft.notes,
@@ -439,17 +461,22 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       }
 
       const contactId = memo.hubspotContactId || undefined;
-      const [preview, proposal] = await Promise.all([
+      const [preview, proposal, playbook] = await Promise.all([
         memo.status === "pending_review"
           ? (crmApi.getPreview(memoId, undefined, contactId ? { contactId } : undefined).catch(() => null) as Promise<
               { proposed_updates?: ProposedUpdate[] } | null
             >)
           : Promise.resolve(null),
         api.get<{ proposal: Record<string, unknown> | null }>(`/memos/${memoId}/meeting-proposal`).catch(() => null),
+        api
+          .get<Parameters<typeof callTypeFrom>[0]>(`/memos/${encodeURIComponent(memoId)}/playbook`)
+          .catch(() => null),
       ]);
       if (run.cancelled || !postCallRef.current) return;
       postCallRef.current.proposed = preview?.proposed_updates ?? [];
+      postCallRef.current.typeOrder = (playbook?.options ?? []).map((option) => option.key);
       showPostCall({
+        type: callTypeFrom(playbook, typeName),
         ...crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, preview?.proposed_updates),
         meeting: meetingFrom(proposal?.proposal ?? null),
         notes: Boolean(memo.extraction?.summary?.trim() || memo.userNotes?.trim()),
@@ -467,7 +494,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         if (run.cancelled) return;
       }
     },
-    [endPostCall, showPostCall],
+    [endPostCall, showPostCall, typeName],
   );
 
   const skipStreakKey = "vocify_followup_skips";
@@ -582,6 +609,21 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             memoChanged(memoId);
           } catch {
             fail({ meeting: { ...meeting, state: "check" } });
+          }
+          return;
+        }
+        case "setType": {
+          const type = current.state.type;
+          const next = type ? retypedTo(type, String(action.key ?? ""), current.typeOrder ?? []) : null;
+          if (!type || !next) return;
+          try {
+            await playbooksApi.changeMemoPlaybook(memoId, next.key);
+            if (current.run.cancelled) return;
+            showPostCall({ type: next });
+            queryClient.invalidateQueries({ queryKey: ["memo-playbook", memoId] });
+            memoChanged(memoId);
+          } catch {
+            // Unchanged: the card keeps showing what the call is scored as.
           }
           return;
         }
@@ -710,7 +752,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
       const startedAt = Date.now();
       const callContact = callContactRef.current;
-      draftRef.current = { id: newDraftId(), startedAt, ...(callContact ? { contact: callContact } : {}) };
+      draftRef.current = {
+        id: newDraftId(),
+        startedAt,
+        ...(callContact ? { contact: callContact } : {}),
+        ...(callSourceRef.current ? { source: callSourceRef.current } : {}),
+      };
       setContact(callContact);
       endPostCall();
       clearNotes();
@@ -928,7 +975,18 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (!bridge?.crm?.onCallEnded) return;
     return bridge.crm.onCallEnded(() => {
       callContactRef.current = null;
+      callSourceRef.current = null;
       bridge.shell.setState({ callContact: null });
+    });
+  }, []);
+
+  // Where the call happens; a recording that already started without it picks it up.
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.crm?.onCallSource) return;
+    return bridge.crm.onCallSource((source) => {
+      callSourceRef.current = source;
+      if (source && draftRef.current && !draftRef.current.source) draftRef.current.source = source;
     });
   }, []);
 
