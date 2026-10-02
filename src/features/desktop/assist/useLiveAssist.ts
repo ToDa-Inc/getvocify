@@ -35,13 +35,15 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
   const [thinking, setThinking] = useState(false);
   const [, setTick] = useState(0);
   const lastKeyRef = useRef("");
+  /** How much of their current turn the last ask covered: the next ask is about what came after. */
+  const askedRef = useRef<{ turnKey: string; length: number } | null>(null);
   const lastAskRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastShownRef = useRef<Record<string, number>>({});
   const repLastAtRef = useRef<number | null>(null);
   const repKeyRef = useRef("");
 
-  const found = enabled ? assistContext(turns) : null;
+  const found = enabled ? assistContext(turns, askedRef.current) : null;
   const context = found
     ? {
         ...found,
@@ -77,6 +79,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     const wait = Math.max(PAUSE_MS, lastAskRef.current + MIN_GAP_MS - Date.now());
     const timer = window.setTimeout(() => {
       lastKeyRef.current = key;
+      askedRef.current = { turnKey: found!.turnKey, length: found!.length };
       lastAskRef.current = Date.now();
       abortRef.current?.abort();
       const controller = new AbortController();

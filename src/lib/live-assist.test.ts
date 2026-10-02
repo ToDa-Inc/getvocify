@@ -38,6 +38,23 @@ describe("assistContext", () => {
     assert.equal(assistContext([turn("0", "rep", "Os cuento el precio ahora mismo.")]), null);
   });
 
+  it("asks only about what they said since the last ask, so help answers the newest thing", () => {
+    const first = "Nos parece caro para lo que necesitamos ahora mismo.";
+    const said = `${first} Además ya estamos usando Gong y nos funciona bien.`;
+    const context = assistContext([turn("1", "prospect", said)], { turnKey: "1", length: first.length });
+    assert.equal(context?.latestTurn, "Además ya estamos usando Gong y nos funciona bien.");
+  });
+
+  it("a few new words after the last ask are not worth asking about", () => {
+    const first = "Nos parece caro para lo que necesitamos ahora mismo.";
+    assert.equal(assistContext([turn("1", "prospect", `${first} Vale, sí.`)], { turnKey: "1", length: first.length }), null);
+  });
+
+  it("a new turn of theirs is asked about whole", () => {
+    const context = assistContext([turn("2", "prospect", "Esto no lo decido yo, lo ve mi director financiero.")], { turnKey: "1", length: 40 });
+    assert.equal(context?.latestTurn, "Esto no lo decido yo, lo ve mi director financiero.");
+  });
+
   it("changes key only when their words change", () => {
     const a = assistContext([turn("1", "prospect", "Nos parece caro para ahora mismo.")]);
     const b = assistContext([turn("1", "prospect", "Nos parece caro para ahora mismo."), turn("2", "rep", "Entiendo.")]);
