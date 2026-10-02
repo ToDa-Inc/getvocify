@@ -10,6 +10,7 @@ import {
   Phone,
   Users,
   GraduationCap,
+  ListChecks,
   type LucideIcon,
   Workflow,
 } from "lucide-react";
@@ -22,16 +23,17 @@ import { ReportBell } from "@/components/dashboard/ReportBell";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
 import ImpersonationBanner from "@/components/admin/ImpersonationBanner";
 import { AvatarMenu } from "@/components/dashboard/AvatarMenu";
-import { FloatingDialer } from "@/components/dashboard/calling/FloatingDialer";
+import { DialerDock } from "@/components/dashboard/calling/DialerDock";
+import { DockHeader, DockPanel, DockTab, DockTabs } from "@/components/dashboard/RightDock";
+import { TodayPanel } from "@/features/today/components/TodayPanel";
 import { DialerFocusProvider, useDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
 import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopShellBridge } from "@/features/desktop/DesktopShellBridge";
 import { isDesktopHost } from "@/lib/desktop-host";
-import { isManagerRole, isNavActive, navItemsFor, topBarActions, type NavItemId } from "@/lib/nav";
+import { isManagerRole, isNavActive, navItemsFor, topBarActions, usesRepHome, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
-import { useWideScreen } from "@/features/today/hooks/useWideScreen";
 
 const NAV_ICONS: Record<NavItemId, LucideIcon> = {
   home: Home,
@@ -45,7 +47,8 @@ const BILLING_PATH = "/dashboard/settings/billing";
 
 const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [dialerOpen, setDialerOpen] = useState(false);
+  // The right dock holds one panel at a time: the call panel (Llamar), later Hoy on Inicio.
+  const [dock, setDock] = useState<"call" | "today" | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [callState, setCallState] = useState<CallState>(CALL_STATES.IDLE);
   const [columnNode, setColumnNode] = useState<HTMLElement | null>(null);
@@ -53,10 +56,19 @@ const DashboardLayout = () => {
   const { t } = useLanguage();
   const { user } = useAuth();
   const dialerLive = isInCall(callState);
-  const dialerActive = dialerOpen || dialerLive;
+  const dialerOpen = dock === "call";
+  const setDialerOpen = useCallback(
+    (open: boolean) => setDock((current) => (open ? "call" : current === "call" ? null : current)),
+    [],
+  );
   const canManageBilling = isManagerRole(user?.company?.role);
   const paywalled = companyIsPaywalled(user?.company);
   const repTopBar = topBarActions(user?.company?.role);
+  // Hoy lives on the right of Inicio for a rep with the workspace: a panel you open and close.
+  const todayDock = location.pathname === "/dashboard" && repTopBar && usesRepHome(user?.company);
+  useEffect(() => {
+    if (dock === "today" && !todayDock) setDock(null);
+  }, [dock, todayDock]);
   const menu = navItemsFor({
     role: user?.company?.role,
     repWorkspace: user?.company?.repWorkspace,
@@ -66,23 +78,6 @@ const DashboardLayout = () => {
     : canManageBilling
       ? { label: paywalled ? t.product.navChoosePlan : t.product.navManageBilling, href: BILLING_PATH }
       : { label: t.product.navBookDemo, href: DEMO_BOOKING_URL, external: true };
-
-  // Llamar: the phone top bar, or the top of the sidebar on desktop (which has no top bar).
-  const dialButton = (
-    <button
-      type="button"
-      aria-label={t.product.navCall}
-      aria-expanded={dialerOpen}
-      onClick={() => setDialerOpen((current) => !current)}
-      className={`inline-flex items-center gap-2 ${THEME_TOKENS.interaction.navPill} ${
-        dialerActive ? THEME_TOKENS.interaction.navPillActive : THEME_TOKENS.interaction.navPillIdle
-      }`}
-    >
-      <Phone className={`h-4 w-4 ${dialerActive ? "opacity-100" : "opacity-70"}`} />
-      <span className="hidden sm:inline">{t.product.navCall}</span>
-      {dialerLive ? <span className="h-1.5 w-1.5 rounded-full bg-beige" /> : null}
-    </button>
-  );
 
   // Ask is the floating sheet: /dashboard/ask (state.ask) and ⌘K / Ctrl+K open it.
   useEffect(() => {
@@ -149,8 +144,6 @@ const DashboardLayout = () => {
           </Button>
         </div>
 
-        {repTopBar && showDialer ? <div className="hidden px-3 pb-2 lg:block">{dialButton}</div> : null}
-
         <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
           {!paywalled && menu.items.map((item) => {
             const Icon = NAV_ICONS[item.id];
@@ -185,7 +178,11 @@ const DashboardLayout = () => {
         </div>
       </aside>
 
-      <div className="lg:pl-60 flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+      <div
+        className={`lg:pl-60 flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden transition-[margin] duration-200 ease-silk motion-reduce:transition-none ${
+          dock && !homeColumn ? "xl:mr-[400px]" : ""
+        }`}
+      >
         <ImpersonationBanner />
         <header className="h-14 shrink-0 z-30 px-6 flex items-center justify-between bg-background border-b border-border lg:hidden">
           <Button
@@ -199,7 +196,6 @@ const DashboardLayout = () => {
 
           {/* Llamar lives in the top bar for reps who can dial; the Head of Sales doesn't dial. */}
           <div className="flex flex-1 items-center gap-1.5 lg:gap-2">
-            {repTopBar && showDialer ? dialButton : null}
           </div>
 
           <div className="flex items-center gap-3">
@@ -248,13 +244,28 @@ const DashboardLayout = () => {
         </aside>
       ) : null}
 
+      {dock ? (
+        <div className="fixed inset-0 z-30 bg-foreground/20 xl:hidden" onClick={() => setDock(null)} aria-hidden />
+      ) : null}
+
+      {dock === "today" && todayDock ? (
+        <DockPanel open label={t.product.todayTitle}>
+          <DockHeader title={t.product.todayTitle} closeLabel={t.product.askClose} onClose={() => setDock(null)} />
+          <TodayPanel />
+        </DockPanel>
+      ) : null}
+
       {showDialer ? (
-        <DialerChrome
-          open={dialerOpen}
-          onOpenChange={setDialerOpen}
-          onCallStateChange={setCallState}
-          homeColumn={homeColumn}
-        />
+        <DialerDockMount open={dialerOpen} onOpenChange={setDialerOpen} onCallStateChange={setCallState} />
+      ) : null}
+
+      {dock === null && !askOpen ? (
+        <DockTabs>
+          {todayDock ? <DockTab label={t.product.todayTitle} icon={ListChecks} onClick={() => setDock("today")} /> : null}
+          {repTopBar && showDialer ? (
+            <CallTab live={dialerLive} onOpen={() => setDialerOpen(true)} label={t.product.navCall} />
+          ) : null}
+        </DockTabs>
       ) : null}
     </div>
     </HomeColumnContext.Provider>
@@ -262,31 +273,34 @@ const DashboardLayout = () => {
   );
 };
 
-function DialerChrome({
+/** The call dock lives inside the focus provider so a contact's own "Llamar" can open it. */
+function DialerDockMount({
   open,
   onOpenChange,
   onCallStateChange,
-  homeColumn,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCallStateChange: (state: CallState) => void;
-  homeColumn: boolean;
 }) {
   const { focus, clearFocus, reportLive, reportEnded } = useDialerFocus();
-  const columnVisible = useWideScreen();
   return (
-    <FloatingDialer
+    <DialerDock
       open={open}
       onOpenChange={onOpenChange}
       onCallStateChange={onCallStateChange}
       focusContact={focus}
       onFocusHandled={clearFocus}
-      placement={homeColumn && columnVisible ? "panel" : "floating"}
       onLiveReport={reportLive}
       onCallEnded={reportEnded}
     />
   );
+}
+
+/** The slim "Llamar" tab on the right edge: lit, with the running time, while a call is in progress. */
+function CallTab({ live, onOpen, label }: { live: boolean; onOpen: () => void; label: string }) {
+  const { liveElapsed } = useDialerFocus();
+  return <DockTab label={label} icon={Phone} onClick={onOpen} live={live} liveText={liveElapsed} />;
 }
 
 export default DashboardLayout;

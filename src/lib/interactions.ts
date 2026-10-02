@@ -250,3 +250,8 @@ export function callOutcome(memo: { screeningOutcome?: string | null; audioDurat
   if (memo.screeningOutcome === "no_response") return "no_response";
   return "connected";
 }
+
+/** Whether a scroll region has been read to its bottom (a few pixels of slack for fractional sizes). */
+export function scrolledToEnd(box: { scrollTop: number; clientHeight: number; scrollHeight: number }, slack = 8): boolean {
+  return box.scrollTop + box.clientHeight >= box.scrollHeight - slack;
+}

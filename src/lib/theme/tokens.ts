@@ -78,6 +78,10 @@ export const THEME_TOKENS = {
     /** The active tab takes the nav pill's glass (materials.css .glass-segment), not a solid fill. */
     segmentTab:
       "glass-segment rounded-full border border-transparent px-3.5 py-1 text-xs font-normal text-muted-foreground transition-colors duration-150 hover:text-foreground motion-reduce:transition-none data-[state=active]:font-medium data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=on]:font-medium data-[state=on]:text-foreground data-[state=on]:shadow-none",
+    /** The slim tab on the right edge that opens a dock panel (Llamar, Hoy): glass chrome, lit while a call is live. */
+    dockTab:
+      "glass-nav flex w-9 flex-col items-center gap-2 rounded-l-xl rounded-r-none py-3 text-[13px] text-foreground transition-colors duration-150 hover:bg-white/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none dark:hover:bg-white/10",
+    dockTabLive: "btn-glow bg-beige text-cream hover:bg-beige/90 dark:hover:bg-beige/90",
     /** A filter or choice that opens a menu ("Todas ▾", "SDR ▾"): a glass pill. */
     menuChip:
       "glass-nav inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] text-foreground transition-colors duration-150 hover:bg-white/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none disabled:opacity-60 dark:hover:bg-white/10",
