@@ -311,3 +311,34 @@ describe("echo while still being written", () => {
     assert.deepEqual(meetingDisplayTurns(own).map((row) => row.speaker), ["prospect", "rep"]);
   });
 });
+
+describe("paragraphs", () => {
+  const timed = (events: Array<[string, string, number, number]>) =>
+    events.reduce(
+      (state, [text, audioChannel, start, end]) => applyChannelResult(state, { text, isFinal: true, audioChannel, start, end }),
+      EMPTY_MEETING_TRANSCRIPT,
+    );
+
+  it("a short reaction said over someone keeps its bubble but doesn't cut their paragraph", () => {
+    const state = timed([
+      ["Lo que hacemos es escuchar la llamada", "rep", 10, 12],
+      ["Vale.", "prospect", 11.5, 11.8],
+      ["y proponer los cambios en el CRM.", "rep", 12.2, 14],
+    ]);
+    assert.deepEqual(meetingDisplayTurns(state).map((row) => row.text), [
+      "Lo que hacemos es escuchar la llamada y proponer los cambios en el CRM.",
+      "Vale.",
+    ]);
+    // The saved transcript keeps the exact order.
+    assert.equal(meetingTurns(state).length, 3);
+  });
+
+  it("an answer after the speaker stopped is a turn of its own", () => {
+    const state = timed([
+      ["¿Quedamos el martes?", "rep", 10, 11],
+      ["Sí.", "prospect", 12.5, 12.8],
+      ["Perfecto, te mando la invitación.", "rep", 13.5, 15],
+    ]);
+    assert.equal(meetingDisplayTurns(state).length, 3);
+  });
+});

@@ -32,6 +32,9 @@ export type MeetingDisplayTurn = {
   label: string | null;
   text: string;
   pending: string;
+  /** When the paragraph's first and latest words were said (seconds into the call). */
+  start?: number | null;
+  end?: number | null;
 };
 
 export const EMPTY_MEETING_TRANSCRIPT: MeetingTranscript = { segments: [], interims: {} };
@@ -44,6 +47,12 @@ const SPEAKER_ORDER: SpeakerKey[] = ["rep", "prospect", "unknown"];
 const ECHO_WINDOW_S = 1.5;
 /** Share of a mic segment's words that must also be in the meeting audio to count as echo. */
 const ECHO_OVERLAP = 0.6;
+/**
+ * "Vale", "sí, sí": this short, said while the other person was still talking, it is a
+ * reaction, not a turn. It keeps its own small bubble but doesn't cut their paragraph.
+ */
+const INTERJECTION_WORDS = 2;
+const OVERLAP_SLACK_S = 0.5;
 
 function speakerOf(channel: unknown): MeetingSpeaker | null {
   return channel === "rep" || channel === "prospect" ? channel : null;
@@ -260,7 +269,31 @@ function isEchoTail(state: MeetingTranscript, key: SpeakerKey, pending: string):
   return isEcho({ speaker: "rep", text: pending, start, end: start }, meeting);
 }
 
-type DisplayItem = { seen: number; speaker: MeetingSpeaker | null; text: string; pending: string };
+type DisplayItem = {
+  seen: number;
+  speaker: MeetingSpeaker | null;
+  text: string;
+  pending: string;
+  start: number | null;
+  end: number | null;
+};
+
+/**
+ * The paragraph an item continues: the last one when it's the same speaker, or the one
+ * before a short interjection the other side made while this speaker was still talking.
+ */
+function paragraphFor(item: DisplayItem, rows: MeetingDisplayTurn[]): MeetingDisplayTurn | null {
+  const last = rows[rows.length - 1];
+  if (!last) return null;
+  if (!last.pending && (last.speaker === item.speaker || item.speaker === null || last.speaker === null)) return last;
+  const before = rows[rows.length - 2];
+  if (!before || !item.speaker || before.speaker !== item.speaker || before.pending) return null;
+  if (last.speaker === item.speaker || last.pending || words(last.text).length > INTERJECTION_WORDS) return null;
+  // Said during their paragraph: after it began and before it ended.
+  const said = last.start;
+  if (said == null || before.start == null || before.end == null) return null;
+  return said >= before.start - OVERLAP_SLACK_S && said <= before.end + OVERLAP_SLACK_S ? before : null;
+}
 
 const settledRowsCache = new WeakMap<MeetingSegment[], MeetingDisplayTurn[]>();
 
@@ -270,15 +303,17 @@ const settledRowsCache = new WeakMap<MeetingSegment[], MeetingDisplayTurn[]>();
  */
 function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[]): MeetingDisplayTurn[] {
   for (const item of items) {
-    const last = rows[rows.length - 1];
-    if (last && !last.pending && (last.speaker === item.speaker || item.speaker === null || last.speaker === null)) {
+    const row = paragraphFor(item, rows);
+    if (row) {
       // A fragment without a channel continues whoever was talking; an opening one goes to the first speaker.
-      if (last.speaker === null && item.speaker) {
-        last.speaker = item.speaker;
-        last.label = SPEAKER_LABEL[item.speaker];
+      if (row.speaker === null && item.speaker) {
+        row.speaker = item.speaker;
+        row.label = SPEAKER_LABEL[item.speaker];
       }
-      if (item.pending) last.pending = item.pending;
-      else last.text = joinChunks(last.text, item.text);
+      if (item.pending) row.pending = item.pending;
+      else row.text = joinChunks(row.text, item.text);
+      row.start ??= item.start;
+      if (item.end != null) row.end = Math.max(row.end ?? item.end, item.end);
       continue;
     }
     rows.push({
@@ -287,6 +322,8 @@ function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[]): MeetingD
       label: item.speaker ? SPEAKER_LABEL[item.speaker] : null,
       text: item.text,
       pending: item.pending,
+      start: item.start,
+      end: item.end,
     });
   }
   return rows;
@@ -300,7 +337,14 @@ function settledRows(segments: MeetingSegment[]): MeetingDisplayTurn[] {
     .map((segment, arrival) => ({ segment, seen: segment.seen ?? arrival }))
     .filter(({ segment }) => !isEcho(segment, meeting))
     .sort((a, b) => a.seen - b.seen)
-    .map(({ segment, seen }) => ({ seen, speaker: segment.speaker, text: segment.text, pending: "" }));
+    .map(({ segment, seen }) => ({
+      seen,
+      speaker: segment.speaker,
+      text: segment.text,
+      pending: "",
+      start: segment.start,
+      end: segment.end,
+    }));
   const rows = displayRows(items, []);
   settledRowsCache.set(segments, rows);
   return rows;
@@ -317,7 +361,8 @@ export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTur
   const tails = SPEAKER_ORDER.flatMap((key) => {
     const pending = state.interims[key];
     if (!pending || isEchoTail(state, key, pending)) return [];
-    return [{ seen: state.interimSeen?.[key] ?? nextSeen, speaker: speakerFromKey(key), text: "", pending }];
+    const start = state.interimStarts?.[key] ?? null;
+    return [{ seen: state.interimSeen?.[key] ?? nextSeen, speaker: speakerFromKey(key), text: "", pending, start, end: start }];
   }).sort((a, b) => a.seen - b.seen);
   // A tail older than the last settled bubble still goes last: settled bubbles never move.
   return displayRows(tails, rows);
