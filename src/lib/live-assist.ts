@@ -106,41 +106,13 @@ export function draftType(partial: string): string | null {
 }
 
 /**
- * The words of `say_this` streamed so far, so the island can show the answer as it is written.
- * Stops at the string's end; an escape cut off mid-way is left out until it is complete.
- */
-export function partialSayThis(partial: string): string {
-  const start = partial.match(/"say_this"\s*:\s*"/);
-  if (!start || start.index === undefined) return "";
-  let raw = "";
-  for (let i = start.index + start[0].length; i < partial.length; i += 1) {
-    const char = partial[i];
-    if (char === '"') break;
-    if (char === "\\") {
-      const size = partial[i + 1] === "u" ? 6 : 2;
-      if (i + size > partial.length) break;
-      raw += partial.slice(i, i + size);
-      i += size - 1;
-      continue;
-    }
-    raw += char;
-  }
-  try {
-    return JSON.parse(`"${raw}"`) as string;
-  } catch {
-    return "";
-  }
-}
-
-/**
- * The card while the answer streams: only once its first words arrive, with the bridge line above
- * them. A card shown on the objection's kind alone could come back empty and vanish at once.
+ * The card while the answer is written: the objection's label and a loading state, no words. The
+ * answer appears once, whole, so what the rep reads never changes under them.
  */
 export function streamedDraft(streamed: string, latestTurn: string, at: number): AssistCard | null {
   const type = draftType(streamed);
-  const sayThis = partialSayThis(streamed).trim();
-  if (!type || !sayThis) return null;
-  return { ...draftCard(type, latestTurn, at), sayThis };
+  if (!type) return null;
+  return { ...draftCard(type, latestTurn, at), bridge: "" };
 }
 
 export function draftCard(type: string, latestTurn: string, at: number): AssistCard {

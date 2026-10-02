@@ -23,6 +23,8 @@ PROPOSAL_TIMEOUT_S = 20.0
 _PROPOSAL_SYSTEM = """You tell a sales rep which kind of call they are in, so live help uses the right playbook.
 
 Pick the ONE type below whose purpose and steps best match what this conversation is about.
+Judge by the prospect's situation and where the relationship is (a first conversation, an evaluation,
+a decision), not by objections (they come up in any call) or by what the rep pitches.
 Use only the keys listed. Set "confident" to false when the conversation doesn't show it yet.
 
 Return only JSON: {"type": "<key>", "confident": true|false}"""

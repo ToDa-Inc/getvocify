@@ -17,10 +17,11 @@ export const NO_CALL_TYPE: CallTypeState = { vocify: null, rep: null };
 
 const INTERNAL_KEY = "internal";
 
-/** Words in the conversation before the first proposal (both sides; roughly the first minute). */
-export const FIRST_PROPOSAL_WORDS = 150;
+/** Words in the conversation before the first proposal (both sides; about half a minute of talk:
+ * the 2026-10-03 test call reached 150 only at its last objection, so help ran on the guess). */
+export const FIRST_PROPOSAL_WORDS = 70;
 /** Words before the second and last proposal, only when the first was unsure. */
-export const SECOND_PROPOSAL_WORDS = 350;
+export const SECOND_PROPOSAL_WORDS = 200;
 
 export function withProposal(state: CallTypeState, key: string | null): CallTypeState {
   return key ? { ...state, vocify: key } : state;
