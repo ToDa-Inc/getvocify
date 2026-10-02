@@ -14,6 +14,7 @@ import {
   memoTypeName,
   pageOf,
   retagOptions,
+  scrolledToEnd,
   summaryParts,
   rowHeadline,
   rowStatus,
@@ -353,5 +354,17 @@ describe("callOutcome", () => {
   it("prioritizes screeningOutcome over audioDuration", () => {
     assert.equal(callOutcome({ screeningOutcome: "voicemail", audioDuration: 0 }), "voicemail");
     assert.equal(callOutcome({ screeningOutcome: "no_response", audioDuration: 100 }), "no_response");
+  });
+});
+
+describe("scrolledToEnd", () => {
+  it("is false while there is more below, true at the bottom (with a little slack)", () => {
+    assert.equal(scrolledToEnd({ scrollTop: 0, clientHeight: 400, scrollHeight: 1000 }), false);
+    assert.equal(scrolledToEnd({ scrollTop: 592, clientHeight: 400, scrollHeight: 1000 }), true);
+    assert.equal(scrolledToEnd({ scrollTop: 560, clientHeight: 400, scrollHeight: 1000 }), false);
+  });
+
+  it("counts a list that does not overflow as read", () => {
+    assert.equal(scrolledToEnd({ scrollTop: 0, clientHeight: 400, scrollHeight: 380 }), true);
   });
 });
