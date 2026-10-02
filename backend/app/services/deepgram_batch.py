@@ -296,8 +296,6 @@ class DeepgramBatchService:
                 "batch",
                 float(metadata["duration"]),
                 channels=2 if multichannel else 1,
-                model=DEEPGRAM_MODEL,
-                meta={"request_id": request_id, "language": lang},
             )
         logger.info(
             "Deepgram listen complete",

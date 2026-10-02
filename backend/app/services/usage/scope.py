@@ -4,24 +4,21 @@ from __future__ import annotations
 
 import functools
 import inspect
-import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Iterator, Optional
 
 
 @dataclass(frozen=True)
 class UsageScope:
-    """One interaction (a memo run, a call, an Ask turn). `scope_id` ties its events together
-    even before a memo row exists; `link_memo` fills memo_id in afterwards."""
+    """Who a paid call is for: which step (`purpose`) of which interaction (`memo_id`)."""
 
     purpose: str = "unknown"
     user_id: Optional[str] = None
     company_id: Optional[str] = None
     memo_id: Optional[str] = None
     capture_id: Optional[str] = None
-    scope_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
 
 _SCOPE: ContextVar[Optional[UsageScope]] = ContextVar("usage_scope", default=None)
@@ -40,7 +37,7 @@ def usage_scope(
     memo_id: Optional[str] = None,
     capture_id: Optional[str] = None,
 ) -> Iterator[UsageScope]:
-    """Nest freely: inner values override, anything left out is inherited, scope_id is kept."""
+    """Nest freely: inner values override, anything left out is inherited."""
     parent = _SCOPE.get()
     base = parent or UsageScope()
     changes = {

@@ -425,8 +425,7 @@ class SpeechmaticsOnlyProxy:
             "realtime",
             time.monotonic() - started,
             channels=max(1, channels),
-            model="enhanced",
-            meta={"stt_mode": self.mode, "language": self.language},
+            tier="enhanced",
         )
 
     async def proxy_session(self, client_ws: WebSocket):

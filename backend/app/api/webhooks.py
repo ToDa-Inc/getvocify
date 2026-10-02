@@ -1619,6 +1619,31 @@ async def recall_webhook(request: Request, background_tasks: BackgroundTasks):
         rep_name = rep_full_name(supabase, memo_row["user_id"])
         rep_email = rep_calendar_email(supabase, memo_row["user_id"])
         transcript, turns = turns_from_recall_transcript(segments, rep_name=rep_name, rep_email=rep_email)
+
+        # Fetch attendees for calendar-bot meetings
+        attendees: list[dict] = []
+        metadata = bot_detail.get("metadata") or {}
+        if metadata.get("source") == "calendar":
+            calendar_event_id = metadata.get("calendar_event_id")
+            if calendar_event_id:
+                from app.services.meetings.attendees import extract_attendees, enrich_attendees_with_hubspot
+                try:
+                    calendar_event = await client.get_calendar_event(calendar_event_id)
+                    if calendar_event and calendar_event.get("raw"):
+                        attendees = extract_attendees(calendar_event["raw"], rep_email=rep_email)
+                        attendees = await enrich_attendees_with_hubspot(
+                            supabase,
+                            attendees,
+                            memo_row.get("company_id"),
+                            linked_contact_id=memo_row.get("hubspot_contact_id"),
+                        )
+                except Exception as exc:
+                    # Event fetch failure must not block the capture (log and store [])
+                    logger.warning(
+                        "Recall webhook: attendee fetch failed for calendar event %s: %s",
+                        calendar_event_id, exc,
+                        extra=log_domain(DOMAIN_WEBHOOK, "recall_attendee_fetch_failed", bot_id=bot_id, error=str(exc)),
+                    )
     except Exception as exc:
         logger.exception(
             "Recall webhook: transcript fetch failed for bot %s", bot_id,
@@ -1634,6 +1659,15 @@ async def recall_webhook(request: Request, background_tasks: BackgroundTasks):
 
     try:
         identity = complete_recall_capture(supabase, memo_row, transcript=transcript, turns=turns)
+        if attendees:
+            try:
+                supabase.table("memos").update({"attendees": attendees}).eq("id", memo_row["id"]).execute()
+            except Exception as exc:
+                # Attendees only decorate the row: never fail a completed capture over them.
+                logger.warning(
+                    "Recall webhook: could not store attendees for bot %s: %s", bot_id, exc,
+                    extra=log_domain(DOMAIN_WEBHOOK, "recall_attendee_store_failed", bot_id=bot_id, error=str(exc)),
+                )
     except CaptureContentConflict:
         # A second bot.done (or a manual re-run) with different content than what was
         # already reviewed - same "needs a new review" rule complete_capture enforces

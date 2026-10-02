@@ -1,10 +1,11 @@
-"""Append-only cost ledger (usage_events). Recording must never break the call it measures."""
+"""Cost recording. A call's cost is added to the memo it served (memos.cost_usd / cost_breakdown).
+Calls with no memo (Ask, WhatsApp) are only logged. Recording must never break the call it measures."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from app.config import settings
@@ -18,85 +19,95 @@ _pending: set[asyncio.Task] = set()
 
 @dataclass
 class UsageEvent:
-    kind: str  # "llm" | "stt"
-    provider: str
-    model: Optional[str] = None
+    purpose: str
+    memo_id: Optional[str] = None
+    user_id: Optional[str] = None
+    capture_id: Optional[str] = None
+    cost_usd: Optional[float] = None  # None = unpriced, never a guess
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
-    reasoning_tokens: Optional[int] = None
-    cached_tokens: Optional[int] = None
     audio_seconds: Optional[float] = None
-    channels: Optional[int] = None
-    cost_usd: Optional[float] = None
-    cost_source: str = "unpriced"
-    duration_ms: Optional[int] = None
-    meta: dict[str, Any] = field(default_factory=dict)
-
-    def row(self) -> dict[str, Any]:
-        scope = current_scope()
-        out: dict[str, Any] = {
-            "kind": self.kind,
-            "provider": self.provider,
-            "model": self.model,
-            "purpose": scope.purpose,
-            "user_id": scope.user_id,
-            "company_id": scope.company_id,
-            "memo_id": scope.memo_id,
-            "capture_id": scope.capture_id,
-            "scope_id": scope.scope_id,
-            "prompt_tokens": self.prompt_tokens,
-            "completion_tokens": self.completion_tokens,
-            "reasoning_tokens": self.reasoning_tokens,
-            "cached_tokens": self.cached_tokens,
-            "audio_seconds": self.audio_seconds,
-            "channels": self.channels,
-            "cost_usd": self.cost_usd,
-            "cost_source": self.cost_source,
-            "duration_ms": self.duration_ms,
-            "meta": self.meta,
-        }
-        return {k: v for k, v in out.items() if v is not None}
 
 
-def _insert(row: dict[str, Any]) -> None:
+def _write(event: UsageEvent) -> None:
+    from app.deps import get_supabase
+
+    memo_id = event.memo_id
+    if not memo_id and event.capture_id and event.user_id:
+        memo_id = memo_id_for_capture(event.user_id, event.capture_id)
+    if not memo_id:
+        _log_unattached(event)
+        return
+    try:
+        get_supabase().rpc(
+            "add_memo_cost",
+            {
+                "p_memo": memo_id,
+                "p_purpose": event.purpose,
+                "p_usd": event.cost_usd,
+                "p_prompt_tokens": event.prompt_tokens,
+                "p_completion_tokens": event.completion_tokens,
+                "p_audio_seconds": event.audio_seconds,
+            },
+        ).execute()
+    except Exception:
+        logger.warning("memo cost not recorded (memo %s, %s)", memo_id, event.purpose, exc_info=True)
+
+
+def _log_unattached(event: UsageEvent) -> None:
+    logger.info("usage without memo: %s cost_usd=%s user=%s", event.purpose, event.cost_usd, event.user_id)
+
+
+def memo_id_for_capture(user_id: str, capture_id: str) -> Optional[str]:
+    """A desktop capture reserves its memo row up front, so live STT can find it by capture id."""
     from app.deps import get_supabase
 
     try:
-        get_supabase().table("usage_events").insert(row).execute()
+        rows = (
+            get_supabase()
+            .table("memos")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("client_capture_id", capture_id)
+            .limit(1)
+            .execute()
+            .data
+        )
+        return str(rows[0]["id"]) if rows else None
     except Exception:
-        logger.warning("usage ledger insert failed", exc_info=True)
+        logger.warning("memo lookup for capture %s failed", capture_id, exc_info=True)
+        return None
 
 
 def record_usage(event: UsageEvent) -> None:
     """Fire and forget. Safe from sync code, async code and a finally block."""
     if not settings.USAGE_LEDGER_ENABLED:
         return
-    row = event.row()  # read the scope now: a background task would run outside it
+    scope = current_scope()
+    event.memo_id = event.memo_id or scope.memo_id
+    event.user_id = event.user_id or scope.user_id
+    event.capture_id = event.capture_id or scope.capture_id
+    if not (event.memo_id or event.capture_id):
+        _log_unattached(event)
+        return
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        _insert(row)
+        _write(event)
         return
-    task = loop.create_task(asyncio.to_thread(_insert, row))
+    task = loop.create_task(asyncio.to_thread(_write, event))
     _pending.add(task)
     task.add_done_callback(_pending.discard)
 
 
-def record_llm_usage(provider: str, call_meta: dict[str, Any], *, duration_ms: Optional[int] = None) -> None:
-    """`call_meta` is the provider's last_call_meta: model, token counts, and cost when reported."""
-    cost = call_meta.get("cost_usd")
+def record_llm_usage(provider: str, call_meta: dict[str, Any]) -> None:
+    """`call_meta` is the provider's last_call_meta: tokens, and cost when the vendor reports it."""
     record_usage(
         UsageEvent(
-            kind="llm",
-            provider=provider,
-            model=call_meta.get("model"),
+            purpose=current_scope().purpose,
+            cost_usd=call_meta.get("cost_usd"),
             prompt_tokens=call_meta.get("prompt_tokens"),
             completion_tokens=call_meta.get("completion_tokens"),
-            reasoning_tokens=call_meta.get("reasoning_tokens"),
-            cached_tokens=call_meta.get("cached_tokens"),
-            cost_usd=cost,
-            cost_source="provider_reported" if cost is not None else "unpriced",
-            duration_ms=duration_ms,
         )
     )
 
@@ -107,27 +118,21 @@ def record_stt_usage(
     audio_seconds: float,
     *,
     channels: int = 1,
-    model: Optional[str] = None,
-    duration_ms: Optional[int] = None,
-    meta: Optional[dict[str, Any]] = None,
+    tier: str = "",
+    purpose: Optional[str] = None,
+    memo_id: Optional[str] = None,
 ) -> None:
-    cost = stt_cost_usd(provider, mode, audio_seconds, channels, tier=model or "")
     record_usage(
         UsageEvent(
-            kind="stt",
-            provider=provider,
-            model=model,
+            purpose=purpose or current_scope().purpose,
+            memo_id=memo_id,
+            cost_usd=stt_cost_usd(provider, mode, audio_seconds, channels, tier=tier),
             audio_seconds=round(audio_seconds, 2),
-            channels=channels,
-            cost_usd=cost,
-            cost_source="computed" if cost is not None else "unpriced",
-            duration_ms=duration_ms,
-            meta={"mode": mode, **(meta or {})},
         )
     )
 
 
 async def flush() -> None:
-    """Wait for queued inserts. Tests and graceful shutdown use it; requests never wait."""
+    """Wait for queued writes. Tests and graceful shutdown use it; requests never wait."""
     if _pending:
         await asyncio.gather(*list(_pending), return_exceptions=True)

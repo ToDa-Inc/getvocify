@@ -1,78 +1,60 @@
-"""Read side of the cost ledger: per-memo breakdown and period summaries (staff only)."""
+"""Read side of the cost columns on memos (staff only)."""
 
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 _PAGE = 1000
-
-
-def total_cost(rows: Iterable[dict]) -> float:
-    return round(sum(float(r["cost_usd"]) for r in rows if r.get("cost_usd") is not None), 6)
-
-
-def summarize(events: list[dict], key: str) -> list[dict]:
-    """Group by `key` (purpose, model, provider, user_id, kind). Unpriced events are counted, not priced."""
-    groups: dict[str, list[dict]] = defaultdict(list)
-    for e in events:
-        groups[str(e.get(key) or "unknown")].append(e)
-    out = [
-        {
-            key: name,
-            "events": len(rows),
-            "cost_usd": total_cost(rows),
-            "unpriced_events": sum(1 for r in rows if r.get("cost_usd") is None),
-            "audio_seconds": round(sum(float(r.get("audio_seconds") or 0) for r in rows), 2),
-            "prompt_tokens": sum(int(r.get("prompt_tokens") or 0) for r in rows),
-            "completion_tokens": sum(int(r.get("completion_tokens") or 0) for r in rows),
-        }
-        for name, rows in groups.items()
-    ]
-    return sorted(out, key=lambda g: g["cost_usd"], reverse=True)
-
-
-def memo_events(supabase: Any, memo_id: str) -> Optional[list[dict]]:
-    """Events tied to the memo directly or through its desktop capture. None if the memo is unknown."""
-    memo = supabase.table("memos").select("id,client_capture_id").eq("id", memo_id).limit(1).execute().data
-    if not memo:
-        return None
-    capture_id = memo[0].get("client_capture_id")
-    cond = f"memo_id.eq.{memo_id}" + (f",capture_id.eq.{capture_id}" if capture_id else "")
-    rows = supabase.table("usage_events").select("*").or_(cond).order("created_at").execute().data
-    return rows or []
+_COLS = "id,user_id,created_at,source_type,cost_usd,cost_breakdown"
 
 
 def memo_cost_report(supabase: Any, memo_id: str) -> Optional[dict]:
-    events = memo_events(supabase, memo_id)
-    if events is None:
+    rows = supabase.table("memos").select(_COLS).eq("id", memo_id).limit(1).execute().data
+    if not rows:
         return None
+    memo = rows[0]
+    breakdown = memo.get("cost_breakdown") or {}
     return {
-        "memo_id": memo_id,
-        "total_cost_usd": total_cost(events),
-        "unpriced_events": sum(1 for e in events if e.get("cost_usd") is None),
-        "by_kind": summarize(events, "kind"),
-        "by_purpose": summarize(events, "purpose"),
-        "events": events,
+        "memo_id": memo["id"],
+        "total_cost_usd": float(memo.get("cost_usd") or 0),
+        "unpriced_events": sum(int(step.get("unpriced") or 0) for step in breakdown.values()),
+        "by_purpose": breakdown,
     }
 
 
-def period_events(supabase: Any, days: int) -> list[dict]:
+def period_summary(supabase: Any, days: int) -> dict:
+    """Totals per step across every memo created in the last `days` days."""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    rows: list[dict] = []
+    memos = 0
+    total = 0.0
+    by_purpose: dict[str, dict[str, float]] = {}
     start = 0
     while True:
         page = (
-            supabase.table("usage_events")
-            .select("kind,provider,model,purpose,user_id,prompt_tokens,completion_tokens,audio_seconds,cost_usd")
+            supabase.table("memos")
+            .select(_COLS)
             .gte("created_at", since)
+            .gt("cost_usd", 0)
             .order("created_at")
             .range(start, start + _PAGE - 1)
             .execute()
             .data
         ) or []
-        rows.extend(page)
+        for memo in page:
+            memos += 1
+            total += float(memo.get("cost_usd") or 0)
+            for purpose, step in (memo.get("cost_breakdown") or {}).items():
+                agg = by_purpose.setdefault(purpose, {"usd": 0.0, "events": 0, "unpriced": 0, "audio_seconds": 0.0})
+                for field in agg:
+                    agg[field] += float(step.get(field) or 0)
         if len(page) < _PAGE:
-            return rows
+            break
         start += _PAGE
+    return {
+        "days": days,
+        "memos_with_cost": memos,
+        "total_cost_usd": round(total, 6),
+        "avg_cost_per_memo_usd": round(total / memos, 6) if memos else 0.0,
+        "by_purpose": {k: {f: round(v, 6) for f, v in agg.items()} for k, agg in by_purpose.items()},
+    }

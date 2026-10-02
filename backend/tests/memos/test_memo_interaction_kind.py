@@ -73,3 +73,15 @@ def test_one_unreadable_row_does_not_empty_the_list(monkeypatch):
         hubspot_contact_id=None, scope="me", author_user_id=None, memo_status=None, reached_only=False,
     ))
     assert [str(m.id) for m in result] == [good["id"]]
+
+
+def test_attendees_are_returned_on_a_meeting_memo():
+    body = _memo_from_row(
+        _row(interaction_kind="meeting", attendees=[{"email": "marta@client.com", "name": "Marta Ruiz"}])
+    ).model_dump(mode="json")
+    assert body["attendees"] == [{"email": "marta@client.com", "name": "Marta Ruiz"}]
+
+
+def test_a_memo_without_attendees_returns_an_empty_list():
+    assert _memo_from_row(_row()).model_dump(mode="json")["attendees"] == []
+    assert _memo_from_row(_row(attendees=None)).model_dump(mode="json")["attendees"] == []

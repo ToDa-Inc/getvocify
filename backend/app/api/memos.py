@@ -262,6 +262,7 @@ def _memo_from_row(
             screeningOutcome=memo_data.get("screening_outcome"),
             interactionKind=interaction_kind_of(memo_data),
             salesMotionKey=memo_data.get("sales_motion_key"),
+            attendees=memo_data.get("attendees") or [],
         )
     except Exception as e:
         logger.exception("Failed to build Memo from row %s: %s", memo_data.get("id"), e)

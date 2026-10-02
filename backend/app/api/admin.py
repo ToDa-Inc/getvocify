@@ -325,7 +325,7 @@ async def admin_memo_cost(
     supabase: Client = Depends(get_supabase),
     _: str = Depends(require_master_key),
 ):
-    """What one memo cost us: STT audio time plus every LLM call, from the usage ledger."""
+    """What one memo cost us: STT audio time plus every LLM call, from the memo's cost columns."""
     report = usage_report.memo_cost_report(supabase, str(memo_id))
     if report is None:
         raise HTTPException(status_code=404, detail="Memo not found")
@@ -335,17 +335,10 @@ async def admin_memo_cost(
 @router.get("/usage/summary")
 async def admin_usage_summary(
     days: int = Query(default=7, ge=1, le=90),
-    group_by: Literal["purpose", "model", "provider", "user_id", "kind"] = "purpose",
     supabase: Client = Depends(get_supabase),
     _: str = Depends(require_master_key),
 ):
-    events = usage_report.period_events(supabase, days)
-    return {
-        "days": days,
-        "total_cost_usd": usage_report.total_cost(events),
-        "group_by": group_by,
-        "groups": usage_report.summarize(events, group_by),
-    }
+    return usage_report.period_summary(supabase, days)
 
 
 @router.get("/runtime")

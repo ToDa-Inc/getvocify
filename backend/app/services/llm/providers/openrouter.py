@@ -202,7 +202,7 @@ class OpenRouterProvider(BaseLLMProvider):
                     self.last_call_meta = openrouter_call_meta(data, requested_model=model_used)
                     usage = self.last_call_meta
                     inc_llm_request("success", PROVIDER_NAME, usage.get("model") or model_used)
-                    record_llm_usage(PROVIDER_NAME, usage, duration_ms=round(elapsed_ms))
+                    record_llm_usage(PROVIDER_NAME, usage)
                     logger.info(
                         "LLM chat success",
                         extra=log_domain(
@@ -402,9 +402,7 @@ class OpenRouterProvider(BaseLLMProvider):
             {"model": acc.model, "usage": acc.usage}, requested_model=model_used
         )
         inc_llm_request("success", PROVIDER_NAME, self.last_call_meta["model"])
-        record_llm_usage(
-            PROVIDER_NAME, self.last_call_meta, duration_ms=round((time.perf_counter() - t0) * 1000)
-        )
+        record_llm_usage(PROVIDER_NAME, self.last_call_meta)
         logger.info(
             "LLM stream success",
             extra=log_domain(

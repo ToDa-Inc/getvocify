@@ -353,7 +353,8 @@ CREATE TABLE memos (
   hubspot_engagement_id TEXT,
   hubspot_deal_id TEXT,
   hubspot_contact_id TEXT,
-  speechmatics_job_id TEXT
+  speechmatics_job_id TEXT,
+  attendees JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
 CREATE TABLE IF NOT EXISTS memo_jobs (
