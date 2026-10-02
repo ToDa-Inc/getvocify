@@ -142,7 +142,21 @@ export function applyChannelResult(
       nextSeen: nextSeen + 1,
     };
   }
-  const segment = { speaker, text, start, end: seconds(result.end) ?? start, seen: openSeen ?? nextSeen };
+  const end = seconds(result.end) ?? start;
+  const segment = { speaker, text, start, end, seen: openSeen ?? nextSeen };
+  const tail = state.interims[key];
+  const rest = tail ? tailRemainder(tail, text) : null;
+  if (rest) {
+    // The tail's words this final doesn't cover stay on screen, in the same bubble, until
+    // the next partial replaces them: dropping them would blank the end for a moment.
+    return {
+      ...state,
+      segments: [...state.segments, segment],
+      interims: { ...state.interims, [key]: rest },
+      interimStarts: end === null ? state.interimStarts : { ...state.interimStarts, [key]: end },
+      nextSeen: openSeen === undefined ? nextSeen + 1 : nextSeen,
+    };
+  }
   return {
     segments: [...state.segments, segment],
     interims: without(state.interims, key),
@@ -150,6 +164,21 @@ export function applyChannelResult(
     interimSeen: without(state.interimSeen, key),
     nextSeen: openSeen === undefined ? nextSeen + 1 : nextSeen,
   };
+}
+
+/**
+ * The words of a live tail its final doesn't cover yet: "a b c d" after the final "a b c" is
+ * "d". Counted in words, as a final may punctuate or correct the same words.
+ */
+export function tailRemainder(tail: string, final: string): string | null {
+  const covered = words(final).length;
+  const pieces = tail.split(/\s+/).filter(Boolean);
+  let counted = 0;
+  for (let index = 0; index < pieces.length; index++) {
+    if (counted >= covered) return pieces.slice(index).join(" ");
+    counted += words(pieces[index]).length;
+  }
+  return null;
 }
 
 /**
@@ -339,6 +368,7 @@ function paragraphFor(item: DisplayItem, rows: MeetingDisplayTurn[]): MeetingDis
 }
 
 const settledRowsCache = new WeakMap<MeetingSegment[], MeetingDisplayTurn[]>();
+const settledItemsCache = new WeakMap<MeetingSegment[], DisplayItem[]>();
 
 /**
  * Builds rows in the order words first showed on screen, never re-sorting what is
@@ -380,6 +410,14 @@ function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[]): MeetingD
 function settledRows(segments: MeetingSegment[]): MeetingDisplayTurn[] {
   const cached = settledRowsCache.get(segments);
   if (cached) return cached;
+  const rows = displayRows(settledItems(segments), []);
+  settledRowsCache.set(segments, rows);
+  return rows;
+}
+
+function settledItems(segments: MeetingSegment[]): DisplayItem[] {
+  const cached = settledItemsCache.get(segments);
+  if (cached) return cached;
   const meeting = meetingAudio(segments);
   const items = segments
     .map((segment, arrival) => ({ segment, seen: segment.seen ?? arrival }))
@@ -394,9 +432,8 @@ function settledRows(segments: MeetingSegment[]): MeetingDisplayTurn[] {
       end: segment.end,
       name: segment.name ?? null,
     }));
-  const rows = displayRows(items, []);
-  settledRowsCache.set(segments, rows);
-  return rows;
+  settledItemsCache.set(segments, items);
+  return items;
 }
 
 /**
@@ -405,7 +442,6 @@ function settledRows(segments: MeetingSegment[]): MeetingDisplayTurn[] {
  * or splits a bubble the rep is reading, and a tail keeps its bubble when it settles.
  */
 export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTurn[] {
-  const rows = settledRows(state.segments).map((row) => ({ ...row }));
   const nextSeen = state.nextSeen ?? state.segments.length;
   const tails = SPEAKER_ORDER.flatMap((key) => {
     const pending = state.interims[key];
@@ -413,8 +449,20 @@ export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTur
     const start = state.interimStarts?.[key] ?? null;
     return [{ seen: state.interimSeen?.[key] ?? nextSeen, speaker: speakerFromKey(key), text: "", pending, start, end: start }];
   }).sort((a, b) => a.seen - b.seen);
-  // A tail older than the last settled bubble still goes last: settled bubbles never move.
-  return displayRows(tails, rows);
+  const items = settledItems(state.segments);
+  const lastSettled = items.length ? items[items.length - 1].seen : -1;
+  if (tails.every((tail) => tail.seen >= lastSettled)) {
+    // Usual case: the tails began after everything settled, so they go last.
+    return displayRows(tails, settledRows(state.segments).map((row) => ({ ...row })));
+  }
+  // Something settled while a tail was still being written: the tail keeps the place it
+  // appeared in, above what came after it, exactly where it will settle.
+  const ordered = [...items];
+  for (const tail of tails) {
+    const slot = ordered.findIndex((item) => item.seen > tail.seen);
+    ordered.splice(slot === -1 ? ordered.length : slot, 0, tail);
+  }
+  return displayRows(ordered, []);
 }
 
 export function meetingHasSpeech(state: MeetingTranscript): boolean {

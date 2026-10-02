@@ -358,3 +358,20 @@ describe("names on the other side", () => {
     assert.deepEqual(meetingDisplayTurns(state).map((row) => row.label), ["Marta", "Juan", "You"]);
   });
 });
+
+describe("bubbles never jump", () => {
+  it("a tail settling after the other side's final keeps its place", () => {
+    let state = feed([["lo que te decía es que", false, "prospect"], ["Ajá, vale", false, "rep"], ["Ajá, vale.", true, "rep"]]);
+    const before = meetingDisplayTurns(state).map((row) => row.key);
+    state = applyChannelResult(state, { text: "lo que te decía es que funciona.", isFinal: true, audioChannel: "prospect" });
+    assert.deepEqual(meetingDisplayTurns(state).map((row) => row.key), before);
+    assert.deepEqual(meetingDisplayTurns(state).map((row) => row.speaker), ["prospect", "rep"]);
+  });
+
+  it("the words a final doesn't cover stay in the same bubble", () => {
+    let state = feed([["hola qué tal estás", false, "rep"], ["Hola, qué tal", true, "rep"]]);
+    assert.deepEqual(meetingDisplayTurns(state).map((row) => [row.key, row.text, row.pending]), [["u0", "Hola, qué tal", "estás"]]);
+    state = applyChannelResult(state, { text: "estás?", isFinal: true, audioChannel: "rep" });
+    assert.deepEqual(meetingDisplayTurns(state).map((row) => [row.key, row.text, row.pending]), [["u0", "Hola, qué tal estás?", ""]]);
+  });
+});
