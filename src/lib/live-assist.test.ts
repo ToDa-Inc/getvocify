@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { addCard, assistContext, objectionCard } from "./live-assist.ts";
+import { addCard, assistContext, askAfterMs, objectionCard, partialSayThis, streamedDraft } from "./live-assist.ts";
 import type { MeetingDisplayTurn } from "./meeting-transcript.ts";
 
 const turn = (key: string, speaker: "rep" | "prospect", text: string, pending = ""): MeetingDisplayTurn => ({
@@ -23,19 +23,43 @@ const suggestion = (overrides = {}) => ({
 });
 
 describe("assistContext", () => {
-  it("asks about their latest settled words with the conversation around them", () => {
+  it("asks about their latest words with the conversation around them, as it is on screen", () => {
     const context = assistContext([
       turn("0", "rep", "Os enseño la demo."),
       turn("1", "prospect", "La verdad es que nos parece bastante caro para el equipo."),
       turn("2", "rep", "", "vale"),
     ]);
     assert.equal(context?.latestTurn, "La verdad es que nos parece bastante caro para el equipo.");
-    assert.equal(context?.transcriptWindow, "You: Os enseño la demo.\nThem: La verdad es que nos parece bastante caro para el equipo.");
+    assert.equal(context?.transcriptWindow, "You: Os enseño la demo.\nThem: La verdad es que nos parece bastante caro para el equipo.\nYou: vale");
   });
 
   it("waits until they said something substantial", () => {
     assert.equal(assistContext([turn("0", "prospect", "Sí, vale.")]), null);
     assert.equal(assistContext([turn("0", "rep", "Os cuento el precio ahora mismo.")]), null);
+  });
+
+  it("asks only about what they said since the last ask, so help answers the newest thing", () => {
+    const first = "Nos parece caro para lo que necesitamos ahora mismo.";
+    const said = `${first} Además ya estamos usando Gong y nos funciona bien.`;
+    const context = assistContext([turn("1", "prospect", said)], { turnKey: "1", length: first.length });
+    assert.equal(context?.latestTurn, "Además ya estamos usando Gong y nos funciona bien.");
+  });
+
+  it("reads the words still settling too, so a pause is enough to ask", () => {
+    const context = assistContext([turn("1", "prospect", "Ya, pero la verdad", "es que nos parece bastante caro")]);
+    assert.equal(context?.latestTurn, "Ya, pero la verdad es que nos parece bastante caro");
+    assert.equal(context?.settled, false);
+  });
+
+  it("a few new words after the last ask are not worth asking about", () => {
+    const first = "Nos parece caro para lo que necesitamos ahora mismo.";
+    assert.equal(assistContext([turn("1", "prospect", `${first} Vale, sí.`)], { turnKey: "1", length: first.length }), null);
+  });
+
+  it("a new turn of theirs is asked about whole", () => {
+    const context = assistContext([turn("2", "prospect", "Esto no lo decido yo, lo ve mi director financiero.")], { turnKey: "1", length: 40 });
+    assert.equal(context?.settled, true);
+    assert.equal(context?.latestTurn, "Esto no lo decido yo, lo ve mi director financiero.");
   });
 
   it("changes key only when their words change", () => {
@@ -74,24 +98,8 @@ describe("addCard", () => {
 });
 
 describe("display rules", async () => {
-  const { cardVisible, coolingDown, cooldownKey, repActivityKey, CARD_MIN_MS, CARD_MAX_MS, REP_DONE_MS, CATEGORY_COOLDOWN_MS } = await import("./live-assist.ts");
+  const { coolingDown, cooldownKey, CATEGORY_COOLDOWN_MS } = await import("./live-assist.ts");
   const card = objectionCard(suggestion(), 1000)!;
-
-  it("stays at least 8s and never more than 25s", () => {
-    assert.equal(cardVisible(card, 1000 + CARD_MIN_MS - 1, 1500), true);
-    assert.equal(cardVisible(card, 1000 + CARD_MAX_MS - 1, null), true);
-    assert.equal(cardVisible(card, 1000 + CARD_MAX_MS, null), false);
-  });
-
-  it("stays while the rep is answering and leaves once they finish", () => {
-    const later = 1000 + CARD_MIN_MS + 5000;
-    assert.equal(cardVisible(card, later, later - 500), true, "still talking");
-    assert.equal(cardVisible(card, later, later - REP_DONE_MS), false, "done talking");
-  });
-
-  it("ignores rep speech from before the card appeared", () => {
-    assert.equal(cardVisible(card, 1000 + CARD_MIN_MS + 1, 900), true);
-  });
 
   it("waits a minute before the same kind of help interrupts again", () => {
     const shown = { [cooldownKey(card)]: 1000 };
@@ -101,11 +109,6 @@ describe("display rules", async () => {
     assert.equal(coolingDown(other, shown, 2000), false);
   });
 
-  it("notices when the rep says something new", () => {
-    const a = repActivityKey([turn("0", "rep", "Hola"), turn("1", "prospect", "Es caro")]);
-    const b = repActivityKey([turn("0", "rep", "Hola"), turn("1", "prospect", "Es caro"), turn("2", "rep", "", "Entiendo")]);
-    assert.notEqual(a, b);
-  });
 });
 
 describe("bridge while the answer is written", async () => {
@@ -133,5 +136,47 @@ describe("bridge while the answer is written", async () => {
   it("questions become their own kind of card", () => {
     const card = objectionCard(suggestion({ objection_type: "question", say_this: "Sí, con HubSpot y Pipedrive." }), 1)!;
     assert.deepEqual([card.kind, card.label, card.stage], ["question", "Question", "ready"]);
+  });
+});
+
+describe("partialSayThis", () => {
+  it("is empty until the answer starts", () => {
+    assert.equal(partialSayThis('{"is_objection": true, "objection_type": "price"'), "");
+  });
+
+  it("grows word by word while the answer streams, and stops at its end", () => {
+    assert.equal(partialSayThis('{"is_objection": true, "say_this": "Lo entiendo, '), "Lo entiendo, ");
+    assert.equal(partialSayThis('{"say_this":"Hola.", "why_it_works": "x'), "Hola.");
+  });
+
+  it("reads escapes, and never shows half of one", () => {
+    assert.equal(partialSayThis('{"say_this": "Dice \\"no\\" y'), 'Dice "no" y');
+    assert.equal(partialSayThis('{"say_this": "Hola \\'), "Hola ");
+    assert.equal(partialSayThis('{"say_this": "caf\\u00'), "caf");
+    assert.equal(partialSayThis('{"say_this": "caf\\u00e9 ya'), "café ya");
+  });
+});
+
+describe("askAfterMs", () => {
+  it("asks right after their sentence settles", () => {
+    assert.equal(askAfterMs({ settled: true }), 300);
+  });
+
+  it("words still settling wait long enough to be a real pause, never a breath mid-sentence", () => {
+    assert.equal(askAfterMs({ settled: false }), 2500);
+  });
+});
+
+describe("streamedDraft", () => {
+  it("shows nothing while only the kind of objection is known, so a card never appears empty and vanishes", () => {
+    assert.equal(streamedDraft('{"is_objection": true, "objection_type": "trust", "say_this": "', "Me da miedo", 1), null);
+  });
+
+  it("shows the card with the bridge once the answer's first words arrive", () => {
+    const card = streamedDraft('{"is_objection": true, "objection_type": "price", "say_this": "Para ocho comerciales', "Es caro", 5);
+    assert.equal(card?.label, "Price");
+    assert.equal(card?.sayThis, "Para ocho comerciales");
+    assert.equal(card?.at, 5);
+    assert.ok(card?.bridge);
   });
 });

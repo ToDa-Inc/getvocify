@@ -44,11 +44,10 @@ import {
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
-import { getDesktopBridge, isDesktopHost, MEMO_CHANGED_EVENT, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
+import { getDesktopBridge, isDesktopHost, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
 import { islandCallContact, latestOnly, type CallPreview } from "@/lib/call-contact";
 import {
   POST_CALL_GIVE_UP_MS,
-  SKIPS_BEFORE_ASKING,
   UNDO_MS,
   callTypeFrom,
   crmFor,
@@ -65,6 +64,16 @@ import { playbooksApi } from "@/features/playbooks/api";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
 import { retagOptions, typeOptions } from "@/lib/interactions";
+import {
+  NO_CALL_TYPE,
+  assistCallMode,
+  callKind,
+  callTypeShown,
+  proposalDue,
+  withPick,
+  withProposal,
+  type CallTypeState,
+} from "@/lib/live-call-type";
 import { buildApproveExtraction, proposedFieldKey, type ProposedUpdate } from "@/lib/extraction-omit";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
@@ -90,6 +99,12 @@ type DesktopMeeting = {
   savedOnDevice: boolean;
   /** The CRM contact of the call being recorded, when the island knew it. */
   contact: MeetingDraft["contact"] | null;
+  /** The call's type: Vocify's proposal (`proposed`) or the rep's pick. Live help uses its playbook. */
+  callType: { key: string | null; proposed: boolean };
+  /** How live help should treat the call, from the platform that caught it. */
+  callMode: "softphone" | "meeting";
+  /** The rep switched live help on or off for this call only; null follows the remembered setting. */
+  liveHelpOverride: boolean | null;
   start: () => Promise<void>;
   stop: () => Promise<void>;
   retryPending: () => Promise<void>;
@@ -178,6 +193,16 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     crm?: Pick<PostCall, "stage" | "changes" | "canApprove" | "note">;
   } | null>(null);
 
+  /** The call's type while recording: Vocify proposes, the rep's pick is final. */
+  const [callType, setCallTypeState] = useState<CallTypeState>(NO_CALL_TYPE);
+  const callTypeRef = useRef<CallTypeState>(NO_CALL_TYPE);
+  /** The company's types the island offers, once loaded. */
+  const typeOptionsRef = useRef<{ key: string; label: string }[]>([]);
+  /** The model proposals asked this call (at most two). */
+  const proposalRef = useRef({ attempts: 0, lastConfident: false, busy: false });
+  const [callMode, setCallMode] = useState<"softphone" | "meeting">("meeting");
+  const [liveHelpOverride, setLiveHelpOverride] = useState<boolean | null>(null);
+
   const phaseRef = useRef<MeetingPhase>("idle");
   const transcriptRef = useRef<MeetingTranscript>(EMPTY_MEETING_TRANSCRIPT);
   const draftRef = useRef<{
@@ -246,6 +271,22 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     }, SAVE_EVERY_MS);
   }, [saveDraftNow]);
 
+  /** The call's type changed: the memo, the island's chip and live help follow it. */
+  const applyCallType = useCallback((next: CallTypeState) => {
+    callTypeRef.current = next;
+    setCallTypeState(next);
+    const shown = callTypeShown(next);
+    if (draftRef.current) {
+      if (shown.key) draftRef.current.type = shown.key;
+      else delete draftRef.current.type;
+    }
+    if (typeOptionsRef.current.length) {
+      getDesktopBridge()?.shell.setState({
+        liveType: { selected: shown.key, proposed: shown.proposed, options: typeOptionsRef.current },
+      });
+    }
+  }, []);
+
   const updateTranscript = useCallback(
     (next: MeetingTranscript) => {
       transcriptRef.current = next;
@@ -277,9 +318,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const sendDraft = useCallback(
     async (draft: MeetingDraft): Promise<string> => {
       const res = await memosApi.uploadTranscriptAndExtract(meetingUploadText(draft.transcript), {
-        // The app the call happened in says call or meeting; without it, a recording with the
-        // CRM contact on screen is that contact's call.
-        interactionKind: draft.source?.kind ?? (draft.contact ? "call" : "meeting"),
+        interactionKind: callKind(draft),
         callSource: draft.source?.name,
         salesMotionKey: draft.type,
         sourceType: "meeting_transcript",
@@ -523,21 +562,6 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     [endPostCall, showPostCall, typeName],
   );
 
-  const skipStreakKey = "vocify_followup_skips";
-  const readSkipStreak = () => {
-    try {
-      return Number(localStorage.getItem(skipStreakKey) || "0") || 0;
-    } catch {
-      return 0;
-    }
-  };
-  const writeSkipStreak = (value: number) => {
-    try {
-      localStorage.setItem(skipStreakKey, String(Math.max(0, value)));
-    } catch {
-      /* the nudge is a per-Mac convenience */
-    }
-  };
 
   /** What the rep chose in the island's card. Every write goes through the same API Vocify uses. */
   const onPostCallAction = useCallback(
@@ -597,9 +621,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           if (current.state.email?.state !== "ready") return;
           const view = await memosApi.skipFollowup(memoId).catch(() => null);
           if (!view) return;
-          const streak = readSkipStreak() + 1;
-          writeSkipStreak(streak);
-          showPostCall({ email: emailFrom(view), offerStopEmails: streak >= SKIPS_BEFORE_ASKING });
+          showPostCall({ email: emailFrom(view) });
           memoChanged(memoId);
           return;
         }
@@ -607,27 +629,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           if (current.state.email?.state !== "skipped") return;
           const view = await memosApi.skipFollowup(memoId, true).catch(() => null);
           if (!view) return;
-          writeSkipStreak(readSkipStreak() - 1);
-          showPostCall({ email: emailFrom(view), offerStopEmails: false });
+          showPostCall({ email: emailFrom(view) });
           memoChanged(memoId);
           return;
         }
-        case "stopEmails": {
-          const saved = await memosApi.setFollowupPreference(false).then(() => true, () => false);
-          if (!saved) {
-            showPostCall({ offerStopEmails: false });
-            toast.error("Couldn't turn off email drafts. Try again in Settings.");
-            return;
-          }
-          writeSkipStreak(0);
-          queryClient.invalidateQueries({ queryKey: ["followup-preference"] });
-          showPostCall({ offerStopEmails: false, email: null });
-          return;
-        }
-        case "keepEmails":
-          writeSkipStreak(0);
-          showPostCall({ offerStopEmails: false });
-          return;
         case "addMeeting": {
           const meeting = current.state.meeting;
           if (!meeting || meeting.state !== "pending") return;
@@ -795,6 +800,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         ...(callSourceRef.current ? { source: callSourceRef.current } : {}),
       };
       setContact(callContact);
+      typeOptionsRef.current = [];
+      proposalRef.current = { attempts: 0, lastConfident: false, busy: false };
+      applyCallType(NO_CALL_TYPE);
+      setCallMode(assistCallMode(callKind(draftRef.current ?? {})));
+      setLiveHelpOverride(null);
       endPostCall();
       clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
@@ -869,15 +879,25 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         overlay: meetingOverlay(EMPTY_MEETING_TRANSCRIPT),
       });
       await bridge.shell.showOverlay();
-      // The island offers the company's call types; left alone, Vocify reads it after the call.
+      // The island offers the company's call types, starting from Vocify's free guess
+      // (the last conversation with this contact, else the routing rule).
       void playbooksApi
         .list()
-        .then((list) => {
+        .then(async (list) => {
           if (phaseRef.current !== "live") return;
-          const options = retagOptions(typeOptions(list, t.product.interactions.internal, (key) => typeName(key))).map(
+          typeOptionsRef.current = retagOptions(typeOptions(list, t.product.interactions.internal, (key) => typeName(key))).map(
             ({ key, label }) => ({ key, label }),
           );
-          bridge.shell.setState({ liveType: { selected: draftRef.current?.type ?? null, options } });
+          applyCallType(callTypeRef.current);
+          const draft = draftRef.current;
+          const guess = await api
+            .post<{ type: string | null }>("/copilot/call-type/guess", {
+              interaction_kind: draft ? callKind(draft) : "meeting",
+              ...(draft?.contact?.hubspotId && { contact_id: draft.contact.hubspotId }),
+            })
+            .catch(() => null);
+          if (phaseRef.current !== "live" || draftRef.current !== draft || !guess?.type) return;
+          applyCallType(withProposal(callTypeRef.current, guess.type));
         })
         .catch(() => {});
     } catch (e) {
@@ -895,7 +915,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       void bridge.shell.hideOverlay();
       bridge.shell.command("show");
     }
-  }, [clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, setPhase, t, typeName, updateTranscript, user?.id]);
+  }, [applyCallType, clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, setPhase, t, typeName, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(
@@ -974,9 +994,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         pauseRef.current();
       } else if (name === "resume") {
         resumeRef.current();
-      } else if (name === "search") {
-        navigate(ROUTES.RECORD);
-        window.setTimeout(() => window.dispatchEvent(new CustomEvent(TRANSCRIPT_SEARCH_EVENT)), 0);
+      } else if (name === "assist-on" || name === "assist-off") {
+        // Live help switched from the island: this call only.
+        if (phaseRef.current === "live") setLiveHelpOverride(name === "assist-on");
       }
     });
   }, [navigate]);
@@ -1037,10 +1057,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (!bridge?.shell.onCallType) return;
     return bridge.shell.onCallType(({ key }) => {
       if (!draftRef.current) return;
-      if (key) draftRef.current.type = key;
-      else delete draftRef.current.type;
+      applyCallType(withPick(callTypeRef.current, key || null));
     });
-  }, []);
+  }, [applyCallType]);
 
   // Where the call happens; a recording that already started without it picks it up.
   useEffect(() => {
@@ -1048,7 +1067,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (!bridge?.crm?.onCallSource) return;
     return bridge.crm.onCallSource((source) => {
       callSourceRef.current = source;
-      if (source && draftRef.current && !draftRef.current.source) draftRef.current.source = source;
+      if (source && draftRef.current && !draftRef.current.source) {
+        draftRef.current.source = source;
+        setCallMode(assistCallMode(callKind(draftRef.current)));
+      }
     });
   }, []);
 
@@ -1074,6 +1096,35 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
   const turns = useMemo(() => meetingDisplayTurns(transcript), [transcript]);
 
+  // One model proposal once the conversation says enough, a second only if it was unsure.
+  useEffect(() => {
+    if (phase !== "live" || !typeOptionsRef.current.length) return;
+    const lines = turns.filter((turn) => turn.text.trim()).map((turn) => (turn.label ? `${turn.label}: ${turn.text}` : turn.text));
+    const words = lines.reduce((sum, line) => sum + line.split(/\s+/).length, 0);
+    const state = proposalRef.current;
+    const picked = Boolean(callTypeRef.current.rep);
+    if (state.busy || !proposalDue({ words, attempts: state.attempts, picked, lastConfident: state.lastConfident })) return;
+    state.busy = true;
+    state.attempts += 1;
+    const draft = draftRef.current;
+    void api
+      .post<{ type: string | null; confident: boolean }>("/copilot/call-type/propose", {
+        transcript_window: lines.join("\n").slice(-6000),
+        options: typeOptionsRef.current,
+      })
+      .then((proposal) => {
+        if (phaseRef.current !== "live" || draftRef.current !== draft) return;
+        state.lastConfident = proposal.confident;
+        if (proposal.type) applyCallType(withProposal(callTypeRef.current, proposal.type));
+      })
+      .catch(() => {})
+      .finally(() => {
+        state.busy = false;
+      });
+  }, [phase, turns, applyCallType]);
+
+  const shownCallType = useMemo(() => callTypeShown(callType), [callType]);
+
   const value = useMemo<DesktopMeeting>(
     () => ({
       available,
@@ -1091,11 +1142,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       pending,
       savedOnDevice,
       contact,
+      callType: shownCallType,
+      callMode,
+      liveHelpOverride,
       start,
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, start, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, start, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

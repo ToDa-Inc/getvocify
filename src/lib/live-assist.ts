@@ -9,6 +9,10 @@ export type AssistContext = {
   transcriptWindow: string;
   /** The call's CRM contact, so help can use their earlier calls. */
   contactId?: string;
+  /** How the call happens (a phone call or a meeting), from the platform that caught it. */
+  callMode?: "softphone" | "meeting";
+  /** The call's type: help uses that playbook. */
+  typeKey?: string;
 };
 
 /** One piece of live help, whatever produced it. */
@@ -101,6 +105,44 @@ export function draftType(partial: string): string | null {
   return type && type !== "none" && type in OBJECTION_LABEL ? type : null;
 }
 
+/**
+ * The words of `say_this` streamed so far, so the island can show the answer as it is written.
+ * Stops at the string's end; an escape cut off mid-way is left out until it is complete.
+ */
+export function partialSayThis(partial: string): string {
+  const start = partial.match(/"say_this"\s*:\s*"/);
+  if (!start || start.index === undefined) return "";
+  let raw = "";
+  for (let i = start.index + start[0].length; i < partial.length; i += 1) {
+    const char = partial[i];
+    if (char === '"') break;
+    if (char === "\\") {
+      const size = partial[i + 1] === "u" ? 6 : 2;
+      if (i + size > partial.length) break;
+      raw += partial.slice(i, i + size);
+      i += size - 1;
+      continue;
+    }
+    raw += char;
+  }
+  try {
+    return JSON.parse(`"${raw}"`) as string;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The card while the answer streams: only once its first words arrive, with the bridge line above
+ * them. A card shown on the objection's kind alone could come back empty and vanish at once.
+ */
+export function streamedDraft(streamed: string, latestTurn: string, at: number): AssistCard | null {
+  const type = draftType(streamed);
+  const sayThis = partialSayThis(streamed).trim();
+  if (!type || !sayThis) return null;
+  return { ...draftCard(type, latestTurn, at), sayThis };
+}
+
 export function draftCard(type: string, latestTurn: string, at: number): AssistCard {
   return {
     id: `objection-${at}`,
@@ -121,16 +163,47 @@ export function draftCard(type: string, latestTurn: string, at: number): AssistC
  * Ask only after the other side says something substantial; returns the key used
  * to avoid asking twice about the same words.
  */
-export function assistContext(turns: MeetingDisplayTurn[]): (AssistContext & { key: string }) | null {
-  const theirs = [...turns].reverse().find((turn) => turn.speaker === "prospect" && turn.text.trim());
-  if (!theirs || theirs.text.trim().split(/\s+/).length < MIN_WORDS) return null;
-  const latestTurn = phraseTail(theirs.text, LATEST_CHARS).replace(/^…/, "");
+/** How long after their last word changed live help asks. A settled sentence is asked about at
+ * once; words still settling only after a real pause, never on a breath mid-sentence (asking
+ * half a sentence finds nothing and holds back the ask about the whole one). */
+export function askAfterMs(input: { settled: boolean }): number {
+  return input.settled ? 300 : 2500;
+}
+
+/** What a turn says on screen: its settled words, then the ones still settling. */
+function spoken(turn: MeetingDisplayTurn): string {
+  return [turn.text.trim(), turn.pending.trim()].filter(Boolean).join(" ");
+}
+
+export function assistContext(
+  turns: MeetingDisplayTurn[],
+  /** What the last ask already covered of their current turn: only the words since then are new. */
+  asked?: { turnKey: string; length: number } | null,
+): (AssistContext & { key: string; turnKey: string; length: number; settled: boolean }) | null {
+  // Words still settling count: the transcription can take seconds to settle the end of a
+  // sentence, and that end is usually the objection. A pause in what they say is enough.
+  const theirs = [...turns].reverse().find((turn) => turn.speaker === "prospect" && spoken(turn));
+  if (!theirs) return null;
+  const said = spoken(theirs);
+  // A prospect who says several things in a row stays one turn; help answers the newest of them,
+  // never one it already answered.
+  const covered = asked && asked.turnKey === theirs.key && asked.length < said.length ? asked.length : 0;
+  const fresh = said.slice(covered).trim();
+  if (fresh.split(/\s+/).length < MIN_WORDS) return null;
+  const latestTurn = phraseTail(fresh, LATEST_CHARS).replace(/^…/, "");
   const transcriptWindow = turns
-    .filter((turn) => turn.text.trim())
-    .map((turn) => (turn.label ? `${turn.label}: ${turn.text}` : turn.text))
+    .filter((turn) => spoken(turn))
+    .map((turn) => (turn.label ? `${turn.label}: ${spoken(turn)}` : spoken(turn)))
     .join("\n")
     .slice(-WINDOW_CHARS);
-  return { key: `${theirs.key}:${theirs.text.length}`, latestTurn, transcriptWindow };
+  return {
+    key: `${theirs.key}:${said.length}`,
+    turnKey: theirs.key,
+    length: said.length,
+    settled: !theirs.pending.trim(),
+    latestTurn,
+    transcriptWindow,
+  };
 }
 
 /** Only a real objection with something to say becomes a card; no filler advice. */
@@ -161,14 +234,10 @@ export function addCard(cards: AssistCard[], card: AssistCard, keep = 5): Assist
 }
 
 /**
- * Display rules. A card stays while it's being used: at least 8s, through the rep's
- * answer, gone 2.5s after they finish, never more than 25s. The same kind of help
- * waits a minute before interrupting again. (Longer than F12's 4–10s: in use, the
- * card vanished while the rep was reading it out loud.)
+ * Display rules. A card stays until newer help replaces it (the rep may still be reading it out
+ * loud); the replaced one moves to "Earlier". The same kind of help waits a minute before it can
+ * interrupt again.
  */
-export const CARD_MIN_MS = 8000;
-export const CARD_MAX_MS = 25000;
-export const REP_DONE_MS = 2500;
 export const CATEGORY_COOLDOWN_MS = 60000;
 
 /** The same kind of help waits a minute before it can interrupt again. */
@@ -181,17 +250,3 @@ export function cooldownKey(card: AssistCard): string {
   return `${card.source}:${card.label}`;
 }
 
-/** `repLastAt`: when the rep last said anything (settled or in progress). */
-export function cardVisible(card: AssistCard, now: number, repLastAt: number | null): boolean {
-  const age = now - card.at;
-  if (age >= CARD_MAX_MS) return false;
-  if (age < CARD_MIN_MS) return true;
-  const answered = repLastAt !== null && repLastAt > card.at;
-  return !(answered && now - repLastAt >= REP_DONE_MS);
-}
-
-/** Changes whenever the rep says something new; used to notice they took the floor. */
-export function repActivityKey(turns: MeetingDisplayTurn[]): string {
-  const mine = [...turns].reverse().find((turn) => turn.speaker === "rep");
-  return mine ? `${mine.key}:${mine.text.length}:${mine.pending.length}` : "";
-}

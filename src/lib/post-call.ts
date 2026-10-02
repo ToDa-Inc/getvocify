@@ -127,8 +127,6 @@ export type PostCall = {
   summary?: string | null;
   /** The connected CRM's name ("HubSpot", "Pipedrive"...); null when none is known. */
   crm?: string | null;
-  /** Asked once, after several skipped emails in a row. */
-  offerStopEmails?: boolean;
   type?: PostCallType | null;
 };
 
@@ -301,9 +299,6 @@ export function pendingItems(postCall: PostCall | null): number {
   if (postCall.meeting && postCall.meeting.state !== "added") count += 1;
   return count;
 }
-
-/** Skipped emails in a row before Vocify asks, once, whether to stop drafting them. */
-export const SKIPS_BEFORE_ASKING = 3;
 
 /** How long Approve can still be undone before the write runs. */
 export const UNDO_MS = 5000;

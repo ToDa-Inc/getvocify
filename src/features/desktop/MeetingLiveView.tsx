@@ -14,6 +14,7 @@ import { getDesktopBridge, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
 import { useDesktopMeeting } from "./DesktopMeetingProvider";
 import { LiveAssistPanel } from "./assist/LiveAssistPanel";
 import { useLiveAssist, useLiveAssistEnabled } from "./assist/useLiveAssist";
+import { liveHelpActive } from "@/lib/live-call-type";
 
 const BAR_SHAPE = [0.45, 0.8, 1, 0.65];
 
@@ -40,7 +41,17 @@ export function MeetingLiveView() {
     setQuery("");
   };
   const [assistOn, setAssistOn] = useLiveAssistEnabled();
-  const assist = useLiveAssist(meeting.turns, assistOn && live && !meeting.paused, meeting.contact?.hubspotId);
+  // On for this call per the remembered switch, unless the rep flipped it in the island; never on an internal call.
+  const helpOn = liveHelpActive({ remembered: assistOn, override: meeting.liveHelpOverride, typeKey: meeting.callType.key });
+  const assist = useLiveAssist(meeting.turns, helpOn && live && !meeting.paused, {
+    contactId: meeting.contact?.hubspotId,
+    callMode: meeting.callMode,
+    typeKey: meeting.callType.key,
+  });
+
+  useEffect(() => {
+    getDesktopBridge()?.shell.setState({ liveHelp: helpOn });
+  }, [helpOn]);
 
   // The floating pill shows the same live card while it is open.
   useEffect(() => {

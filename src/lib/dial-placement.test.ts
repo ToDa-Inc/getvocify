@@ -2,10 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { CALL_STATES, dialerChrome, floatingDialerChrome, type CallState } from "./dial-target.ts";
+import { CALL_STATES, dialerDock, type CallState } from "./dial-target.ts";
 
-const floatingDialerSource = readFileSync(
-  fileURLToPath(new URL("../components/dashboard/calling/FloatingDialer.tsx", import.meta.url)),
+const dialerDockSource = readFileSync(
+  fileURLToPath(new URL("../components/dashboard/calling/DialerDock.tsx", import.meta.url)),
   "utf8",
 );
 
@@ -16,54 +16,42 @@ const IN_FLIGHT: CallState[] = [
   CALL_STATES.ENDING,
 ];
 
-const mounted = (placement: "floating" | "panel", open: boolean, state: CallState) => {
-  const chrome = dialerChrome(placement, open, state);
-  return open || chrome.fab || chrome.panelBar;
-};
+const mounted = (open: boolean, state: CallState) => open || dialerDock(open, state).liveTab;
 
-describe("dialer placement", () => {
-  it("renders one DashboardDialer inside a container that is never rendered conditionally", () => {
-    const mounts = floatingDialerSource.match(/<DashboardDialer/g) ?? [];
+describe("dialer dock", () => {
+  it("renders one DashboardDialer inside a panel that is never rendered conditionally", () => {
+    const mounts = dialerDockSource.match(/<DashboardDialer/g) ?? [];
     assert.equal(mounts.length, 1, "expected exactly one DashboardDialer mount");
     assert.match(
-      floatingDialerSource,
-      /return\s*\(\s*<>\s*<div\b/,
-      "the dialer container must be the first, unconditional child of the fragment",
+      dialerDockSource,
+      /return\s*\(\s*<DockPanel\b/,
+      "the dock panel must be the one unconditional root of the returned tree",
     );
-    const start = floatingDialerSource.search(/return\s*\(\s*<>/);
-    const mountAt = floatingDialerSource.slice(start).search(/\{dialerBody\}|<DashboardDialer/);
+    const start = dialerDockSource.search(/return\s*\(\s*<DockPanel/);
+    const mountAt = dialerDockSource.slice(start).search(/\{dialerBody\}|<DashboardDialer/);
     assert.ok(start >= 0 && mountAt > 0, "expected the dialer to be mounted inside the returned tree");
-    const pathToDialer = floatingDialerSource.slice(start, start + mountAt);
+    const pathToDialer = dialerDockSource.slice(start, start + mountAt);
     assert.doesNotMatch(
       pathToDialer,
-      /(chrome\.|\bopen\b|placement|live\.state)[^;{}]*?(\?|&&)\s*\(?\s*</,
-      "sheet, panelBar, open or placement may toggle classes only, never mount what wraps the dialer",
+      /(dock\.|\bopen\b|live\.state)[^;{}]*?(\?|&&)\s*\(?\s*</,
+      "open or the live state may toggle classes only, never mount what wraps the dialer",
     );
-    const nulls = floatingDialerSource.match(/return null/g) ?? [];
+    const nulls = dialerDockSource.match(/return null/g) ?? [];
     assert.equal(nulls.length, 1);
-    assert.match(floatingDialerSource, /if \(!mounted\) return null;/);
-    assert.match(floatingDialerSource, /const mounted = open \|\| chrome\.fab \|\| chrome\.panelBar;/);
+    assert.match(dialerDockSource, /if \(!mounted\) return null;/);
+    assert.match(dialerDockSource, /const mounted = open \|\| dock\.liveTab;/);
   });
 
-  it("Cambio de ruta: stays mounted mid-call when placement flips either way, open or minimised", () => {
+  it("stays mounted mid-call whether the panel is open or closed", () => {
     for (const state of IN_FLIGHT) {
       for (const open of [true, false]) {
-        assert.equal(mounted("panel", open, state), true, `panel ${state} open=${open}`);
-        assert.equal(mounted("floating", open, state), true, `floating ${state} open=${open}`);
+        assert.equal(mounted(open, state), true, `${state} open=${open}`);
       }
     }
   });
 
-  it("with the flag off (floating) mounts exactly as before T5", () => {
-    for (const state of [CALL_STATES.IDLE, ...IN_FLIGHT]) {
-      for (const open of [true, false]) {
-        const before = floatingDialerChrome(open, state);
-        const now = dialerChrome("floating", open, state);
-        assert.equal(now.sheet, before.sheet);
-        assert.equal(now.fab, before.fab);
-        assert.equal(now.panelBar, false);
-        assert.equal(mounted("floating", open, state), open || before.fab);
-      }
-    }
+  it("is not mounted when idle and closed, and mounted when opened", () => {
+    assert.equal(mounted(false, CALL_STATES.IDLE), false);
+    assert.equal(mounted(true, CALL_STATES.IDLE), true);
   });
 });

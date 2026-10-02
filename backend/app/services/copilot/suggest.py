@@ -257,7 +257,8 @@ def _parse_suggestion(raw: str) -> dict[str, Any]:
 MEETING_OBJECTION_TYPES = {"price", "timing", "authority", "competitor", "status_quo", "trust", "question", "other"}
 
 
-def _silent() -> dict[str, Any]:
+def silent_suggestion() -> dict[str, Any]:
+    """No help: what live help answers when there is nothing worth saying."""
     return {
         "is_objection": False,
         "objection_type": "none",
@@ -278,11 +279,11 @@ def meeting_suggestion(raw: str) -> dict[str, Any]:
     except ValueError:
         parsed = None
     if not isinstance(parsed, dict) or parsed.get("is_objection") is not True:
-        return _silent()
+        return silent_suggestion()
     objection_type = str(parsed.get("objection_type") or "").strip()
     say_this = " ".join(str(parsed.get("say_this") or "").split())
     if objection_type not in MEETING_OBJECTION_TYPES or not say_this or len(say_this) > MEETING_LINE_MAX:
-        return _silent()
+        return silent_suggestion()
     next_question = " ".join(str(parsed.get("next_question") or "").split())
     return {
         "is_objection": True,

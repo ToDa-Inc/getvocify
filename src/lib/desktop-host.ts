@@ -35,6 +35,8 @@ export type VocifyDesktopBridge = {
     openExternal(url: string): Promise<{ ok?: boolean }>;
     command(name: string): void;
     onCommand(cb: (name: string) => void): () => void;
+    /** Live help events for the Mac's log (written only while its test switch is on). */
+    log?(name: string, details?: Record<string, unknown>): void;
     onOverlayState?(cb: (state: Record<string, unknown>) => void): () => void;
     /** The call type picked in the island while recording ({ key: null }: Vocify decides). */
     onCallType?(cb: (payload: { key: string | null }) => void): () => void;
