@@ -113,6 +113,8 @@ export const memosApi = {
       hubspotContactId?: string;
       /** The app the call happened in (desktop), e.g. "Google Meet". */
       callSource?: string;
+      /** The call type the rep picked while recording (desktop). */
+      salesMotionKey?: string;
     } = {},
   ): Promise<UploadMemoResponse> => {
     return api.post<UploadMemoResponse>('/memos/upload-and-extract', {
@@ -123,6 +125,7 @@ export const memosApi = {
       notes: options.notes?.trim() || undefined,
       hubspot_contact_id: options.hubspotContactId || undefined,
       call_source: options.callSource || undefined,
+      sales_motion_key: options.salesMotionKey || undefined,
     });
   },
 

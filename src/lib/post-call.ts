@@ -28,7 +28,9 @@ export type PostCallCrmStage =
   | "applying"
   | "done"
   /** Needs the review screen (a choice to make, or something went wrong). */
-  | "review";
+  | "review"
+  /** An internal conversation: nothing goes to the CRM. */
+  | "internal";
 
 export type PostCallEmail = {
   /** ready: drafted, not sent. skipped/sent: settled, shown briefly then gone. */
@@ -76,6 +78,17 @@ export function retypedTo(type: PostCallType, key: string, order: string[]): Pos
   const options = [...type.options.filter((option) => option.key !== key), { key: type.key, label: type.label }];
   options.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
   return { key, label: next.label, options };
+}
+
+/** The type key of a conversation without a customer. */
+export const INTERNAL_TYPE = "internal";
+
+/** The CRM part of the card for a call of this type: an internal one has nothing for the CRM. */
+export function crmForType(
+  typeKey: string | null | undefined,
+  crm: Pick<PostCall, "stage" | "changes" | "canApprove" | "note">,
+): Pick<PostCall, "stage" | "changes" | "canApprove" | "note"> {
+  return typeKey === INTERNAL_TYPE ? { stage: "internal", changes: [], canApprove: false, note: undefined } : crm;
 }
 
 export type PostCall = {

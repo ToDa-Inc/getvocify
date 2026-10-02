@@ -182,9 +182,17 @@ async def get_memo_playbook(
         "playbook_version_id": memo.get("playbook_version_id") or None,
         # The author or a manager can always correct what the call was.
         "can_change": bool(can_edit),
+        # Read from the conversation by Jev and not confirmed by anyone yet.
+        "suggested": _pin_source(memo) == "jev",
         # Interna last, as on the list chip: it has no playbook, so it needs no published one.
         "options": [*_published_options(membership), {"key": INTERNAL_KEY, "label": None}],
     }
+
+
+def _pin_source(memo: dict) -> Optional[str]:
+    meta = memo.get("pipeline_meta")
+    pin = meta.get("playbook_pin") if isinstance(meta, dict) else None
+    return pin.get("source") if isinstance(pin, dict) else None
 
 
 def _requeue(supabase: Client, memo: dict) -> None:

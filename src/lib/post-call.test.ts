@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   callTypeFrom,
   changesFrom,
+  crmForType,
   crmFor,
   defaultKept,
   emailFrom,
@@ -147,5 +148,15 @@ describe("callTypeFrom", () => {
       ],
     });
     assert.equal(retypedTo(type, "nope", []), null);
+  });
+});
+
+describe("crmForType", () => {
+  const crm = { stage: "ready" as const, changes: [{ key: "contacts:a", label: "A", from: null, to: "x", check: false }], canApprove: true };
+  it("an internal conversation has nothing for the CRM; any other type keeps the memo's changes", () => {
+    assert.deepEqual(crmForType("internal", crm), { stage: "internal", changes: [], canApprove: false, note: undefined });
+    assert.equal(crmForType("discovery", crm), crm);
+    assert.equal(crmForType(null, crm), crm);
+    assert.equal(pendingItems({ memoId: "m", contactName: null, ...crmForType("internal", crm), email: null, meeting: null, notes: false }), 0);
   });
 });

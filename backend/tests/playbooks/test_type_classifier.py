@@ -127,3 +127,12 @@ def test_long_conversations_keep_their_opening_and_their_end():
     text = "a" * 9000 + "MIDDLE" + "z" * 5000
     excerpt = tc.conversation_excerpt(text)
     assert excerpt.startswith("a" * 100) and excerpt.endswith("z" * 100) and "MIDDLE" not in excerpt
+
+
+def test_a_rule_the_company_saved_stays_but_a_catalog_default_is_ours_to_replace():
+    ruled = {**MEMO, "pipeline_meta": {"playbook_pin": {"source": "rule"}}}
+    with patch.object(tc, "_company_types", return_value=({}, {"closing": {"applies_to": {"role": "ae"}}})):
+        assert _apply(ruled, ("discovery", 0.95)) == []
+    with patch.object(tc, "_company_types", return_value=({}, {"closing": {"applies_to": None}})):
+        [update] = _apply(ruled, ("discovery", 0.95))
+    assert update["sales_motion_key"] == "discovery"

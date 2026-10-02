@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, Sparkles } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,21 +10,25 @@ import { api } from "@/shared/lib/api-client";
 import { errorCode, playbooksApi } from "@/features/playbooks/api";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { toast } from "sonner";
 
 type MemoPlaybook = {
   sales_motion_key: string | null;
   playbook_version_id: string | null;
   can_change: boolean;
+  /** Read from the conversation by Vocify, not confirmed by anyone yet. */
+  suggested?: boolean;
   options: { key: string; label: string | null }[];
 };
 
+const PILL = "inline-flex h-7 items-center gap-1.5 rounded-full border border-border/50 bg-secondary/5 px-3 text-xs text-foreground";
+
 /**
- * "Scored as Demo · change" on a recording (plan T10). The way out when routing picked the
- * wrong call type: re-pins the memo and scores it again. Renders nothing without a pin.
+ * What kind of call this was (its playbook type), as a pill. Choosing another re-scores the
+ * call against that playbook. A sparkle marks a type Vocify suggested that nobody has
+ * confirmed; it goes once someone picks. Renders nothing without a type.
  */
-export function MemoPlaybookLine({ memoId }: { memoId: string }) {
+export function MemoTypePill({ memoId }: { memoId: string }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
   const queryClient = useQueryClient();
@@ -39,39 +44,47 @@ export function MemoPlaybookLine({ memoId }: { memoId: string }) {
   const name = (motion: string, label?: string | null) => label || copy.typeLabels[motion] || motionLabel(motion, t.product.motions);
   const current = name(data.sales_motion_key, data.options.find((option) => option.key === data.sales_motion_key)?.label);
   const others = data.options.filter((option) => option.key !== data.sales_motion_key);
+  const mark = data.suggested ? <Sparkles className="h-3 w-3 text-beige" aria-hidden /> : null;
 
   const change = async (next: { key: string; label: string | null }) => {
     try {
       await playbooksApi.changeMemoPlaybook(memoId, next.key);
-      queryClient.setQueryData<MemoPlaybook>(key, { ...data, sales_motion_key: next.key });
+      queryClient.setQueryData<MemoPlaybook>(key, { ...data, sales_motion_key: next.key, suggested: false });
       toast(copy.memoPlaybookRequeued.replace("{name}", name(next.key, next.label)));
     } catch (error) {
       toast.error(errorCode(error) === "not_published" ? copy.memoPlaybookNotPublished : copy.memoPlaybookFailed);
     }
   };
 
+  if (!data.can_change || others.length === 0) {
+    return (
+      <span className={PILL} title={data.suggested ? copy.typeSuggested : undefined}>
+        {mark}
+        {current}
+      </span>
+    );
+  }
+
   return (
-    <p className={THEME_TOKENS.typography.capsLabel}>
-      {copy.memoPlaybook.replace("{name}", current)}
-      {data.can_change && others.length > 0 ? (
-        <>
-          {" · "}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button type="button" className="text-foreground underline-offset-4 hover:underline">
-                {copy.memoPlaybookChange}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {others.map((option) => (
-                <DropdownMenuItem key={option.key} onSelect={() => void change(option)}>
-                  {name(option.key, option.label)}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </>
-      ) : null}
-    </p>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={`${PILL} transition-colors hover:bg-secondary/10`}
+          title={data.suggested ? copy.typeSuggested : undefined}
+        >
+          {mark}
+          {current}
+          <ChevronDown className="h-3 w-3 text-muted-foreground" aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {others.map((option) => (
+          <DropdownMenuItem key={option.key} onSelect={() => void change(option)}>
+            {name(option.key, option.label)}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

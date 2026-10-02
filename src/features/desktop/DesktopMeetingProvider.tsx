@@ -48,6 +48,7 @@ import {
   UNDO_MS,
   callTypeFrom,
   crmFor,
+  crmForType,
   emailFrom,
   meetingFrom,
   pollDelayMs,
@@ -57,6 +58,7 @@ import {
 import { playbooksApi } from "@/features/playbooks/api";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
+import { retagOptions, typeOptions } from "@/lib/interactions";
 import { buildApproveExtraction, proposedFieldKey, type ProposedUpdate } from "@/lib/extraction-omit";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
@@ -161,6 +163,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     undoTimer?: number;
     /** Every type the call could be, in the order the memo page lists them. */
     typeOrder?: string[];
+    /** The CRM part as the memo has it, kept for when the type changes back from internal. */
+    crm?: Pick<PostCall, "stage" | "changes" | "canApprove" | "note">;
   } | null>(null);
 
   const phaseRef = useRef<MeetingPhase>("idle");
@@ -170,6 +174,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     startedAt: number;
     contact?: MeetingDraft["contact"];
     source?: CallSourceInfo;
+    type?: string;
   } | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const recoveredForRef = useRef<string | null>(null);
@@ -263,6 +268,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         // CRM contact on screen is that contact's call.
         interactionKind: draft.source?.kind ?? (draft.contact ? "call" : "meeting"),
         callSource: draft.source?.name,
+        salesMotionKey: draft.type,
         sourceType: "meeting_transcript",
         speakersVerified: true,
         notes: draft.notes,
@@ -475,9 +481,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       if (run.cancelled || !postCallRef.current) return;
       postCallRef.current.proposed = preview?.proposed_updates ?? [];
       postCallRef.current.typeOrder = (playbook?.options ?? []).map((option) => option.key);
+      const type = callTypeFrom(playbook, typeName);
+      const crm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, preview?.proposed_updates);
+      postCallRef.current.crm = crm;
       showPostCall({
-        type: callTypeFrom(playbook, typeName),
-        ...crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, preview?.proposed_updates),
+        type,
+        ...crmForType(type?.key, crm),
         meeting: meetingFrom(proposal?.proposal ?? null),
         notes: Boolean(memo.extraction?.summary?.trim() || memo.userNotes?.trim()),
       });
@@ -619,7 +628,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           try {
             await playbooksApi.changeMemoPlaybook(memoId, next.key);
             if (current.run.cancelled) return;
-            showPostCall({ type: next });
+            // Into or out of internal: the CRM part follows; otherwise it stays as it is.
+            const crmChanges = current.crm && (next.key === "internal" || current.state.stage === "internal");
+            showPostCall({ type: next, ...(crmChanges ? crmForType(next.key, current.crm!) : {}) });
             queryClient.invalidateQueries({ queryKey: ["memo-playbook", memoId] });
             memoChanged(memoId);
           } catch {
@@ -644,7 +655,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     setPaused(false);
     const bridge = getDesktopBridge();
     // The pill goes away on the click; finishing the transcript happens behind it.
-    bridge?.shell.setState({ listening: false });
+    bridge?.shell.setState({ listening: false, liveType: null });
     void bridge?.shell.hideOverlay();
     await releaseAudio();
     if (nativeRef.current) {
@@ -829,6 +840,17 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         overlay: meetingOverlay(EMPTY_MEETING_TRANSCRIPT),
       });
       await bridge.shell.showOverlay();
+      // The island offers the company's call types; left alone, Vocify reads it after the call.
+      void playbooksApi
+        .list()
+        .then((list) => {
+          if (phaseRef.current !== "live") return;
+          const options = retagOptions(typeOptions(list, t.product.interactions.internal, (key) => typeName(key))).map(
+            ({ key, label }) => ({ key, label }),
+          );
+          bridge.shell.setState({ liveType: { selected: draftRef.current?.type ?? null, options } });
+        })
+        .catch(() => {});
     } catch (e) {
       draftRef.current = null;
       if (nativeRef.current) {
@@ -844,7 +866,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       void bridge.shell.hideOverlay();
       bridge.shell.command("show");
     }
-  }, [clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, setPhase, updateTranscript, user?.id]);
+  }, [clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, setPhase, t, typeName, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(
@@ -980,6 +1002,17 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // The call type the rep picked in the island while recording.
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.shell.onCallType) return;
+    return bridge.shell.onCallType(({ key }) => {
+      if (!draftRef.current) return;
+      if (key) draftRef.current.type = key;
+      else delete draftRef.current.type;
+    });
+  }, []);
+
   // Where the call happens; a recording that already started without it picks it up.
   useEffect(() => {
     const bridge = getDesktopBridge();
@@ -1004,7 +1037,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       wsRef.current?.close();
       wsRef.current = null;
       const bridge = getDesktopBridge();
-      bridge?.shell.setState({ listening: false });
+      bridge?.shell.setState({ listening: false, liveType: null });
       void bridge?.shell.hideOverlay();
     },
     [releaseAudio, saveDraftNow],

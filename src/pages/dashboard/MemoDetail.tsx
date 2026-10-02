@@ -12,7 +12,7 @@ import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { DoneMark } from "@/components/dashboard/DoneMark";
 import { MemoMeetingChecklist } from "@/components/dashboard/memos/MemoMeetingChecklist";
 import { CoachingScore } from "@/components/dashboard/memos/CoachingScore";
-import { MemoPlaybookLine } from "@/features/playbooks/components/MemoPlaybookLine";
+import { MemoTypePill } from "@/features/playbooks/components/MemoTypePill";
 import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { InteractionObjections } from "@/components/dashboard/memos/InteractionObjections";
 import { MeetingProposalReview } from "@/components/dashboard/memos/MeetingProposalReview";
@@ -420,11 +420,10 @@ const MemoDetail = () => {
             <span className={THEME_TOKENS.typography.accentTitle}> Details</span>
           )}
         </h1>
-        {!isOwnMemo && authorName ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <AuthorLabel name={authorName} />
-          </div>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {id ? <MemoTypePill memoId={id} /> : null}
+          {!isOwnMemo && authorName ? <AuthorLabel name={authorName} /> : null}
+        </div>
         <p className={THEME_TOKENS.typography.body}>
           {isProcessing
             ? "AI is extracting CRM fields..."
@@ -634,7 +633,6 @@ const MemoDetail = () => {
                           onPlay={memo.audioUrl ? playMemoAtOffset : undefined}
                           markSeen={Boolean(user?.id && memo.userId === user.id) && review.active === "coaching"}
                         />
-                        {user?.company?.features?.includes("PLAYBOOK_ROUTING_ENABLED") ? <MemoPlaybookLine memoId={id} /> : null}
                         <CoachingScore memoId={id} />
                       </ReviewPanel>
                     </>

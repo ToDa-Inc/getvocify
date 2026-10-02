@@ -766,6 +766,30 @@ async def upload_memo(
         )
 
 
+def _pin_picked_type(supabase: Client, memo: dict, key: str) -> None:
+    """Pins the type the rep picked during the call as a manual choice. A type with no live
+    playbook is ignored (the memo keeps the pin it was born with). Never raises."""
+    from app.services.playbooks.catalog import INTERNAL_KEY
+    from app.services.playbooks.live import live_version_id
+    from app.services.playbooks.routing import merge_pin_meta
+
+    try:
+        version = None
+        if key != INTERNAL_KEY:
+            version = live_version_id(supabase, str(memo.get("company_id") or ""), key)
+            if not version:
+                return
+        supabase.table("memos").update(
+            {
+                "sales_motion_key": key,
+                "playbook_version_id": str(version) if version else None,
+                "pipeline_meta": merge_pin_meta(memo.get("pipeline_meta"), "manual", picked="during_call"),
+            }
+        ).eq("id", str(memo["id"])).execute()
+    except Exception:
+        logger.warning("could not pin the type picked during the call", exc_info=True)
+
+
 class UploadTranscriptRequest(BaseModel):
     """Transcript-only upload (from real-time transcription or meeting transcript paste)"""
     transcript: str
@@ -780,6 +804,8 @@ class UploadTranscriptRequest(BaseModel):
     # The app the call happened in, as the desktop saw it (e.g. "Google Meet", "Zoom"): context
     # for reading the call's type.
     call_source: Optional[str] = Field(default=None, max_length=60)
+    # The call's type, if the rep picked it while recording: theirs, so nothing re-types it.
+    sales_motion_key: Optional[str] = Field(default=None, max_length=64)
 
 
 @router.post("/upload-transcript", response_model=UploadResponse)
@@ -904,6 +930,8 @@ async def upload_transcript_and_extract(
     created = insert_memo_row(supabase, pin_playbook=True, payload=payload)
 
     memo_id = created["id"]
+    if body.sales_motion_key:
+        _pin_picked_type(supabase, created, body.sales_motion_key.strip())
 
     await start_extraction_from_transcript(
         str(memo_id),

@@ -96,3 +96,28 @@ def test_the_fields_the_rep_kept_are_what_gets_written():
 def test_without_choices_the_extraction_is_written_as_extracted():
     _, approve = _approve(READY, body=ApproveContactRequest())
     assert approve.call_args.args[1].extraction is None
+
+
+def test_the_upload_keeps_the_app_the_call_happened_in():
+    assert _upload(call_source="Google Meet")["pipeline_meta"] == {"call_source": "Google Meet"}
+    assert "pipeline_meta" not in _upload()
+
+
+def _picked(key: str, live):
+    supabase = MagicMock()
+    update = supabase.table.return_value.update
+    with patch("app.services.playbooks.live.live_version_id", return_value=live):
+        memos._pin_picked_type(supabase, {"id": "memo-1", "company_id": "co-1", "pipeline_meta": {"call_source": "Zoom"}}, key)
+    return update.call_args.args[0] if update.called else None
+
+
+def test_a_type_picked_during_the_call_is_pinned_as_the_reps_own():
+    row = _picked("discovery", "v-1")
+    assert row["sales_motion_key"] == "discovery" and row["playbook_version_id"] == "v-1"
+    assert row["pipeline_meta"]["playbook_pin"]["source"] == "manual"
+    assert row["pipeline_meta"]["call_source"] == "Zoom"
+
+
+def test_internal_needs_no_playbook_and_an_unpublished_pick_is_ignored():
+    assert _picked("internal", None)["playbook_version_id"] is None
+    assert _picked("negotiation", None) is None

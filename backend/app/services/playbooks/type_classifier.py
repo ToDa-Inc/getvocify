@@ -2,9 +2,10 @@
 
 Jev picks one of the company's published types, or `internal`, reading the conversation
 with what is known around it: the channel, the app it happened in, whether the contact was
-spoken to before, and the rep's sales role. A confident answer pins the memo and wins over
-the routing rules (the content is the stronger signal); "unknown" or a low confidence
-leaves the rule-based pin alone, and a type the rep or a manager set by hand never moves.
+spoken to before, and the rep's sales role. A confident answer is a suggestion that pins the
+memo over Vocify's own guesses (the role default, a catalog rule). Deliberate choices are
+never moved: a type someone picked by hand, or a rule the company saved for that type.
+"unknown" or a low confidence leaves the pin as it is.
 
 Runs alongside extraction, so it adds no wait to the post-call flow.
 """
@@ -76,12 +77,16 @@ def conversation_excerpt(transcript: str) -> str:
     return f"{text[:HEAD_CHARS]}\n[…]\n{text[-TAIL_CHARS:]}"
 
 
-def published_types(company_id: str) -> list[dict]:
-    """[{key, label}] of the company's live (published) types."""
+def _company_types(company_id: str) -> tuple[dict, dict]:
     from app.services.playbooks.repository import get_playbook_repository
     from app.services.playbooks.routing import motions_and_stored
 
-    motions, stored = motions_and_stored(get_playbook_repository().list_types(company_id, include_draft=False))
+    return motions_and_stored(get_playbook_repository().list_types(company_id, include_draft=False))
+
+
+def published_types(company_id: str) -> list[dict]:
+    """[{key, label}] of the company's live (published) types."""
+    motions, stored = _company_types(company_id)
     return [
         {"key": key, "label": (stored.get(key) or {}).get("label") or None}
         for key, state in motions.items()
@@ -176,6 +181,11 @@ def apply_memo_type(supabase: Any, memo_id: str, answer: Optional[tuple[str, flo
         if pin.get("source") == "manual":
             return
         current = memo.get("sales_motion_key")
+        if pin.get("source") == "rule" and current:
+            # A rule the company saved for this type is its own decision; a catalog default is ours.
+            _, stored = _company_types(str(memo.get("company_id")))
+            if (stored.get(current) or {}).get("applies_to"):
+                return
         version: Optional[str] = None
         if key != INTERNAL_KEY:
             live = live_version_id(supabase, str(memo.get("company_id")), key)

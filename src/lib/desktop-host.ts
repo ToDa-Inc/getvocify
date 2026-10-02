@@ -36,6 +36,8 @@ export type VocifyDesktopBridge = {
     command(name: string): void;
     onCommand(cb: (name: string) => void): () => void;
     onOverlayState?(cb: (state: Record<string, unknown>) => void): () => void;
+    /** The call type picked in the island while recording ({ key: null }: Vocify decides). */
+    onCallType?(cb: (payload: { key: string | null }) => void): () => void;
     /** A choice made in the island's post-call card: { type, ...details }. */
     onPostCallAction?(cb: (action: { type: string; [key: string]: unknown }) => void): () => void;
   };
