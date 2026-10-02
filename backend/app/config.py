@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     # Live calls also stream to the other provider (Speechmatics or Deepgram) in parallel; both
     # transcripts and their speed go to the logs to compare.
     LIVE_COMPARE_STT: bool = False
+    # Tries one provider (speechmatics, deepgram, mai) on every live call instead of the profile's rule.
+    LIVE_STT_PROVIDER: Optional[str] = None
+    # Vercel AI Gateway: MAI-Transcribe-2-Streaming for live calls.
+    AI_GATEWAY_API_KEY: Optional[str] = None
 
     # LLM provider routing: openrouter | vertex_ai
     LLM_PROVIDER: str = "openrouter"

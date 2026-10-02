@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from array import array
 import json
 import logging
 import os
@@ -38,6 +39,12 @@ logger = logging.getLogger(__name__)
 
 SPEECHMATICS_RT_URL = "wss://eu2.rt.speechmatics.com/v2"
 DEEPGRAM_LIVE_URL = "wss://api.deepgram.com/v1/listen"
+# MAI-Transcribe-2-Streaming through Vercel AI Gateway (no Azure quota needed). Its protocol:
+# one start frame, raw PCM in binary frames, an audio-done frame; transcript parts come back.
+MAI_GATEWAY_URL = "wss://ai-gateway.vercel.sh/v4/ai/transcription-model?ai-model-id=microsoft/mai-transcribe-2-streaming"
+MAI_RATE = 24000
+# The gateway closes a session after 25 minutes: a side moves to a fresh one before that.
+MAI_SESSION_S = 24 * 60.0
 # Nova-3 `multi` code-switches between these; a profile with any other goes to Speechmatics.
 DEEPGRAM_MULTI = {"en", "es", "fr", "de", "hi", "ru", "pt", "ja", "it", "nl"}
 MAX_KEYTERMS = 50
@@ -208,8 +215,11 @@ class LiveStream:
         self.task: Optional[asyncio.Task] = None
         # A restarted side's stream first catches up on replayed audio: not timed until it is live.
         self.live_from_s = 0.0
+        # Seconds of audio fed so far, for providers whose results carry no times.
+        self.fed_s = 0.0
 
     def feed(self, pcm: bytes) -> None:
+        self.fed_s += len(pcm) / BYTES_PER_SECOND
         self.queue.put_nowait(pcm)
 
     def force_end(self) -> None:
@@ -228,7 +238,9 @@ class LiveStream:
 
     async def _run(self, api_key: str) -> None:
         try:
-            async with websockets.connect(self.url(), additional_headers=self.headers(api_key)) as ws:
+            async with websockets.connect(
+                self.url(), additional_headers=self.headers(api_key), subprotocols=self.subprotocols(api_key)
+            ) as ws:
                 await self.opened(ws)
                 await asyncio.gather(self._send(ws), self._receive(ws))
         except Exception as e:
@@ -248,10 +260,12 @@ class LiveStream:
                 await ws.send(json.dumps(self.end_message(seq)))
                 return
             if item == "force":
-                await ws.send(json.dumps(self.force_message()))
+                message = self.force_message()
+                if message:
+                    await ws.send(json.dumps(message))
                 continue
             seq += 1
-            await ws.send(item)
+            await ws.send(self.frame(item))
 
     async def _receive(self, ws: Any) -> None:
         async for raw in ws:
@@ -262,15 +276,18 @@ class LiveStream:
                 if event["kind"] in ("done", "error"):
                     return
 
-    def words(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return items
+    def subprotocols(self, api_key: str) -> Optional[list[str]]:
+        return None
+
+    def frame(self, pcm: bytes) -> bytes:
+        return pcm
 
     # Per provider
     def url(self) -> str: raise NotImplementedError
     def headers(self, api_key: str) -> dict[str, str]: raise NotImplementedError
     async def opened(self, ws: Any) -> None: raise NotImplementedError
     def end_message(self, seq: int) -> dict[str, Any]: raise NotImplementedError
-    def force_message(self) -> dict[str, Any]: raise NotImplementedError
+    def force_message(self) -> Optional[dict[str, Any]]: raise NotImplementedError
     def events(self, data: dict[str, Any]) -> list[dict[str, Any]]: raise NotImplementedError
 
 
@@ -413,7 +430,98 @@ class DeepgramStream(LiveStream):
         return []
 
 
-STREAMS: dict[str, type[LiveStream]] = {"speechmatics": SpeechmaticsStream, "deepgram": DeepgramStream}
+class Upsampler:
+    """16 kHz to 24 kHz PCM16 by linear interpolation (3 samples out per 2 in). The last sample
+    of each chunk starts the next, so chunk edges join without a gap."""
+
+    def __init__(self) -> None:
+        self.last: Optional[int] = None
+
+    def __call__(self, pcm: bytes) -> bytes:
+        samples = array("h")
+        samples.frombytes(pcm[: len(pcm) - len(pcm) % 2])
+        if not samples:
+            return b""
+        if self.last is not None:
+            samples.insert(0, self.last)
+        out = array("h")
+        k = 0
+        while 2 * k < 3 * (len(samples) - 1):
+            j, frac = divmod(2 * k, 3)
+            a = samples[j]
+            out.append(a + (samples[j + 1] - a) * frac // 3)
+            k += 1
+        self.last = samples[-1]
+        return out.tobytes()
+
+
+class MaiStream(LiveStream):
+    """MAI-Transcribe-2-Streaming via Vercel AI Gateway: 60 languages detected as they are spoken,
+    Catalan included, so no language checks or restarts are needed."""
+
+    provider = "mai"
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.upsample = Upsampler()
+        self.last_end = self.offset_s
+
+    def url(self) -> str:
+        return MAI_GATEWAY_URL
+
+    def headers(self, api_key: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {api_key}"}
+
+    def subprotocols(self, api_key: str) -> Optional[list[str]]:
+        return ["ai-gateway-transcription.v1", f"ai-gateway-auth.{api_key}"]
+
+    async def opened(self, ws: Any) -> None:
+        await ws.send(json.dumps({"type": "transcription-stream.start", "inputAudioFormat": {"type": "audio/pcm", "rate": MAI_RATE}}))
+        self.started_at = time.monotonic()
+        self.ready.set()
+
+    def frame(self, pcm: bytes) -> bytes:
+        return self.upsample(pcm)
+
+    def end_message(self, seq: int) -> dict[str, Any]:
+        return {"type": "transcription-stream.audio-done"}
+
+    def force_message(self) -> Optional[dict[str, Any]]:
+        return None  # the gateway has no commit; MAI settles on its own
+
+    def events(self, data: dict[str, Any]) -> list[dict[str, Any]]:
+        kind = data.get("type")
+        if kind in ("transcript-partial", "transcript-final"):
+            text = data.get("text") or ""
+            start = data.get("startSecond")
+            if isinstance(start, (int, float)):
+                start = start + self.offset_s
+                end = data.get("endSecond")
+                if isinstance(end, (int, float)):
+                    end = end + self.offset_s
+                elif isinstance(data.get("durationInSeconds"), (int, float)):
+                    end = start + data["durationInSeconds"]
+                else:
+                    end = self.offset_s + self.fed_s
+            else:
+                # No times: what has been fed so far bounds it.
+                start, end = self.last_end, self.offset_s + self.fed_s
+            final = kind == "transcript-final"
+            if final:
+                self.last_end = end
+            return [{"kind": "final" if final else "partial", "transcript": text, "words": [], "start": start, "end": end}]
+        if kind == "error":
+            error = data.get("error")
+            reason = error.get("message") if isinstance(error, dict) else str(error or "MAI error")
+            return [{"kind": "error", "reason": reason}]
+        if kind == "finish":
+            return [{"kind": "done"}]
+        return []
+
+
+STREAMS: dict[str, type[LiveStream]] = {"speechmatics": SpeechmaticsStream, "deepgram": DeepgramStream, "mai": MaiStream}
+# How long a provider's session may last before a side moves to a fresh one.
+SESSION_LIMITS_S = {"mai": MAI_SESSION_S}
 
 
 class ChannelSessions:
@@ -441,8 +549,12 @@ class ChannelSessions:
             or os.environ.get("SPEECHMATICS_API_KEY")
             or os.environ.get("SPEECHNATICS_API_KEY"),
             "deepgram": settings.DEEPGRAM_API_KEY,
+            "mai": settings.AI_GATEWAY_API_KEY,
         }
-        self.provider = live_provider(self.profile)
+        rule = live_provider(self.profile)
+        # LIVE_STT_PROVIDER tries a provider on every call; the profile's rule is the comparison.
+        forced = (settings.LIVE_STT_PROVIDER or "").strip().lower()
+        self.provider = forced if forced in STREAMS and self.keys.get(forced) else rule
         start_language, start_domain = session_language(language, self.profile)
         self.detect = (
             detect
@@ -459,11 +571,13 @@ class ChannelSessions:
         self.send_lock = asyncio.Lock()
         self.closing = False
         # The other provider on the same audio, for the call's report only.
-        other = "speechmatics" if self.provider == "deepgram" else "deepgram"
+        other = rule if rule != self.provider else ("speechmatics" if self.provider == "deepgram" else "deepgram")
         self.shadow_provider = other if settings.LIVE_COMPARE_STT and self.keys[other] else None
         providers = [self.provider] + ([self.shadow_provider] if self.shadow_provider else [])
         self.report = LiveReport(labels, providers=providers, service=service)
         self.shadows: dict[str, LiveStream] = {}
+        # Streams replaced by a fresh session of the same provider: their last results still count.
+        self.retiring: set[LiveStream] = set()
 
     async def run(self) -> None:
         await self._send({"type": "connected", "model": "realtime", "mode": "copilot_channels", "provider": self.provider})
@@ -487,10 +601,30 @@ class ChannelSessions:
                 )
                 shadow.start(self.keys[self.shadow_provider] or "")
                 self.shadows[label] = shadow
+        limit = SESSION_LIMITS_S.get(self.provider)
+        if limit:
+            for label in self.labels:
+                task = asyncio.create_task(self._roll_over(label, limit))
+                self.checks.add(task)
+                task.add_done_callback(self.checks.discard)
         try:
             await self._read_client()
         finally:
             await self._finish()
+
+    async def _roll_over(self, label: str, limit: float) -> None:
+        """Moves a side to a fresh session before the provider ends it, without a gap."""
+        while not self.closing:
+            await asyncio.sleep(limit)
+            if self.closing:
+                return
+            old = self.active[label]
+            side = self.sides[label]
+            fresh = self._open(label, side.language, side.domain, offset_s=self.report.heard(label))
+            self.active[label] = fresh
+            self.retiring.add(old)
+            old.end()
+            logger.info("Live channels: %s moved to a fresh %s session at %.0fs", label, self.provider, fresh.offset_s)
 
     def _open(self, label: str, language: str, domain: Optional[str], *, offset_s: float) -> LiveStream:
         stream = STREAMS[self.provider](label, language, domain, vocab=self.vocab, offset_s=offset_s, on_event=self._on_stream)
@@ -575,7 +709,7 @@ class ChannelSessions:
             logger.warning("Live comparison %s %s stopped: %s", stream.provider, stream.label, event.get("reason"))
 
     async def _on_stream(self, stream: LiveStream, event: dict[str, Any]) -> None:
-        if self.active.get(stream.label) is not stream:
+        if self.active.get(stream.label) is not stream and stream not in self.retiring:
             return  # replaced by a stream in the side's real language
         kind = event["kind"]
         if kind in ("partial", "final"):

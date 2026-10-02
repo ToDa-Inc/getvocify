@@ -117,3 +117,34 @@ def test_speechmatics_messages_become_the_same_events():
     event = stream.events({"message": "AddTranscript", "metadata": {"transcript": "Vale.", "start_time": 1.0, "end_time": 1.4}, "results": []})
     assert event == [{"kind": "final", "transcript": "Vale.", "words": [], "start": 3.0, "end": 3.4}]
     assert stream.events({"message": "EndOfTranscript"}) == [{"kind": "done"}]
+
+
+def test_upsampler_turns_16k_into_24k_without_gaps_between_chunks():
+    from array import array
+    from app.services.live_channel_sessions import Upsampler
+
+    up = Upsampler()
+    ramp = array("h", range(0, 3200, 2))  # 1600 samples
+    first = array("h"); first.frombytes(up(ramp.tobytes()))
+    assert len(first) == 2399  # the last input sample waits for the next chunk
+    second = array("h"); second.frombytes(up(array("h", range(3200, 6400, 2)).tobytes()))
+    assert len(second) == 2400
+    joined = list(first) + list(second)
+    steps = {b - a for a, b in zip(joined, joined[1:])}
+    assert steps <= {1, 2}  # a steady ramp: no jump at the chunk edge
+
+
+def test_mai_parts_become_partials_and_finals():
+    from app.services.live_channel_sessions import MaiStream
+
+    stream = MaiStream("rep", "es", None, vocab=[], offset_s=10.0, on_event=_noop)
+    assert stream.subprotocols("k") == ["ai-gateway-transcription.v1", "ai-gateway-auth.k"]
+    partial = stream.events({"type": "transcript-partial", "text": "hola qué", "startSecond": 1.0, "durationInSeconds": 0.6})
+    assert partial == [{"kind": "partial", "transcript": "hola qué", "words": [], "start": 11.0, "end": 11.6}]
+    final = stream.events({"type": "transcript-final", "text": "Hola, ¿qué tal?", "startSecond": 1.0, "endSecond": 2.0})
+    assert final[0]["kind"] == "final" and final[0]["end"] == 12.0
+    untimed = MaiStream("rep", "es", None, vocab=[], offset_s=10.0, on_event=_noop)
+    untimed.feed(b"\0" * 32000)  # one second fed, no times in the part
+    assert [(e["start"], e["end"]) for e in untimed.events({"type": "transcript-final", "text": "Vale."})] == [(10.0, 11.0)]
+    assert stream.events({"type": "finish", "text": "", "segments": []}) == [{"kind": "done"}]
+    assert stream.events({"type": "error", "error": {"name": "X", "message": "nope"}}) == [{"kind": "error", "reason": "nope"}]
