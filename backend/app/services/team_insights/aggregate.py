@@ -127,23 +127,19 @@ def activity_row_from_memo(memo: dict) -> dict | None:
     screening = memo.get("screening_outcome")
     if screening not in _SCREENING_ATTEMPTS:
         return None
-    intel = memo.get("intelligence") or (memo.get("extraction") or {}).get("intelligence") or {}
-    meeting = intel.get("meeting") if isinstance(intel, dict) else {}
-    agreed = meeting.get("agreed") if isinstance(meeting, dict) else None
     observed = memo.get("observed_at") or memo.get("capture_started_at") or memo.get("created_at")
     return {
         "screening": screening,
-        "meeting_agreed": agreed is True,
+        "meeting_agreed": memo_meeting_agreed(memo),
         "observed_at": observed,
         "user_id": str(memo.get("user_id") or ""),
     }
 
 
 def memo_meeting_agreed(memo: dict) -> bool:
-    """The discovery goal (meeting_booked) observed in the interaction itself."""
-    intel = memo.get("intelligence") or (memo.get("extraction") or {}).get("intelligence") or {}
-    meeting = intel.get("meeting") if isinstance(intel, dict) else {}
-    return isinstance(meeting, dict) and meeting.get("agreed") is True
+    """The discovery goal (meeting_booked) as the rep declared it: their outcome after the call, or
+    the deal they moved to the company's meeting-booked stage. Never what a model read in the call."""
+    return memo.get("rep_outcome") == "meeting_booked"
 
 
 def activity_by_rep(rows: list[dict], *, start: datetime, end: datetime) -> dict[str, dict]:
@@ -338,14 +334,16 @@ def load_team_adherence_inputs(
         if role_filtered and not member_ids:
             raise _NoRepsInRole()
 
+        columns = (
+            "id,user_id,company_id,playbook_version_id,"
+            "sales_motion_key,screening_outcome,extraction,"
+            "capture_started_at,created_at,hubspot_contact_id,hubspot_deal_id"
+        )
+
         def build_memos():
             query = (
                 supabase.table("memos")
-                .select(
-                    "id,user_id,company_id,playbook_version_id,"
-                    "sales_motion_key,screening_outcome,extraction,"
-                    "capture_started_at,created_at"
-                )
+                .select(columns + extra_columns[0])
                 .gte("created_at", since.isoformat())
             )
             if member_ids:
@@ -362,7 +360,16 @@ def load_team_adherence_inputs(
 
         memo_ids: list[str] = []
         memo_meta: dict[str, dict] = {}
-        for memo in _paged(build_memos):
+        # rep_outcome (migration 062) is read when the column exists.
+        extra_columns = [",rep_outcome"]
+        try:
+            team_memos = _paged(build_memos)
+        except Exception:
+            extra_columns[0] = ""
+            team_memos = _paged(build_memos)
+        from app.services.coaching.crm_meetings import apply_rep_meetings
+
+        for memo in apply_rep_meetings(supabase, team_memos, batch=_IN_BATCH):
             memo_id = str(memo.get("id"))
             memo_ids.append(memo_id)
             memo_meta[memo_id] = {

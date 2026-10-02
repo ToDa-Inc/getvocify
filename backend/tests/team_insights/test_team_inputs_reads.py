@@ -74,7 +74,8 @@ def test_memo_id_lists_are_chunked_and_responses_paged(monkeypatch):
     inputs = load_team_adherence_inputs(store, COMPANY)
     sizes = [n for table, column, n in store.in_calls if column == "memo_id"]
     assert sizes and max(sizes) <= 2
-    assert {t for t, c, _ in store.in_calls if c == "memo_id"} == {"memo_scores", "interaction_patterns"}
+    # meeting_proposals: a meeting the rep accepted in Vocify is their declaration of it.
+    assert {t for t, c, _ in store.in_calls if c == "memo_id"} == {"memo_scores", "interaction_patterns", "meeting_proposals"}
     assert inputs["sample_size"] == 5
     assert len(inputs["pattern_rows"]) == 1
 

@@ -202,3 +202,10 @@ def test_activity_counts_ignore_out_of_week_and_missing_observed_at():
         "connected": 1,
         "meetings": 0,
     }
+
+
+def test_a_meeting_counts_only_when_the_rep_declared_it():
+    from app.services.team_insights.aggregate import memo_meeting_agreed
+    read_by_model = {"extraction": {"intelligence": {"meeting": {"agreed": True}}}}
+    assert memo_meeting_agreed(read_by_model) is False
+    assert memo_meeting_agreed({**read_by_model, "rep_outcome": "meeting_booked"}) is True

@@ -75,16 +75,17 @@ function FocusCard({ focus }: { focus: CoachFocus }) {
   );
 }
 
-function StepStrip({ steps, onOpenProcess, earlierWeek }: { steps: CoachStepRate[]; onOpenProcess: () => void; earlierWeek?: string | null }) {
-  const { t, language } = useLanguage();
+function StepStrip({ steps, onOpenProcess, span }: { steps: CoachStepRate[]; onOpenProcess: () => void; span?: { weeks: number; conversations: number } }) {
+  const { t } = useLanguage();
   const p = t.product;
-  const weekLabel = earlierWeek
-    ? new Date(`${earlierWeek}T12:00:00`).toLocaleDateString(language === "EN" ? "en-GB" : "es-ES", { day: "numeric", month: "short" })
-    : null;
   return (
     <section className={`${CARD_COMPACT} space-y-2`} data-testid="coach-step-strip">
       <h2 className={THEME_TOKENS.typography.sectionTitle}>{p.coachStepsHeading}</h2>
-      {weekLabel ? <p className="text-xs text-muted-foreground">{p.coachStepsEarlierWeek.replace("{date}", weekLabel)}</p> : null}
+      {span ? (
+        <p className="text-xs text-muted-foreground">
+          {p.coachStepsWindow.replace(/{weeks}/g, String(span.weeks)).replace("{count}", String(span.conversations))}
+        </p>
+      ) : null}
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {steps.map((step) => {
           const arrow = trendArrow(trendOf(step.rate, step.prev_rate));
@@ -169,16 +170,12 @@ export function CoachingSummary({ onOpenProcess, flow }: { onOpenProcess: () => 
           <p className="text-foreground">{hasData ? p.coachFocusNone : p.coachNoData}</p>
         </section>
       )}
-      <StepStrip
-        steps={data.steps}
-        onOpenProcess={onOpenProcess}
-        earlierWeek={data.steps_week_start && data.steps_week_start !== data.week_start ? data.steps_week_start : null}
-      />
+      <StepStrip steps={data.steps} onOpenProcess={onOpenProcess} span={data.steps_window} />
       <Numbers
         current={data.numbers}
         previous={data.prev_numbers}
         flow={data.flow}
-        earlierWeek={data.steps_week_start && data.steps_week_start !== data.week_start ? data.steps_week_start : null}
+        earlierWeek={data.numbers_week_start && data.numbers_week_start !== data.week_start ? data.numbers_week_start : null}
       />
       {conversion ? (
         <p className="px-1 text-sm text-foreground" data-testid="coach-conversion">

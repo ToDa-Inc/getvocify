@@ -260,6 +260,7 @@ async def get_coaching_best(
 
 _OWN_WEEKS = FLOW_WEEKS  # also the window that decides a general rep's flow
 _PEER_WEEKS = 4
+STEP_WINDOW_WEEKS = 4
 _MAX_MOMENTS = 3
 _MIN_PEERS = 3  # an anonymous example needs this many distinct contributors
 
@@ -412,7 +413,7 @@ async def get_my_coaching_summary(
     if not ctx["playbook"]["published"]:
         return body
     medians = ctx["peer_medians"]
-    # A week with no calls yet shows the rep's latest week with calls, not a row of zeros.
+    # "Tu semana": a week with no calls yet shows the rep's latest week with calls, not zeros.
     shown_start, shown_rows, shown_prev = ctx["week_start"], this_week, prev_week
     if not this_week:
         starts = ctx["week_starts"]
@@ -422,9 +423,21 @@ async def get_my_coaching_summary(
                 shown_start, shown_rows = starts[index], rows
                 shown_prev = _in_window(ctx["own"], starts[index - 1], starts[index]) if index else []
                 break
-    body["steps_week_start"] = engine.madrid_day(shown_start).isoformat()
+    body["numbers_week_start"] = engine.madrid_day(shown_start).isoformat()
     body["numbers"], body["prev_numbers"] = _numbers(shown_rows), _numbers(shown_prev)
-    prev_rates = {r["step_id"]: r["rate"] for r in engine.step_rates(shown_prev, steps)}
+    # "Tus pasos": one week holds a handful of calls where a step applies (follow-ups and calls cut
+    # at the door owe only the opening), so a rate over it is noise. The last STEP_WINDOW_WEEKS
+    # weeks, against the same span before.
+    starts = ctx["week_starts"]
+    window_start = starts[-STEP_WINDOW_WEEKS] if len(starts) >= STEP_WINDOW_WEEKS else starts[0]
+    window_rows = _in_window(ctx["own"], window_start, ctx["week_end"])
+    before_start = starts[-2 * STEP_WINDOW_WEEKS] if len(starts) >= 2 * STEP_WINDOW_WEEKS else starts[0]
+    window_prev = _in_window(ctx["own"], before_start, window_start)
+    body["steps_window"] = {
+        "weeks": STEP_WINDOW_WEEKS,
+        "conversations": sum(1 for r in window_rows if r.get("is_conversation", True)),
+    }
+    prev_rates = {r["step_id"]: r["rate"] for r in engine.step_rates(window_prev, steps)}
     body["steps"] = [
         {
             "step_id": r["step_id"],
@@ -437,7 +450,7 @@ async def get_my_coaching_summary(
             "prev_rate": prev_rates[r["step_id"]],
             "peer_median": medians.get(r["step_id"]),
         }
-        for r in engine.step_rates(shown_rows, steps)
+        for r in engine.step_rates(window_rows, steps)
     ]
     # No peer tie-break: the Head of Sales column and the messages (rep_focus) choose the
     # focus without it, so every surface names the same step. peer_median is still shown.

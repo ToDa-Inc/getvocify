@@ -103,8 +103,10 @@ def test_summary_self_scope_and_focus():
     assert body["week_start"] == "2026-09-21"
     assert body["numbers"] == {"conversations": 1, "meetings_agreed": 1, "process_complete": 1, "interactions": 1}
     assert body["prev_numbers"]["interactions"] == 3
+    # Tus pasos covers the last four weeks (this one and the three before): one week is too few calls.
     opening = next(s for s in body["steps"] if s["step_id"] == "open")
-    assert opening["rate"] == 1.0 and opening["prev_rate"] == pytest.approx(0.3333, abs=1e-3)
+    assert (opening["done"], opening["applicable"]) == (2, 4) and opening["prev_rate"] is None
+    assert body["steps_window"] == {"weeks": 4, "conversations": 4}
     assert body["focus"]["step_id"] == "open" and body["focus"]["criterion"] == "Se presenta"
     assert body["focus"]["example"] == "Hola, soy Ana"
     assert len(body["focus"]["progress"]) == 5
@@ -119,7 +121,7 @@ def test_a_week_without_calls_yet_shows_the_latest_week_with_calls():
         _memo("a2", REP, {"open": "met", "pain": "met"}, days_ago=9),
     ]
     body = _client(memos).get("/api/v1/coaching/me/summary").json()
-    assert body["steps_week_start"] == "2026-09-14" and body["week_start"] == "2026-09-21"
+    assert body["numbers_week_start"] == "2026-09-14" and body["week_start"] == "2026-09-21"
     assert body["numbers"]["conversations"] == 2  # the shown week, not an empty one
     opening = next(s for s in body["steps"] if s["step_id"] == "open")
     assert (opening["done"], opening["applicable"]) == (2, 2)

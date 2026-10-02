@@ -9,7 +9,7 @@ from app.services.team_insights.aggregate import load_team_reps
 
 _MEMO_COLUMNS = (
     "id,user_id,company_id,sales_motion_key,screening_outcome,audio_duration,"
-    "extraction,capture_started_at,created_at"
+    "extraction,capture_started_at,created_at,hubspot_contact_id,hubspot_deal_id"
 )
 _PATTERN_COLUMNS = "memo_id,category,kind,resolution,response,superseded,created_at"
 _PAGE_SIZE = 1000
@@ -60,7 +60,11 @@ def load_memos(
                         break
                     offset += _PAGE_SIZE
             rows.sort(key=lambda row: (str(row.get("created_at") or ""), str(row.get("id") or "")))
-            return rows
+            # A meeting the rep marked in the CRM (the deal moved to the meeting-booked stage) is
+            # their declaration too: it settles the meeting step like rep_outcome does.
+            from app.services.coaching.crm_meetings import apply_rep_meetings
+
+            return apply_rep_meetings(supabase, rows, batch=_IN_BATCH)
         except Exception:
             continue
     return []
