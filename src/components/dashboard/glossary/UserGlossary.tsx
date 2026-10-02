@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { glossaryApi, glossaryKeys, GlossaryItem, BulkAddItem } from "@/lib/api/glossary";
 import { parseBulkInput, type ParsedBulkItem } from "@/lib/glossary/parseBulkInput";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
   const queryClient = useQueryClient();
@@ -273,18 +274,19 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
                   {bulkPreview.some((p) => !p.include) && ` · ${bulkPreview.filter((p) => !p.include).length} already in glossary`}
                 </span>
                 <span className="text-xs text-muted-foreground">Category:</span>
-                <select
-                  className="h-8 px-3 rounded-lg border border-input bg-card text-xs font-medium"
-                  value={bulkCategory}
-                  onChange={(e) => setBulkCategory(e.target.value)}
-                >
-                  <option value="Company">Company</option>
-                  <option value="Competitor">Competitor</option>
-                  <option value="Product">Product</option>
-                  <option value="Technical">Technical</option>
-                  <option value="Slang">Slang/Lingo</option>
-                  <option value="General">General</option>
-                </select>
+                <Select value={bulkCategory} onValueChange={setBulkCategory}>
+                  <SelectTrigger size="sm" className="w-auto" aria-label="Category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Company">Company</SelectItem>
+                    <SelectItem value="Competitor">Competitor</SelectItem>
+                    <SelectItem value="Product">Product</SelectItem>
+                    <SelectItem value="Technical">Technical</SelectItem>
+                    <SelectItem value="Slang">Slang/Lingo</SelectItem>
+                    <SelectItem value="General">General</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="outline"
                   size="sm"
@@ -324,22 +326,26 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
                         </td>
                         <td className="p-2 font-medium">{row.word}</td>
                         <td className="p-2">
-                          <select
-                            className="h-7 px-2 rounded border border-input bg-card text-xs w-28"
+                          <Select
                             value={row.category}
-                            onChange={(e) =>
+                            onValueChange={(val) =>
                               setBulkPreview((prev) =>
-                                prev.map((p) => (p.id === row.id ? { ...p, category: e.target.value } : p))
+                                prev.map((p) => (p.id === row.id ? { ...p, category: val } : p))
                               )
                             }
                           >
-                            <option value="Company">Company</option>
-                            <option value="Competitor">Competitor</option>
-                            <option value="Product">Product</option>
-                            <option value="Technical">Technical</option>
-                            <option value="Slang">Slang</option>
-                            <option value="General">General</option>
-                          </select>
+                            <SelectTrigger size="sm" className="w-28" aria-label="Category">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Company">Company</SelectItem>
+                              <SelectItem value="Competitor">Competitor</SelectItem>
+                              <SelectItem value="Product">Product</SelectItem>
+                              <SelectItem value="Technical">Technical</SelectItem>
+                              <SelectItem value="Slang">Slang</SelectItem>
+                              <SelectItem value="General">General</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </td>
                         <td className="p-2">
                           <Input
@@ -411,17 +417,18 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
             </div>
             <div className="space-y-2">
               <label className={THEME_TOKENS.typography.capsLabel}>Category</label>
-              <select 
-                className="w-full h-10 px-4 rounded-full border border-input bg-card text-sm font-bold"
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
-              >
-                <option value="Company">Company</option>
-                <option value="Competitor">Competitor</option>
-                <option value="Product">Product</option>
-                <option value="Technical">Technical</option>
-                <option value="Slang">Slang/Lingo</option>
-              </select>
+              <Select value={newCategory} onValueChange={setNewCategory}>
+                <SelectTrigger className="w-full" aria-label="Category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Company">Company</SelectItem>
+                  <SelectItem value="Competitor">Competitor</SelectItem>
+                  <SelectItem value="Product">Product</SelectItem>
+                  <SelectItem value="Technical">Technical</SelectItem>
+                  <SelectItem value="Slang">Slang/Lingo</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="space-y-2">
@@ -443,7 +450,7 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
           <Button 
             onClick={handleAdd} 
             disabled={isGenerating}
-            className="w-full rounded-full bg-beige text-white font-bold dark:text-cream"
+            className="w-full"
           >
             {isGenerating ? <VocifySpinner size={12} /> : null}
             Add to Vocabulary
@@ -469,11 +476,11 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
             >
               <div className="flex items-center gap-4">
                 <div className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter ${
-                  item.category === 'Company' ? 'bg-blue-100 text-blue-700 dark:bg-blue-400/15 dark:text-blue-300' :
-                  item.category === 'Competitor' ? 'bg-red-100 text-red-700 dark:bg-red-400/15 dark:text-red-300' :
-                  item.category === 'Product' ? 'bg-purple-100 text-purple-700 dark:bg-purple-400/15 dark:text-purple-300' :
-                  item.category === 'Slang' ? 'bg-orange-100 text-orange-700 dark:bg-orange-400/15 dark:text-orange-300' :
-                  'bg-gray-100 text-gray-700 dark:bg-secondary dark:text-muted-foreground'
+                  item.category === 'Company' ? THEME_TOKENS.colors.highlight :
+                  item.category === 'Competitor' ? THEME_TOKENS.colors.danger :
+                  item.category === 'Product' ? THEME_TOKENS.colors.success :
+                  item.category === 'Slang' ? THEME_TOKENS.colors.warning :
+                  THEME_TOKENS.colors.neutral
                 }`}>
                   {item.category}
                 </div>

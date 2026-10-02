@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, BookOpenText } from "@phosphor-icons/react";
+import { ArrowUpRight, BookOpenText } from "lucide-react";
 import { useAuth } from "@/features/auth";
 import { citedPlaybook, pointsChange, type AskCard, type AskCoachingCard, type AskTeamCard } from "@/lib/ask-cards";
 import type { AskEvidence } from "@/lib/ask-thread";
@@ -11,7 +11,7 @@ import { focusTitle, formatPercent, peerMedianLabel, trendArrow, trendOf, weekTo
 import { objectionDisplayName, teamFlowFilterLabel } from "@/lib/team-insights";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 
-const CARD = `ask-enter ${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} overflow-hidden shadow-[0_1px_2px_rgb(40_30_20/0.04),0_10px_24px_-18px_rgb(40_30_20/0.25)]`;
+const CARD = `ask-enter ${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} overflow-hidden shadow-medium`;
 
 const TONE_DOT: Record<ProcessTone, string> = {
   process: "bg-warning",
@@ -31,7 +31,7 @@ function Frame({ label, to, place, children }: { label: string; to: string; plac
           className="inline-flex shrink-0 items-center gap-0.5 rounded-full text-[12.5px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {place}
-          <ArrowUpRight size={12} weight="bold" aria-hidden="true" />
+          <ArrowUpRight size={12} strokeWidth={2.25} aria-hidden="true" />
         </Link>
       </header>
       <div className="space-y-4 px-4 py-3.5">{children}</div>
@@ -160,7 +160,7 @@ function TeamCard({ card }: { card: AskTeamCard }) {
               return (
                 <li key={rep.user_id || rep.name}>
                   {rep.user_id ? (
-                    <Link to={`/dashboard/insights/rep/${rep.user_id}`} className={`${cls} transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}>
+                    <Link to={`/dashboard/insights/rep/${rep.user_id}`} className={`${cls} transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}>
                       {row}
                     </Link>
                   ) : (
@@ -182,7 +182,7 @@ function PlaybookSources({ evidence }: { evidence: AskEvidence[] }) {
   const { t } = useLanguage();
   const p = t.product;
   const { user } = useAuth();
-  const to = isManagerRole(user?.company?.role) ? "/dashboard/settings/playbooks" : "/dashboard/coach?tab=playbook";
+  const to = isManagerRole(user?.company?.role) ? "/dashboard/process" : "/dashboard/coach?tab=playbook";
   return (
     <Frame label={p.askPlaybookSource} to={to} place={p.navPlaybook}>
       <ul className="space-y-3">
@@ -193,7 +193,7 @@ function PlaybookSources({ evidence }: { evidence: AskEvidence[] }) {
           ].filter(Boolean);
           return (
             <li key={entry.id} className="flex gap-3">
-              <BookOpenText size={15} weight="light" className="mt-0.5 shrink-0 text-beige" aria-hidden="true" />
+              <BookOpenText size={15} strokeWidth={1.5} className="mt-0.5 shrink-0 text-beige" aria-hidden="true" />
               <div className="min-w-0 space-y-1">
                 {tags.length ? <p className="text-[12.5px] text-muted-foreground">{tags.join(" · ")}</p> : null}
                 <p className="text-[14px] leading-relaxed text-foreground">“{entry.quote}”</p>

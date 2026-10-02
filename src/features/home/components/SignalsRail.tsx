@@ -105,7 +105,7 @@ export function SignalsRail({ onAsk }: { onAsk: (question: string) => void }) {
             <button
               type="button"
               onClick={() => onAsk(words.question)}
-              className="flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left text-[14px] leading-snug text-foreground transition-colors duration-150 hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              className="flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left text-[14px] leading-snug text-foreground transition-colors duration-150 hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             >
               <span
                 className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full ${signal.tone === "warn" ? "bg-warning" : "bg-muted-foreground/40"}`}

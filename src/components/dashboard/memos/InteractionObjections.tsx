@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useLanguage } from "@/lib/i18n";
 import { api } from "@/shared/lib/api-client";
 import {
@@ -73,41 +74,90 @@ export function InteractionObjections({
     }
   }
 
+  const resolutionTone: Record<ReviewPattern["resolution"], string> = {
+    resolved: "bg-success/10 text-success",
+    open: "bg-warning/15 text-warning",
+    unknown: "bg-foreground/[0.05] text-muted-foreground",
+  };
+  const objections = review.patterns;
+
   return (
-    <section aria-labelledby="objections-title" className="mb-6 space-y-3">
-      <h2 id="objections-title" className="text-lg">{p.teamHeadingObjections}</h2>
-      {review.title ? <p>{review.title}</p> : null}
-      <ul className="space-y-3">
-        {review.patterns.map((pattern) => (
-          <li key={pattern.pattern_id}>
-            <p>
-              {patternCategoryLabel(pattern.category, p)} · {patternKindLabel(pattern.kind, p)} ·{" "}
-              {patternResolutionLabel(pattern.resolution, p)}
-            </p>
-            {pattern.prospect_quotes.map((quote) => (
-              <p key={quote}>{p.prospectQuote.replace("{quote}", quote)}</p>
+    <div className="space-y-4 text-[13px] text-foreground">
+      {/* The rep's own note: one line, a real button, Enter saves. */}
+      <div className="space-y-2">
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
+          <Input
+            aria-label={p.noteLabel}
+            placeholder={p.notePlaceholder}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            className="h-8 flex-1 rounded-xl border-border/60 bg-card px-3 text-[13px] md:text-[13px]"
+          />
+          <Button
+            type="submit"
+            disabled={status === "syncing" || !text.trim()}
+            className="h-8 shrink-0 rounded-full bg-beige px-3.5 text-[13px] font-normal text-cream hover:bg-beige/90"
+          >
+            {p.noteSaveButton}
+          </Button>
+        </form>
+        {label ? <p role="status" className="px-1 text-[12px] text-muted-foreground">{label}</p> : null}
+        {review.notes.length ? (
+          <ul className="space-y-1 px-1">
+            {review.notes.map((note) => (
+              <li key={note.annotation_id} className="flex gap-2 text-[12.5px]">
+                <span className="shrink-0 tabular-nums text-muted-foreground">{clock(note.offset_ms)}</span>
+                <span className="min-w-0 break-words">{note.text}</span>
+              </li>
             ))}
-            {pattern.response ? <p>{pattern.response}</p> : null}
-          </li>
-        ))}
-        {review.notes.map((note) => (
-          <li key={note.annotation_id}>
-            <p>{note.label}: {note.text}</p>
-            <p>
-              {p.noteOffsetMeta.replace("{offset}", String(note.offset_ms)).replace("{author}", note.author_id)}
-            </p>
-            {note.playable ? <p>{p.objectionPlayableSpan}</p> : null}
-          </li>
-        ))}
-      </ul>
-      <label className="block space-y-2">
-        <span>{p.noteLabel}</span>
-        <textarea value={text} onChange={(event) => setText(event.target.value)} rows={2} className="w-full rounded-md border p-2" />
-      </label>
-      <Button type="button" variant="outline" onClick={() => void save()} disabled={status === "syncing"}>
-        {p.noteSaveButton}
-      </Button>
-      {label ? <p role="status">{label}</p> : null}
-    </section>
+          </ul>
+        ) : null}
+      </div>
+
+      <section aria-labelledby="objections-title" className="space-y-2.5 rounded-xl border border-border/50 bg-secondary/5 px-3.5 py-3">
+        <div className="flex items-center gap-2">
+          <h2 id="objections-title" className="text-[13px] font-medium">{p.teamHeadingObjections}</h2>
+          {objections.length ? (
+            <span className="rounded-full bg-foreground/[0.06] px-1.5 text-[11px] tabular-nums text-muted-foreground">{objections.length}</span>
+          ) : null}
+        </div>
+        {review.title ? <p className="text-[12.5px] text-muted-foreground">{review.title}</p> : null}
+        {objections.length ? (
+          <ul className="divide-y divide-border/50">
+            {objections.map((pattern) => (
+              <li key={pattern.pattern_id} className="space-y-1 py-2 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-medium">{patternCategoryLabel(pattern.category, p)}</span>
+                  <span className={`rounded-full px-2 py-px text-[11px] ${resolutionTone[pattern.resolution]}`}>
+                    {patternResolutionLabel(pattern.resolution, p)}
+                  </span>
+                  {pattern.kind !== "objection" ? (
+                    <span className="text-[11px] text-muted-foreground">{patternKindLabel(pattern.kind, p)}</span>
+                  ) : null}
+                </div>
+                {pattern.prospect_quotes.map((quote) => (
+                  <p key={quote} className="text-[12.5px] italic text-muted-foreground">
+                    {p.prospectQuote.replace("{quote}", quote)}
+                  </p>
+                ))}
+                {pattern.response ? <p className="text-[12.5px]">{pattern.response}</p> : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
+    </div>
   );
+}
+
+/** Where in the call a note was taken, as m:ss. */
+function clock(offsetMs: number): string {
+  const total = Math.max(0, Math.round((offsetMs || 0) / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }

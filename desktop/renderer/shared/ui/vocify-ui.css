@@ -14,7 +14,7 @@
 
 .v-transcript-jump:focus-visible,
 .transcript:focus-visible {
-  outline: 2px solid hsl(var(--v-beige, 35 25% 35%));
+  outline: 2px solid var(--v-beige, hsl(35 25% 35%));
   outline-offset: 2px;
 }
 

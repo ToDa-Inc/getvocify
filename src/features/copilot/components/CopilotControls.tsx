@@ -1,4 +1,5 @@
-import { Mic, Square, Loader2 } from "lucide-react";
+import { Mic, Square } from "lucide-react";
+import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { Button } from "@/components/ui/button";
 
 interface CopilotControlsProps {
@@ -21,7 +22,7 @@ export function CopilotControls({
         onClick={onToggle}
         className={`h-12 px-8 rounded-lg text-base font-semibold ${
           isListening
-            ? "bg-red-500 hover:bg-red-600 text-white"
+            ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
             : "bg-beige hover:bg-beige/90 text-cream"
         }`}
       >
@@ -42,13 +43,13 @@ export function CopilotControls({
           <>
             <span
               className={`h-2 w-2 rounded-full ${
-                isConnected ? "bg-emerald-500 animate-pulse" : "bg-amber-400"
+                isConnected ? "bg-success animate-pulse" : "bg-warning"
               }`}
             />
             {isConnected ? "Live transcription" : "Connecting…"}
             {isBusy && (
               <span className="inline-flex items-center gap-1 text-beige">
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <VocifySpinner size={12} />
                 coaching
               </span>
             )}

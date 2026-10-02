@@ -20,13 +20,13 @@ import TeamPage from "./pages/dashboard/TeamPage";
 import { InsightsRoute, ManagerOnly, RepOnly } from "./pages/dashboard/headOfSalesRoutes";
 import SalesProcessPage from "./pages/dashboard/SalesProcessPage";
 import TeamRepDetailPage from "./pages/dashboard/TeamRepDetailPage";
-import PlaybookPage from "./pages/dashboard/PlaybookPage";
 import CoachPage from "./pages/dashboard/CoachPage";
 import ReportPage from "./pages/dashboard/ReportPage";
 import BillingPage from "./pages/dashboard/BillingPage";
 import AdminCompaniesPage from "./pages/admin/AdminCompaniesPage";
 import AdminCompanyDetailPage from "./pages/admin/AdminCompanyDetailPage";
 import DashboardLayout from "./components/dashboard/DashboardLayout";
+import { DashboardThemeProvider } from "./components/ThemeProvider";
 import DashboardHome from "./pages/dashboard/DashboardHome";
 import OnboardingWizard from "./pages/dashboard/OnboardingWizard";
 import RecordPage from "./pages/dashboard/RecordPage";
@@ -41,7 +41,6 @@ import { CalendarSettings } from "@/components/dashboard/settings/CalendarSettin
 import OfferSection from "./pages/dashboard/settings/OfferSection";
 import GlossarySection from "./pages/dashboard/settings/GlossarySection";
 import BriefHighlightSection from "./pages/dashboard/settings/BriefHighlightSection";
-import PlaybooksSection from "./features/playbooks/components/PlaybooksSection";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
@@ -170,9 +169,11 @@ const App = () => (
               <Route path="accounts/:userId" element={<AdminAccountDetailPage />} />
             </Route>
             <Route path="/dashboard" element={
-              <ProtectedRoute>
-                <DashboardLayout />
-              </ProtectedRoute>
+              <DashboardThemeProvider>
+                <ProtectedRoute>
+                  <DashboardLayout />
+                </ProtectedRoute>
+              </DashboardThemeProvider>
             }>
               <Route index element={<DashboardHome />} />
               <Route path="onboarding" element={<OnboardingWizard />} />
@@ -195,16 +196,17 @@ const App = () => (
                 <Route path="billing" element={<BillingPage />} />
               </Route>
               <Route path="insights" element={<InsightsRoute />} />
+              {/* Proceso de venta: the playbook editor (Head of Sales). Its health and objections are in Equipo. */}
               <Route path="process" element={<ManagerOnly><SalesProcessPage /></ManagerOnly>} />
-              {/* The playbook editor moved from Ajustes to Proceso de venta; outside the settings
-                  layout so its tab guard doesn't bounce the old URL first. */}
-              <Route path="settings/playbooks" element={<Navigate to="/dashboard/process#playbooks" replace />} />
+              {/* The playbook editor left Ajustes; outside the settings layout so its tab guard does not bounce the old URL first. */}
+              <Route path="settings/playbooks" element={<Navigate to="/dashboard/process" replace />} />
               <Route path="insights/rep/:userId" element={<TeamRepDetailPage />} />
               <Route path="coach" element={<RepOnly><CoachPage /></RepOnly>} />
               {/* T13: MANAGER_HOME_ENABLED moves an owner/admin's home to the team panel;
                   this is where "go to my Today" points a manager who also sells. */}
               <Route path="today" element={<RepHome />} />
-              <Route path="playbook" element={<PlaybookPage />} />
+              {/* The rep's playbook is a tab of Coaching. */}
+              <Route path="playbook" element={<Navigate to="/dashboard/coach?tab=playbook" replace />} />
               <Route path="ask" element={<Navigate to="/dashboard" replace state={{ ask: true }} />} />
               <Route path="reports/:id" element={<ReportPage />} />
               <Route path="team" element={<Navigate to="/dashboard/settings/team" replace />} />

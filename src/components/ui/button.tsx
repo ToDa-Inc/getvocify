@@ -17,7 +17,12 @@ const buttonVariants = cva(
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-secondary hover:text-foreground",
         link: "text-primary underline-offset-4 hover:underline",
-        hero: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-none",
+        // Same primary as `default`: kept as a name so existing call sites do not change.
+        hero: "btn-glow bg-beige text-cream hover:bg-beige/90",
+        // A quiet text action beside a primary ("Cancelar", "Ver todo"): no fill, color change only.
+        quiet: "rounded-md text-muted-foreground hover:text-foreground",
+        // A red text action ("Colgar", "Eliminar"): no fill until hovered. Filled red is `destructive`.
+        dangerGhost: "text-destructive hover:bg-destructive/10",
         recording: "bg-destructive text-destructive-foreground",
       },
       size: {
@@ -25,6 +30,7 @@ const buttonVariants = cva(
         sm: "h-9 rounded-full px-3.5",
         lg: "h-11 rounded-full px-6 text-sm",
         xl: "h-12 rounded-full px-8 text-[15px] font-normal",
+        text: "h-7 gap-1.5 px-2 text-[13px]",
         icon: "h-10 w-10",
         "icon-lg": "h-12 w-12",
         "icon-xl": "h-16 w-16",

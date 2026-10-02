@@ -36,7 +36,7 @@ export const HubSpotConnection = ({ onConnected }: HubSpotConnectionProps) => {
       <Button
         onClick={handleConnect}
         disabled={isLoading}
-        className="w-full bg-beige text-cream hover:bg-beige-dark rounded-lg text-sm font-medium h-11"
+        className="w-full bg-beige text-cream hover:bg-beige/90 rounded-lg text-sm font-medium h-11"
       >
         {isLoading ? <VocifySpinner size={12} /> : null}
         Connect with HubSpot

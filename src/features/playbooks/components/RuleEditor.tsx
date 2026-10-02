@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 import { useLanguage } from "@/lib/i18n";
 import { blankRule, type AppliesTo, type Channel, type ContactRule, type SalesRoleKey } from "@/lib/playbook-doc";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -8,22 +9,6 @@ import { cn } from "@/lib/utils";
 const ROLES: SalesRoleKey[] = ["sdr", "ae", "any"];
 const CHANNELS: Channel[] = ["call", "meeting", "visit"];
 const CONTACTS: ContactRule[] = ["any", "new", "contacted", "inbound"];
-
-function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "rounded-full px-3 py-1 text-[13px] transition-colors",
-        active ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 /** "When does this playbook apply": who, channel, contact and, with a CRM, the deal stage. */
 export function RuleEditor({
@@ -54,52 +39,82 @@ export function RuleEditor({
 
   return (
     <div className="space-y-4">
-      {group(
-        copy.ruleWho,
-        ROLES.map((role) => (
-          <Pill key={role} active={rule.role === role} onClick={() => setRule({ ...rule, role })}>
-            {copy.ruleRoles[role]}
-          </Pill>
-        )),
-      )}
-      {group(
-        copy.ruleChannel,
-        CHANNELS.map((channel) => (
-          <Pill
-            key={channel}
-            active={rule.channels.includes(channel)}
-            onClick={() => {
-              const channels = toggle(rule.channels, channel);
-              if (channels.length) setRule({ ...rule, channels });
-            }}
-          >
-            {copy.ruleChannels[channel]}
-          </Pill>
-        )),
-      )}
-      {group(
-        copy.ruleContact,
-        CONTACTS.map((contact) => (
-          <Pill key={contact} active={rule.contact === contact} onClick={() => setRule({ ...rule, contact })}>
-            {copy.ruleContacts[contact]}
-          </Pill>
-        )),
-      )}
+      <div className="space-y-1.5">
+        <p className={THEME_TOKENS.typography.capsLabel}>{copy.ruleWho}</p>
+        <Segmented
+          value={rule.role}
+          onValueChange={(role) => setRule({ ...rule, role: role as SalesRoleKey })}
+          options={ROLES.map((role) => ({ value: role, label: copy.ruleRoles[role] }))}
+          aria-label={copy.ruleWho}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <p className={THEME_TOKENS.typography.capsLabel}>{copy.ruleChannel}</p>
+        <div className="flex flex-wrap gap-1">
+          {CHANNELS.map((channel) => (
+            <button
+              key={channel}
+              type="button"
+              aria-pressed={rule.channels.includes(channel)}
+              onClick={() => {
+                const channels = toggle(rule.channels, channel);
+                if (channels.length) setRule({ ...rule, channels });
+              }}
+              className={cn(
+                "rounded-full px-3 py-1 text-[13px] transition-colors",
+                rule.channels.includes(channel) ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+              )}
+            >
+              {copy.ruleChannels[channel]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <p className={THEME_TOKENS.typography.capsLabel}>{copy.ruleContact}</p>
+        <Segmented
+          value={rule.contact}
+          onValueChange={(contact) => setRule({ ...rule, contact: contact as ContactRule })}
+          options={CONTACTS.map((contact) => ({ value: contact, label: copy.ruleContacts[contact] }))}
+          aria-label={copy.ruleContact}
+        />
+      </div>
+
       {stages.length > 0
-        ? group(copy.ruleStage, [
-            <Pill key="any" active={rule.deal_stages.length === 0} onClick={() => setRule({ ...rule, deal_stages: [] })}>
-              {copy.ruleAnyStage}
-            </Pill>,
-            ...stages.map((stage) => (
-              <Pill
-                key={stage.id}
-                active={rule.deal_stages.includes(stage.id)}
-                onClick={() => setRule({ ...rule, deal_stages: toggle(rule.deal_stages, stage.id) })}
-              >
-                {stage.label}
-              </Pill>
-            )),
-          ])
+        ? (
+            <div className="space-y-1.5">
+              <p className={THEME_TOKENS.typography.capsLabel}>{copy.ruleStage}</p>
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  aria-pressed={rule.deal_stages.length === 0}
+                  onClick={() => setRule({ ...rule, deal_stages: [] })}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-[13px] transition-colors",
+                    rule.deal_stages.length === 0 ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                  )}
+                >
+                  {copy.ruleAnyStage}
+                </button>
+                {stages.map((stage) => (
+                  <button
+                    key={stage.id}
+                    type="button"
+                    aria-pressed={rule.deal_stages.includes(stage.id)}
+                    onClick={() => setRule({ ...rule, deal_stages: toggle(rule.deal_stages, stage.id) })}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-[13px] transition-colors",
+                      rule.deal_stages.includes(stage.id) ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                    )}
+                  >
+                    {stage.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )
         : null}
       <div className="flex justify-end">
         <Button type="button" size="sm" disabled={saving} onClick={() => onSave(rule)}>

@@ -1,4 +1,4 @@
-import { ArrowSquareOut, ArrowUUpLeft, Phone, X } from "@phosphor-icons/react";
+import { ExternalLink, Undo2, Phone, X } from "lucide-react";
 import { IconAction } from "@/components/ui/icon-action";
 import { useLanguage } from "@/lib/i18n";
 
@@ -16,7 +16,7 @@ export function TodayCardActions({ onCall, callLabel, crmHref, onDismiss, onUndo
     <div className="flex items-center gap-0.5">
       {onCall ? (
         <IconAction label={callLabel ?? t.product.today_call} onClick={onCall}>
-          <Phone size={16} weight="light" />
+          <Phone size={16} strokeWidth={1.5} />
         </IconAction>
       ) : null}
       {crmHref ? (
@@ -28,18 +28,18 @@ export function TodayCardActions({ onCall, callLabel, crmHref, onDismiss, onUndo
           aria-label={t.product.today_open}
         >
           <span className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary/60 hover:text-foreground">
-            <ArrowSquareOut size={16} weight="light" />
+            <ExternalLink size={16} strokeWidth={1.5} />
           </span>
         </a>
       ) : null}
       {onDismiss ? (
         <IconAction label={t.product.dismiss} tone="danger" onClick={onDismiss}>
-          <X size={16} weight="light" />
+          <X size={16} strokeWidth={1.5} />
         </IconAction>
       ) : null}
       {onUndo ? (
         <IconAction label={t.product.undo} onClick={onUndo}>
-          <ArrowUUpLeft size={16} weight="light" />
+          <Undo2 size={16} strokeWidth={1.5} />
         </IconAction>
       ) : null}
     </div>

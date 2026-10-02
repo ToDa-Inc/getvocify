@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import * as SheetPrimitive from "@radix-ui/react-dialog";
-import { ArrowSquareOut, X } from "@phosphor-icons/react";
+import { ExternalLink, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BRIEF_LOADING, briefRequest, panelBrief, type BriefPayload } from "@shared/ui/brief.js";
 import { snoozeUntil, type HomeRow } from "@shared/ui/home.js";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { Sheet, SheetPortal } from "@/components/ui/sheet";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { BriefLines } from "@/components/dashboard/memos/ContactBrief";
 import { useHomeColumn } from "@/components/dashboard/HomeColumn";
@@ -208,19 +209,18 @@ function HandoffAction({
       </label>
       <div className="flex flex-wrap items-center gap-2">
         {pickAe ? (
-          <select
-            aria-label={copy.panel_handoff_pick_ae}
-            className="h-8 rounded-md border border-border bg-background px-2 text-[13px]"
-            value={aeId}
-            onChange={(event) => setAeId(event.target.value)}
-          >
-            <option value="">{copy.panel_handoff_pick_ae}</option>
-            {candidates.map((member) => (
-              <option key={member.userId} value={member.userId}>
-                {member.fullName || member.email}
-              </option>
-            ))}
-          </select>
+          <Select value={aeId} onValueChange={setAeId}>
+            <SelectTrigger aria-label={copy.panel_handoff_pick_ae} size="sm">
+              <SelectValue placeholder={copy.panel_handoff_pick_ae} />
+            </SelectTrigger>
+            <SelectContent>
+              {candidates.map((member) => (
+                <SelectItem key={member.userId} value={member.userId}>
+                  {member.fullName || member.email}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         ) : null}
         <Button
           type="button"
@@ -353,12 +353,12 @@ function PanelBody({
         </div>
         {crmHref && primary !== "open" ? (
           <IconAction label={copy.today_open} onClick={openCrm}>
-            <ArrowSquareOut size={16} weight="light" />
+            <ExternalLink size={16} strokeWidth={1.5} />
           </IconAction>
         ) : null}
         {sheet && onClose ? (
           <IconAction label={copy.cancelAction} onClick={onClose}>
-            <X size={16} weight="light" />
+            <X size={16} strokeWidth={1.5} />
           </IconAction>
         ) : null}
       </header>
@@ -416,7 +416,7 @@ function PanelBody({
             filled === "review_save" ? (
               <Button
                 type="button"
-                className="h-11 w-full rounded-full bg-beige px-[18px] text-[15px] font-normal text-cream hover:bg-beige-dark"
+                className="h-11 w-full rounded-full bg-beige px-[18px] text-[15px] font-normal text-cream hover:bg-beige/90"
                 onClick={() => actions.onOpenMemo(line.memoId)}
               >
                 {copy.panel_review_save}
@@ -450,7 +450,7 @@ function PanelBody({
           {call.failed ? <p className="mb-2 text-[12px] text-destructive">{copy.panel_call_failed}</p> : null}
           <Button
             type="button"
-            className="h-11 w-full justify-between rounded-full bg-beige px-[18px] text-[15px] font-normal text-cream hover:bg-beige-dark"
+            className="h-11 w-full justify-between rounded-full bg-beige px-[18px] text-[15px] font-normal text-cream hover:bg-beige/90"
             onClick={onPrimary}
           >
             <span>{primary === "call" ? copy.panel_call.replace("{name}", first || name) : copy.today_open}</span>

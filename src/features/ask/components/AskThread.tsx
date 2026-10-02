@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowDown } from "@phosphor-icons/react";
+import { ArrowDown } from "lucide-react";
 import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
 import type { useAskConversation } from "../hooks/useAskConversation";
@@ -112,7 +112,7 @@ export default function AskThread({
               toBottom("smooth");
             }}
           >
-            <ArrowDown size={13} weight="light" aria-hidden="true" />
+            <ArrowDown size={13} strokeWidth={1.5} aria-hidden="true" />
             {t.product.askNewReply}
           </button>
         ) : null}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, ArrowRight, ClockCounterClockwise, Plus, Trash, X } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowRight, History, Plus, Trash2, X } from "lucide-react";
 import { IconAction } from "@/components/ui/icon-action";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { useLanguage } from "@/lib/i18n";
@@ -17,18 +17,18 @@ function EmptyState({ suggestions, onPick }: { suggestions: string[]; onPick: (t
       <h3 className="text-[24px] leading-tight tracking-tight text-foreground">{t.product.askGreeting}</h3>
       <p className={`mt-1.5 ${THEME_TOKENS.typography.body} text-[14px]`}>{t.product.askEmpty}</p>
       {suggestions.length > 0 ? (
-        <ul className="mt-6 overflow-hidden rounded-2xl border border-[hsl(var(--hairline))] bg-card/60 shadow-[inset_0_1px_0_rgb(255_255_255/0.7)]">
+        <ul className="mt-6 overflow-hidden rounded-2xl border border-[hsl(var(--hairline))] bg-card/60">
           {suggestions.map((text) => (
             <li key={text} className="border-t border-[hsl(var(--hairline))] first:border-t-0">
               <button
                 type="button"
                 onClick={() => onPick(text)}
-                className="group flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[14px] text-foreground/85 transition-colors hover:bg-secondary/40 hover:text-foreground focus-visible:bg-secondary/40 focus-visible:outline-none"
+                className="group flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[14px] text-foreground/85 transition-colors hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/40 focus-visible:outline-none"
               >
                 <span>{text}</span>
                 <ArrowRight
                   size={14}
-                  weight="light"
+                  strokeWidth={1.5}
                   className="shrink-0 -translate-x-1 text-muted-foreground opacity-0 transition-[opacity,transform] duration-150 group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:translate-x-0 group-focus-visible:opacity-100"
                   aria-hidden="true"
                 />
@@ -61,9 +61,9 @@ export default function AskPanel({ onClose }: { onClose?: () => void }) {
           <button
             type="button"
             onClick={() => setShowHistory(false)}
-            className="-ml-1.5 inline-flex items-center gap-1.5 rounded-full px-1.5 py-1 text-[15px] text-foreground transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="-ml-1.5 inline-flex items-center gap-1.5 rounded-full px-1.5 py-1 text-[15px] text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ArrowLeft size={15} weight="light" aria-hidden="true" />
+            <ArrowLeft size={15} strokeWidth={1.5} aria-hidden="true" />
             {t.product.askHistoryTitle}
           </button>
         ) : (
@@ -72,7 +72,7 @@ export default function AskPanel({ onClose }: { onClose?: () => void }) {
         <div className="flex items-center">
           {!showHistory && !empty ? (
             <IconAction label={t.product.askDeleteThis} tone="danger" onClick={() => setDeletingThis(true)}>
-              <Trash size={16} weight="light" />
+              <Trash2 size={16} strokeWidth={1.5} />
             </IconAction>
           ) : null}
           <IconAction
@@ -83,7 +83,7 @@ export default function AskPanel({ onClose }: { onClose?: () => void }) {
               if (next) void conversation.loadHistory();
             }}
           >
-            <ClockCounterClockwise size={16} weight={showHistory ? "fill" : "light"} />
+            <History size={16} strokeWidth={showHistory ? 2.25 : 1.5} />
           </IconAction>
           <IconAction
             label={t.product.askNewChat}
@@ -92,11 +92,11 @@ export default function AskPanel({ onClose }: { onClose?: () => void }) {
               conversation.newConversation();
             }}
           >
-            <Plus size={16} weight="light" />
+            <Plus size={16} strokeWidth={1.5} />
           </IconAction>
           {onClose ? (
             <IconAction label={t.product.askClose} onClick={onClose}>
-              <X size={16} weight="light" />
+              <X size={16} strokeWidth={1.5} />
             </IconAction>
           ) : null}
         </div>

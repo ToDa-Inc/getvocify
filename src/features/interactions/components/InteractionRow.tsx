@@ -5,8 +5,10 @@ import { VocifySpinner } from "@/components/ui/vocify-loader";
 import type { Memo } from "@/features/memos/types";
 import { formatCallDuration } from "@/lib/call-duration";
 import {
+  callOutcome,
   channelOf,
   groupByDay,
+  initialsOf,
   rowHeadline,
   rowStatus,
   timeLabel,
@@ -25,6 +27,45 @@ const CHANNEL_ICON: Record<Channel, LucideIcon> = {
   visit: MapPin,
   voice_note: Mic,
 };
+
+/**
+ * Render circular avatar for an attendee with initials. Overlapping stack for multiple attendees.
+ * Max 3 visible, with "+N" badge for overflow.
+ */
+function AvatarStack({
+  attendees,
+  maxVisible = 3,
+}: {
+  attendees?: Array<{ name: string | null; email: string }> | null;
+  maxVisible?: number;
+}) {
+  if (!attendees || attendees.length === 0) return null;
+
+  const visible = attendees.slice(0, maxVisible);
+  const overflow = attendees.length - maxVisible;
+
+  return (
+    <div className="flex items-center" role="img" aria-label={attendees.map((a) => a.name || a.email).join(", ")}>
+      {visible.map((attendee, idx) => (
+        <div
+          key={`${attendee.email}-${idx}`}
+          className={cn(
+            "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary text-[10px] font-medium text-muted-foreground ring-1 ring-card",
+            idx > 0 && "-ml-2",
+          )}
+          title={attendee.name || attendee.email}
+        >
+          {initialsOf(attendee)}
+        </div>
+      ))}
+      {overflow > 0 && (
+        <div className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary text-[9px] font-medium text-muted-foreground ring-1 ring-card", "-ml-2")}>
+          +{overflow}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Only what asks for something: a call to review, one that failed, one still being read. A synced
 // call says nothing; voicemail and no answer are a quiet word.
@@ -72,8 +113,13 @@ export function InteractionRow({
     ? undefined
     : new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(when);
 
+  // Call info for call channel: duration and outcome
+  const showCallInfo = channel === "call" && duration;
+  const outcome = showCallInfo ? callOutcome(memo) : null;
+  const callInfoText = showCallInfo ? `${duration} · ${copy.callOutcome[outcome as keyof typeof copy.callOutcome]}` : null;
+
   return (
-    <li className="group relative flex items-center gap-3.5 rounded-xl px-3 py-2.5 transition-colors duration-150 hover:bg-secondary/50 motion-reduce:transition-none">
+    <li className="group relative flex items-center gap-3.5 rounded-xl px-3 py-2.5 transition-colors duration-150 hover:bg-secondary/60 motion-reduce:transition-none">
       <span
         aria-hidden
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-secondary/60 text-muted-foreground"
@@ -92,7 +138,8 @@ export function InteractionRow({
         {subtitle ? <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{subtitle}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
-        {status && statusClass ? (
+        {channel === "meeting" ? <AvatarStack attendees={memo.attendees} /> : null}
+        {status && statusClass && !(callInfoText && (status === "voicemail" || status === "no_answer")) ? (
           <span className={cn("hidden items-center gap-1.5 sm:inline-flex", statusClass)}>
             {status === "processing" ? <VocifySpinner size={12} /> : <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />}
             {copy.status[status]}
@@ -112,6 +159,7 @@ export function InteractionRow({
             untyped={!chip}
           />
         </span>
+        {callInfoText ? <span className="hidden tabular-nums sm:inline">{callInfoText}</span> : null}
         <time
           dateTime={memo.createdAt}
           title={[fullDate, duration].filter(Boolean).join(" · ")}

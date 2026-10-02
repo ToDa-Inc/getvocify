@@ -3,6 +3,7 @@ import type { CRMConfiguration } from "@/lib/api/crm";
 import { useLanguage } from "@/lib/i18n";
 import { productText } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type DealCreationRule = NonNullable<CRMConfiguration["deal_creation_rule"]>;
 
@@ -29,17 +30,22 @@ export const DealCreationRuleField = ({
   return (
     <div className="space-y-3">
       <h4 className={THEME_TOKENS.typography.capsLabel}>{copy.dealCreationRuleLabel}</h4>
-      <select
-        aria-label={copy.dealCreationRuleLabel}
+      <Select
         value={value ?? "always"}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.value as DealCreationRule)}
-        className="w-full h-10 px-4 rounded-full border border-border/40 bg-secondary/5 text-sm text-foreground focus:outline-none disabled:opacity-60"
+        onValueChange={(rule) => onChange(rule as DealCreationRule)}
       >
-        {RULES.map((rule) => (
-          <option key={rule} value={rule}>{productText(`dealCreationRule_${rule}`, copy)}</option>
-        ))}
-      </select>
+        <SelectTrigger className="w-full" aria-label={copy.dealCreationRuleLabel}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {RULES.map((rule) => (
+            <SelectItem key={rule} value={rule}>
+              {productText(`dealCreationRule_${rule}`, copy)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <p className="text-xs text-muted-foreground">{copy.dealCreationRuleHelper}</p>
     </div>
   );

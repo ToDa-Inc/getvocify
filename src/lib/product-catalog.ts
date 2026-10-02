@@ -64,6 +64,7 @@ export const productCatalog = {
     objectionsPartialAnalysis:
       "Part of the analysis is missing. We cannot claim there were no objections.",
     noteLabel: "Note",
+    notePlaceholder: "Add a note to this call…",
     noteSaving: "Saving…",
     noteSaved: "Note saved",
     noteSaveFailed: "The note could not be saved",
@@ -562,6 +563,11 @@ export const productCatalog = {
         failed: "Failed",
         voicemail: "Voicemail",
         no_answer: "No answer",
+      },
+      callOutcome: {
+        connected: "answered",
+        voicemail: "voicemail",
+        no_response: "no answer",
       },
       changeType: "Change type",
       retagged: "Tagged as {name}",
@@ -1420,6 +1426,7 @@ export const productCatalog = {
     objectionsPartialAnalysis:
       "Falta parte del análisis. No se puede afirmar que no hubo objeciones.",
     noteLabel: "Nota",
+    notePlaceholder: "Añade una nota a esta llamada…",
     noteSaving: "Guardando…",
     noteSaved: "Nota guardada",
     noteSaveFailed: "No se pudo guardar la nota",
@@ -1918,6 +1925,11 @@ export const productCatalog = {
         failed: "Error",
         voicemail: "Buzón de voz",
         no_answer: "Sin respuesta",
+      },
+      callOutcome: {
+        connected: "contestó",
+        voicemail: "buzón",
+        no_response: "no contestó",
       },
       changeType: "Cambiar tipo",
       retagged: "Marcada como {name}",

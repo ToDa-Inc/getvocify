@@ -183,7 +183,6 @@ export type ProcessHealthVerdict =
   | "no_difference"
   | "no_comparison"
   | "insufficient_data"
-  | "few_outcomes"
   | "goal_not_measurable";
 
 export type ProcessHealthFlow = {
@@ -208,7 +207,6 @@ const VERDICT_COPY: Record<ProcessHealthVerdict, { tone: ProcessTone; title: key
   no_difference: { tone: "process", title: "hosVerdictNoDifferenceTitle", detail: "hosVerdictNoDifferenceDetail" },
   no_comparison: { tone: "neutral", title: "hosVerdictNoComparisonTitle", detail: "hosVerdictNoComparisonDetail" },
   insufficient_data: { tone: "neutral", title: "hosVerdictInsufficientTitle", detail: "hosVerdictInsufficientDetail" },
-  few_outcomes: { tone: "neutral", title: "hosVerdictFewOutcomesTitle", detail: "hosVerdictFewOutcomesDetail" },
   goal_not_measurable: { tone: "neutral", title: "hosVerdictNotMeasurableTitle", detail: "hosVerdictNotMeasurableDetail" },
 };
 
@@ -222,8 +220,7 @@ export function processHealthView(flow: ProcessHealthFlow, copy: ProductTranslat
   return { tone: entry.tone, title: String(copy[entry.title]), detail };
 }
 
-// A full window: "this month" is empty for days after the 1st and looks like a team doing nothing.
-export const HOS_DEFAULT_PERIOD: HosPeriod = "last_30";
+export const HOS_DEFAULT_PERIOD: HosPeriod = "month";
 
 export type DiagnosisTone = ProcessTone;
 export type Diagnosis = {
@@ -240,8 +237,9 @@ export type Diagnosis = {
   href: string | null;
 };
 
-const PROCESS_HREF = "/dashboard/process";
-const TEAM_HREF = "/dashboard/insights";
+/** Where a process problem is fixed (the playbooks, in Ajustes) and where people are read (Equipo → Personas). */
+export const PROCESS_HREF = "/dashboard/process";
+const TEAM_HREF = "/dashboard/insights?tab=people";
 
 /** Lower = more severe. Only verdicts that say something about the flow have an entry. */
 const DIAGNOSIS_BY_VERDICT: Partial<Record<ProcessHealthVerdict, { severity: number; tone: DiagnosisTone; key: Diagnosis["key"]; href: string | null }>> = {

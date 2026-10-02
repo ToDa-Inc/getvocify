@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
-import { meetingProposalView, renderMeetingProposal } from "@shared/ui/meeting-proposal.js";
-import { renderToString } from "@shared/ui/html.js";
+import { useCallback } from "react";
+import { CalendarClock } from "lucide-react";
+import { meetingProposalView, type MeetingProposalView } from "@shared/ui/meeting-proposal.js";
+import { Button } from "@/components/ui/button";
 import { api } from "@/shared/lib/api-client";
 import { useLanguage } from "@/lib/i18n";
 import {
   meetingProposalReadErrorView,
   meetingProposalReviewSurface,
+  meetingWhen,
 } from "@/lib/meeting-proposal-review";
 
 type MeetingProposal = Record<string, unknown> & {
@@ -69,7 +71,7 @@ export function MeetingProposalReview({
     extractionPending: true,
     lang: uiLang,
   }).phrases;
-  const view =
+  const view: MeetingProposalView =
     surface.kind === "pending"
       ? meetingProposalView(null, { surface: "review", extractionPending: true, lang: uiLang })
       : surface.kind === "read-error"
@@ -78,35 +80,48 @@ export function MeetingProposalReview({
           ? { visible: false as const }
           : meetingProposalView(proposal, { surface: "review", extractionPending: false, lang: uiLang });
 
-  const markup = useMemo(() => {
-    if (!view.visible) return "";
-    const safe = {
-      ...view,
-      phrases: view.phrases ?? reviewPhrases,
-    };
-    return renderToString(renderMeetingProposal(safe));
-  }, [view, reviewPhrases]);
-
-  const handleClick = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      const action = (event.target as HTMLElement).closest("[data-action]")?.getAttribute("data-action");
+  const busy = mutation.isPending || reconcileMutation.isPending;
+  const act = useCallback(
+    (action: "accept" | "omit" | "reconcile") => {
       const proposalId = proposal?.proposal_id;
-      if (!action || !proposalId || mutation.isPending || reconcileMutation.isPending) return;
-      if (action === "accept") {
-        mutation.mutate({ decision: "accept", proposal_id: String(proposalId) });
-        return;
-      }
-      if (action === "omit") {
-        mutation.mutate({ decision: "omit", proposal_id: String(proposalId) });
-        return;
-      }
-      if (action === "reconcile") {
-        reconcileMutation.mutate(String(proposalId));
-      }
+      if (!proposalId || busy) return;
+      if (action === "reconcile") reconcileMutation.mutate(String(proposalId));
+      else mutation.mutate({ decision: action, proposal_id: String(proposalId) });
     },
-    [mutation, reconcileMutation, proposal?.proposal_id],
+    [busy, mutation, reconcileMutation, proposal?.proposal_id],
   );
 
   if (!view.visible) return null;
-  return <div onClick={handleClick} dangerouslySetInnerHTML={{ __html: markup }} />;
+  const phrases = view.phrases;
+  const when = meetingWhen(view.startsAt, view.timezone, t.product.hourLocale);
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-border/50 bg-card px-3.5 py-3 shadow-xs">
+      <CalendarClock aria-hidden="true" strokeWidth={1.5} className="mt-0.5 h-4 w-4 shrink-0 text-beige" />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="text-[11.5px] font-medium text-muted-foreground" role={surface.kind === "pending" ? "status" : undefined}>
+          {view.title}
+        </p>
+        {when ? <p className="text-[13px] leading-relaxed text-foreground first-letter:uppercase">{when}</p> : null}
+      </div>
+      {phrases && (view.save || view.omit || view.reconcile) ? (
+        <div className="flex shrink-0 items-center gap-1">
+          {view.omit ? (
+            <Button type="button" variant="quiet" size="text" disabled={busy} onClick={() => act("omit")}>
+              {phrases.omit}
+            </Button>
+          ) : null}
+          {view.reconcile ? (
+            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => act("reconcile")}>
+              {phrases.reconcile}
+            </Button>
+          ) : null}
+          {view.save ? (
+            <Button type="button" size="sm" disabled={busy} onClick={() => act("accept")}>
+              {phrases.save}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }

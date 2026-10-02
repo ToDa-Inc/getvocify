@@ -8,7 +8,7 @@ import {
 import { api } from "@/shared/lib/api-client";
 import { errorCode, playbooksApi } from "@/features/playbooks/api";
 import { useLanguage } from "@/lib/i18n";
-import { motionLabel } from "@/lib/motion-label";
+import { memoTypeLine, memoTypeName } from "@/lib/interactions";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { toast } from "sonner";
 
@@ -21,7 +21,9 @@ type MemoPlaybook = {
 
 /**
  * "Scored as Demo · change" on a recording (plan T10). The way out when routing picked the
- * wrong call type: re-pins the memo and scores it again. Renders nothing without a pin.
+ * wrong call type: re-pins the memo and scores it again. An internal memo reads "Interna · no se
+ * puntúa" and can be moved back to a real type; Interna is offered like on the list chip.
+ * Renders nothing without a pin.
  */
 export function MemoPlaybookLine({ memoId }: { memoId: string }) {
   const { t } = useLanguage();
@@ -36,7 +38,8 @@ export function MemoPlaybookLine({ memoId }: { memoId: string }) {
   const data = query.data;
   if (!data?.sales_motion_key) return null;
 
-  const name = (motion: string, label?: string | null) => label || copy.typeLabels[motion] || motionLabel(motion, t.product.motions);
+  const names = { typeLabels: copy.typeLabels, motions: t.product.motions, internal: t.product.interactions.internal };
+  const name = (motion: string, label?: string | null) => memoTypeName(motion, label, names);
   const current = name(data.sales_motion_key, data.options.find((option) => option.key === data.sales_motion_key)?.label);
   const others = data.options.filter((option) => option.key !== data.sales_motion_key);
 
@@ -44,7 +47,10 @@ export function MemoPlaybookLine({ memoId }: { memoId: string }) {
     try {
       await playbooksApi.changeMemoPlaybook(memoId, next.key);
       queryClient.setQueryData<MemoPlaybook>(key, { ...data, sales_motion_key: next.key });
-      toast(copy.memoPlaybookRequeued.replace("{name}", name(next.key, next.label)));
+      // The coaching card below reads the score again (Interna shows "not scored" at once).
+      void queryClient.invalidateQueries({ queryKey: ["memo-score", memoId] });
+      // Interna is not scored again, so it says so instead of "scoring again as".
+      toast(memoTypeLine(next.key, name(next.key, next.label), { memoPlaybook: copy.memoPlaybookRequeued, memoPlaybookInternal: copy.memoPlaybookInternal }));
     } catch (error) {
       toast.error(errorCode(error) === "not_published" ? copy.memoPlaybookNotPublished : copy.memoPlaybookFailed);
     }
@@ -52,7 +58,7 @@ export function MemoPlaybookLine({ memoId }: { memoId: string }) {
 
   return (
     <p className={THEME_TOKENS.typography.capsLabel}>
-      {copy.memoPlaybook.replace("{name}", current)}
+      {memoTypeLine(data.sales_motion_key, current, copy)}
       {data.can_change && others.length > 0 ? (
         <>
           {" · "}

@@ -53,7 +53,6 @@ export function usePlaybookDraft({
   /** Fixed objection categories the person added by hand (shown before they have an answer). */
   const [addedCategories, setAddedCategories] = useState<ObjectionCategory[]>([]);
   const [touched, setTouched] = useState<Set<string>>(new Set());
-  const [editing, setEditing] = useState(false);
   const [started, setStarted] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -76,7 +75,6 @@ export function usePlaybookDraft({
     setQualification(criteriaFromSnapshot(data));
     setSource(data.source_doc ?? null);
     latest.current.updatedAt = data.updated_at ?? null;
-    setEditing(data.source === "draft");
     setStarted(data.source !== "empty");
     setDirty(false);
     setTouched(new Set());
@@ -152,14 +150,14 @@ export function usePlaybookDraft({
 
   // Autosave after a quiet moment; a failed save retries once on its own.
   useEffect(() => {
-    if (!dirty || !editing || !canEdit || saveState === "stale") return;
+    if (!dirty || !canEdit || saveState === "stale") return;
     const timer = window.setTimeout(() => void save(), saveState === "error" ? 5000 : AUTOSAVE_MS);
     return () => window.clearTimeout(timer);
-  }, [steps, objections, qualification, dirty, editing, canEdit, saveState, save]);
+  }, [steps, objections, qualification, dirty, canEdit, saveState, save]);
 
   // Leaving the page, closing the row or turning things on never loses the last edit.
   const flushRef = useRef<Flush>(async () => true);
-  flushRef.current = async () => (dirty && editing && canEdit ? save() : true);
+  flushRef.current = async () => (dirty && canEdit ? save() : true);
   useEffect(() => {
     registerFlush?.(() => flushRef.current());
     const onHide = () => void flushRef.current();
@@ -187,8 +185,6 @@ export function usePlaybookDraft({
     qualification,
     addedCategories,
     touched,
-    editing,
-    setEditing,
     started,
     dirty,
     saveState,
@@ -233,7 +229,7 @@ export function usePlaybookDraft({
     showCategory: (category: ObjectionCategory) =>
       setAddedCategories((current) => (current.includes(category) ? current : [...current, category])),
 
-    /** A rebuild (document, template, legacy split): everything at once, then edit mode. */
+    /** A rebuild (document, template, legacy split): everything at once. */
     replace: (next: DraftContent) => {
       change(() => {
         setSteps(next.steps);
@@ -244,7 +240,6 @@ export function usePlaybookDraft({
         setTouched(new Set());
       });
       setStarted(true);
-      setEditing(true);
     },
 
     /** Back to the live version (the pending draft is deleted on the server). */

@@ -26,9 +26,7 @@ export function composeTarget({ channel, to = '', phone = '', subject = '', body
   if (address && !EMAIL.test(address)) return { ok: false, reason: 'no_email' };
 
   if (mailClient === 'gmail') {
-    // Gmail's own mailto handler: the inbox, with the draft docked bottom-right like a new message.
-    const mailto = `mailto:${address}?${query({ subject, body })}`;
-    return { ok: true, url: `https://mail.google.com/mail/?${query({ extsrc: 'mailto', url: mailto })}` };
+    return { ok: true, url: `https://mail.google.com/mail/?${query({ view: 'cm', fs: '1', to: address, su: subject, body })}` };
   }
   if (mailClient === 'outlook') {
     return { ok: true, url: `https://outlook.office.com/mail/deeplink/compose?${query({ to: address, subject, body })}` };

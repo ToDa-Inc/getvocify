@@ -50,7 +50,7 @@ const AdminAccountDetailPage = () => {
             {account.fullName || "No name"} · {account.companyName || "No company"}
           </p>
         </div>
-        <Button className="bg-beige text-cream hover:bg-beige-dark gap-1.5" onClick={handleLoginAs}>
+        <Button className="bg-beige text-cream hover:bg-beige/90 gap-1.5" onClick={handleLoginAs}>
           <LogIn className="h-4 w-4" />
           Login as
         </Button>

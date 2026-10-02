@@ -5,15 +5,21 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi, crmKeys, SESSION_QUERY_STALE_MS, type CRMConfiguration } from "@/lib/api/crm";
 import { DEFAULT_HUBSPOT_CONFIG, loadHubSpotSetup, type HubSpotObjectTab } from "@/lib/api/hubspot-setup";
 import { toast } from "sonner";
-import { Check, ChevronDown, Search, FilterX, Info } from "lucide-react";
+import { Check, Search, FilterX, Info } from "lucide-react";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { Segmented } from "@/components/ui/segmented";
+import { Toggle } from "@/components/ui/toggle";
 import { classifyFillPolicy, FILL_POLICY_LABELS, type FillPolicy } from "@/lib/fill-policy";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
 import { DealCreationRuleField } from "@/components/dashboard/crm/DealCreationRuleField";
 import { useLanguage } from "@/lib/i18n";
 import { AnimIcon } from "@/components/ui/anim-icon";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+// Sentinel for empty stage selection (no default stage)
+const NONE = "__none__";
 
 interface HubSpotConfigurationProps {
   onSaved?: () => void;
@@ -176,30 +182,31 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
           <label className="space-y-1.5 min-w-0">
             <span className="block text-[13px] text-foreground">Pipeline</span>
             {pipelines.length > 1 ? (
-              <div className="relative">
-                <select
-                  value={config.default_pipeline_id}
-                  disabled={readOnly}
-                  onChange={(e) => {
-                    const p = pipelines.find(p => p.id === e.target.value);
-                    if (p) {
-                      setConfig(prev => ({
-                        ...prev,
-                        default_pipeline_id: p.id,
-                        default_pipeline_name: p.label,
-                        default_stage_id: p.stages[0]?.id || "",
-                        default_stage_name: p.stages[0]?.label || "",
-                      }));
-                    }
-                  }}
-                  className="w-full h-10 pl-4 pr-10 rounded-full border border-border/40 bg-secondary/5 text-sm text-foreground appearance-none cursor-pointer focus:outline-none disabled:opacity-60"
-                >
+              <Select
+                value={config.default_pipeline_id}
+                disabled={readOnly}
+                onValueChange={(pipelineId) => {
+                  const p = pipelines.find(p => p.id === pipelineId);
+                  if (p) {
+                    setConfig(prev => ({
+                      ...prev,
+                      default_pipeline_id: p.id,
+                      default_pipeline_name: p.label,
+                      default_stage_id: p.stages[0]?.id || "",
+                      default_stage_name: p.stages[0]?.label || "",
+                    }));
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
                   {pipelines.map(p => (
-                    <option key={p.id} value={p.id}>{p.label}</option>
+                    <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
                   ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-              </div>
+                </SelectContent>
+              </Select>
             ) : (
               <div className="h-10 px-4 rounded-full border border-border/40 bg-secondary/5 flex items-center text-sm text-foreground">
                 {config.default_pipeline_name || "Sales pipeline"}
@@ -209,70 +216,73 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
 
           <label className="space-y-1.5 min-w-0">
             <span className="block text-[13px] text-foreground">If the call has no stage</span>
-            <div className="relative">
-              <select
-                value={config.default_stage_id}
-                disabled={readOnly}
-                onChange={(e) => {
-                  const s = selectedPipeline?.stages.find((st) => st.id === e.target.value);
-                  if (s) {
-                    setConfig((prev) => ({
-                      ...prev,
-                      default_stage_id: s.id,
-                      default_stage_name: s.label,
-                    }));
-                  }
-                }}
-                className="w-full h-10 pl-4 pr-10 rounded-full border border-border/40 bg-secondary/5 text-sm text-foreground appearance-none cursor-pointer focus:outline-none disabled:opacity-60"
-              >
+            <Select
+              value={config.default_stage_id}
+              disabled={readOnly}
+              onValueChange={(stageId) => {
+                const s = selectedPipeline?.stages.find((st) => st.id === stageId);
+                if (s) {
+                  setConfig((prev) => ({
+                    ...prev,
+                    default_stage_id: s.id,
+                    default_stage_name: s.label,
+                  }));
+                }
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {selectedPipeline?.stages.map((s) => (
-                  <option key={s.id} value={s.id}>
+                  <SelectItem key={s.id} value={s.id}>
                     {s.label}
-                  </option>
+                  </SelectItem>
                 ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-            </div>
+              </SelectContent>
+            </Select>
           </label>
 
           <label className="space-y-1.5 min-w-0">
             <span className="block text-[13px] text-foreground">{t.product.meetingBookedStage}</span>
-            <div className="relative">
-              <select
-                value={config.meeting_booked_stage_id ?? ""}
-                disabled={readOnly || pipelines.length === 0}
-                onChange={(e) => {
-                  const stageId = e.target.value || null;
-                  // The stage where reps mark a booked meeting may live in any pipeline (an outbound
-                  // BDR board), not only the one new deals go to.
-                  const owner = stageId ? pipelines.find((pl) => pl.stages.some((st) => st.id === stageId)) : undefined;
-                  setConfig((prev) => ({
-                    ...prev,
-                    meeting_booked_pipeline_id: owner?.id ?? null,
-                    meeting_booked_stage_id: stageId,
-                  }));
-                }}
-                className="w-full h-10 pl-4 pr-10 rounded-full border border-border/40 bg-secondary/5 text-sm text-foreground appearance-none cursor-pointer focus:outline-none disabled:opacity-60"
-              >
-                <option value="">{t.product.meetingBookedStageNone}</option>
+            <Select
+              value={config.meeting_booked_stage_id ?? NONE}
+              disabled={readOnly || pipelines.length === 0}
+              onValueChange={(value) => {
+                const stageId = value === NONE ? null : value;
+                // The stage where reps mark a booked meeting may live in any pipeline (an outbound
+                // BDR board), not only the one new deals go to.
+                const owner = stageId ? pipelines.find((pl) => pl.stages.some((st) => st.id === stageId)) : undefined;
+                setConfig((prev) => ({
+                  ...prev,
+                  meeting_booked_pipeline_id: owner?.id ?? null,
+                  meeting_booked_stage_id: stageId,
+                }));
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t.product.meetingBookedStageNone} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>{t.product.meetingBookedStageNone}</SelectItem>
                 {pipelines.length > 1
                   ? pipelines.map((pl) => (
-                      <optgroup key={pl.id} label={pl.label}>
+                      <SelectGroup key={pl.id}>
+                        <SelectLabel>{pl.label}</SelectLabel>
                         {pl.stages.map((s) => (
-                          <option key={s.id} value={s.id}>
+                          <SelectItem key={s.id} value={s.id}>
                             {s.label}
-                          </option>
+                          </SelectItem>
                         ))}
-                      </optgroup>
+                      </SelectGroup>
                     ))
                   : selectedPipeline?.stages.map((s) => (
-                      <option key={s.id} value={s.id}>
+                      <SelectItem key={s.id} value={s.id}>
                         {s.label}
-                      </option>
+                      </SelectItem>
                     ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-            </div>
+              </SelectContent>
+            </Select>
           </label>
         </div>
       </div>
@@ -323,36 +333,30 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {OBJECT_TABS.map((tab) => {
-            const count = ((config[tab.configKey] as string[]) || []).length;
-            const hasSchema = !!schemas[tab.id];
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  setSearchQuery("");
-                  setShowAllFields(false);
-                  setFieldView("mapped");
-                }}
-                className={`px-3 py-1.5 rounded-full text-[12px] border transition-all ${
-                  activeTab === tab.id
-                    ? "bg-beige/15 border-beige/40 text-beige"
-                    : "bg-secondary/5 border-border/30 text-muted-foreground hover:border-border/50"
-                } ${!hasSchema && tab.id === "line_items" ? "opacity-60" : ""}`}
-              >
+        <Segmented<HubSpotObjectTab>
+          aria-label="Object"
+          value={activeTab}
+          onValueChange={(tab) => {
+            setActiveTab(tab);
+            setSearchQuery("");
+            setShowAllFields(false);
+            setFieldView("mapped");
+          }}
+          className="flex-wrap"
+          options={OBJECT_TABS.map((tab) => ({
+            value: tab.id,
+            label: (
+              <>
                 {tab.label}
-                <span className="ml-2 opacity-50">{count}</span>
-              </button>
-            );
-          })}
-        </div>
+                <span className="opacity-50">{((config[tab.configKey] as string[]) || []).length}</span>
+              </>
+            ),
+          }))}
+        />
 
         <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="relative flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="relative min-w-[12rem] flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40" />
               <Input
                 placeholder={`Search ${activeTab.replace("_", " ")} properties...`}
@@ -362,28 +366,19 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
               />
             </div>
             {!searchQuery && activeSchema && (
-              <div className="flex flex-wrap gap-2">
-                {(["mapped", "recommended", "all"] as const).map((mode) => (
-                  <Button
-                    key={mode}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setFieldView(mode);
-                      setShowAllFields(mode === "all");
-                    }}
-                    className={`rounded-full px-4 h-11 text-[9px] font-medium border-border/50 transition-all ${
-                      fieldView === mode ? "bg-beige/10 border-beige/30 text-beige" : ""
-                    }`}
-                  >
-                    {mode === "mapped"
-                      ? `Mapped (${selectedFields.length})`
-                      : mode === "recommended"
-                        ? "Recommended"
-                        : `All fields (${activeSchema.properties.length})`}
-                  </Button>
-                ))}
-              </div>
+              <Segmented<"mapped" | "recommended" | "all">
+                aria-label="Fields"
+                value={fieldView}
+                onValueChange={(mode) => {
+                  setFieldView(mode);
+                  setShowAllFields(mode === "all");
+                }}
+                options={[
+                  { value: "mapped", label: `Mapped (${selectedFields.length})` },
+                  { value: "recommended", label: "Recommended" },
+                  { value: "all", label: `All fields (${activeSchema.properties.length})` },
+                ]}
+              />
             )}
           </div>
 
@@ -408,18 +403,15 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {filteredProperties.length > 0 ? (
                 filteredProperties.map((prop) => (
-                  <button
+                  <Toggle
                     key={prop.name}
-                    type="button"
-                    onClick={() => {
+                    variant="chip"
+                    pressed={selectedFields.includes(prop.name)}
+                    onPressedChange={() => {
                       if (readOnly) return;
                       toggleField(prop.name);
                     }}
-                    className={`flex items-center justify-between px-4 py-3 rounded-2xl border transition-all text-left group ${
-                      selectedFields.includes(prop.name)
-                        ? "bg-beige/10 border-beige/30 text-beige"
-                        : "bg-card/50 border-border/20 text-muted-foreground hover:border-border/40"
-                    } ${readOnly ? "cursor-default" : ""}`}
+                    className={`group h-auto w-full justify-between rounded-2xl px-4 py-3 text-left ${readOnly ? "cursor-default" : ""}`}
                   >
                     <div className="flex flex-col min-w-0">
                       <span className="text-[10px] font-bold truncate">{prop.label}</span>
@@ -436,7 +428,7 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
                     {selectedFields.includes(prop.name) && (
                       <Check className="h-3 w-3 shrink-0 ml-2" />
                     )}
-                  </button>
+                  </Toggle>
                 ))
               ) : (
                 <div className="col-span-full py-12 flex flex-col items-center justify-center text-muted-foreground/40">
@@ -490,7 +482,7 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
       <Button
         onClick={handleSave}
         disabled={isSaving}
-        className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-medium shadow-medium h-12"
+        className="w-full bg-beige text-cream hover:bg-beige/90 rounded-full text-[10px] font-medium shadow-medium h-12"
       >
         {isSaving ? <VocifySpinner size={12} /> : null}
         Save Configuration

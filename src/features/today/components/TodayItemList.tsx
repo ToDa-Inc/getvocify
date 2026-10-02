@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
-import { Phone } from "@phosphor-icons/react";
+import { Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { itemKey, meetingEntry } from "@shared/ui/home.js";
 import { meetingCardLine } from "@/lib/contact-panel";
@@ -434,7 +434,7 @@ function HomeCallCard({
               }`}
             >
               <IconAction label={home.leadTiersEnabled ? t.product.today_call_now : t.product.today_call} onClick={() => onCall(item)}>
-                <Phone size={16} weight="light" />
+                <Phone size={16} strokeWidth={1.5} />
               </IconAction>
             </span>
           ) : null}

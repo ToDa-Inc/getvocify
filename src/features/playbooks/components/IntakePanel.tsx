@@ -26,7 +26,7 @@ export function IntakePanel({
   const { t } = useLanguage();
   const copy = t.product.pb2;
   return (
-    <div className={cn("space-y-4 py-6", !alone && "border-b border-border/40", THEME_TOKENS.motion.fadeIn)}>
+    <div className={cn("space-y-4", alone && "py-6", THEME_TOKENS.motion.fadeIn)}>
       <div className="space-y-1">
         <h3 className={THEME_TOKENS.typography.sectionTitle}>{copy.intakeTitle}</h3>
         <p className="text-sm text-muted-foreground">{copy.intakeHint}</p>

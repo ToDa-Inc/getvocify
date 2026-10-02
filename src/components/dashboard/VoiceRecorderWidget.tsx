@@ -1,16 +1,17 @@
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { 
-  Mic, 
-  Square, 
-  Upload, 
-  FileText, 
-  RotateCcw, 
-  ChevronDown, 
-  ChevronUp, 
-  X 
+import {
+  Mic,
+  Square,
+  Upload,
+  FileText,
+  RotateCcw,
+  ChevronDown,
+  ChevronUp,
+  X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconAction } from "@/components/ui/icon-action";
 import { 
   useMediaRecorder, 
   useAudioUpload, 
@@ -30,6 +31,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { cn } from "@/lib/utils";
 import { DESKTOP_SHELL_EVENTS, isDesktopHost } from "@/lib/desktop-host";
 
@@ -309,7 +311,7 @@ export const VoiceRecorderWidget = ({
     return (
       <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-10 text-center`, className)}>
         <div className="relative w-28 h-28 mx-auto mb-6 rounded-full bg-secondary/30 flex items-center justify-center">
-          <div className="w-10 h-10 border-2 border-beige border-t-transparent rounded-full animate-spin" />
+          <VocifySpinner size={36} />
         </div>
         <h3 className="text-lg font-semibold text-foreground mb-1">
           Extracting CRM fields...
@@ -329,7 +331,7 @@ export const VoiceRecorderWidget = ({
     return (
       <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-10 text-center`, className)}>
         <div className="relative w-28 h-28 mx-auto mb-6 rounded-full bg-secondary/30 flex items-center justify-center">
-          <div className="w-10 h-10 border-2 border-beige border-t-transparent rounded-full animate-spin" />
+          <VocifySpinner size={36} />
         </div>
         <h3 className="text-lg font-semibold text-foreground mb-1">
           Extracting CRM fields...
@@ -413,22 +415,24 @@ export const VoiceRecorderWidget = ({
     return (
       <div className={cn("space-y-3", className)}>
         <div className="flex items-center gap-3">
-          <button
+          <Button
             type="button"
+            size="icon"
             onClick={handleRecordToggle}
             disabled={state === "requesting"}
+            className="h-11 w-11"
             aria-label="Start recording voice memo"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-beige text-cream"
           >
             <Mic className="h-4 w-4" />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="quiet"
+            size="text"
             onClick={() => setIsPasteOpen((prev) => !prev)}
-            className="text-sm text-muted-foreground hover:text-foreground"
           >
             {t.product.capturePaste}
-          </button>
+          </Button>
         </div>
         {isPasteOpen ? (
           <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-4`}>
@@ -465,12 +469,12 @@ export const VoiceRecorderWidget = ({
           disabled={state === "requesting"}
           aria-label="Start recording voice memo"
           className={cn(
-            "group relative w-20 h-20 rounded-full glass-panel border border-white/70 shadow-lg dark:border-white/10 flex items-center justify-center",
-            "hover:scale-105 hover:border-beige/40 active:scale-95 transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-beige"
+            "group relative w-20 h-20 rounded-full glass-panel flex items-center justify-center",
+            "hover:scale-105 hover:border-beige/40 active:scale-95 transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-beige disabled:opacity-50"
           )}
         >
           {state === "requesting" ? (
-            <div className="w-6 h-6 border-2 border-beige border-t-transparent rounded-full animate-spin" />
+            <VocifySpinner size={22} />
           ) : (
             <div className="w-7 h-7 rounded-full bg-beige group-hover:scale-110 transition-transform duration-200 shadow-xs flex items-center justify-center text-cream">
               <Mic className="h-4 w-4 text-cream" />
@@ -491,11 +495,12 @@ export const VoiceRecorderWidget = ({
         <button
           type="button"
           onClick={() => setIsPasteOpen((prev) => !prev)}
+          aria-pressed={isPasteOpen}
           className={cn(
             "inline-flex items-center gap-1.5 px-4 py-2 rounded-full border text-xs font-medium transition-all cursor-pointer",
             isPasteOpen
               ? "border-beige/40 bg-beige/10 text-beige"
-              : "border-border/70 bg-card hover:bg-secondary/40 text-foreground hover:border-beige/30"
+              : "border-border/70 bg-card hover:bg-secondary/60 text-foreground hover:border-beige/30"
           )}
         >
           <FileText className="h-3.5 w-3.5 text-beige" />
@@ -513,13 +518,9 @@ export const VoiceRecorderWidget = ({
         <div className="mb-6 p-5 rounded-xl bg-card border border-border/80 text-left animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-foreground">Paste Meeting Transcript</span>
-            <button
-              type="button"
-              onClick={() => setIsPasteOpen(false)}
-              className="text-muted-foreground hover:text-foreground p-1 rounded-md"
-            >
+            <IconAction label="Close" onClick={() => setIsPasteOpen(false)}>
               <X className="h-3.5 w-3.5" />
-            </button>
+            </IconAction>
           </div>
           <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
             From Zoom, Google Meet, Microsoft Teams, Fireflies, Otter, or notes.
@@ -575,7 +576,7 @@ export const VoiceRecorderWidget = ({
           "border border-dashed rounded-xl p-5 transition-all duration-150 cursor-pointer flex items-center justify-center gap-4 text-left group",
           isDragging
             ? "border-beige bg-beige/5"
-            : "border-border/70 hover:border-beige/30 bg-secondary/15 hover:bg-secondary/30"
+            : "border-border/70 hover:border-beige/30 bg-secondary/15 hover:bg-secondary/60"
         )}
       >
         <div className="w-10 h-10 rounded-xl bg-beige/10 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">

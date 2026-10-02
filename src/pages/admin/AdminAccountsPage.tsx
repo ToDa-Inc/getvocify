@@ -126,7 +126,7 @@ const AdminAccountsPage = () => {
             </thead>
             <tbody>
               {accounts.map((account) => (
-                <tr key={account.id} className="border-b border-border/30 last:border-0 hover:bg-secondary/10">
+                <tr key={account.id} className="border-b border-border/30 last:border-0 hover:bg-secondary/60">
                   <td className={`${td} max-w-[220px]`}>
                     <Link
                       to={`/admin/accounts/${account.id}`}

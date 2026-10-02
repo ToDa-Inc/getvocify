@@ -4,6 +4,7 @@ import { productCatalog } from "./product-catalog.ts";
 import {
   meetingProposalReadErrorView,
   meetingProposalReviewSurface,
+  meetingWhen,
 } from "./meeting-proposal-review.ts";
 
 const agreed = { agreement: "agreed", starts_at: "2026-09-29T15:00:00+00:00", proposal_id: "p1" };
@@ -100,5 +101,21 @@ describe("meetingProposalReviewSurface", () => {
       }).kind,
       "proposal",
     );
+  });
+});
+
+describe("meetingWhen", () => {
+  it("formats in the meeting's own timezone, not as raw ISO", () => {
+    const line = meetingWhen("2026-09-29T14:00:00+00:00", "Europe/Madrid", "es-ES");
+    assert.ok(line);
+    assert.match(line, /29/);
+    assert.match(line, /16:00/);
+    assert.equal(line.includes("T14:00"), false);
+  });
+
+  it("falls back to the local clock for an unknown timezone and hides a missing date", () => {
+    assert.ok(meetingWhen("2026-09-29T14:00:00+00:00", "Not/AZone", "en-GB"));
+    assert.equal(meetingWhen(null, "Europe/Madrid", "es-ES"), null);
+    assert.equal(meetingWhen("garbage", "Europe/Madrid", "es-ES"), null);
   });
 });

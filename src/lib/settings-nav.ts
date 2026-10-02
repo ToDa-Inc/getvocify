@@ -1,8 +1,9 @@
 /**
  * Which Settings tabs a role can see (Lista 3, item 2; Lista 4 E6). Company-wide sections
- * (CRM, Offer/strategy, Brief/timing, Playbooks editing, Team, Billing) are the Head of
- * Sales's (owner/admin's) call; a rep sees Calling, the shared Glossary and Usage (the personal ones, `repOnly`, are hidden for the Head of Sales). Interface language is not a route here - it's rendered by
- * SettingsLayout for everyone regardless of this list.
+ * (CRM, Offer/strategy, Brief/timing, Team, Billing; the playbook editor lives in Proceso de venta) are the
+ * Head of Sales's (owner/admin's) call; a rep sees Calling, the shared Glossary and Usage (the
+ * personal ones, `repOnly`, are hidden for the Head of Sales). Language and theme live in the
+ * avatar menu, not here.
  *
  * Pure and role-only on purpose: SettingsLayout uses it both to filter the nav and to
  * redirect a member who lands on a manager-only URL directly.
@@ -15,7 +16,6 @@ export type SettingsTabId =
   | "offer"
   | "glossary"
   | "brief"
-  | "playbooks"
   | "team"
   | "usage"
   | "billing";
@@ -42,8 +42,6 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: "offer", to: "/dashboard/settings/offer", labelKey: "settingsNavOffer", managerOnly: true },
   { id: "glossary", to: "/dashboard/settings/glossary", labelKey: "settingsNavGlossary", managerOnly: false },
   { id: "brief", to: "/dashboard/settings/brief", labelKey: "settingsNavBrief", managerOnly: true },
-  // "playbooks" moved to the Head of Sales' Proceso de venta page (/dashboard/process);
-  // /dashboard/settings/playbooks redirects there.
   { id: "team", to: "/dashboard/settings/team", labelKey: "settingsNavTeam", managerOnly: true },
   { id: "usage", to: "/dashboard/settings/usage", labelKey: "settingsNavUsage", managerOnly: false, repOnly: true },
   { id: "billing", to: "/dashboard/settings/billing", labelKey: "settingsNavBilling", managerOnly: true },

@@ -6,11 +6,11 @@ import { playbooksApi } from "@/features/playbooks/api";
 import { COMPANY_KEY, PLAYBOOKS_KEY } from "@/features/playbooks/keys";
 import { PlaybookDocument } from "@/features/playbooks/components/PlaybookDocument";
 import { CompanyKnowledge } from "@/features/playbooks/components/CompanyKnowledge";
+import { Segmented } from "@/components/ui/segmented";
 import { isEmptyKnowledge } from "@/lib/playbook-knowledge";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
 import { templateSteps } from "@/lib/playbook-editor";
-import { isManagerRole } from "@/lib/nav";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { api } from "@/shared/lib/api-client";
 
@@ -51,22 +51,12 @@ function YourProcess() {
       {list.isError ? <p className={THEME_TOKENS.typography.body}>{t.product.playbookEditorLoadFailed}</p> : null}
       {list.isSuccess && !active ? <p className={THEME_TOKENS.typography.body}>{t.product.playbookEditorReadOnlyEmpty}</p> : null}
       {live.length > 1 ? (
-        <div className="flex flex-wrap gap-1" role="tablist">
-          {live.map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={key === active}
-              className={`rounded-full px-3 py-1 text-[13px] transition-colors ${
-                key === active ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
-              }`}
-              onClick={() => setPicked(key)}
-            >
-              {name(key)}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          value={active}
+          onValueChange={setPicked}
+          options={live.map((key) => ({ value: key, label: name(key) }))}
+          aria-label={copy.repHeading}
+        />
       ) : null}
       {active ? (
         <PlaybookDocument
@@ -94,7 +84,8 @@ function YourCompany() {
   );
 }
 
-export default function PlaybookPage() {
+/** Coaching → Playbook: the process the rep is scored against, the company story, the best calls. */
+export function CoachingPlaybook() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const p = t.product;
@@ -106,16 +97,13 @@ export default function PlaybookPage() {
     retry: false,
     enabled: bestEnabled,
   });
-  const manager = isManagerRole(user?.company?.role);
-  // T11: opening the memo stays governed by the memo's own visibility, which this page
-  // does not reimplement. It only offers the link for the author's own memo, or for a
-  // manager, who already has broader read access elsewhere in the product.
-  const canOpen = (item: BestItem) => manager || item.user_id === user?.id;
+  // T11: opening the memo stays governed by the memo's own visibility, which this tab does
+  // not reimplement. Coaching is the rep's page, so it only links the rep's own memos.
+  const canOpen = (item: BestItem) => item.user_id === user?.id;
   const empty = query.isSuccess && FLOWS.every(({ flow }) => (query.data?.[flow]?.length ?? 0) === 0);
 
   return (
-    <main className={`max-w-3xl mx-auto space-y-6 ${THEME_TOKENS.motion.fadeIn}`}>
-      <h1 className={THEME_TOKENS.typography.pageTitle}>{p.playbookPageTitle}</h1>
+    <div className="space-y-6" data-testid="coach-playbook">
       <YourProcess />
       <YourCompany />
       {bestEnabled ? <h2 className={THEME_TOKENS.typography.sectionTitle}>{p.pb2.bestHeading}</h2> : null}
@@ -159,6 +147,6 @@ export default function PlaybookPage() {
           </section>
         );
       })}
-    </main>
+    </div>
   );
 }

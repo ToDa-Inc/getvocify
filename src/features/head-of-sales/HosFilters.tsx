@@ -1,4 +1,5 @@
 import { FilterMenu } from "@/features/interactions/components/FilterMenu";
+import { Segmented } from "@/components/ui/segmented";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { HOS_PERIODS, type HosPeriod, type HosSalesRole } from "@/lib/head-of-sales";
@@ -35,21 +36,15 @@ export function HosFilters({
         onChange={(next) => onPeriod(next as HosPeriod)}
       />
       {showRoles ? (
-        <div role="group" aria-label={p.hosRoleLabel} className="inline-flex rounded-full border border-border/50 bg-secondary/30 p-1">
-          {ROLE_FILTERS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              aria-pressed={salesRole === option.value}
-              onClick={() => onSalesRole(option.value)}
-              className={`rounded-full border px-3.5 py-1 text-xs transition-colors duration-150 motion-reduce:transition-none ${
-                salesRole === option.value ? "glass-nav font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {p[option.key]}
-            </button>
-          ))}
-        </div>
+        <Segmented<HosSalesRole>
+          value={salesRole}
+          onValueChange={onSalesRole}
+          options={ROLE_FILTERS.map((option) => ({
+            value: option.value,
+            label: p[option.key],
+          }))}
+          aria-label={p.hosRoleLabel}
+        />
       ) : null}
     </div>
   );
