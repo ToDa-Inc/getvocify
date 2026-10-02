@@ -14,14 +14,16 @@ from app.api.briefs import _handoff_restricted_user_ids
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.copilot.contact_history import load_contact_history
-from app.services.copilot.context import resolve_suggest_context
+from app.services.copilot.context import live_assist_kind_from_call_mode, resolve_suggest_context
+from app.services.copilot import call_type
 from app.services.copilot.checklist import build_meeting_checklist
 from app.services.copilot.load_grounding import (
     load_company_knowledge,
     load_company_suggest_grounding,
     load_suggest_grounding,
 )
-from app.services.copilot.suggest import stream_objection_suggestion
+from app.services.copilot.suggest import silent_suggestion, stream_objection_suggestion
+from app.services.playbooks.catalog import INTERNAL_KEY
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
 
@@ -44,6 +46,28 @@ class SuggestRequest(BaseModel):
     capture_id: Optional[str] = Field(default=None, max_length=128)
     contact_id: Optional[str] = Field(default=None, max_length=128)
     request_id: Optional[str] = Field(default=None, max_length=128)
+    # The call's type, decided once for the call (Vocify's guess or proposal, or the rep's pick).
+    sales_motion_key: Optional[str] = Field(default=None, max_length=64)
+
+
+class CallTypeGuessRequest(BaseModel):
+    interaction_kind: Literal["call", "meeting"] = "meeting"
+    contact_id: Optional[str] = Field(default=None, max_length=128)
+
+
+class CallTypeOption(BaseModel):
+    key: str = Field(..., max_length=64)
+    label: str = Field(..., max_length=200)
+
+
+class CallTypeProposeRequest(BaseModel):
+    transcript_window: str = Field(..., max_length=20000)
+    options: list[CallTypeOption] = Field(default_factory=list, max_length=50)
+
+
+def _sse(events: list[dict]) -> StreamingResponse:
+    body = "".join(f"data: {json.dumps(event, ensure_ascii=False)}\n\n" for event in events)
+    return StreamingResponse(iter([body]), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
 @router.post("/checklist")
@@ -70,6 +94,11 @@ async def suggest_objection_handling(
     supabase: Client = Depends(get_supabase),
 ):
     """Stream a structured objection-handling suggestion (SSE)."""
+    motion = (body.sales_motion_key or "").strip() or None
+    if motion == INTERNAL_KEY:
+        # No customer in the conversation: no help, and no model call.
+        return _sse([{"type": "result", "suggestion": silent_suggestion()}, {"type": "done"}])
+
     product_context = (body.product_context or "").strip()
     if not product_context:
         # Desktop meetings don't carry the offer; use the one the rep saved for extraction.
@@ -81,7 +110,11 @@ async def suggest_objection_handling(
         body.contact_id,
         call_mode=body.call_mode,
     )
-    if body.capture_id:
+    if motion and not body.capture_id:
+        grounding = call_type.grounding_for_type(
+            supabase, membership.company_id, motion, live_assist_kind_from_call_mode(body.call_mode),
+        )
+    elif body.capture_id:
         grounding = load_suggest_grounding(
             supabase,
             user_id=membership.user_id,
@@ -141,6 +174,33 @@ async def suggest_objection_handling(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/call-type/guess")
+async def guess_call_type(
+    body: CallTypeGuessRequest,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+):
+    """The type to start a live call with, at no model cost."""
+    key, source = call_type.provisional_type(
+        call_type.last_contact_type(supabase, membership.company_id, body.contact_id),
+        call_type.rule_type(supabase, membership.company_id, membership.user_id, body.interaction_kind, body.contact_id),
+        call_type.published_keys(supabase, membership.company_id),
+    )
+    return {"type": key, "source": source}
+
+
+@router.post("/call-type/propose")
+async def propose_call_type(
+    body: CallTypeProposeRequest,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+):
+    """One model call: the published type the conversation so far points to."""
+    labels = {option.key: option.label for option in body.options}
+    proposal = await call_type.propose(supabase, membership.company_id, body.transcript_window, labels)
+    return {"type": proposal[0], "confident": proposal[1]} if proposal else {"type": None, "confident": False}
 
 
 @router.get("/health")

@@ -9,6 +9,10 @@ export type AssistContext = {
   transcriptWindow: string;
   /** The call's CRM contact, so help can use their earlier calls. */
   contactId?: string;
+  /** How the call happens (a phone call or a meeting), from the platform that caught it. */
+  callMode?: "softphone" | "meeting";
+  /** The call's type: help uses that playbook. */
+  typeKey?: string;
 };
 
 /** One piece of live help, whatever produced it. */
@@ -99,6 +103,33 @@ export function draftType(partial: string): string | null {
   if (!/"is_objection"\s*:\s*true/.test(partial)) return null;
   const type = partial.match(/"objection_type"\s*:\s*"([a-z_]+)"/)?.[1];
   return type && type !== "none" && type in OBJECTION_LABEL ? type : null;
+}
+
+/**
+ * The words of `say_this` streamed so far, so the island can show the answer as it is written.
+ * Stops at the string's end; an escape cut off mid-way is left out until it is complete.
+ */
+export function partialSayThis(partial: string): string {
+  const start = partial.match(/"say_this"\s*:\s*"/);
+  if (!start || start.index === undefined) return "";
+  let raw = "";
+  for (let i = start.index + start[0].length; i < partial.length; i += 1) {
+    const char = partial[i];
+    if (char === '"') break;
+    if (char === "\\") {
+      const size = partial[i + 1] === "u" ? 6 : 2;
+      if (i + size > partial.length) break;
+      raw += partial.slice(i, i + size);
+      i += size - 1;
+      continue;
+    }
+    raw += char;
+  }
+  try {
+    return JSON.parse(`"${raw}"`) as string;
+  } catch {
+    return "";
+  }
 }
 
 export function draftCard(type: string, latestTurn: string, at: number): AssistCard {

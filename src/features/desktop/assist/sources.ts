@@ -1,30 +1,40 @@
 import { streamObjectionSuggestion } from "@/features/copilot";
 import type { ObjectionSuggestion } from "@/features/copilot/types";
-import { draftCard, draftType, objectionCard, type AssistSource } from "@/lib/live-assist";
+import { draftCard, draftType, objectionCard, partialSayThis, type AssistCard, type AssistSource } from "@/lib/live-assist";
 
-/** Live objection handling from /copilot/suggest (meeting mode, the rep's saved offer). */
+/** Live objection handling from /copilot/suggest (the call's playbook and the rep's saved offer). */
 const objectionSource: AssistSource = {
   id: "objection",
   request: (context, signal, onDraft) =>
     new Promise((resolve) => {
       let result: ObjectionSuggestion | null = null;
       let streamed = "";
-      let drafted = false;
+      let draft: AssistCard | null = null;
       void streamObjectionSuggestion(
         {
           transcript_window: context.transcriptWindow,
           latest_turn: context.latestTurn,
-          call_mode: "meeting",
+          call_mode: context.callMode ?? "meeting",
           speaker_role: "prospect",
           ...(context.contactId && { contact_id: context.contactId }),
+          ...(context.typeKey && { sales_motion_key: context.typeKey }),
         },
         (event) => {
-          if (event.type === "token" && !drafted && onDraft) {
+          if (event.type === "token" && onDraft) {
             streamed += event.text;
-            const type = draftType(streamed);
-            if (type) {
-              drafted = true;
-              onDraft(draftCard(type, context.latestTurn, Date.now()));
+            if (!draft) {
+              const type = draftType(streamed);
+              if (type) {
+                draft = draftCard(type, context.latestTurn, Date.now());
+                onDraft(draft);
+              }
+            } else {
+              // The answer appears word by word in the same card while it is written.
+              const sayThis = partialSayThis(streamed).trim();
+              if (sayThis && sayThis !== draft.sayThis) {
+                draft = { ...draft, sayThis };
+                onDraft(draft);
+              }
             }
           } else if (event.type === "result") {
             result = event.suggestion;
