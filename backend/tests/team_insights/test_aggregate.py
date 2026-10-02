@@ -209,3 +209,12 @@ def test_a_meeting_counts_only_when_the_rep_declared_it():
     read_by_model = {"extraction": {"intelligence": {"meeting": {"agreed": True}}}}
     assert memo_meeting_agreed(read_by_model) is False
     assert memo_meeting_agreed({**read_by_model, "rep_outcome": "meeting_booked"}) is True
+
+
+def test_a_connected_line_with_nobody_talking_is_not_a_conversation():
+    from app.services.team_insights.aggregate import memo_had_conversation
+    talked = {"screening_outcome": "connected", "extraction": {"intelligence": {"call": {"reached_conversation": True}}}}
+    voicemail = {"screening_outcome": "connected", "extraction": {"intelligence": {"call": {"reached_conversation": False}}}}
+    unread = {"screening_outcome": "connected", "extraction": {}}
+    assert memo_had_conversation(talked) and memo_had_conversation(unread)
+    assert not memo_had_conversation(voicemail)

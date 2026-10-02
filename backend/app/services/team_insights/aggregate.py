@@ -116,7 +116,7 @@ def activity_counts(rows: list[dict], *, start: datetime, end: datetime) -> dict
         screening = row.get("screening")
         if screening in _SCREENING_ATTEMPTS:
             attempts += 1
-            if screening == "connected":
+            if row.get("conversation", screening == "connected"):
                 connected += 1
         if row.get("meeting_agreed") is True:
             meetings += 1
@@ -130,10 +130,23 @@ def activity_row_from_memo(memo: dict) -> dict | None:
     observed = memo.get("observed_at") or memo.get("capture_started_at") or memo.get("created_at")
     return {
         "screening": screening,
+        "conversation": memo_had_conversation(memo),
         "meeting_agreed": memo_meeting_agreed(memo),
         "observed_at": observed,
         "user_id": str(memo.get("user_id") or ""),
     }
+
+
+def memo_had_conversation(memo: dict) -> bool:
+    """A conversation is a connected line where someone actually talked with the rep: the line can
+    connect to a voicemail, a switchboard or silence, which the call reading tells apart. The same
+    definition coaching uses, so the Head of Sales and the rep see one number."""
+    if memo.get("screening_outcome") != "connected":
+        return False
+    extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+    intel = memo.get("intelligence") or (extraction or {}).get("intelligence") or {}
+    call = intel.get("call") if isinstance(intel, dict) and isinstance(intel.get("call"), dict) else {}
+    return call.get("reached_conversation") is not False
 
 
 def memo_meeting_agreed(memo: dict) -> bool:

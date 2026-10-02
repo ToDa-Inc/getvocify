@@ -45,7 +45,9 @@ def _interaction_from_memo(memo: dict) -> dict | None:
         "memo_id": str(memo_id),
         "captured_at": captured,
         "screening": screening,
-        "connected": screening == "connected",
+        # Connected and someone talked (not a voicemail or silence the call reading caught): coaching's definition.
+        "connected": screening == "connected"
+        and ((((memo.get("extraction") or {}).get("intelligence") or {}).get("call") or {}).get("reached_conversation") is not False),
         # The rep's declaration (after-call outcome, accepted proposal, CRM stage), never the model's reading.
         "meeting_agreed": memo.get("rep_outcome") == "meeting_booked",
     }
