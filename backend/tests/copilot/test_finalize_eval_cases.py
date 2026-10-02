@@ -52,7 +52,9 @@ def test_f12_finalize_cases_match_expectations():
         assert result["playbook_ready"] is case["expect_playbook_ready"]
         assert result["evidence_refs"] == case.get("expect_evidence_refs", [])
         if not case["expect_playbook_ready"]:
-            assert result["suggestion"]["say_this"] == ""
+            # Meetings keep ungrounded help as general help; other modes never show card text.
+            erased = case["call_mode"] != "meeting"
+            assert (result["suggestion"]["say_this"] == "") is erased
 
 
 def test_f12_null_grounding_stays_silent():

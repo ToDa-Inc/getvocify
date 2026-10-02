@@ -241,3 +241,25 @@ def test_propose_endpoint_returns_a_published_type_or_nothing(monkeypatch):
 
     monkeypatch.setattr(call_type, "ask_model", made_up)
     assert client.post("/api/v1/copilot/call-type/propose", json=body).json() == {"type": None, "confident": False}
+
+
+def test_an_objection_with_no_line_is_asked_once_more_without_the_playbook(monkeypatch):
+    calls = []
+
+    async def fake_stream(**kwargs):
+        calls.append(kwargs["grounding"])
+        if len(calls) == 1:
+            yield {"type": "result", "suggestion": {"is_objection": True, "objection_type": "trust", "say_this": ""}}
+        else:
+            yield {"type": "token", "text": '{"is_objection": true'}
+            yield {"type": "result", "suggestion": {"is_objection": True, "objection_type": "trust", "say_this": "¿Qué os preocupa que escriba mal?"}}
+
+    monkeypatch.setattr(copilot_api, "stream_objection_suggestion", fake_stream)
+    response = _client(_company(), monkeypatch).post("/api/v1/copilot/suggest", json={
+        "transcript_window": "Them: me da miedo que la IA escriba mal", "latest_turn": "me da miedo que la IA escriba mal",
+        "call_mode": "meeting", "speaker_role": "prospect", "sales_motion_key": "closing",
+    })
+    results = [event for event in _events(response) if event["type"] == "result"]
+    assert len(calls) == 2 and calls[0] is not None and calls[1] is None
+    assert results[-1]["suggestion"]["say_this"] == "¿Qué os preocupa que escriba mal?"
+    assert len(results) == 1, "the empty answer is never sent: the island would show and withdraw it"

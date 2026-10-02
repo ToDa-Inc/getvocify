@@ -65,6 +65,12 @@ class CallTypeProposeRequest(BaseModel):
     options: list[CallTypeOption] = Field(default_factory=list, max_length=50)
 
 
+def _empty_objection(event: dict) -> bool:
+    """A result that flags an objection with no line to say: shown, it would vanish at once."""
+    suggestion = event.get("suggestion") or {}
+    return suggestion.get("is_objection") is True and not str(suggestion.get("say_this") or "").strip()
+
+
 def _sse(events: list[dict]) -> StreamingResponse:
     body = "".join(f"data: {json.dumps(event, ensure_ascii=False)}\n\n" for event in events)
     return StreamingResponse(iter([body]), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
@@ -144,25 +150,38 @@ async def suggest_objection_handling(
             ),
         )
 
-    async def event_gen():
-        async for event in stream_objection_suggestion(
+    def ask(with_grounding):
+        return stream_objection_suggestion(
             transcript_window=body.transcript_window,
             latest_turn=body.latest_turn,
             product_context=product_context or None,
             language=body.language,
             call_mode=body.call_mode,
             speaker_role=body.speaker_role,
-            grounding=grounding,
+            grounding=with_grounding,
             context=context,
             company_knowledge=company_knowledge,
             contact_history=contact_history,
-        ):
-            if event.get("type") == "result":
-                if body.capture_id:
-                    event = {**event, "capture_id": body.capture_id}
-                if body.request_id:
-                    event = {**event, "request_id": body.request_id}
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        )
+
+    def sse(event: dict) -> str:
+        if event.get("type") == "result":
+            if body.capture_id:
+                event = {**event, "capture_id": body.capture_id}
+            if body.request_id:
+                event = {**event, "request_id": body.request_id}
+        return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    async def event_gen():
+        async for event in ask(grounding):
+            if event.get("type") == "result" and grounding is not None and _empty_objection(event):
+                # The playbook can make the model flag an objection and say nothing: ask once more
+                # without it, as general help. The client drops what it streamed so far.
+                yield sse({"type": "restart"})
+                async for retry in ask(None):
+                    yield sse(retry)
+                break
+            yield sse(event)
         yield "data: {\"type\": \"done\"}\n\n"
 
     return StreamingResponse(

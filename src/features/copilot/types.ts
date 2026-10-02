@@ -46,6 +46,8 @@ export type SuggestStreamEvent =
   | { type: "token"; text: string }
   | SuggestResultEvent
   | { type: "error"; message: string }
+  /** The server asks again (without the playbook): drop what streamed so far. */
+  | { type: "restart" }
   | { type: "done" };
 
 export const PRODUCT_CONTEXT_STORAGE_KEY = "vocify_copilot_product_context";

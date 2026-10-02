@@ -3,10 +3,8 @@ import {
   addCard,
   askAfterMs,
   assistContext,
-  cardVisible,
   cooldownKey,
   coolingDown,
-  repActivityKey,
   type AssistCard,
 } from "@/lib/live-assist";
 import type { MeetingDisplayTurn } from "@/lib/meeting-transcript";
@@ -38,15 +36,12 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
   const [active, setActive] = useState<AssistCard | null>(null);
   const [earlier, setEarlier] = useState<AssistCard[]>([]);
   const [thinking, setThinking] = useState(false);
-  const [, setTick] = useState(0);
   const lastKeyRef = useRef("");
   /** How much of their current turn the last ask covered: the next ask is about what came after. */
   const askedRef = useRef<{ turnKey: string; length: number } | null>(null);
   const lastAskRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastShownRef = useRef<Record<string, number>>({});
-  const repLastAtRef = useRef<number | null>(null);
-  const repKeyRef = useRef("");
 
   const found = enabled ? assistContext(turns, askedRef.current) : null;
   const context = found
@@ -58,19 +53,6 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       }
     : null;
   const key = context?.key ?? "";
-  const repKey = repActivityKey(turns);
-
-  if (repKey !== repKeyRef.current) {
-    repKeyRef.current = repKey;
-    if (repKey) repLastAtRef.current = Date.now();
-  }
-
-  const retire = (card: AssistCard) => {
-    note("retire", { label: card.label, stage: card.stage, shownMs: Date.now() - card.at });
-    setActive((current) => (current?.id === card.id ? null : current));
-    // Drafts never reached an answer; only real help is worth keeping in "Earlier".
-    if (card.stage === "ready") setEarlier((list) => addCard(list, card));
-  };
 
   /** Shows a new card, moving whatever was up into "Earlier". */
   const present = (card: AssistCard) => {
@@ -135,17 +117,6 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     // The key captures every change in their words; context is derived from it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-
-  // While a card is up, re-check the display rules; they depend on time and on the rep speaking.
-  useEffect(() => {
-    if (!active) return;
-    const timer = window.setInterval(() => setTick((n) => n + 1), 500);
-    return () => window.clearInterval(timer);
-  }, [active]);
-
-  useEffect(() => {
-    if (active && !cardVisible(active, Date.now(), repLastAtRef.current)) retire(active);
-  });
 
   useEffect(() => {
     if (enabled) return;

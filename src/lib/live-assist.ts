@@ -132,6 +132,17 @@ export function partialSayThis(partial: string): string {
   }
 }
 
+/**
+ * The card while the answer streams: only once its first words arrive, with the bridge line above
+ * them. A card shown on the objection's kind alone could come back empty and vanish at once.
+ */
+export function streamedDraft(streamed: string, latestTurn: string, at: number): AssistCard | null {
+  const type = draftType(streamed);
+  const sayThis = partialSayThis(streamed).trim();
+  if (!type || !sayThis) return null;
+  return { ...draftCard(type, latestTurn, at), sayThis };
+}
+
 export function draftCard(type: string, latestTurn: string, at: number): AssistCard {
   return {
     id: `objection-${at}`,
@@ -223,14 +234,10 @@ export function addCard(cards: AssistCard[], card: AssistCard, keep = 5): Assist
 }
 
 /**
- * Display rules. A card stays while it's being used: at least 8s, through the rep's
- * answer, gone 2.5s after they finish, never more than 25s. The same kind of help
- * waits a minute before interrupting again. (Longer than F12's 4–10s: in use, the
- * card vanished while the rep was reading it out loud.)
+ * Display rules. A card stays until newer help replaces it (the rep may still be reading it out
+ * loud); the replaced one moves to "Earlier". The same kind of help waits a minute before it can
+ * interrupt again.
  */
-export const CARD_MIN_MS = 8000;
-export const CARD_MAX_MS = 25000;
-export const REP_DONE_MS = 2500;
 export const CATEGORY_COOLDOWN_MS = 60000;
 
 /** The same kind of help waits a minute before it can interrupt again. */
@@ -243,17 +250,3 @@ export function cooldownKey(card: AssistCard): string {
   return `${card.source}:${card.label}`;
 }
 
-/** `repLastAt`: when the rep last said anything (settled or in progress). */
-export function cardVisible(card: AssistCard, now: number, repLastAt: number | null): boolean {
-  const age = now - card.at;
-  if (age >= CARD_MAX_MS) return false;
-  if (age < CARD_MIN_MS) return true;
-  const answered = repLastAt !== null && repLastAt > card.at;
-  return !(answered && now - repLastAt >= REP_DONE_MS);
-}
-
-/** Changes whenever the rep says something new; used to notice they took the floor. */
-export function repActivityKey(turns: MeetingDisplayTurn[]): string {
-  const mine = [...turns].reverse().find((turn) => turn.speaker === "rep");
-  return mine ? `${mine.key}:${mine.text.length}:${mine.pending.length}` : "";
-}

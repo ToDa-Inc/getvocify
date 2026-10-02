@@ -51,7 +51,7 @@ def test_grounded_meeting_result_carries_playbook_and_evidence():
     assert result["suggestion"]["say_this"].startswith("¿Qué coste")
 
 
-def test_empty_evidence_stays_silent_without_advice_text():
+def test_meeting_help_without_evidence_is_shown_as_general_help():
     suggestion = {
         "is_objection": True,
         "objection_type": "price",
@@ -67,10 +67,12 @@ def test_empty_evidence_stays_silent_without_advice_text():
         suggestion=suggestion,
         grounding=_grounding(),
     )
+    # Without a quote of the turn it is general help, not the playbook's: shown, never erased
+    # (an erased answer made the card the rep was already reading vanish).
     assert result["playbook_ready"] is False
     assert result["evidence_refs"] == []
-    assert result["suggestion"]["say_this"] == ""
-    assert result["suggestion"]["why_it_works"] == ""
+    assert result["grounded"] is False
+    assert result["suggestion"]["say_this"] == "Pitch harder now."
 
 
 def test_short_verbatim_ref_is_not_grounded_without_playbook_evidence():
@@ -86,7 +88,7 @@ def test_short_verbatim_ref_is_not_grounded_without_playbook_evidence():
     )
     assert result["playbook_ready"] is False
     assert result["evidence_refs"] == []
-    assert result["suggestion"]["say_this"] == ""
+    assert result["grounded"] is False  # shown as general help, never as the playbook's
 
 
 def test_invented_evidence_ref_is_not_published():
@@ -101,7 +103,7 @@ def test_invented_evidence_ref_is_not_published():
     )
     assert result["playbook_ready"] is False
     assert result["evidence_refs"] == []
-    assert result["suggestion"]["say_this"] == ""
+    assert result["grounded"] is False  # shown as general help, never as the playbook's
 
 
 def test_non_meeting_mode_never_ships_live_assist_fields_as_ready():

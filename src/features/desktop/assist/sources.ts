@@ -1,6 +1,6 @@
 import { streamObjectionSuggestion } from "@/features/copilot";
 import type { ObjectionSuggestion } from "@/features/copilot/types";
-import { draftCard, draftType, objectionCard, partialSayThis, type AssistCard, type AssistSource } from "@/lib/live-assist";
+import { objectionCard, streamedDraft, type AssistCard, type AssistSource } from "@/lib/live-assist";
 
 /** Live objection handling from /copilot/suggest (the call's playbook and the rep's saved offer). */
 const objectionSource: AssistSource = {
@@ -20,21 +20,15 @@ const objectionSource: AssistSource = {
           ...(context.typeKey && { sales_motion_key: context.typeKey }),
         },
         (event) => {
-          if (event.type === "token" && onDraft) {
+          if (event.type === "restart") {
+            // The server asks again without the playbook: what streamed so far was empty.
+            streamed = "";
+          } else if (event.type === "token" && onDraft) {
             streamed += event.text;
-            if (!draft) {
-              const type = draftType(streamed);
-              if (type) {
-                draft = draftCard(type, context.latestTurn, Date.now());
-                onDraft(draft);
-              }
-            } else {
-              // The answer appears word by word in the same card while it is written.
-              const sayThis = partialSayThis(streamed).trim();
-              if (sayThis && sayThis !== draft.sayThis) {
-                draft = { ...draft, sayThis };
-                onDraft(draft);
-              }
+            const next = streamedDraft(streamed, context.latestTurn, draft?.at ?? Date.now());
+            if (next && next.sayThis !== draft?.sayThis) {
+              draft = { ...next, id: draft?.id ?? next.id };
+              onDraft(draft);
             }
           } else if (event.type === "result") {
             result = event.suggestion;
