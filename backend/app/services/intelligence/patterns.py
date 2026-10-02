@@ -61,15 +61,20 @@ def attribute_evidence(*, transcript_quotes: list[dict], note: dict | None, sour
 
 
 def apply_projection(existing: list[dict], incoming: list[dict]) -> list[dict]:
-    """The new revision replaces the previous frequency. Both rows stay."""
-    incoming_revision = {(row["memo_id"], row["pattern_id"]): row["input_revision"] for row in incoming}
+    """The new revision replaces the previous frequency. Both rows stay.
+
+    A new analysis replaces every objection the memo had from an earlier one, not only those
+    with the same pattern id: a re-read that numbers its objections differently would otherwise
+    leave the old rows active and count each objection twice."""
+    incoming_keys = {(row["memo_id"], row["pattern_id"]) for row in incoming}
+    revisions = {row["input_revision"] for row in incoming}
     kept = []
     for row in existing:
         key = (row["memo_id"], row["pattern_id"])
-        if key in incoming_revision and row["input_revision"] != incoming_revision[key]:
-            kept.append({**row, "superseded": True})
-        else:
-            kept.append(row)
+        replaced = row["input_revision"] not in revisions and (
+            key in incoming_keys or any(row["memo_id"] == other[0] for other in incoming_keys)
+        )
+        kept.append({**row, "superseded": True} if replaced else row)
     return kept + [{**row, "superseded": False} for row in incoming]
 
 
