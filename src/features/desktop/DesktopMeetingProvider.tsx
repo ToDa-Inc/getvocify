@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { memosApi, memoKeys } from "@/features/memos/api";
@@ -42,13 +42,15 @@ import {
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
-import { getDesktopBridge, isDesktopHost, MEMO_CHANGED_EVENT, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
+import { getDesktopBridge, isDesktopHost, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
+import { integrationKeys, integrationsApi } from "@/features/integrations/api";
+import { CRM_PROVIDER_CONFIGS } from "@/features/integrations/types";
 import { islandCallContact, latestOnly, type CallPreview } from "@/lib/call-contact";
 import {
   POST_CALL_GIVE_UP_MS,
-  SKIPS_BEFORE_ASKING,
   UNDO_MS,
   callTypeFrom,
+  connectedCrmName,
   crmFor,
   crmForType,
   emailFrom,
@@ -512,21 +514,6 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     [endPostCall, showPostCall, typeName],
   );
 
-  const skipStreakKey = "vocify_followup_skips";
-  const readSkipStreak = () => {
-    try {
-      return Number(localStorage.getItem(skipStreakKey) || "0") || 0;
-    } catch {
-      return 0;
-    }
-  };
-  const writeSkipStreak = (value: number) => {
-    try {
-      localStorage.setItem(skipStreakKey, String(Math.max(0, value)));
-    } catch {
-      /* the nudge is a per-Mac convenience */
-    }
-  };
 
   /** What the rep chose in the island's card. Every write goes through the same API Vocify uses. */
   const onPostCallAction = useCallback(
@@ -560,7 +547,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               showPostCall({ stage: "done", applied: kept, undoUntil: undefined });
               memoChanged(memoId);
             } catch {
-              fail({ stage: "review", canApprove: false, undoUntil: undefined, note: "Couldn't update HubSpot. Review it in Vocify" });
+              fail({ stage: "review", canApprove: false, undoUntil: undefined, note: `Couldn't update ${crmNameRef.current ?? "the CRM"}. Review it in Vocify` });
             }
           }, UNDO_MS);
           return;
@@ -584,9 +571,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           if (current.state.email?.state !== "ready") return;
           const view = await memosApi.skipFollowup(memoId).catch(() => null);
           if (!view) return;
-          const streak = readSkipStreak() + 1;
-          writeSkipStreak(streak);
-          showPostCall({ email: emailFrom(view), offerStopEmails: streak >= SKIPS_BEFORE_ASKING });
+          showPostCall({ email: emailFrom(view) });
           memoChanged(memoId);
           return;
         }
@@ -594,27 +579,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           if (current.state.email?.state !== "skipped") return;
           const view = await memosApi.skipFollowup(memoId, true).catch(() => null);
           if (!view) return;
-          writeSkipStreak(readSkipStreak() - 1);
-          showPostCall({ email: emailFrom(view), offerStopEmails: false });
+          showPostCall({ email: emailFrom(view) });
           memoChanged(memoId);
           return;
         }
-        case "stopEmails": {
-          const saved = await memosApi.setFollowupPreference(false).then(() => true, () => false);
-          if (!saved) {
-            showPostCall({ offerStopEmails: false });
-            toast.error("Couldn't turn off email drafts. Try again in Settings.");
-            return;
-          }
-          writeSkipStreak(0);
-          queryClient.invalidateQueries({ queryKey: ["followup-preference"] });
-          showPostCall({ offerStopEmails: false, email: null });
-          return;
-        }
-        case "keepEmails":
-          writeSkipStreak(0);
-          showPostCall({ offerStopEmails: false });
-          return;
         case "addMeeting": {
           const meeting = current.state.meeting;
           if (!meeting || meeting.state !== "pending") return;
@@ -961,9 +929,6 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         pauseRef.current();
       } else if (name === "resume") {
         resumeRef.current();
-      } else if (name === "search") {
-        navigate(ROUTES.RECORD);
-        window.setTimeout(() => window.dispatchEvent(new CustomEvent(TRANSCRIPT_SEARCH_EVENT)), 0);
       }
     });
   }, [navigate]);
@@ -973,6 +938,20 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (!bridge?.shell.onPostCallAction) return;
     return bridge.shell.onPostCallAction((action) => void onPostCallActionRef.current(action));
   }, []);
+
+  // The island names the connected CRM in its card. Loaded only inside the Mac app.
+  const connections = useQuery({
+    queryKey: integrationKeys.connections(),
+    queryFn: integrationsApi.listConnections,
+    staleTime: Infinity,
+    enabled: available && Boolean(user?.id),
+  });
+  const crmName = connectedCrmName(connections.data, CRM_PROVIDER_CONFIGS);
+  const crmNameRef = useRef(crmName);
+  crmNameRef.current = crmName;
+  useEffect(() => {
+    getDesktopBridge()?.shell.setState({ crmName });
+  }, [crmName]);
 
   // The island only offers Record when there's someone signed in to record for.
   useEffect(() => {

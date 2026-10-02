@@ -107,8 +107,6 @@ export type PostCall = {
   meeting: PostCallMeeting | null;
   /** The memo has a call note to read. */
   notes: boolean;
-  /** Asked once, after several skipped emails in a row. */
-  offerStopEmails?: boolean;
   type?: PostCallType | null;
 };
 
@@ -210,6 +208,15 @@ export function crmFor(
   }
 }
 
+/** The connected CRM's name for the island's card ("Updating Ana in Pipedrive…"); null, never a guess, without one. */
+export function connectedCrmName(
+  connections: { provider: string; status: string }[] | null | undefined,
+  names: Record<string, { name: string }>,
+): string | null {
+  const provider = connections?.find((connection) => connection.status === "connected")?.provider;
+  return (provider && names[provider]?.name) || null;
+}
+
 /** What still needs the rep: the count on the closed island, and whether the card can go. */
 export function pendingItems(postCall: PostCall | null): number {
   if (!postCall) return 0;
@@ -219,9 +226,6 @@ export function pendingItems(postCall: PostCall | null): number {
   if (postCall.meeting && postCall.meeting.state !== "added") count += 1;
   return count;
 }
-
-/** Skipped emails in a row before Vocify asks, once, whether to stop drafting them. */
-export const SKIPS_BEFORE_ASKING = 3;
 
 /** How long Approve can still be undone before the write runs. */
 export const UNDO_MS = 5000;

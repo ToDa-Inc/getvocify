@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   callTypeFrom,
   changesFrom,
+  connectedCrmName,
   crmForType,
   crmFor,
   defaultKept,
@@ -158,5 +159,21 @@ describe("crmForType", () => {
     assert.equal(crmForType("discovery", crm), crm);
     assert.equal(crmForType(null, crm), crm);
     assert.equal(pendingItems({ memoId: "m", contactName: null, ...crmForType("internal", crm), email: null, meeting: null, notes: false }), 0);
+  });
+});
+
+describe("connectedCrmName", () => {
+  const names = { hubspot: { name: "HubSpot" }, pipedrive: { name: "Pipedrive" } };
+  it("names the connected CRM, not one that was disconnected", () => {
+    const connections = [
+      { provider: "hubspot", status: "disconnected" },
+      { provider: "pipedrive", status: "connected" },
+    ];
+    assert.equal(connectedCrmName(connections, names), "Pipedrive");
+  });
+  it("never guesses: nothing connected, an unknown provider or no list is null", () => {
+    assert.equal(connectedCrmName([{ provider: "hubspot", status: "disconnected" }], names), null);
+    assert.equal(connectedCrmName([{ provider: "zoho", status: "connected" }], names), null);
+    assert.equal(connectedCrmName(undefined, names), null);
   });
 });
