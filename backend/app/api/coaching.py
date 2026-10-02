@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
@@ -290,9 +291,20 @@ def _rep_context(
     week_start, week_end = madrid_week_bounds()
     # The flow is always resolved over the FLOW_WEEKS window, whatever `weeks` shows.
     flow_start = _week_starts(FLOW_WEEKS)[0]
-    all_own = _rows_of(
-        reads.load_memos(supabase, membership.company_id, [membership.user_id], start=min(starts[0], flow_start))
-    )
+    peer_start = starts[-1] - timedelta(weeks=_PEER_WEEKS - 1)
+    # The rep's calls, their teammates and the teammates' calls do not depend on each other: read
+    # them at once instead of one round trip after another.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        own_future = pool.submit(
+            reads.load_memos, supabase, membership.company_id, [membership.user_id], start=min(starts[0], flow_start)
+        )
+        peer_ids = reads.load_peer_ids(supabase, membership.company_id, membership.user_id) if peers else []
+        peer_future = (
+            pool.submit(reads.load_memos, supabase, membership.company_id, peer_ids, start=peer_start)
+            if peer_ids else None
+        )
+        all_own = _rows_of(own_future.result())
+        peer_memos = peer_future.result() if peer_future else []
     playbooks: dict[str, dict] = {}
 
     def playbook_for(motion: str) -> dict:
@@ -313,9 +325,7 @@ def _rep_context(
     )
     peer_rows_by_user: dict[str, list[dict]] = {}
     if peers and playbook["published"]:
-        peer_start = starts[-1] - timedelta(weeks=_PEER_WEEKS - 1)
-        peer_ids = reads.load_peer_ids(supabase, membership.company_id, membership.user_id)
-        for row in _rows_of(reads.load_memos(supabase, membership.company_id, peer_ids, start=peer_start, motion=motion)):
+        for row in _rows_of([memo for memo in peer_memos if memo.get("sales_motion_key") == motion]):
             peer_rows_by_user.setdefault(row["user_id"], []).append(row)
     return {
         "flow": flow,

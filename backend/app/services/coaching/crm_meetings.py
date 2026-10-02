@@ -39,8 +39,23 @@ def _instant(value: Any) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+_stage_cache: dict[str, tuple[float, Optional[dict]]] = {}
+
+
 def meeting_stage(supabase: Any, company_id: str) -> Optional[dict]:
-    """The company's configured meeting-booked stage (any member's CRM settings carry it)."""
+    """The company's configured meeting-booked stage (any member's CRM settings carry it).
+    Settings rarely change: cached per company for CACHE_SECONDS."""
+    with _lock:
+        hit = _stage_cache.get(company_id)
+        if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
+            return hit[1]
+    stage = _read_meeting_stage(supabase, company_id)
+    with _lock:
+        _stage_cache[company_id] = (time.monotonic(), stage)
+    return stage
+
+
+def _read_meeting_stage(supabase: Any, company_id: str) -> Optional[dict]:
     try:
         members = (
             supabase.table("company_members").select("user_id").eq("company_id", company_id)
