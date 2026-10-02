@@ -169,3 +169,49 @@ def test_glossary_fixes_listed_sound_alikes_and_nothing_else():
     assert apply_glossary("Sofía dijo que sí", terms) == "Sofía dijo que sí"  # resembling is not enough
     assert apply_glossary("Kobiyashi", terms) == "Kobiyashi"
     assert apply_glossary("hola", []) == "hola"
+
+
+def test_words_that_sound_like_a_term_take_its_spelling():
+    from app.services.live_channel_sessions import apply_glossary, glossary_sounds, glossary_terms, sound_key
+
+    assert {sound_key(w) for w in ("Cobee", "Cobi", "Covi", "Koby", "Kobi")} == {"kobi"}
+    assert sound_key("Vosify") == sound_key("Vocify")
+    terms = glossary_terms([{"content": "Cobee", "sounds_like": ["Cobi", "Covi"]}, {"content": "Vocify"}, {"content": "Vale"}, {"content": "Piper AI"}])
+    sounds = glossary_sounds(terms)
+    assert apply_glossary("están con Koby y con Vosify", terms, sounds) == "están con Cobee y con Vocify"
+    # An everyday word is never taken for a term that sounds like it.
+    assert apply_glossary("bale, perfecto", terms, sounds) == "bale, perfecto"
+    assert apply_glossary("Sofía y Kobiyashi", terms, sounds) == "Sofía y Kobiyashi"
+    # Two terms that sound alike: neither is guessed.
+    clash = glossary_terms([{"content": "Kobi"}, {"content": "Cobee"}])
+    assert glossary_sounds(clash) == {}
+
+
+def test_mai_sends_speech_with_a_little_before_and_after_and_holds_silence():
+    from array import array
+    from app.services.live_channel_sessions import MaiStream
+
+    stream = MaiStream("prospect", "es", None, vocab=[], offset_s=0.0, on_event=_noop)
+    quiet = bytes(3200)  # 100 ms of silence
+    voice = array("h", [3000, -3000] * 800).tobytes()  # 100 ms, clearly speech
+    for _ in range(20):
+        stream.feed(quiet)
+    assert stream.fed_s == 0.0 and round(stream.heard_s, 1) == 2.0
+    stream.feed(voice)  # 0.3 s held before it go out with it
+    assert round(stream.fed_s, 1) == 0.4
+    for _ in range(20):
+        stream.feed(quiet)
+    # 0.6 s after the voice still go, then nothing.
+    assert round(stream.fed_s, 1) == 1.0
+    assert stream.billed_seconds() == stream.fed_s
+    # Times still follow everything heard, silence included.
+    assert round(stream.heard_s, 1) == 4.1
+
+
+def test_a_quiet_side_still_keeps_its_session_alive():
+    from app.services.live_channel_sessions import KEEPALIVE_S, MaiStream
+
+    stream = MaiStream("prospect", "es", None, vocab=[], offset_s=0.0, on_event=_noop)
+    for _ in range(int(KEEPALIVE_S * 10) + 1):
+        stream.feed(bytes(3200))
+    assert round(stream.fed_s, 1) == 0.1

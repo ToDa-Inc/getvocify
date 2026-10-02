@@ -21,6 +21,8 @@ from array import array
 import json
 import logging
 import os
+import re
+import unicodedata
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
@@ -46,6 +48,14 @@ MAI_GATEWAY_URL = "wss://ai-gateway.vercel.sh/v4/ai/transcription-model?ai-model
 MAI_RATE = 24000
 # The gateway closes a session after 25 minutes: a side moves to a fresh one before that.
 MAI_SESSION_S = 24 * 60.0
+# MAI is billed per second of audio sent: a side only sends while someone on it is speaking.
+# Loud enough to send (RMS, about -50 dBFS: room noise stays under it, a soft voice doesn't).
+SPEECH_RMS = 100
+# Kept before speech starts, so its first syllable isn't cut, and sent on after it stops.
+PRE_ROLL_S = 0.3
+HANG_S = 0.6
+# A side that stays quiet still sends a moment of silence, or the gateway closes after 5 minutes.
+KEEPALIVE_S = 60.0
 # Nova-3 `multi` code-switches between these; a profile with any other goes to Speechmatics.
 DEEPGRAM_MULTI = {"en", "es", "fr", "de", "hi", "ru", "pt", "ja", "it", "nl"}
 MAX_KEYTERMS = 50
@@ -176,6 +186,38 @@ class PcmBuffer:
         return bytes(self.data[start - self.dropped : max(start, end) - self.dropped]), start / BYTES_PER_SECOND
 
 
+def sound_key(word: str) -> str:
+    """How a word sounds in Spanish, spelled one way: C/K/QU, B/V, Z/S and soft C, LL/Y,
+    a final Y as I, a silent H, doubled letters once. Koby, Cobi, Covi and Cobee all read "kobi"."""
+    w = unicodedata.normalize("NFD", word.lower())
+    w = "".join(c for c in w if unicodedata.category(c) != "Mn")
+    w = re.sub(r"[^a-zñ]", "", w)
+    w = re.sub(r"c(?=[ei])", "s", w)
+    w = re.sub(r"qu(?=[ei])", "k", w)
+    w = w.replace("ch", "#").replace("ll", "y")
+    w = w.translate(str.maketrans({"c": "k", "q": "k", "z": "s", "v": "b", "w": "b", "h": ""}))
+    w = w.replace("#", "ch")
+    w = re.sub(r"y$", "i", w)
+    w = re.sub(r"ee$", "i", w)
+    return re.sub(r"(.)\1+", r"\1", w)
+
+
+# Everyday words a term must not sound like, or every "bale" would become a company called Vale.
+_COMMON_SOUNDS = {
+    sound_key(w)
+    for w in (
+        "vale bueno claro pues cosa como pero para esto esta este todo nada bien sabes hola gracias "
+        "entonces porque donde cuando ahora mismo solo tambien tiene tienen hace hacer puede poder "
+        "quiero quieres creo tengo vamos venga perfecto genial exacto verdad mira oye dime digo dice "
+        "cada mucho poco mejor peor tipo caso semana mes dias tiempo empresa cliente clientes equipo "
+        "llamada correo precio coste venta ventas datos parte otra otro otros otras gente "
+        "molt també però perquè doncs aquí això això sí bé gràcies setmana "
+        "that this have with what about okay yeah sure right well just like know think good great"
+    ).split()
+}
+_WORD = re.compile(r"[^\W\d_]{4,}")
+
+
 def glossary_terms(vocab: list[dict[str, Any]]) -> list[EntityTerm]:
     """The glossary's words and what they sound like, for fixing a bubble's text as it arrives."""
     return [
@@ -185,10 +227,34 @@ def glossary_terms(vocab: list[dict[str, Any]]) -> list[EntityTerm]:
     ]
 
 
-def apply_glossary(text: str, terms: list[EntityTerm]) -> str:
-    """Only exact sound-alikes the user listed ("Vosify" for Vocify) and the term's own spelling:
-    nothing is guessed, so a word that merely resembles a term is never changed."""
-    return sanitize_transcript(text, terms).text if terms and text else text
+def glossary_sounds(terms: list[EntityTerm]) -> dict[str, str]:
+    """Sound of each one-word term and listed sound-alike, to the term. Left out: words under four
+    letters, ones that sound like an everyday word, and sounds two terms share."""
+    sounds: dict[str, str] = {}
+    clashes: set[str] = set()
+    for term in terms:
+        if " " in term.canonical.strip():
+            continue
+        for spelling in (term.canonical, *term.aliases):
+            key = sound_key(spelling)
+            if len(key) < 4 or key in _COMMON_SOUNDS or " " in spelling.strip():
+                continue
+            if sounds.get(key, term.canonical) != term.canonical:
+                clashes.add(key)
+            sounds[key] = term.canonical
+    return {k: v for k, v in sounds.items() if k not in clashes}
+
+
+def apply_glossary(text: str, terms: list[EntityTerm], sounds: Optional[dict[str, str]] = None) -> str:
+    """The glossary's spelling for its words: listed sound-alikes exactly ("Vosify" for Vocify),
+    then any word that sounds exactly like a term or a sound-alike ("Koby" for Cobee, listed as
+    "Cobi"). A word that only resembles one is never changed."""
+    if not terms or not text:
+        return text
+    text = sanitize_transcript(text, terms).text
+    if not sounds:
+        return text
+    return _WORD.sub(lambda m: sounds.get(sound_key(m.group(0)), m.group(0)), text)
 
 
 def live_provider(profile: list[str]) -> str:
@@ -471,6 +537,15 @@ class Upsampler:
         return out.tobytes()
 
 
+def speech_level(pcm: bytes) -> float:
+    """RMS of a PCM16 chunk."""
+    samples = array("h")
+    samples.frombytes(pcm[: len(pcm) - len(pcm) % 2])
+    if not samples:
+        return 0.0
+    return (sum(x * x for x in samples) / len(samples)) ** 0.5
+
+
 class MaiStream(LiveStream):
     """MAI-Transcribe-2-Streaming via Vercel AI Gateway: 60 languages detected as they are spoken,
     Catalan included, so no language checks or restarts are needed."""
@@ -481,6 +556,11 @@ class MaiStream(LiveStream):
         super().__init__(*args, **kwargs)
         self.upsample = Upsampler()
         self.last_end = self.offset_s
+        # All audio this side heard (times come from it) and what is held back while it's quiet.
+        self.heard_s = 0.0
+        self.quiet: list[bytes] = []
+        self.hang = 0.0
+        self.sent_at_s = 0.0
         # A word the last delta may not have finished, and when the words now changing first showed.
         self.carry = ""
         self.shown_at: Optional[float] = None
@@ -502,6 +582,30 @@ class MaiStream(LiveStream):
     def frame(self, pcm: bytes) -> bytes:
         return self.upsample(pcm)
 
+    def feed(self, pcm: bytes) -> None:
+        """Sends speech (with a little before and after it); holds silence back."""
+        seconds = len(pcm) / BYTES_PER_SECOND
+        self.heard_s += seconds
+        loud = speech_level(pcm) >= SPEECH_RMS
+        send = loud or self.hang > 1e-6
+        self.hang = HANG_S if loud else self.hang - seconds
+        if send:
+            for held in self.quiet:
+                super().feed(held)
+            self.quiet.clear()
+            super().feed(pcm)
+            self.sent_at_s = self.heard_s
+            return
+        self.quiet.append(pcm)
+        while len(self.quiet) > 1 and sum(len(p) for p in self.quiet) / BYTES_PER_SECOND > PRE_ROLL_S:
+            self.quiet.pop(0)
+        if self.heard_s - self.sent_at_s >= KEEPALIVE_S:
+            super().feed(bytes(len(pcm)))
+            self.sent_at_s = self.heard_s
+
+    def billed_seconds(self) -> float:
+        return self.fed_s
+
     def end_message(self, seq: int) -> dict[str, Any]:
         return {"type": "transcription-stream.audio-done"}
 
@@ -518,7 +622,7 @@ class MaiStream(LiveStream):
             settled = self._settle(data.get("delta") or "")
             if not settled:
                 return []
-            start, end = self.last_end, max(self.last_end, self.offset_s + self.fed_s)
+            start, end = self.last_end, max(self.last_end, self.offset_s + self.heard_s)
             self.last_end = end
             event = {"kind": "final", "transcript": settled, "words": [], "start": start, "end": end, "timed": False}
             if self.shown_at is not None:
@@ -531,14 +635,14 @@ class MaiStream(LiveStream):
                 return []
             if self.shown_at is None:
                 self.shown_at = now
-            end = max(self.last_end, self.offset_s + self.fed_s)
+            end = max(self.last_end, self.offset_s + self.heard_s)
             return [{"kind": "partial", "transcript": text, "words": [], "start": self.last_end, "end": end, "timed": False}]
         if kind in ("transcript-final", "finish"):
             # The whole item again: already sent as deltas; only a held last word is left.
             rest, self.carry = self.carry.strip(), ""
             out = []
             if rest:
-                end = max(self.last_end, self.offset_s + self.fed_s)
+                end = max(self.last_end, self.offset_s + self.heard_s)
                 out.append({"kind": "final", "transcript": rest, "words": [], "start": self.last_end, "end": end, "timed": False})
                 self.last_end = end
             if kind == "finish":
@@ -607,6 +711,7 @@ class ChannelSessions:
         )
         self.vocab = GlossaryService().format_for_speechmatics(glossary) if glossary else []
         self.terms = glossary_terms(self.vocab)
+        self.sounds = glossary_sounds(self.terms)
         self.sides = {label: SideLanguage(start_language, start_domain) for label in labels}
         self.buffers = {label: PcmBuffer() for label in labels}
         self.active: dict[str, LiveStream] = {}
@@ -733,6 +838,8 @@ class ChannelSessions:
                 # Fire and forget: the ledger writes in a thread, other calls keep streaming.
                 tier = "enhanced" if stream.provider == "speechmatics" else ""
                 record_stt_usage(stream.provider, "realtime", seconds, channels=1, tier=tier)
+            if isinstance(stream, MaiStream):
+                logger.info("Live channels: %s sent %.0fs of %.0fs to MAI", stream.label, stream.fed_s, stream.heard_s)
         self.report.log(self.user_id, {label: side.language for label, side in self.sides.items()})
 
     async def _send(self, payload: dict[str, Any]) -> None:
@@ -747,7 +854,7 @@ class ChannelSessions:
                 final=event["kind"] == "final",
                 start=event.get("start"),
                 end=event["end"],
-                text=apply_glossary(event.get("transcript") or "", self.terms),
+                text=apply_glossary(event.get("transcript") or "", self.terms, self.sounds),
                 timed=event.get("timed", True),
                 settle_s=event.get("settle_s"),
             )
@@ -759,7 +866,7 @@ class ChannelSessions:
             return  # replaced by a stream in the side's real language
         kind = event["kind"]
         if kind in ("partial", "final"):
-            transcript = apply_glossary(event.get("transcript") or "", self.terms)
+            transcript = apply_glossary(event.get("transcript") or "", self.terms, self.sounds)
             words = event.get("words") or []
             if not transcript and not words:
                 return

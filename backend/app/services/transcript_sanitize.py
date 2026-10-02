@@ -922,12 +922,15 @@ async def prepare_transcript_for_extraction_async(
         )
         terms = collect_sanitize_terms(glossary, existing_values, extra_names)
         roles = role_hints_from_context(existing_values, extra_names)
-        polished = await llm_sanitize_transcript(
-            text, terms, roles, spoken_language=spoken_language
-        )
         if speakers_verified:
-            polished = keep_verified_speakers(text, polished)
+            # Two channels (desktop) already know who said what, and the live transcript was
+            # fixed against the glossary as it arrived: an LLM rewrite found nothing to repair
+            # there and dropped the other side's short replies when merging turns.
+            polished = text
         else:
+            polished = await llm_sanitize_transcript(
+                text, terms, roles, spoken_language=spoken_language
+            )
             if two_party:
                 polished = collapse_extra_speakers(polished)
             polished = canonicalize_rep_prospect_speakers(polished, roles)

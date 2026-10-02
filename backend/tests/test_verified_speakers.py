@@ -52,3 +52,16 @@ def test_rep_notes_reach_the_prompt_only_when_written():
     with_notes = build_extraction_prompt("SPEAKER: S1\nhola", source_context="meeting_transcript", user_notes="Decide Jorge")
     assert "REP'S OWN NOTES" in with_notes and "Decide Jorge" in with_notes
     assert "REP'S OWN NOTES" not in build_extraction_prompt("SPEAKER: S1\nhola", user_notes="  ")
+
+
+def test_two_channel_calls_skip_the_llm_rewrite(monkeypatch):
+    import asyncio
+
+    from app.services import transcript_sanitize as ts
+
+    async def boom(*_a, **_k):
+        raise AssertionError("LLM called for a two-channel call")
+
+    monkeypatch.setattr(ts, "llm_sanitize_transcript", boom)
+    text, _ = asyncio.run(ts.prepare_transcript_for_extraction_async(MEETING, speakers_verified=True, spoken_language="es"))
+    assert "SPEAKER: S1" in text and "SPEAKER: S2" in text
