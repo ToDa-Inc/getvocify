@@ -41,12 +41,13 @@ if not hasattr(ssl, "_orig_create_default_context"):
     ssl._create_default_https_context = ssl._create_unverified_context
 
 import websockets
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, Depends, WebSocket
 
 from app.config import settings
-from app.deps import get_supabase
+from app.deps import get_supabase, get_user_id
 from app.services.glossary import GlossaryService
 from app.services.live_channel_sessions import ChannelSessions
+from app.services.live_ticket import issue_ticket, user_for_ticket
 from app.services.usage import record_stt_usage, usage_scope
 from app.services.stt_channels import (
     COPILOT_CHANNEL_MODE,
@@ -454,36 +455,92 @@ class SpeechmaticsOnlyProxy:
             self._record_usage()
 
 
+@router.post("/ticket")
+async def live_ticket(user_id: str = Depends(get_user_id)) -> dict:
+    """A pass for the live transcription service, which has no session of its own."""
+    ticket, expires_at = issue_ticket(user_id)
+    return {"ticket": ticket, "expires_at": expires_at}
+
+
 @router.websocket("/live")
 async def live_transcription(websocket: WebSocket):
     """
     FastAPI WebSocket entry point for real-time transcription (Speechmatics).
+    The user comes from the query, as older clients send it.
     """
     await websocket.accept()
+    await serve_live(websocket, websocket.query_params.get("user_id"))
+
+
+# The live transcription service (app.live_main) serves only this route. It trusts no query
+# parameter for the user: the first message must be {"type": "Auth", "ticket": ...}.
+live_router = APIRouter(prefix="/api/v1/transcription", tags=["transcription"])
+AUTH_TIMEOUT_S = 10
+
+
+@live_router.websocket("/live")
+async def authenticated_live_transcription(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        first = await asyncio.wait_for(websocket.receive_json(), AUTH_TIMEOUT_S)
+    except Exception:
+        first = None
+    user_id = (
+        user_for_ticket(str(first.get("ticket") or ""))
+        if isinstance(first, dict) and first.get("type") == "Auth"
+        else None
+    )
+    if not user_id:
+        await websocket.send_json({"type": "Error", "provider": "vocify", "error": "Sign in again to transcribe."})
+        await websocket.close(code=4401)
+        return
+    await serve_live(websocket, user_id)
+
+
+def _session_context(user_id: Optional[str], mode: str) -> tuple[list, Optional[List[str]], Optional[dict]]:
+    """Glossary, call languages and voice enrollment for a session. Blocking database reads:
+    run in a thread, so the event loop keeps every other call's audio moving meanwhile."""
+    glossary: list = []
+    profile_languages: Optional[List[str]] = None
+    enrolled_speaker = None
+    if not user_id or user_id == "anonymous":
+        return glossary, profile_languages, enrolled_speaker
+    try:
+        glossary = asyncio.run(GlossaryService().get_user_glossary(user_id))
+        logger.info("Loaded %d glossary terms for user %s", len(glossary), user_id)
+    except Exception as e:
+        logger.error("Failed to load glossary: %s", e)
+    try:
+        profile = load_stt_profile(get_supabase(), user_id)
+        profile_languages = profile.get("stt_languages")
+        for name in (profile.get("full_name"), profile.get("company_name")):
+            if name:
+                glossary.append({"target_word": name, "phonetic_hints": []})
+    except Exception as e:
+        logger.error("Failed to load STT profile names: %s", e)
+    if mode == "copilot":
+        try:
+            enrolled_speaker = VoiceEnrollmentService(get_supabase()).get_identifiers_for_stt(user_id)
+            if enrolled_speaker:
+                logger.info(
+                    "Loaded voice enrollment for user %s (%d ids)",
+                    user_id,
+                    len(enrolled_speaker.get("speaker_identifiers") or []),
+                )
+        except Exception as e:
+            logger.error("Failed to load voice enrollment: %s", e)
+    return glossary, profile_languages, enrolled_speaker
+
+
+async def serve_live(websocket: WebSocket, user_id: Optional[str]) -> None:
+    """One live session on an accepted socket, for this user."""
     language = websocket.query_params.get("language", "multi")
-    user_id = websocket.query_params.get("user_id")
     session_vocab_raw = websocket.query_params.get("session_vocab") or ""
     mode = (websocket.query_params.get("mode") or "default").strip().lower()
     if mode not in VALID_MODES:
         mode = "default"
 
-    glossary: list = []
-    profile_languages: Optional[List[str]] = None
-    if user_id:
-        try:
-            glossary_service = GlossaryService()
-            glossary = await glossary_service.get_user_glossary(user_id)
-            logger.info("Loaded %d glossary terms for user %s", len(glossary), user_id)
-        except Exception as e:
-            logger.error("Failed to load glossary: %s", e)
-        try:
-            profile = load_stt_profile(get_supabase(), user_id)
-            profile_languages = profile.get("stt_languages")
-            for name in (profile.get("full_name"), profile.get("company_name")):
-                if name:
-                    glossary.append({"target_word": name, "phonetic_hints": []})
-        except Exception as e:
-            logger.error("Failed to load STT profile names: %s", e)
+    glossary, profile_languages, enrolled_speaker = await asyncio.to_thread(_session_context, user_id, mode)
 
     if session_vocab_raw:
         seen = {
@@ -516,25 +573,11 @@ async def live_transcription(websocket: WebSocket):
                 }
             )
 
-    enrolled_speaker = None
     channel_labels = None
     if mode == COPILOT_CHANNEL_MODE:
         channel_labels = parse_channel_labels(
             websocket.query_params.get("channel_labels")
         )
-    elif mode == "copilot" and user_id and user_id != "anonymous":
-        try:
-            enrolled_speaker = VoiceEnrollmentService(
-                get_supabase()
-            ).get_identifiers_for_stt(user_id)
-            if enrolled_speaker:
-                logger.info(
-                    "Loaded voice enrollment for user %s (%d ids)",
-                    user_id,
-                    len(enrolled_speaker.get("speaker_identifiers") or []),
-                )
-        except Exception as e:
-            logger.error("Failed to load voice enrollment: %s", e)
 
     if mode == COPILOT_CHANNEL_MODE and websocket.query_params.get("detect") == "1":
         # Clients that understand ChannelReset: one stream per side, each in its own language.

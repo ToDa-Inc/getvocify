@@ -6,6 +6,7 @@ and return Speechmatics-style S1/S2 labels from utterances.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Iterable, Optional
 from urllib.parse import urlencode
@@ -337,7 +338,9 @@ class DeepgramBatchService:
                 content=_wav_from_pcm(fmt, pcm),
             )
         response.raise_for_status()
-        record_stt_usage(
+        # Called during live calls: the usage write must not hold up the event loop.
+        await asyncio.to_thread(
+            record_stt_usage,
             "deepgram",
             "batch",
             len(pcm) / (sample_rate * 2),

@@ -2,9 +2,11 @@ import { LIVE_STT_SAMPLE_RATE, floatToPcm16 } from "@/features/recording/live-st
 import type { MeetingSpeaker } from "@/lib/meeting-transcript";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8888/api/v1";
+/** The live transcription service, apart from the API so nothing there can stall a call. */
+const LIVE_API_URL = import.meta.env.VITE_LIVE_API_URL || API_URL;
 
 export function liveTranscriptionWsUrl(userId: string): string {
-  const ws = API_URL.replace(/^http/, "ws").replace(/\/api\/v1\/?$/, "");
+  const ws = LIVE_API_URL.replace(/^http/, "ws").replace(/\/api\/v1\/?$/, "");
   const url = new URL(`${ws}/api/v1/transcription/live`);
   url.searchParams.set("user_id", userId);
   url.searchParams.set("mode", "copilot_channels");
@@ -13,6 +15,11 @@ export function liveTranscriptionWsUrl(userId: string): string {
   // Each side is checked against the profile's call languages and restarts in its own (ChannelReset).
   url.searchParams.set("detect", "1");
   return url.toString();
+}
+
+/** The first message on a live socket: the ticket from POST /transcription/ticket. */
+export function liveAuthMessage(ticket: string): string {
+  return JSON.stringify({ type: "Auth", ticket });
 }
 
 export function encodeChannelAudio(channel: MeetingSpeaker, pcm: ArrayBuffer): string {

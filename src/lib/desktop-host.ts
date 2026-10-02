@@ -76,7 +76,8 @@ export type VocifyDesktopBridge = {
    * copies of the transcript (a MeetingTranscript) and levels. Missing in older builds.
    */
   recorder?: {
-    start(options: { url: string }): Promise<{ ok: boolean; reason?: string }>;
+    /** `ticket` is sent first on every connection (the live service requires it). */
+    start(options: { url: string; ticket?: string }): Promise<{ ok: boolean; reason?: string }>;
     pause(paused: boolean): Promise<unknown>;
     stop(): Promise<{ transcript: unknown } | null>;
     onTranscript(cb: (transcript: unknown) => void): () => void;

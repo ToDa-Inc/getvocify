@@ -377,7 +377,9 @@ class ChannelSessions:
                 stream.task.cancel()
             seconds = stream.billed_seconds()
             if seconds:
-                record_stt_usage(
+                # A database write: off the event loop, other calls keep streaming meanwhile.
+                await asyncio.to_thread(
+                    record_stt_usage,
                     "speechmatics",
                     "realtime",
                     seconds,

@@ -20,6 +20,7 @@ import { ROUTES } from "@/shared/lib/constants";
 import {
   encodeChannelAudio,
   hookMicPcm,
+  liveAuthMessage,
   liveTranscriptionWsUrl,
   LIVE_STT_SAMPLE_RATE,
 } from "@/lib/copilot-channel-stt";
@@ -180,6 +181,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const recoveredForRef = useRef<string | null>(null);
   const userIdRef = useRef("");
   const wsRef = useRef<WebSocket | null>(null);
+  /** The live service's pass for this recording, sent first on every connection. */
+  const ticketRef = useRef<string | null>(null);
   /** The Mac app is recording this meeting itself; the page only mirrors its transcript. */
   const nativeRef = useRef(false);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -301,6 +304,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current));
     wsRef.current = ws;
     ws.onopen = () => {
+      if (ticketRef.current) ws.send(liveAuthMessage(ticketRef.current));
       reconnectsRef.current = 0;
       setWarning(null);
     };
@@ -732,12 +736,18 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             : "Allow system audio in the panel above, then try again.",
         );
 
+      // The live service takes no session of its own: a ticket from the API, valid for the day.
+      ticketRef.current = await api
+        .post<{ ticket: string }>("/transcription/ticket")
+        .then((res) => res.ticket)
+        .catch(() => null);
+
       // The Mac app records natively when it can: no web audio, so nothing waits on this page.
       const recorder = bridge.recorder;
       let ctx: AudioContext | null = null;
       let micStream: MediaStream | null = null;
       if (recorder) {
-        const started = await recorder.start({ url: liveTranscriptionWsUrl(user.id) });
+        const started = await recorder.start({ url: liveTranscriptionWsUrl(user.id), ticket: ticketRef.current ?? undefined });
         if (!started.ok) {
           if (started.reason === "no_microphone") throw new Error("Could not open the microphone.");
           throw systemAudioError(started.reason);
