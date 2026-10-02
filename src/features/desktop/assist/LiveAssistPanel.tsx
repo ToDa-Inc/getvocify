@@ -82,6 +82,10 @@ function NewestCard({ card }: { card: AssistCard }) {
       <KindChip card={card} />
       {card.stage === "draft" ? (
         <div className="space-y-2">
+          {card.bridge ? (
+            // Something natural to say at once while the answer is written.
+            <p className="text-[15px] italic leading-snug text-foreground/80">“{card.bridge}”</p>
+          ) : null}
           <p className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
             <span className="flex gap-1" aria-hidden>
               {[0, 160, 320].map((delay) => (
@@ -97,6 +101,7 @@ function NewestCard({ card }: { card: AssistCard }) {
         </div>
       ) : (
         <div key="ready" className="animate-in fade-in duration-300 motion-reduce:animate-none">
+          {card.bridge ? <p className="mb-1 text-[13px] italic leading-snug text-muted-foreground">“{card.bridge}”</p> : null}
           <p className="mb-1 text-[11px] font-medium text-muted-foreground">
             {card.kind === "question" ? "Answer" : "Say this"}
           </p>

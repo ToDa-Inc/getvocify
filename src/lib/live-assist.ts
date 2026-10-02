@@ -106,13 +106,13 @@ export function draftType(partial: string): string | null {
 }
 
 /**
- * The card while the answer is written: the objection's label and a loading state, no words. The
- * answer appears once, whole, so what the rep reads never changes under them.
+ * The card while the answer is written: the objection's label and a filler line to say at once,
+ * so the rep is never left in silence. The answer appears once, whole, below it: text is only
+ * ever added, never replaced, so what the rep reads never changes under them.
  */
 export function streamedDraft(streamed: string, latestTurn: string, at: number): AssistCard | null {
   const type = draftType(streamed);
-  if (!type) return null;
-  return { ...draftCard(type, latestTurn, at), bridge: "" };
+  return type ? draftCard(type, latestTurn, at) : null;
 }
 
 export function draftCard(type: string, latestTurn: string, at: number): AssistCard {

@@ -107,7 +107,8 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
           return;
         }
         // The answer takes the draft's place and keeps its clock, so timing counts from first sight.
-        const shown = { ...card, id: draft?.id ?? card.id, at: draft?.at ?? now };
+        // The filler line the rep may already be saying stays above the answer.
+        const shown = { ...card, id: draft?.id ?? card.id, at: draft?.at ?? now, bridge: draft?.bridge ?? card.bridge };
         lastShownRef.current[cooldownKey(shown)] = shown.at;
         note("answer", { label: shown.label, sayThis: shown.sayThis, thenAsk: shown.thenAsk, ms: now - askedAt });
         present(shown);

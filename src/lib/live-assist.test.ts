@@ -159,7 +159,11 @@ describe("streamedDraft", () => {
   it("never shows the answer's words before it is complete, so what the rep reads never changes", () => {
     const card = streamedDraft('{"is_objection": true, "objection_type": "price", "say_this": "Para ocho comerciales', "Es caro", 5);
     assert.equal(card?.sayThis, "");
-    assert.equal(card?.bridge, "");
+  });
+
+  it("offers a filler line to say at once while the answer is written, in their language", () => {
+    const card = streamedDraft('{"is_objection": true, "objection_type": "price"', "La verdad es que es caro", 5);
+    assert.equal(card?.bridge, "Es normal mirarlo con lupa…");
   });
 
   it("nothing until it knows it is an objection", () => {
