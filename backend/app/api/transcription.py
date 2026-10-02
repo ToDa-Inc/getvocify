@@ -468,7 +468,7 @@ async def live_transcription(websocket: WebSocket):
     The user comes from the query, as older clients send it.
     """
     await websocket.accept()
-    await serve_live(websocket, websocket.query_params.get("user_id"))
+    await serve_live(websocket, websocket.query_params.get("user_id"), service="api")
 
 
 # The live transcription service (app.live_main) serves only this route. It trusts no query
@@ -493,7 +493,7 @@ async def authenticated_live_transcription(websocket: WebSocket):
         await websocket.send_json({"type": "Error", "provider": "vocify", "error": "Sign in again to transcribe."})
         await websocket.close(code=4401)
         return
-    await serve_live(websocket, user_id)
+    await serve_live(websocket, user_id, service="live")
 
 
 def _session_context(user_id: Optional[str], mode: str) -> tuple[list, Optional[List[str]], Optional[dict]]:
@@ -531,8 +531,9 @@ def _session_context(user_id: Optional[str], mode: str) -> tuple[list, Optional[
     return glossary, profile_languages, enrolled_speaker
 
 
-async def serve_live(websocket: WebSocket, user_id: Optional[str]) -> None:
-    """One live session on an accepted socket, for this user."""
+async def serve_live(websocket: WebSocket, user_id: Optional[str], *, service: str) -> None:
+    """One live session on an accepted socket, for this user. `service` names which app served
+    it (the API or the live service) in the call's report."""
     language = websocket.query_params.get("language", "multi")
     session_vocab_raw = websocket.query_params.get("session_vocab") or ""
     mode = (websocket.query_params.get("mode") or "default").strip().lower()
@@ -587,6 +588,8 @@ async def serve_live(websocket: WebSocket, user_id: Optional[str]) -> None:
             profile_languages=profile_languages,
             glossary=glossary,
             detect=True,
+            user_id=user_id if user_id and user_id != "anonymous" else None,
+            service=service,
         )
         with usage_scope(
             "live_stt",

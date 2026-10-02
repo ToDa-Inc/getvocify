@@ -26,6 +26,7 @@ import websockets
 
 from app.config import settings
 from app.services.glossary import GlossaryService
+from app.services.live_report import DeepgramShadow, LiveReport
 from app.services.session_entities import normalize_stt_languages
 from app.services.stt_channels import speechmatics_words
 from app.services.usage import record_stt_usage
@@ -185,6 +186,8 @@ class SpeechmaticsStream:
         self.started_at: Optional[float] = None
         self.ended_at: Optional[float] = None
         self.task: Optional[asyncio.Task] = None
+        # A restarted side's stream first catches up on replayed audio: not timed until it is live.
+        self.live_from_s = 0.0
 
     def config(self) -> dict[str, Any]:
         cfg: dict[str, Any] = {
@@ -280,8 +283,11 @@ class ChannelSessions:
         profile_languages: Optional[list[str]],
         glossary: list[dict],
         detect: bool,
+        user_id: Optional[str] = None,
+        service: str = "live",
     ) -> None:
         self.client = client_ws
+        self.user_id = user_id
         self.labels = labels
         self.profile = normalize_stt_languages(profile_languages)
         self.api_key = (
@@ -303,6 +309,9 @@ class ChannelSessions:
         self.checks: set[asyncio.Task] = set()
         self.send_lock = asyncio.Lock()
         self.closing = False
+        compare = settings.LIVE_COMPARE_DEEPGRAM and bool(settings.DEEPGRAM_API_KEY)
+        self.report = LiveReport(labels, compare=compare, service=service)
+        self.shadows: dict[str, DeepgramShadow] = {}
 
     async def run(self) -> None:
         await self._send({"type": "connected", "model": "realtime", "mode": "copilot_channels"})
@@ -319,6 +328,11 @@ class ChannelSessions:
         for label in self.labels:
             side = self.sides[label]
             self.active[label] = self._open(label, side.language, side.domain, offset_s=0.0)
+            if self.report.compare:
+                keyterms = [v["content"] for v in self.vocab if v.get("content")]
+                self.shadows[label] = DeepgramShadow(
+                    label, side.language, keyterms, settings.DEEPGRAM_API_KEY or "", self.report
+                )
         try:
             await self._read_client()
         finally:
@@ -351,9 +365,14 @@ class ChannelSessions:
                     continue
                 self.buffers[channel].append(pcm)
                 self.active[channel].feed(pcm)
+                self.report.audio(channel, len(pcm))
+                if channel in self.shadows:
+                    self.shadows[channel].feed(pcm)
             elif kind in ("Finalize", "ForceEndOfUtterance"):
                 for label in [channel] if channel in self.active else list(self.active):
                     self.active[label].force_end()
+            elif kind == "ClientReport":
+                self.report.from_client(data)
             elif kind == "CloseStream":
                 return
 
@@ -361,11 +380,15 @@ class ChannelSessions:
         self.closing = True
         for stream in self.active.values():
             stream.end()
+        for shadow in self.shadows.values():
+            shadow.end()
         current = list(self.active.values())
         try:
             await asyncio.wait_for(asyncio.gather(*(s.finished.wait() for s in current)), FINISH_TIMEOUT_S)
         except asyncio.TimeoutError:
             logger.warning("Live channels: a stream did not finish in %ss", FINISH_TIMEOUT_S)
+        if self.shadows:
+            await asyncio.wait({s.task for s in self.shadows.values()}, timeout=3.0)
         for task in self.checks:
             task.cancel()
         try:
@@ -379,6 +402,12 @@ class ChannelSessions:
             if seconds:
                 # Fire and forget: the ledger writes in a thread, other calls keep streaming.
                 record_stt_usage("speechmatics", "realtime", seconds, channels=1, tier="enhanced")
+        for shadow in self.shadows.values():
+            shadow.task.cancel()
+            if shadow.billed_seconds():
+                record_stt_usage("deepgram", "realtime", shadow.billed_seconds(), channels=1)
+        languages = {label: side.language for label, side in self.sides.items()}
+        asyncio.get_running_loop().run_in_executor(None, self.report.save, self.user_id, languages)
 
     async def _send(self, payload: dict[str, Any]) -> None:
         async with self.send_lock:
@@ -410,6 +439,16 @@ class ChannelSessions:
                 payload["start"] = meta["start_time"] + offset
                 payload["end"] = meta.get("end_time", meta["start_time"]) + offset
             await self._send(payload)
+            if "end" in payload:
+                self.report.result(
+                    "speechmatics",
+                    stream.label,
+                    final=final,
+                    start=payload["start"],
+                    end=payload["end"],
+                    text=transcript,
+                    timed=payload["end"] > stream.live_from_s,
+                )
             if final and transcript.strip() and "start" in payload:
                 self._after_final(stream.label, payload["start"], payload["end"])
         elif kind == "EndOfUtterance":
@@ -480,11 +519,13 @@ class ChannelSessions:
             return
         replay, replay_from = self.buffers[label].slice(from_s)
         stream.offset_s = replay_from
+        stream.live_from_s = self.report.heard(label)
         for i in range(0, len(replay), REPLAY_CHUNK_BYTES):
             stream.feed(replay[i : i + REPLAY_CHUNK_BYTES])
         # Same tick as the replay: new audio lands after it, in order.
         self.active[label] = stream
         self.sides[label].restarted(language, domain, replay_from)
+        self.report.restarted(label, language, replay_from)
         old.end()
         logger.info("Live language %s: restarted in %s from %.1fs", label, language, replay_from)
         await self._send({"type": "ChannelReset", "audio_channel": label, "from": replay_from, "language": language})

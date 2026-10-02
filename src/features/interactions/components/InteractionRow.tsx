@@ -36,7 +36,7 @@ function AvatarStack({
   attendees,
   maxVisible = 3,
 }: {
-  attendees?: Array<{ name: string | null; email: string }> | null;
+  attendees?: Array<{ name: string | null; email: string | null }> | null;
   maxVisible?: number;
 }) {
   if (!attendees || attendees.length === 0) return null;
@@ -53,7 +53,7 @@ function AvatarStack({
             "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary text-[10px] font-medium text-muted-foreground ring-1 ring-card",
             idx > 0 && "-ml-2",
           )}
-          title={attendee.name || attendee.email}
+          title={attendee.name || attendee.email || undefined}
         >
           {initialsOf(attendee)}
         </div>

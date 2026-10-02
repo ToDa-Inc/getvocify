@@ -33,6 +33,7 @@ import {
   meetingHasSpeech,
   meetingLastLine,
   meetingOverlay,
+  meetingParticipants,
   meetingUploadText,
   settleMeeting,
   type MeetingDisplayTurn,
@@ -276,6 +277,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         speakersVerified: true,
         notes: draft.notes,
         hubspotContactId: draft.contact?.hubspotId,
+        participants: meetingParticipants(draft.transcript),
       });
       await getDesktopBridge()?.drafts?.remove(draft.id);
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });

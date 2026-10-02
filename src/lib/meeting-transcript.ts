@@ -443,6 +443,14 @@ export function phraseTail(text: string, maxChars: number): string {
   return word === -1 ? `…${clean.slice(from)}` : `…${clean.slice(word + 1)}`;
 }
 
+/** Who the meeting app showed speaking on the other side, in the order they first spoke. */
+export function meetingParticipants(state: MeetingTranscript): string[] {
+  const names = state.segments
+    .filter((segment) => segment.speaker === "prospect" && segment.name?.trim())
+    .map((segment) => segment.name!.trim());
+  return [...new Set(names)];
+}
+
 export function meetingLastLine(state: MeetingTranscript): string {
   const rows = meetingDisplayTurns(state);
   const last = rows[rows.length - 1];

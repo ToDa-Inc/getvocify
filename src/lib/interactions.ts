@@ -230,8 +230,8 @@ export function timeLabel(iso: string, locale: string): string {
  * Extract initials from an attendee's name (falling back to email local-part if no name).
  * Returns up to 2 uppercase initials, or empty string if neither name nor email.
  */
-export function initialsOf(attendee: { name: string | null; email: string }): string {
-  const text = attendee.name?.trim() || attendee.email.split("@")[0] || "";
+export function initialsOf(attendee: { name: string | null; email: string | null }): string {
+  const text = attendee.name?.trim() || attendee.email?.split("@")[0] || "";
   // Split by whitespace and dots (for names like "john.doe")
   const parts = text.split(/[\s.]+/).filter(Boolean);
   if (parts.length === 0) return "";

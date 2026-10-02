@@ -115,6 +115,8 @@ export const memosApi = {
       callSource?: string;
       /** The call type the rep picked while recording (desktop). */
       salesMotionKey?: string;
+      /** Names the meeting app showed speaking on the other side (desktop, Zoom). */
+      participants?: string[];
     } = {},
   ): Promise<UploadMemoResponse> => {
     return api.post<UploadMemoResponse>('/memos/upload-and-extract', {
@@ -126,6 +128,7 @@ export const memosApi = {
       hubspot_contact_id: options.hubspotContactId || undefined,
       call_source: options.callSource || undefined,
       sales_motion_key: options.salesMotionKey || undefined,
+      participants: options.participants?.length ? options.participants : undefined,
     });
   },
 

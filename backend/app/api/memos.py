@@ -10,7 +10,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Q
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 from uuid import UUID
-from typing import Optional, List, Union
+from typing import Annotated, Optional, List, Union
 from app.services.usage import scoped
 from app.deps import get_supabase, get_user_id
 from app.services.activity_scope import (
@@ -858,6 +858,8 @@ class UploadTranscriptRequest(BaseModel):
     call_source: Optional[str] = Field(default=None, max_length=60)
     # The call's type, if the rep picked it while recording: theirs, so nothing re-types it.
     sales_motion_key: Optional[str] = Field(default=None, max_length=64)
+    # Who the meeting app showed speaking on the other side (desktop reads Zoom's screen).
+    participants: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list, max_length=20)
 
 
 @router.post("/upload-transcript", response_model=UploadResponse)
@@ -979,6 +981,9 @@ async def upload_transcript_and_extract(
     if user_notes:
         # Only written when present, so memos without notes never depend on migration 073.
         payload["user_notes"] = user_notes
+    participants = [name.strip() for name in body.participants if name.strip()]
+    if participants:
+        payload["attendees"] = [{"name": name, "email": None} for name in participants]
     created = insert_memo_row(supabase, pin_playbook=True, payload=payload)
 
     memo_id = created["id"]
