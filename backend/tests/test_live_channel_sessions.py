@@ -158,3 +158,14 @@ def test_mai_deltas_settle_whole_words_and_partials_show_the_rest():
     assert [(e["kind"], e.get("transcript")) for e in done] == [("final", "luego"), ("done", None)]
     assert MaiStream("rep", "es", None, vocab=[], offset_s=0.0, on_event=_noop).events(
         {"type": "error", "error": {"name": "X", "message": "nope"}}) == [{"kind": "error", "reason": "nope"}]
+
+
+def test_glossary_fixes_listed_sound_alikes_and_nothing_else():
+    from app.services.live_channel_sessions import apply_glossary, glossary_terms
+
+    terms = glossary_terms([{"content": "Vocify", "sounds_like": ["Vosify", "Voiceify"]}, {"content": "Cobee", "sounds_like": ["Kobi"]}, {"content": "HubSpot"}])
+    assert apply_glossary("oye, Vosify, están con Kobi y hubspot", terms) == "oye, Vocify, están con Cobee y HubSpot"
+    assert apply_glossary("Voiceify-ify", terms) == "Vocify-ify"  # whole words only, punctuation is a boundary
+    assert apply_glossary("Sofía dijo que sí", terms) == "Sofía dijo que sí"  # resembling is not enough
+    assert apply_glossary("Kobiyashi", terms) == "Kobiyashi"
+    assert apply_glossary("hola", []) == "hola"

@@ -31,7 +31,8 @@ import websockets
 from app.config import settings
 from app.services.glossary import GlossaryService
 from app.services.live_report import LiveReport
-from app.services.session_entities import normalize_stt_languages
+from app.services.session_entities import EntityTerm, normalize_stt_languages
+from app.services.transcript_sanitize import sanitize_transcript
 from app.services.stt_channels import speechmatics_words
 from app.services.usage import record_stt_usage
 
@@ -173,6 +174,21 @@ class PcmBuffer:
         end = len(self.data) + self.dropped if to_s is None else int(to_s * BYTES_PER_SECOND)
         end = min(end, len(self.data) + self.dropped)
         return bytes(self.data[start - self.dropped : max(start, end) - self.dropped]), start / BYTES_PER_SECOND
+
+
+def glossary_terms(vocab: list[dict[str, Any]]) -> list[EntityTerm]:
+    """The glossary's words and what they sound like, for fixing a bubble's text as it arrives."""
+    return [
+        EntityTerm(canonical=v["content"], aliases=tuple(v.get("sounds_like") or ()), kind="glossary")
+        for v in vocab
+        if v.get("content")
+    ]
+
+
+def apply_glossary(text: str, terms: list[EntityTerm]) -> str:
+    """Only exact sound-alikes the user listed ("Vosify" for Vocify) and the term's own spelling:
+    nothing is guessed, so a word that merely resembles a term is never changed."""
+    return sanitize_transcript(text, terms).text if terms and text else text
 
 
 def live_provider(profile: list[str]) -> str:
@@ -590,6 +606,7 @@ class ChannelSessions:
             and needs_detection(self.profile, start_language, start_domain)
         )
         self.vocab = GlossaryService().format_for_speechmatics(glossary) if glossary else []
+        self.terms = glossary_terms(self.vocab)
         self.sides = {label: SideLanguage(start_language, start_domain) for label in labels}
         self.buffers = {label: PcmBuffer() for label in labels}
         self.active: dict[str, LiveStream] = {}
@@ -730,7 +747,7 @@ class ChannelSessions:
                 final=event["kind"] == "final",
                 start=event.get("start"),
                 end=event["end"],
-                text=event.get("transcript") or "",
+                text=apply_glossary(event.get("transcript") or "", self.terms),
                 timed=event.get("timed", True),
                 settle_s=event.get("settle_s"),
             )
@@ -742,7 +759,7 @@ class ChannelSessions:
             return  # replaced by a stream in the side's real language
         kind = event["kind"]
         if kind in ("partial", "final"):
-            transcript = event.get("transcript") or ""
+            transcript = apply_glossary(event.get("transcript") or "", self.terms)
             words = event.get("words") or []
             if not transcript and not words:
                 return
