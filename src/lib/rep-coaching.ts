@@ -65,7 +65,7 @@ export type CoachInteraction = {
 export type CoachInteractions = { items: CoachInteraction[] };
 export type CoachProcess = {
   weeks: string[];
-  steps: { step_id: string; label: string; by_week: { done: number; applicable: number; rate: number | null }[]; rate: number | null; peer_median: number | null }[];
+  steps: { step_id: string; label: string; by_week: { done: number; applicable: number; rate: number | null }[]; rate: number | null; done?: number; applicable?: number; peer_median: number | null }[];
   objections: { category: string; total: number; resolved: number; open: number }[];
 };
 export type CoachExamples = {
@@ -95,6 +95,16 @@ export function stateView(state: string) {
 export function formatPercent(rate: number | null | undefined): string {
   if (rate === null || rate === undefined || Number.isNaN(rate)) return "—";
   return `${Math.round(rate * 100)} %`;
+}
+
+/** Below this many calls where a step applied, a rate says nothing ("0 %" of one call): show the count. */
+export const MIN_CALLS_FOR_RATE = 3;
+
+/** "62 %" with enough calls behind it, "1 de 2" with fewer, "—" with none. */
+export function rateOrCount(p: Product, done: number, applicable: number, rate: number | null | undefined): string {
+  if (!applicable) return "—";
+  if (applicable < MIN_CALLS_FOR_RATE) return fill(p.coachStepCount, { done, applicable });
+  return formatPercent(rate);
 }
 
 export const TREND_DEAD_BAND = 0.05;

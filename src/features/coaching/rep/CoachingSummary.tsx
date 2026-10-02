@@ -9,6 +9,8 @@ import {
   focusTitle,
   focusWhy,
   formatPercent,
+  MIN_CALLS_FOR_RATE,
+  rateOrCount,
   latestSelfReportId,
   meetingsTileKey,
   numberVsLast,
@@ -99,10 +101,13 @@ function StepStrip({ steps, onOpenProcess, span }: { steps: CoachStepRate[]; onO
             >
               <p className="text-sm text-foreground">{step.label}</p>
               <p className="mt-0.5 text-base text-foreground">
-                {formatPercent(step.rate)} {arrow ? <span className="text-muted-foreground">{arrow}</span> : null}
+                {rateOrCount(p, step.done, step.applicable, step.rate)}{" "}
+                {arrow && step.applicable >= MIN_CALLS_FOR_RATE ? <span className="text-muted-foreground">{arrow}</span> : null}
               </p>
-              {stepCountLine(p, step) ? <p className="text-xs text-muted-foreground">{stepCountLine(p, step)}</p> : null}
-              {step.rate !== null ? (
+              {step.applicable >= MIN_CALLS_FOR_RATE && stepCountLine(p, step) ? (
+                <p className="text-xs text-muted-foreground">{stepCountLine(p, step)}</p>
+              ) : null}
+              {step.rate !== null && step.applicable >= MIN_CALLS_FOR_RATE ? (
                 <div className="relative mt-1 h-1 rounded-full bg-muted-foreground/15">
                   <div className="h-1 rounded-full bg-beige" style={{ width: `${Math.round(step.rate * 100)}%` }} />
                   {step.peer_median !== null ? (

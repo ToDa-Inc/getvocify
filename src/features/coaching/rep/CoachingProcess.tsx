@@ -1,6 +1,6 @@
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { formatPercent, hasAnyPeer, objectionCountsLine, type CoachFlow } from "@/lib/rep-coaching";
+import { formatPercent, hasAnyPeer, objectionCountsLine, rateOrCount, type CoachFlow } from "@/lib/rep-coaching";
 import { objectionDisplayName } from "@/lib/team-insights";
 import { CoachEmpty, CoachError, CoachLoading } from "./CoachingState";
 import { useCoachProcess } from "./useRepCoaching";
@@ -47,10 +47,12 @@ export function CoachingProcess({ flow }: { flow?: CoachFlow | null }) {
                   <td className="py-2 pr-4 text-foreground">{step.label}</td>
                   {data.weeks.map((week, index) => (
                     <td key={week} className="px-2 py-2 text-foreground whitespace-nowrap">
-                      {formatPercent(step.by_week[index]?.rate)}
+                      {step.by_week[index] ? rateOrCount(p, step.by_week[index].done, step.by_week[index].applicable, step.by_week[index].rate) : "—"}
                     </td>
                   ))}
-                  <td className="px-2 py-2 text-foreground whitespace-nowrap">{formatPercent(step.rate)}</td>
+                  <td className="px-2 py-2 text-foreground whitespace-nowrap">
+                    {step.applicable !== undefined ? rateOrCount(p, step.done ?? 0, step.applicable, step.rate) : formatPercent(step.rate)}
+                  </td>
                   {showPeer ? <td className="px-2 py-2 text-muted-foreground whitespace-nowrap">{formatPercent(step.peer_median)}</td> : null}
                 </tr>
               ))}

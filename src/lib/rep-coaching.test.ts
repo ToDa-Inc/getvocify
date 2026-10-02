@@ -24,6 +24,7 @@ import {
   trendArrow,
   trendOf,
   weekTotalLine,
+  rateOrCount,
   type CoachKey,
 } from "./rep-coaching.ts";
 
@@ -187,3 +188,10 @@ describe("flow-aware copy and toggle", () => {
     );
   });
 });
+
+describe("rateOrCount", () => it("a rate needs three calls behind it; fewer show the count", () => {
+  const p = ES as never;
+  assert.equal(rateOrCount(p, 0, 0, null), "—");
+  assert.equal(rateOrCount(p, 1, 2, 0.5), "1 de 2");
+  assert.equal(rateOrCount(p, 2, 3, 2 / 3), "67 %");
+}));

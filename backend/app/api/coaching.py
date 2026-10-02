@@ -532,6 +532,8 @@ async def get_my_coaching_process(
                 for w in per_week
             ],
             "rate": total["rate"],
+            "done": total["done"],
+            "applicable": total["applicable"],
             "peer_median": ctx["peer_medians"].get(total["step_id"]),
         })
     patterns = reads.load_patterns(supabase, [r["memo_id"] for r in ctx["own"]])
