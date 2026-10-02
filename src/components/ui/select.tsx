@@ -80,7 +80,7 @@ const SelectContent = React.forwardRef<
       ref={ref}
       className={cn(
         MENU_TOKENS.surface,
-        "relative max-h-96 p-0",
+        "relative max-h-96 overflow-hidden p-0",
         position === "popper" &&
           "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className,

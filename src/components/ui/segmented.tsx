@@ -32,7 +32,7 @@ export function Segmented<T extends string>({ value, onValueChange, options, cla
       // A single group reports "" when the active item is pressed again; a setting always has a value.
       onValueChange={(next) => next && onValueChange(next as T)}
       aria-label={rest["aria-label"]}
-      className={cn(THEME_TOKENS.interaction.segmentList, "inline-flex flex-nowrap", className)}
+      className={cn(THEME_TOKENS.interaction.segmentList, "inline-flex rounded-3xl", className)}
     >
       {options.map((option) => (
         <ToggleGroupPrimitive.Item
@@ -40,7 +40,7 @@ export function Segmented<T extends string>({ value, onValueChange, options, cla
           value={option.value}
           disabled={option.disabled}
           aria-label={option["aria-label"]}
-          className={cn(THEME_TOKENS.interaction.segmentTab, "inline-flex items-center gap-1.5 whitespace-nowrap disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}
+          className={cn(THEME_TOKENS.interaction.segmentTab, "inline-flex max-w-full items-center gap-1.5 whitespace-nowrap disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}
         >
           {option.label}
         </ToggleGroupPrimitive.Item>
