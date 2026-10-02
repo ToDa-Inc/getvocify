@@ -113,6 +113,18 @@ def test_summary_self_scope_and_focus():
     assert body["conversion"] is None
 
 
+def test_a_week_without_calls_yet_shows_the_latest_week_with_calls():
+    memos = [
+        _memo("a1", REP, {"open": "met", "pain": "missed"}, days_ago=10),
+        _memo("a2", REP, {"open": "met", "pain": "met"}, days_ago=9),
+    ]
+    body = _client(memos).get("/api/v1/coaching/me/summary").json()
+    assert body["numbers"]["interactions"] == 0  # this week still says what it is
+    assert body["steps_week_start"] == "2026-09-14" and body["week_start"] == "2026-09-21"
+    opening = next(s for s in body["steps"] if s["step_id"] == "open")
+    assert (opening["done"], opening["applicable"]) == (2, 2)
+
+
 def test_ae_flow_uses_closing_playbook():
     memos = [_memo("c1", REP, {"open": "met"}, motion="closing"), _memo("d1", REP, {"open": "met"}, motion="discovery")]
     body = _client(memos, sales_role="ae", published=("closing",)).get("/api/v1/coaching/me/summary").json()

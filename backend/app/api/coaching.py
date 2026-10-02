@@ -412,7 +412,18 @@ async def get_my_coaching_summary(
     if not ctx["playbook"]["published"]:
         return body
     medians = ctx["peer_medians"]
-    prev_rates = {r["step_id"]: r["rate"] for r in engine.step_rates(prev_week, steps)}
+    # A week with no calls yet shows the rep's latest week with calls, not a row of zeros.
+    shown_start, shown_rows, shown_prev = ctx["week_start"], this_week, prev_week
+    if not this_week:
+        starts = ctx["week_starts"]
+        for index in range(len(starts) - 2, -1, -1):
+            rows = _in_window(ctx["own"], starts[index], starts[index + 1])
+            if rows:
+                shown_start, shown_rows = starts[index], rows
+                shown_prev = _in_window(ctx["own"], starts[index - 1], starts[index]) if index else []
+                break
+    body["steps_week_start"] = engine.madrid_day(shown_start).isoformat()
+    prev_rates = {r["step_id"]: r["rate"] for r in engine.step_rates(shown_prev, steps)}
     body["steps"] = [
         {
             "step_id": r["step_id"],
@@ -425,7 +436,7 @@ async def get_my_coaching_summary(
             "prev_rate": prev_rates[r["step_id"]],
             "peer_median": medians.get(r["step_id"]),
         }
-        for r in engine.step_rates(this_week, steps)
+        for r in engine.step_rates(shown_rows, steps)
     ]
     # No peer tie-break: the Head of Sales column and the messages (rep_focus) choose the
     # focus without it, so every surface names the same step. peer_median is still shown.

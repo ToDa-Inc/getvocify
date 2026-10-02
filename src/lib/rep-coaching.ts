@@ -32,6 +32,8 @@ export type CoachSummary = {
   available_flows?: CoachFlow[];
   motion: string;
   week_start: string;
+  /** Monday of the week the steps show: this week, or the latest week with calls when this one has none yet. */
+  steps_week_start?: string;
   steps: CoachStepRate[];
   numbers: CoachNumbers;
   prev_numbers: CoachNumbers;
