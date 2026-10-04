@@ -330,6 +330,9 @@ class Settings(BaseSettings):
     # default). Reasoning tokens are most of a Gemini call's cost.
     INTELLIGENCE_READING_EFFORT: Optional[str] = None
     INTELLIGENCE_JUDGE_EFFORT: Optional[str] = None
+    # Step 1 (CRM note and fields): how much the model reasons before writing. None = the model's
+    # default. A reasoning model left at its default makes the rep wait for the note.
+    EXTRACTION_REASONING_EFFORT: Optional[str] = None
     # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
     FOLLOWUP_MODEL: Optional[str] = "google/gemini-3.8-flash"
 

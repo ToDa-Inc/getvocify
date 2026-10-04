@@ -1311,12 +1311,13 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             elif call_reading:
                 # One retry on an unparseable or empty reply: a real call must not be left without
                 # its note (a model sometimes returns {} on a long call).
+                effort = settings.EXTRACTION_REASONING_EFFORT
                 try:
-                    extracted = await self.llm.chat_json(messages, temperature=0.0)
+                    extracted = await self.llm.chat_json(messages, temperature=0.0, reasoning_effort=effort)
                 except ValueError:
                     extracted = None
                 if not isinstance(extracted, dict) or not str(extracted.get("summary") or "").strip():
-                    extracted = await self.llm.chat_json(messages, temperature=0.0)
+                    extracted = await self.llm.chat_json(messages, temperature=0.0, reasoning_effort=effort)
             else:
                 extracted = await self.llm.chat_json(messages, temperature=0.0)
             # Post-process: coerce to schema types (number, enum value, etc.)

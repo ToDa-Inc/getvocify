@@ -57,6 +57,21 @@ call_type is one of:
 If a call is a follow-up AND the prospect could not talk, pick "bad_moment" only when nothing else
 happened; otherwise pick "follow_up". call_type_reason is one short sentence in Spanish saying why.
 
+Decide in this order and stop at the first that fits. What happened in the call comes before who
+the prospect is to the rep:
+1. Nobody talked with the rep (voicemail, ringing, only greetings) → "no_conversation"; one voice
+   telling an earlier conversation → "dictated_note"; explicit test or personal chat → "not_a_sales_call".
+2. Only a receptionist or assistant → "gatekeeper". Not the person to sell to → "wrong_person".
+3. The prospect could not talk now and there was no sales conversation → "bad_moment", whether or
+   not they knew the rep before.
+4. The call is about a meeting already set → "meeting_confirmation" or "meeting_reschedule"; a
+   scheduled meeting or demo itself → "discovery_meeting".
+5. "follow_up" only with a sign IN THIS CALL that this rep and this person spoke or wrote before
+   ("te llamé la semana pasada", "como hablamos", "te mandé el correo", "me dijiste que te
+   llamara"). "No sé si me ubicas", a LinkedIn connection or the rep introducing themselves are
+   signs of a first contact, not of a follow-up.
+6. Otherwise → "cold_first_contact".
+
 ## Phase reached
 
 phase_reached is the furthest point the conversation got to:
