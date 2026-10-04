@@ -84,6 +84,7 @@ BOT_DETAIL_PATH = "/api/v1/bot/{bot_id}/"
 CALENDARS_PATH = "/api/v2/calendars/"
 CALENDAR_DETAIL_PATH = "/api/v2/calendars/{calendar_id}/"
 CALENDAR_EVENTS_PATH = "/api/v2/calendar-events/"
+CALENDAR_EVENT_DETAIL_PATH = "/api/v2/calendar-events/{event_id}/"
 CALENDAR_EVENT_BOT_PATH = "/api/v2/calendar-events/{event_id}/bot/"
 
 _TIMEOUT_SECONDS = 30.0
@@ -241,6 +242,11 @@ class RecallClient:
             # `next` is an absolute URL that already carries the query: follow it as-is.
             url, params = data.get("next"), None
         return events
+
+    async def get_calendar_event(self, event_id: str) -> dict[str, Any]:
+        """Fetch a single calendar event by ID (Recall Calendar V2 GET endpoint)."""
+        url = f"{self.base_url}{CALENDAR_EVENT_DETAIL_PATH.format(event_id=event_id)}"
+        return (await self._call("GET", url, what="get calendar event")).json()
 
     async def schedule_event_bot(
         self, event_id: str, *, deduplication_key: str, config: dict[str, Any]

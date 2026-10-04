@@ -57,3 +57,16 @@ def test_user_prompt_with_playbook_but_no_answers_says_so():
         playbook_snapshot={"entries": []},
     )
     assert "(no approved answers yet)" in prompt
+
+
+def test_meeting_help_is_said_for_this_conversation_not_copied():
+    from app.services.copilot.prompts import MEETING_SYSTEM_PROMPT, PLAYBOOK_USER_SUFFIX
+
+    # A line that would fit any call is wrong: it ties to what this prospect said.
+    assert "something specific this prospect said" in MEETING_SYSTEM_PROMPT
+    # An objection never comes back with nothing to say (the card would vanish).
+    assert "Never return an objection with an empty say_this" in MEETING_SYSTEM_PROMPT
+    assert "never repeat" in MEETING_SYSTEM_PROMPT
+    # The playbook gives the approach, not the words to paste.
+    assert "adapted only so it fits" not in PLAYBOOK_USER_SUFFIX
+    assert "follows that answer's approach" in PLAYBOOK_USER_SUFFIX

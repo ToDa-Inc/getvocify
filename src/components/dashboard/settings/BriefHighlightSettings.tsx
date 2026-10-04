@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { useLanguage } from "@/lib/i18n";
@@ -70,27 +71,15 @@ export const BriefHighlightSettings = () => {
         <p className="text-xs text-muted-foreground mt-1">{t.product.briefHighlightHelper}</p>
       </div>
 
-      <div className="space-y-2" role="radiogroup" aria-label={t.product.briefHighlightWhenAria}>
-        {options.map((opt) => {
-          const on = selected === opt.mode;
-          return (
-            <button
-              key={opt.mode}
-              type="button"
-              role="radio"
-              aria-checked={on}
-              onClick={() => setSelected(opt.mode)}
-              className={`w-full rounded-2xl border px-4 py-3 text-left text-sm font-medium transition-colors ${
-                on
-                  ? "border-beige bg-beige/10 text-foreground"
-                  : "border-border/40 bg-secondary/5 hover:bg-secondary/10"
-              }`}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
-      </div>
+      <Segmented<BriefHighlightMode>
+        value={selected}
+        onValueChange={setSelected}
+        options={options.map((opt) => ({
+          value: opt.mode,
+          label: opt.label,
+        }))}
+        aria-label={t.product.briefHighlightWhenAria}
+      />
 
       <div className="flex justify-end">
         <Button

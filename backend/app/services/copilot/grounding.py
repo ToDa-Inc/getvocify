@@ -152,8 +152,10 @@ def finalize_suggest_result(
     playbook_ready = used_playbook and bool(evidence_refs)
 
     if not playbook_ready:
+        # Meeting help the playbook can't back (no quote of the turn) is still shown, as general
+        # help: erasing it made the card the rep was already reading vanish mid-call.
         return {
-            "suggestion": _strip_advice(suggestion),
+            "suggestion": dict(suggestion),
             "playbook_ready": False,
             "evidence_refs": [],
             "grounded": False,

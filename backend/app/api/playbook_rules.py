@@ -30,7 +30,8 @@ from app.services.playbooks.catalog import (
 )
 from app.services.playbooks.live import live_version_id
 from app.services.playbooks.repository import get_playbook_repository
-from app.services.playbooks.routing import merge_pin_meta, motions_and_stored, routing_enabled
+from app.services.playbooks.routing import merge_pin_meta, motions_and_stored
+from app.services.playbooks.type_classifier import READING_SOURCE
 from app.services.playbooks.versions import can_publish
 
 logger = logging.getLogger(__name__)
@@ -180,10 +181,19 @@ async def get_memo_playbook(
     return {
         "sales_motion_key": memo.get("sales_motion_key") or None,
         "playbook_version_id": memo.get("playbook_version_id") or None,
-        "can_change": bool(can_edit and routing_enabled(supabase, membership.company_id)),
+        # The author or a manager can always correct what the call was.
+        "can_change": bool(can_edit),
+        # Named by the call reading and not confirmed by anyone yet.
+        "suggested": _pin_source(memo) == READING_SOURCE,
         # Interna last, as on the list chip: it has no playbook, so it needs no published one.
         "options": [*_published_options(membership), {"key": INTERNAL_KEY, "label": None}],
     }
+
+
+def _pin_source(memo: dict) -> Optional[str]:
+    meta = memo.get("pipeline_meta")
+    pin = meta.get("playbook_pin") if isinstance(meta, dict) else None
+    return pin.get("source") if isinstance(pin, dict) else None
 
 
 def _requeue(supabase: Client, memo: dict) -> None:

@@ -1587,7 +1587,7 @@ followupEl.addEventListener('v-action', async (event) => {
       return;
     }
     const channel = value === 'whatsapp' ? 'whatsapp' : 'email';
-    const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body, mailClient: value });
+    const target = composeTarget({ channel, to: view.to || reviewContext?.preview?.selected_contact?.email, phone: view.phone, subject, body, mailClient: value });
     const url = target.ok ? target.url : target.fallback;
     if (!url) return;
     if (!target.ok) await navigator.clipboard.writeText(body);

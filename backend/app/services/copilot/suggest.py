@@ -11,14 +11,16 @@ import httpx
 from app.config import settings
 from app.services.copilot.context import SuggestContext
 from app.services.copilot.grounding import SuggestGrounding, finalize_suggest_result
-from app.services.copilot.prompts import SYSTEM_PROMPT, build_user_prompt
+from app.services.copilot.prompts import MEETING_LINE_MAX, build_user_prompt, system_prompt_for
 from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-# Live help can't wait for hidden reasoning; models that don't reason ignore this.
-NO_REASONING = {"reasoning": {"enabled": False}}
+# Live help can't wait for long hidden reasoning, but some models (gemini-3.5-flash-lite) refuse
+# to switch it off and fail every request with "Reasoning is mandatory". Ask for the least instead;
+# models that don't reason ignore it.
+LIVE_REASONING = {"reasoning": {"effort": "minimal"}}
 
 
 def _resolve_model(explicit: Optional[str] = None) -> str:
@@ -53,6 +55,7 @@ async def stream_objection_suggestion(
     grounding: Optional[SuggestGrounding] = None,
     context: Optional[SuggestContext] = None,
     company_knowledge: Optional[dict[str, Any]] = None,
+    contact_history: Optional[str] = None,
 ) -> AsyncIterator[dict[str, Any]]:
     del context  # threaded for grounding/session wiring; prompts unchanged without CRM load
     """
@@ -68,7 +71,7 @@ async def stream_objection_suggestion(
 
     model_used = _resolve_model(model)
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt_for(call_mode)},
         {
             "role": "user",
             "content": build_user_prompt(
@@ -80,6 +83,7 @@ async def stream_objection_suggestion(
                 speaker_role=speaker_role,
                 playbook_snapshot=grounding.playbook_snapshot if grounding else None,
                 company_knowledge=company_knowledge,
+                contact_history=contact_history,
             ),
         },
     ]
@@ -90,7 +94,7 @@ async def stream_objection_suggestion(
         "temperature": 0.35,
         "stream": True,
         "response_format": {"type": "json_object"},
-        **NO_REASONING,
+        **LIVE_REASONING,
     }
 
     import time
@@ -158,7 +162,7 @@ async def stream_objection_suggestion(
                         assembled += delta
                         yield {"type": "token", "text": delta}
 
-        suggestion = _parse_suggestion(assembled)
+        suggestion = _suggestion_for_mode(assembled, call_mode)
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         finalized = finalize_suggest_result(
             call_mode=call_mode,
@@ -194,7 +198,7 @@ async def _fallback_non_stream(
         "model": model_used,
         "messages": messages,
         "temperature": 0.35,
-        **NO_REASONING,
+        **LIVE_REASONING,
     }
     resp = await client.post(
         OPENROUTER_URL,
@@ -213,7 +217,7 @@ async def _fallback_non_stream(
     content = data["choices"][0]["message"]["content"] or ""
     if content:
         yield {"type": "token", "text": content}
-    suggestion = _parse_suggestion(content)
+    suggestion = _suggestion_for_mode(content, call_mode)
     finalized = finalize_suggest_result(
         call_mode=call_mode,
         suggestion=suggestion,
@@ -248,6 +252,55 @@ def _parse_suggestion(raw: str) -> dict[str, Any]:
         "evidence_refs": _parse_evidence_refs(parsed.get("evidence_refs")),
         "source_id": str(parsed.get("source_id") or "").strip() or None,
     }
+
+
+MEETING_OBJECTION_TYPES = {"price", "timing", "authority", "competitor", "status_quo", "trust", "question", "other"}
+
+
+def silent_suggestion() -> dict[str, Any]:
+    """No help: what live help answers when there is nothing worth saying."""
+    return {
+        "is_objection": False,
+        "objection_type": "none",
+        "urgency": "low",
+        "say_this": "",
+        "why_it_works": "",
+        "next_question": "",
+        "dont_say": "",
+        "evidence_refs": [],
+        "source_id": None,
+    }
+
+
+def meeting_suggestion(raw: str) -> dict[str, Any]:
+    """Meetings show help only for a clear objection with one short line; anything else stays silent."""
+    try:
+        parsed = extract_json(raw) if raw and raw.strip() else None
+    except ValueError:
+        parsed = None
+    if not isinstance(parsed, dict) or parsed.get("is_objection") is not True:
+        return silent_suggestion()
+    objection_type = str(parsed.get("objection_type") or "").strip()
+    say_this = " ".join(str(parsed.get("say_this") or "").split())
+    if objection_type not in MEETING_OBJECTION_TYPES or not say_this or len(say_this) > MEETING_LINE_MAX:
+        return silent_suggestion()
+    next_question = " ".join(str(parsed.get("next_question") or "").split())
+    return {
+        "is_objection": True,
+        "objection_type": objection_type,
+        "urgency": str(parsed.get("urgency") or "low"),
+        "say_this": say_this,
+        "why_it_works": str(parsed.get("why_it_works") or "").strip(),
+        "next_question": next_question if len(next_question) <= MEETING_LINE_MAX else "",
+        "dont_say": str(parsed.get("dont_say") or "").strip(),
+        # Read by finalize_suggest_result: a playbook answer needs both.
+        "evidence_refs": _parse_evidence_refs(parsed.get("evidence_refs")),
+        "source_id": str(parsed.get("source_id") or "").strip() or None,
+    }
+
+
+def _suggestion_for_mode(raw: str, call_mode: str) -> dict[str, Any]:
+    return meeting_suggestion(raw) if call_mode == "meeting" else _parse_suggestion(raw)
 
 
 def _parse_evidence_refs(raw: Any) -> list[str]:

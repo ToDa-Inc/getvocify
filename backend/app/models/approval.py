@@ -43,6 +43,7 @@ class ProposedUpdate(BaseModel):
     extraction_confidence: float = Field(ge=0.0, le=1.0)
     field_type: Optional[str] = Field(None, description="HubSpot schema type for inline edit")
     options: Optional[list[dict]] = Field(None, description="Enum options {value, label} for dropdowns")
+    multiple: bool = Field(False, description="The options are a checkbox list: several values, joined with ';'")
     object_type: Optional[str] = Field(
         None,
         description="CRM object this field belongs to: deals | contacts | companies | line_items | task",

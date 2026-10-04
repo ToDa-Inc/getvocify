@@ -198,9 +198,13 @@ export interface Memo {
   interactionKind?: Nullable<string>;
   /** Interaction type: a playbook key, a custom key or the reserved `internal` */
   salesMotionKey?: Nullable<string>;
+  /** What the rep typed while the meeting recorded (desktop). */
+  userNotes?: Nullable<string>;
 
   /** Per-run STT / sanitize / extract timings and LLM prompt snapshots */
   pipelineMeta?: Nullable<PipelineMeta>;
+  /** Attendees of a meeting (when interactionKind is "meeting") */
+  attendees?: Array<{ name: string | null; email: string | null }>;
 }
 
 export interface PipelineMeta {
@@ -318,7 +322,8 @@ export interface FieldEditState {
   confidence: number;
 }
 
-export type FollowupStatus = "generating" | "ready" | "sent" | "unavailable";
+/** skipped: the rep chose not to send it; it leaves every pending list. */
+export type FollowupStatus = "generating" | "ready" | "sent" | "unavailable" | "skipped";
 
 export interface FollowupView {
   status: FollowupStatus;

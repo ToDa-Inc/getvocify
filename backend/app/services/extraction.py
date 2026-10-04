@@ -438,6 +438,25 @@ EXTRACTION_SYSTEM_PROMPT = (
 )
 
 
+USER_NOTES_MAX_CHARS = 8000
+
+
+def user_notes_block(user_notes: Optional[str]) -> str:
+    """The rep's own notes steer the summary; the transcript stays the source of truth."""
+    notes = (user_notes or "").strip()[:USER_NOTES_MAX_CHARS]
+    if not notes:
+        return ""
+    return f"""
+### REP'S OWN NOTES (typed by the rep during the meeting)
+\"\"\"
+{notes}
+\"\"\"
+- These are what the rep cares about. The **summary** must cover every point in them, keeping their wording where it fits, and add the specifics from the transcript.
+- Facts the rep typed (names, numbers, dates) count as stated and may fill CRM fields.
+- If a note contradicts the transcript, follow the transcript. Never invent beyond notes + transcript.
+"""
+
+
 def build_extraction_prompt(
     transcript: str,
     field_specs: Optional[list[dict]] = None,
@@ -446,6 +465,7 @@ def build_extraction_prompt(
     product_context: str = "",
     existing_values: Optional[dict] = None,
     call_date: Optional[str] = None,
+    user_notes: Optional[str] = None,
 ) -> str:
     """Build the extraction user prompt without constructing an LLM client."""
     return ExtractionService._build_prompt(
@@ -457,6 +477,7 @@ def build_extraction_prompt(
         product_context,
         existing_values,
         call_date,
+        user_notes=user_notes,
     )
 
 
@@ -861,6 +882,7 @@ class ExtractionService:
         existing_values: Optional[dict] = None,
         call_date: Optional[str] = None,
         call_reading: Optional[dict] = None,
+        user_notes: Optional[str] = None,
     ) -> str:
         """Build the extraction prompt dynamically based on HubSpot CRM schema.
         
@@ -1135,6 +1157,7 @@ Do NOT copy this into summary, description, or other CRM fields. Do NOT recap th
         from app.services.relative_dates import call_date_header, parse_iso_date
 
         date_block = call_date_header(parse_iso_date(call_date) if call_date else None)
+        notes_block = user_notes_block(user_notes)
 
         if call_reading:
             rules_block = _grounded_rules(json_structure)
@@ -1163,7 +1186,7 @@ Do NOT copy this into summary, description, or other CRM fields. Do NOT recap th
 {product_section}
 {existing_block}
 {glossary_section}
-
+{notes_block}
 TRANSCRIPT:
 \"\"\"
 {transcript}
@@ -1185,6 +1208,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
         existing_values: Optional[dict] = None,
         call_date: Optional[str] = None,
         call_reading: Optional[dict] = None,
+        user_notes: Optional[str] = None,
     ) -> MemoExtraction:
         """
         Extract structured CRM data from transcript.
@@ -1216,6 +1240,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             existing_values=existing_values,
             call_date=call_date,
             call_reading=call_reading,
+            user_notes=user_notes,
         )
         schema_field_names = [s["name"] for s in (field_specs or []) if isinstance(s.get("name"), str)]
         logger.info(

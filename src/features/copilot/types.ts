@@ -29,6 +29,10 @@ export interface SuggestRequest {
   language?: "auto" | "en" | "es";
   call_mode?: CallMode;
   speaker_role?: "prospect" | "rep" | "unknown";
+  /** HubSpot contact of the call: adds their history (earlier calls, objections, commitments). */
+  contact_id?: string;
+  /** The call's type, decided once for the call: help is grounded in that type's playbook. */
+  sales_motion_key?: string;
 }
 
 export interface SuggestResultEvent {
@@ -42,6 +46,8 @@ export type SuggestStreamEvent =
   | { type: "token"; text: string }
   | SuggestResultEvent
   | { type: "error"; message: string }
+  /** The server asks again (without the playbook): drop what streamed so far. */
+  | { type: "restart" }
   | { type: "done" };
 
 export const PRODUCT_CONTEXT_STORAGE_KEY = "vocify_copilot_product_context";

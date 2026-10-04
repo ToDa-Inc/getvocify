@@ -39,6 +39,7 @@ from app.api import (
     voice_enrollment,
     admin,
     calls,
+    live_calls,
     hubspot_recordings,
     company,
     handoffs,
@@ -80,6 +81,7 @@ api_router.include_router(captures.router)
 api_router.include_router(crm.router)
 api_router.include_router(crm_field_permissions.router)
 api_router.include_router(calls.router)
+api_router.include_router(live_calls.router)
 api_router.include_router(hubspot_recordings.router)
 api_router.include_router(crm_salesforce.router, prefix="/api/v1/crm")
 api_router.include_router(crm_pipedrive.router, prefix="/api/v1/crm")

@@ -32,6 +32,6 @@ export function dayChipClass(active = false): string {
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
     active
       ? "border-beige/50 bg-beige/10 text-foreground"
-      : "border-border bg-card text-foreground hover:border-beige/40 hover:bg-secondary/40",
+      : "border-border bg-card text-foreground hover:border-beige/40 hover:bg-secondary/60",
   ].join(" ");
 }

@@ -1,4 +1,4 @@
-import { Trash } from "@phosphor-icons/react";
+import { Trash2 } from "lucide-react";
 import { IconAction } from "@/components/ui/icon-action";
 import { groupByDay, type HistoryGroupKey } from "@/lib/ask-history";
 import { useLanguage } from "@/lib/i18n";
@@ -52,7 +52,7 @@ export default function HistoryList({
                 </button>
                 <span className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100">
                   <IconAction label={t.product.askDeleteConversation} tone="danger" onClick={() => onDelete(row.id)}>
-                    <Trash size={16} weight="light" />
+                    <Trash2 size={16} strokeWidth={1.5} />
                   </IconAction>
                 </span>
               </li>

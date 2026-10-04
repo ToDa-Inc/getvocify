@@ -183,7 +183,7 @@ const ObjectionCopilotPage = () => {
       </div>
 
       {(transcriptionError || suggestError) && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-destructive/30 dark:bg-destructive/10 dark:text-destructive">
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {transcriptionError || suggestError}
         </div>
       )}

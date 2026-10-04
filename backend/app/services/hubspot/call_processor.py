@@ -25,9 +25,11 @@ from app.services.hubspot.calls import (
     download_recording,
     get_call_associations,
     get_call_engagement,
+    parse_call_summary,
     parse_hubspot_timestamp_ms,
 )
 from app.services.captures import interaction_kind_for, pin_playbook_on_row, with_author_company
+from app.services.live_calls.linking import link_desktop_call
 from app.services.hubspot.client import HubSpotClient
 from app.services.session_entities import build_page_terms
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
@@ -81,6 +83,20 @@ async def initiate_hubspot_call_memo(
     deals, contacts = await get_call_associations(client, cid)
     d = deals[0] if deals else None
     ct = contacts[0] if contacts else None
+
+    if contacts:
+        # The rep may have recorded this call on the desktop already: reuse that
+        # memo instead of transcribing the same conversation twice.
+        try:
+            engagement = await get_call_engagement(client, cid)
+        except Exception as e:
+            logger.warning("Desktop call linking skipped for %s: %s", cid, e)
+            engagement = None
+        if engagement:
+            summary = parse_call_summary(engagement)
+            linked = link_desktop_call(supabase, user_id, summary, [str(c) for c in contacts])
+            if linked:
+                return linked, False
 
     logger.info(
         "HubSpot call associations resolved",

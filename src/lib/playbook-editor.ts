@@ -35,38 +35,32 @@ export type EditorStep = {
 export const MAX_CUSTOM_OBJECTIONS = 12;
 export const MAX_OBJECTION_LABEL = 60;
 export const MAX_TRIGGER = 200;
-export const MAX_MEANING = 200;
-export const MAX_QUESTION = 200;
-export const MAX_PROOF = 300;
 export const MAX_CRITERIA = 8;
 export const MAX_CRITERION_LABEL = 60;
 export const MAX_CRITERION_FIELD = 200;
 
 export type ObjectionKind = ObjectionCategory | "custom";
 
+/** An objection is what the prospect says, its kind and the answer. Nothing else. */
 export type EditorObjection = {
   category: ObjectionKind;
+  /** The answer the rep sees. */
   guidance: string;
   /** Custom objections only: the stable slug. */
   id?: string;
-  /** Custom objections only: its name, and how the prospect usually says it. */
+  /** Custom objections only: its name. */
   label?: string;
+  /** How the prospect says it ("Ahora mismo no tenemos presupuesto"), for any kind. */
   trigger?: string;
-  /** What it usually really means, one diagnostic question, and the proof to use. */
-  meaning?: string;
-  question?: string;
-  proof?: string;
 };
 
-/** "Qué tiene que salir de la llamada": one thing the rep has to find out. */
+/** "Qué tiene que salir de la llamada": what the rep has to find out, and how a good answer sounds. */
 export type EditorCriterion = {
   /** Client-side key for React lists; never sent. */
   key: string;
   criterion_id?: string | null;
   label: string;
-  why?: string;
   good?: string;
-  bad?: string;
 };
 
 type ObjectionSnapshot = {
@@ -75,9 +69,6 @@ type ObjectionSnapshot = {
   id?: string;
   label?: string;
   trigger?: string;
-  meaning?: string;
-  question?: string;
-  proof?: string;
 };
 
 export type EditorSnapshot = {
@@ -85,7 +76,7 @@ export type EditorSnapshot = {
   version_id: string | null;
   steps: { step_id: string; label: string; criterion: string; example?: string }[];
   objections: ObjectionSnapshot[];
-  qualification?: { criterion_id: string; label: string; why?: string; good?: string; bad?: string }[];
+  qualification?: { criterion_id: string; label: string; good?: string }[];
 };
 
 /** One key per objection row: the category, or the custom objection's own id. */
@@ -140,30 +131,147 @@ export function templateSteps(motion: string, lang: Lang): EditorStep[] {
   });
 }
 
-const MARKER = /^\s*(?:(?:paso|step)\s*)?(?:\d{1,2}[.)\-:]|[-•*·]|#{1,4})\s+/i;
+const MARKER = /^\s*(?:(?:paso|step)\s*)?(?:\d{1,2}[.)\-:]|[-•*·]|#{1,6})\s+/i;
+const HEADING = /^\s*#{1,6}\s+/;
+const NUMBER = /^\s*(?:(?:paso|step)\s*)?\d{1,2}[.)\-:]\s+/i;
+const BULLET = /^\s*[-•*·]\s+/;
 const SPLIT = /\s*(?::|—|–|\s-\s)\s*/;
+const EMPHASIS = /\*\*|__|`/g;
+const SHORT_LABEL = 60;
+/** Words a cut label must not end on ("…equipo comercial activo y"). */
+const DANGLING = new Set(
+  "y o e u de del con en a al para por que la el los las un una sin and or of with to for in on the a an that".split(" "),
+);
+
+/** Bold and code marks a document carries: never shown in a step. */
+export function stripMarkdown(value: string): string {
+  return (value || "").replace(EMPHASIS, "");
+}
+
+function clip(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  let cut = text.slice(0, limit);
+  const space = cut.lastIndexOf(" ");
+  if (space >= limit * 0.6) cut = cut.slice(0, space);
+  return cut.replace(/[\s,;:\-—–]+$/, "");
+}
+
+/** The name of a step from a sentence: its first clause when long, never cut mid-word. */
+export function shortLabel(text: string): string {
+  const sentence = (tidy(text).split(/(?<=[.!?])\s+/)[0] ?? "").replace(/[.!?:]+$/, "").trim();
+  if (sentence.length <= SHORT_LABEL) return sentence;
+  for (const mark of [", ", " (", "; ", " — ", " – "]) {
+    const at = sentence.indexOf(mark);
+    if (at >= 12 && at <= SHORT_LABEL) return sentence.slice(0, at).trim();
+  }
+  const words = clip(sentence, SHORT_LABEL).split(" ");
+  while (words.length > 1 && DANGLING.has(words[words.length - 1].toLowerCase())) words.pop();
+  return words.join(" ");
+}
+
+/** A long description keeps whole sentences when it has to be cut. */
+function clipSentences(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const cut = text.slice(0, limit);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  return end >= limit * 0.5 ? cut.slice(0, end + 1) : clip(text, limit);
+}
 
 function stepFromLine(line: string): EditorStep {
-  const body = line.replace(MARKER, "").trim();
+  const body = tidy(line.replace(MARKER, ""));
   const match = body.match(SPLIT);
   if (match && match.index !== undefined && match.index > 0 && match.index <= MAX_LABEL) {
     const label = tidy(body.slice(0, match.index));
     const criterion = tidy(body.slice(match.index + match[0].length));
     return { key: newStepKey(), label, criterion: criterion || label };
   }
-  const sentence = body.split(/(?<=[.!?])\s+/)[0] ?? body;
-  const label = tidy(sentence).replace(/[.!?]+$/, "").slice(0, MAX_LABEL).trim();
-  return { key: newStepKey(), label, criterion: tidy(body) };
+  return { key: newStepKey(), label: shortLabel(body), criterion: body };
+}
+
+/** Lines under a step become its description; each list item reads as its own sentence. */
+function join(previous: string, piece: string, item: boolean): string {
+  if (!previous) return piece;
+  return `${item && !/[.!?:;]$/.test(previous) ? `${previous}.` : previous} ${piece}`;
+}
+
+type LineKind = { heading: boolean; numbered: boolean; body: string };
+
+/**
+ * A document with an outline ("### 1. Elegir la cuenta" and bullets under it): the numbered
+ * headings are the steps and everything under one is its description. Headings without a
+ * number ("## Objetivo del rol") are context, not steps. Null when there is no outline.
+ */
+function outlineSteps(lines: string[]): { label: string; criterion: string }[] | null {
+  const kinds: LineKind[] = lines.map((line) => {
+    const heading = HEADING.test(line);
+    const body = line.replace(HEADING, "");
+    const numbered = NUMBER.test(body);
+    return { heading, numbered, body: tidy(numbered ? body.replace(NUMBER, "") : body) };
+  });
+  const follows = (index: number) => {
+    const next = kinds.slice(index + 1).find((kind) => kind.body);
+    return Boolean(next && !next.numbered && !next.heading);
+  };
+
+  let isStep: (kind: LineKind) => boolean;
+  const closes = (kind: LineKind) => kind.heading;
+  if (kinds.some((kind) => kind.heading && kind.numbered)) {
+    isStep = (kind) => kind.heading && kind.numbered;
+  } else if (kinds.filter((kind) => kind.heading && kind.body).length >= 2 && kinds.some((kind) => !kind.heading && kind.body)) {
+    isStep = (kind) => kind.heading;
+  } else if (
+    kinds.some(
+      (kind, index) =>
+        kind.numbered && !kind.heading && kind.body && !SPLIT.test(kind.body) && kind.body.length <= SHORT_LABEL && follows(index),
+    )
+  ) {
+    isStep = (kind) => kind.numbered && !kind.heading;
+  } else {
+    return null;
+  }
+
+  let steps: { label: string; criterion: string }[] = [];
+  let current: { label: string; criterion: string } | null = null;
+  lines.forEach((raw, index) => {
+    const kind = kinds[index];
+    if (!kind.body) return;
+    if (isStep(kind)) {
+      const label = kind.body.replace(/[:.]+$/, "").trim();
+      current = { label: label.length <= MAX_LABEL ? label : shortLabel(label), criterion: "" };
+      steps.push(current);
+    } else if (closes(kind)) {
+      current = null;
+    } else if (current) {
+      const item = BULLET.test(raw) || NUMBER.test(raw);
+      const piece = item ? tidy(raw.replace(MARKER, "")) : kind.body;
+      current.criterion = join(current.criterion, piece, item);
+    }
+  });
+  // A title heading with nothing under it is not a step.
+  steps = steps.filter((step, index) => step.criterion || steps.length === 1 || index !== 0);
+  return steps.map((step) => ({ ...step, criterion: clipSentences(step.criterion, MAX_CRITERION) || step.label }));
 }
 
 /**
- * Pasted process text -> steps. Numbered, bulleted or heading lines start a step
- * ("1. Apertura: se presenta…", "- Cualificar — quién decide"); lines under one are added
- * to its description. Without any marker, each paragraph is a step. Never more than
- * MAX_STEPS; the Head of Sales reviews the result before saving.
+ * Pasted process text -> steps. An outline (numbered headings with lines under them) gives
+ * one step per heading. Otherwise numbered, bulleted or heading lines start a step
+ * ("1. Apertura: se presenta…", "- Cualificar — quién decide") and lines under one are added
+ * to its description; without any marker, each paragraph is a step. Markdown is dropped and
+ * long sentences get a short name. Never more than MAX_STEPS; same as the backend's
+ * parse_playbook_text.
  */
 export function parsePlaybookText(text: string): EditorStep[] {
-  const lines = (text || "").replace(/\r\n?/g, "\n").split("\n");
+  const lines = (text || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => stripMarkdown(line).replace(/^>\s*/, "").trimEnd());
+  const outline = outlineSteps(lines);
+  if (outline) {
+    return outline
+      .filter((step) => step.label)
+      .slice(0, MAX_STEPS)
+      .map((step) => ({ key: newStepKey(), ...step }));
+  }
   const marked = lines.some((line) => MARKER.test(line));
   const steps: EditorStep[] = [];
   if (marked) {
@@ -178,11 +286,40 @@ export function parsePlaybookText(text: string): EditorStep[] {
       }
     }
   } else {
-    for (const paragraph of (text || "").split(/\n\s*\n/)) {
+    for (const paragraph of lines.join("\n").split(/\n\s*\n/)) {
       if (paragraph.trim()) steps.push(stepFromLine(paragraph.trim()));
     }
   }
   return steps.filter((step) => step.label).slice(0, MAX_STEPS);
+}
+
+/**
+ * How many steps look badly split by an import: a name that is only a number ("1"), a
+ * description that still starts with its numbering ("1. Elegir la cuenta"), or a long name cut
+ * mid-word from its own description ("…alta frecuencia de l").
+ */
+export function messySteps(steps: { label: string; criterion: string }[]): number {
+  return steps.filter((step) => {
+    const label = step.label.trim();
+    const criterion = step.criterion.trim();
+    if (/^[\d.)\s-]+$/.test(label)) return true;
+    if (/^\d{1,2}[.)]\s/.test(criterion)) return true;
+    const cut = label.length >= 50 && criterion.startsWith(label) && /\w/.test(criterion.charAt(label.length));
+    return cut && /\w$/.test(label);
+  }).length;
+}
+
+/** The steps as text for Vocify to structure again: "- name: description", or the description alone when the name is noise. */
+export function stepsAsText(steps: { label: string; criterion: string }[]): string {
+  return steps
+    .map((step) => {
+      const label = step.label.trim();
+      const criterion = step.criterion.trim();
+      if (!criterion || criterion === label) return `- ${label}`;
+      if (/^[\d.)\s-]+$/.test(label) || criterion.startsWith(label)) return `- ${criterion}`;
+      return `- ${label}: ${criterion}`;
+    })
+    .join("\n");
 }
 
 /** A version imported before steps existed: one step holding the whole document. */
@@ -214,27 +351,11 @@ export function draftError(
   if (custom.some((item) => !tidy(item.label ?? ""))) return "custom_objection_label_empty";
   if (custom.some((item) => tidy(item.label ?? "").length > MAX_OBJECTION_LABEL)) return "field_too_long";
   const tooLong = (value: string | undefined, max: number) => tidy(value ?? "").length > max;
-  if (
-    objections.some(
-      (item) =>
-        tooLong(item.trigger, MAX_TRIGGER) ||
-        tooLong(item.meaning, MAX_MEANING) ||
-        tooLong(item.question, MAX_QUESTION) ||
-        tooLong(item.proof, MAX_PROOF),
-    )
-  ) {
-    return "field_too_long";
-  }
+  if (objections.some((item) => tooLong(item.trigger, MAX_TRIGGER))) return "field_too_long";
   if (qualification.length > MAX_CRITERIA) return "too_many_criteria";
   if (qualification.some((item) => !tidy(item.label))) return "criterion_label_empty";
   if (qualification.some((item) => tidy(item.label).length > MAX_CRITERION_LABEL)) return "criterion_label_too_long";
-  if (
-    qualification.some((item) =>
-      [item.why, item.good, item.bad].some((value) => tooLong(value, MAX_CRITERION_FIELD)),
-    )
-  ) {
-    return "field_too_long";
-  }
+  if (qualification.some((item) => tooLong(item.good, MAX_CRITERION_FIELD))) return "field_too_long";
   return null;
 }
 
@@ -263,7 +384,7 @@ export function draftPayload(steps: EditorStep[], objections: EditorObjection[],
         category: item.category,
         guidance: tidy(item.guidance),
         ...(item.category === "custom" ? { ...(item.id ? { id: item.id } : {}), label: tidy(item.label ?? "") } : {}),
-        ...optional({ trigger: item.trigger, meaning: item.meaning, question: item.question, proof: item.proof }),
+        ...optional({ trigger: item.trigger }),
       })),
     ...(qualification
       ? {
@@ -272,7 +393,7 @@ export function draftPayload(steps: EditorStep[], objections: EditorObjection[],
             .map((item) => ({
               ...(item.criterion_id ? { criterion_id: item.criterion_id } : {}),
               label: tidy(item.label),
-              ...optional({ why: item.why, good: item.good, bad: item.bad }),
+              ...optional({ good: item.good }),
             })),
         }
       : {}),
@@ -283,8 +404,9 @@ export function stepsFromSnapshot(snapshot: EditorSnapshot | null | undefined): 
   return (snapshot?.steps ?? []).map((step) => ({
     key: newStepKey(),
     step_id: step.step_id,
-    label: step.label,
-    criterion: step.criterion,
+    // Imported before markdown was dropped at import: never show the marks.
+    label: stripMarkdown(step.label),
+    criterion: stripMarkdown(step.criterion),
     example: step.example ?? "",
   }));
 }
@@ -292,17 +414,22 @@ export function stepsFromSnapshot(snapshot: EditorSnapshot | null | undefined): 
 export function objectionsFromSnapshot(snapshot: EditorSnapshot | null | undefined): EditorObjection[] {
   return (snapshot?.objections ?? [])
     .filter((item) => item.category === "custom" || (OBJECTION_CATEGORIES as readonly string[]).includes(item.category))
-    .map((item) => ({ ...item, category: item.category as ObjectionKind, guidance: item.guidance ?? "" }));
+    // Older answers may carry meaning / question / proof: not kept, so the next save drops them.
+    .map((item) => ({
+      category: item.category as ObjectionKind,
+      guidance: item.guidance ?? "",
+      ...(item.id ? { id: item.id } : {}),
+      ...(item.label ? { label: item.label } : {}),
+      ...(item.trigger ? { trigger: item.trigger } : {}),
+    }));
 }
 
 export function criteriaFromSnapshot(snapshot: EditorSnapshot | null | undefined): EditorCriterion[] {
   return (snapshot?.qualification ?? []).map((item) => ({
     key: newStepKey(),
     criterion_id: item.criterion_id,
-    label: item.label,
-    why: item.why ?? "",
+    label: stripMarkdown(item.label),
     good: item.good ?? "",
-    bad: item.bad ?? "",
   }));
 }
 

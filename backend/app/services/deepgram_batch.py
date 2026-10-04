@@ -296,8 +296,6 @@ class DeepgramBatchService:
                 "batch",
                 float(metadata["duration"]),
                 channels=2 if multichannel else 1,
-                model=DEEPGRAM_MODEL,
-                meta={"request_id": request_id, "language": lang},
             )
         logger.info(
             "Deepgram listen complete",
@@ -310,6 +308,40 @@ class DeepgramBatchService:
             ),
         )
         return text, confidence
+
+    async def detect_pcm_language(
+        self,
+        pcm: bytes,
+        *,
+        languages: list[str],
+        sample_rate: int = 16000,
+    ) -> tuple[Optional[str], float]:
+        """One short window of live PCM (s16le mono): the language among `languages`, and how sure."""
+        if not self.api_key:
+            raise RuntimeError("DEEPGRAM_API_KEY is not set")
+        fmt = (
+            (1).to_bytes(2, "little")
+            + (1).to_bytes(2, "little")
+            + sample_rate.to_bytes(4, "little")
+            + (sample_rate * 2).to_bytes(4, "little")
+            + (2).to_bytes(2, "little")
+            + (16).to_bytes(2, "little")
+        )
+        url = f"{LISTEN_URL}?{urlencode(detect_query_params(model=DEEPGRAM_MODEL, languages=languages))}"
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            response = await http.post(
+                url,
+                headers={"Authorization": f"Token {self.api_key}", "Content-Type": "audio/wav"},
+                content=_wav_from_pcm(fmt, pcm),
+            )
+        response.raise_for_status()
+        # Fire and forget: the ledger writes in a thread, so the live call never waits on it.
+        record_stt_usage("deepgram", "batch", len(pcm) / (sample_rate * 2))
+        channel = ((response.json().get("results") or {}).get("channels") or [{}])[0]
+        code = str(channel.get("detected_language") or "").strip().lower().split("-")[0]
+        if code not in normalize_stt_languages(languages):
+            return None, 0.0
+        return code, float(channel.get("language_confidence") or 0.0)
 
     async def detect_language(
         self,

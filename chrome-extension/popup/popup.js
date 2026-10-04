@@ -523,7 +523,7 @@ followupEl?.addEventListener('v-action', async (event) => {
       return;
     }
     const channel = value === 'whatsapp' ? 'whatsapp' : 'email';
-    const target = composeTarget({ channel, to: view.to, phone: view.phone, subject, body, mailClient: value });
+    const target = composeTarget({ channel, to: view.to || lastPreviewData?.selected_contact?.email, phone: view.phone, subject, body, mailClient: value });
     const url = target.ok ? target.url : target.fallback;
     if (!url) return;
     if (!target.ok) await navigator.clipboard.writeText(body);
@@ -3192,7 +3192,7 @@ function renderProposedUpdates(updates, availableFields) {
               <button type="button" class="custom-select-trigger update-edit-input" aria-haspopup="listbox"${canEdit ? '' : ' disabled'}>${escapeHtml(valueLabel)}</button>
               <div class="custom-select-dropdown" role="listbox" aria-hidden="true">
                 <div class="custom-select-opt" data-value="" data-label="${isLeadStatusField(update) ? 'No change' : '—'}">${isLeadStatusField(update) ? 'No change' : '—'}</div>
-                ${(update.options || []).map((o) => `<div class="custom-select-opt" data-value="${escapeHtml(o.value)}" data-label="${escapeHtml(o.label || o.value)}">${escapeHtml(o.label || o.value)}</div>`).join('')}
+                ${(update.options || []).map((o) => `<div class="custom-select-opt${String(o.value) === String(update.new_value ?? '') ? ' is-selected' : ''}" role="option" aria-selected="${String(o.value) === String(update.new_value ?? '')}" data-value="${escapeHtml(o.value)}" data-label="${escapeHtml(o.label || o.value)}">${escapeHtml(o.label || o.value)}</div>`).join('')}
               </div>
             </div>
           </div>`

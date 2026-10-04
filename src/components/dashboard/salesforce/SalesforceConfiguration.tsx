@@ -5,11 +5,13 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi, crmKeys, SESSION_QUERY_STALE_MS, type CRMConfiguration } from "@/lib/api/crm";
 import { DEFAULT_SALESFORCE_CONFIG, loadSalesforceSetup } from "@/lib/api/salesforce-setup";
 import { toast } from "sonner";
-import { Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info } from "lucide-react";
+import { Check, ShieldCheck, Settings2, Search, FilterX, Info } from "lucide-react";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { Toggle } from "@/components/ui/toggle";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface SalesforceConfigurationProps {
   onSaved?: () => void;
@@ -115,30 +117,31 @@ export const SalesforceConfiguration = ({ onSaved, readOnly = false }: Salesforc
           </div>
           <div className="space-y-2">
             <label className={THEME_TOKENS.typography.capsLabel}>Stage</label>
-            <div className="relative">
-              <select
-                value={config.default_stage_id}
-                disabled={readOnly}
-                onChange={(e) => {
-                  const s = selectedPipeline?.stages.find((st) => st.id === e.target.value);
-                  if (s) {
-                    setConfig((prev) => ({
-                      ...prev,
-                      default_stage_id: s.id,
-                      default_stage_name: s.label,
-                    }));
-                  }
-                }}
-                className="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none"
-              >
+            <Select
+              value={config.default_stage_id}
+              disabled={readOnly}
+              onValueChange={(stageId) => {
+                const s = selectedPipeline?.stages.find((st) => st.id === stageId);
+                if (s) {
+                  setConfig((prev) => ({
+                    ...prev,
+                    default_stage_id: s.id,
+                    default_stage_name: s.label,
+                  }));
+                }
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {selectedPipeline?.stages.map((s) => (
-                  <option key={s.id} value={s.id}>
+                  <SelectItem key={s.id} value={s.id}>
                     {s.label}
-                  </option>
+                  </SelectItem>
                 ))}
-              </select>
-              <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-            </div>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>
@@ -190,10 +193,11 @@ export const SalesforceConfiguration = ({ onSaved, readOnly = false }: Salesforc
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {filteredProperties.length > 0 ? (
                 filteredProperties.map((prop) => (
-                  <button
+                  <Toggle
                     key={prop.name}
-                    type="button"
-                    onClick={() => {
+                    variant="chip"
+                    pressed={config.allowed_deal_fields.includes(prop.name)}
+                    onPressedChange={() => {
                       if (readOnly) return;
                       const active = config.allowed_deal_fields.includes(prop.name);
                       setConfig((prev) => ({
@@ -203,11 +207,7 @@ export const SalesforceConfiguration = ({ onSaved, readOnly = false }: Salesforc
                           : [...prev.allowed_deal_fields, prop.name],
                       }));
                     }}
-                    className={`flex items-center justify-between px-4 py-3 rounded-2xl border transition-all text-left group ${
-                      config.allowed_deal_fields.includes(prop.name)
-                        ? "bg-beige/10 border-beige/30 text-beige"
-                        : "bg-card/50 border-border/20 text-muted-foreground hover:border-border/40"
-                    }`}
+                    className="group h-auto w-full justify-between rounded-2xl px-4 py-3 text-left"
                   >
                     <div className="flex flex-col min-w-0">
                       <span className="text-[10px] font-bold truncate">{prop.label}</span>
@@ -218,7 +218,7 @@ export const SalesforceConfiguration = ({ onSaved, readOnly = false }: Salesforc
                       )}
                     </div>
                     {config.allowed_deal_fields.includes(prop.name) && <Check className="h-3 w-3 shrink-0 ml-2" />}
-                  </button>
+                  </Toggle>
                 ))
               ) : (
                 <div className="col-span-full py-12 flex flex-col items-center justify-center text-muted-foreground/40">
@@ -266,7 +266,7 @@ export const SalesforceConfiguration = ({ onSaved, readOnly = false }: Salesforc
       <Button
         onClick={handleSave}
         disabled={isSaving}
-        className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-medium shadow-medium h-12"
+        className="w-full bg-beige text-cream hover:bg-beige/90 rounded-full text-[10px] font-medium shadow-medium h-12"
       >
         {isSaving ? <VocifySpinner size={12} /> : null}
         Save Configuration

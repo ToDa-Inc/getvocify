@@ -46,6 +46,22 @@ def is_two_party_source(source: Optional[str]) -> bool:
     return (source or "").strip() in TWO_PARTY_SOURCES
 
 
+def speakers_are_verified(stt_meta: Optional[dict[str, Any]]) -> bool:
+    """Channel-separated capture (desktop mic vs meeting audio) already knows who the rep is."""
+    return isinstance(stt_meta, dict) and stt_meta.get("speakers") == "channels"
+
+
+def keep_verified_speakers(before: str, after: str) -> str:
+    """Accept text repairs from a later pass but never its speaker changes."""
+    old = parse_transcript_turns(before)
+    new = parse_transcript_turns(after)
+    if len(old) != len(new):
+        return before
+    return serialize_transcript_turns(
+        [{"speaker": o.get("speaker"), "text": n.get("text")} for o, n in zip(old, new)]
+    )
+
+
 def should_refresh_display_transcript(status: Optional[str]) -> bool:
     """LLM polish may update the shown transcript only before approve/fail."""
     return (status or "") in DISPLAY_TRANSCRIPT_STATUSES
@@ -842,6 +858,7 @@ def prepare_transcript_for_extraction(
     extra_names: Optional[list[str]] = None,
     spoken_language: Optional[str] = None,
     two_party: bool = False,
+    speakers_verified: bool = False,
 ) -> tuple[str, str]:
     """Deterministic aliases, casing, S1/S2 remap, spelled emails. No LLM — safe before extract."""
     transcript = normalize_diarized_transcript(transcript)
@@ -855,9 +872,12 @@ def prepare_transcript_for_extraction(
         )
     roles = role_hints_from_context(existing_values, extra_names)
     text = cleaned.text
-    if two_party:
-        text = collapse_extra_speakers(text)
-    text = canonicalize_rep_prospect_speakers(text, roles)
+    if speakers_verified:
+        text = keep_verified_speakers(transcript, text)
+    else:
+        if two_party:
+            text = collapse_extra_speakers(text)
+        text = canonicalize_rep_prospect_speakers(text, roles)
     if not spoken_language:
         try:
             from app.services.session_entities import get_batch_stt_language
@@ -876,6 +896,7 @@ async def prepare_transcript_for_extraction_async(
     extra_names: Optional[list[str]] = None,
     spoken_language: Optional[str] = None,
     two_party: bool = False,
+    speakers_verified: bool = False,
 ) -> tuple[str, str]:
     """Cheap repair, then optional LLM polish for display (do not block extract on this)."""
     from app.services.pipeline_meta import record_stage
@@ -897,15 +918,22 @@ async def prepare_transcript_for_extraction_async(
             extra_names,
             spoken_language=spoken_language,
             two_party=two_party,
+            speakers_verified=speakers_verified,
         )
         terms = collect_sanitize_terms(glossary, existing_values, extra_names)
         roles = role_hints_from_context(existing_values, extra_names)
-        polished = await llm_sanitize_transcript(
-            text, terms, roles, spoken_language=spoken_language
-        )
-        if two_party:
-            polished = collapse_extra_speakers(polished)
-        polished = canonicalize_rep_prospect_speakers(polished, roles)
+        if speakers_verified:
+            # Two channels (desktop) already know who said what, and the live transcript was
+            # fixed against the glossary as it arrived: an LLM rewrite found nothing to repair
+            # there and dropped the other side's short replies when merging turns.
+            polished = text
+        else:
+            polished = await llm_sanitize_transcript(
+                text, terms, roles, spoken_language=spoken_language
+            )
+            if two_party:
+                polished = collapse_extra_speakers(polished)
+            polished = canonicalize_rep_prospect_speakers(polished, roles)
         polished = reconstruct_spelled_emails(polished, spoken_language=spoken_language)
         info = _SANITIZE_LLM.get() or {}
         record_stage("sanitize", t0, **info)
@@ -921,6 +949,7 @@ async def sanitize_user_transcript(
     *,
     memo_data: Optional[dict[str, Any]] = None,
     existing_values: Optional[dict[str, Any]] = None,
+    speakers_verified: bool = False,
 ) -> str:
     """Load glossary + CRM names, then cheap deterministic repair (no LLM)."""
     from app.services.glossary import GlossaryService
@@ -948,6 +977,7 @@ async def sanitize_user_transcript(
         extra_names=extra,
         spoken_language=spoken,
         two_party=is_two_party_source(source),
+        speakers_verified=speakers_verified,
     )
     return cleaned
 
@@ -976,7 +1006,7 @@ async def polish_memo_transcript(
             fetched = (
                 supabase.table("memos")
                 .select(
-                    "id,user_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id,status,source,source_type"
+                    "id,user_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id,status,source,source_type,transcript_stt_meta"
                 )
                 .eq("id", memo_id)
                 .limit(1)
@@ -1004,6 +1034,7 @@ async def polish_memo_transcript(
                 extra_names=extra,
                 spoken_language=spoken,
                 two_party=is_two_party_source(source),
+                speakers_verified=speakers_are_verified((memo_data or {}).get("transcript_stt_meta")),
             )
             persist_pipeline_meta(supabase, memo_id, stages)
         if not polished or polished == transcript:

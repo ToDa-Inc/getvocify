@@ -379,6 +379,7 @@ class HubSpotPreviewService:
                     extraction_confidence=confidence,
                     field_type=spec.get("type"),
                     options=spec.get("options"),
+                    multiple=bool(spec.get("multiple")),
                     object_type="deals",
                 ))
         else:
@@ -521,6 +522,7 @@ class HubSpotPreviewService:
                             extraction_confidence=confidence,
                             field_type=spec.get("type"),
                             options=spec.get("options"),
+                            multiple=bool(spec.get("multiple")),
                             object_type="deals",
                             already_applied=preview_field_already_applied(
                                 current_display=current_display,
@@ -623,6 +625,7 @@ class HubSpotPreviewService:
                 extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
                 field_type=spec.get("type"),
                 options=spec.get("options"),
+                multiple=bool(spec.get("multiple")),
                 object_type="contacts",
                 already_applied=has_existing_contact and preview_field_already_applied(
                     current_display=current_display,
@@ -692,6 +695,7 @@ class HubSpotPreviewService:
                     extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
                     field_type=spec.get("type"),
                     options=spec.get("options"),
+                    multiple=bool(spec.get("multiple")),
                     object_type="companies",
                     already_applied=has_existing_company and preview_field_already_applied(
                         current_display=current_display,
@@ -776,6 +780,7 @@ class HubSpotPreviewService:
                     label=spec.get("label", name.replace("_", " ").title()),
                     type=spec.get("type", "string"),
                     options=spec.get("options"),
+                    multiple=bool(spec.get("multiple")),
                     object_type=object_type,
                     current_value=lead_current,
                 ))

@@ -112,7 +112,7 @@ export function StripeCheckoutPanel({
       <button
         type="button"
         aria-label="Close checkout"
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-foreground/40"
         onClick={onClose}
       />
       <aside

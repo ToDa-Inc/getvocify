@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { Toggle } from "@/components/ui/toggle";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   STEP_STATES,
   type CoachFlow,
@@ -14,7 +16,9 @@ import {
 import { CoachEmpty, CoachError, CoachLoading } from "./CoachingState";
 import { useCoachInteractions, useCoachSummary } from "./useRepCoaching";
 
-const SELECT = "rounded-full border border-border bg-card px-4 py-1.5 text-sm text-foreground";
+/** Sentinels for empty filter states (showing all items). */
+const FILTER_NONE_STEP = "__none_step__";
+const FILTER_NONE_STATE = "__none_state__";
 
 function Row({ item }: { item: CoachInteraction }) {
   const { t, language } = useLanguage();
@@ -86,30 +90,47 @@ export function CoachingInteractions({ flow }: { flow?: CoachFlow | null }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3" data-testid="coach-interaction-filters">
-        <select aria-label={p.coachFilterStep} className={SELECT} value={filters.stepId} onChange={(e) => setFilters({ ...filters, stepId: e.target.value })}>
-          <option value="">{p.coachFilterAllSteps}</option>
-          {steps.map((step) => (
-            <option key={step.step_id} value={step.step_id}>
-              {step.label}
-            </option>
-          ))}
-        </select>
-        <select aria-label={p.coachFilterState} className={SELECT} value={filters.state} onChange={(e) => setFilters({ ...filters, state: e.target.value })}>
-          <option value="">{p.coachFilterAllStates}</option>
-          {STEP_STATES.map((state) => (
-            <option key={state} value={state}>
-              {String(p[stateView(state).labelKey])}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          aria-pressed={filters.meetingOnly}
-          onClick={() => setFilters({ ...filters, meetingOnly: !filters.meetingOnly })}
-          className={`rounded-full border border-border px-3.5 py-1.5 text-sm ${filters.meetingOnly ? "bg-beige text-cream" : "bg-card text-muted-foreground"}`}
+        <Select
+          value={filters.stepId || FILTER_NONE_STEP}
+          onValueChange={(v) => setFilters({ ...filters, stepId: v === FILTER_NONE_STEP ? "" : v })}
+        >
+          <SelectTrigger aria-label={p.coachFilterStep} variant="chip">
+            <SelectValue placeholder={p.coachFilterAllSteps} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={FILTER_NONE_STEP}>{p.coachFilterAllSteps}</SelectItem>
+            {steps.map((step) => (
+              <SelectItem key={step.step_id} value={step.step_id}>
+                {step.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={filters.state || FILTER_NONE_STATE}
+          onValueChange={(v) => setFilters({ ...filters, state: v === FILTER_NONE_STATE ? "" : v })}
+        >
+          <SelectTrigger aria-label={p.coachFilterState} variant="chip">
+            <SelectValue placeholder={p.coachFilterAllStates} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={FILTER_NONE_STATE}>{p.coachFilterAllStates}</SelectItem>
+            {STEP_STATES.map((state) => (
+              <SelectItem key={state} value={state}>
+                {String(p[stateView(state).labelKey])}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Toggle
+          variant="chip"
+          size="sm"
+          pressed={filters.meetingOnly}
+          onPressedChange={() => setFilters({ ...filters, meetingOnly: !filters.meetingOnly })}
+          aria-label={p.coachFilterMeeting}
         >
           {p.coachFilterMeeting}
-        </button>
+        </Toggle>
       </div>
       {query.isError ? (
         <CoachError onRetry={() => void query.refetch()} />

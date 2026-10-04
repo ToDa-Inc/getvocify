@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Microphone, Square, X } from "@phosphor-icons/react";
+import { Mic, Square, X } from "lucide-react";
 import { IconAction } from "@/components/ui/icon-action";
 import { useLanguage } from "@/lib/i18n";
 import {
@@ -138,22 +138,22 @@ export default function VoiceComposer({
       ) : null}
       {view.composer_state !== "recording" && view.composer_state !== "transcribing" ? (
         <IconAction label={t.product.askRecord} onClick={() => void record()}>
-          <Microphone size={17} weight="light" />
+          <Mic size={17} strokeWidth={1.5} />
         </IconAction>
       ) : null}
       {view.composer_state === "recording" ? (
         <>
           <IconAction label={t.product.cancelAction} tone="danger" onClick={cancel}>
-            <X size={16} weight="light" />
+            <X size={16} strokeWidth={1.5} />
           </IconAction>
           <IconAction label={t.product.askStop} onClick={() => void stop()}>
-            <Square size={14} weight="fill" />
+            <Square size={14} strokeWidth={1.5} fill="currentColor" />
           </IconAction>
         </>
       ) : null}
       {view.composer_state === "transcribing" ? (
         <IconAction label={t.product.askTranscribing} disabled pending onClick={() => undefined}>
-          <Microphone size={17} weight="light" />
+          <Mic size={17} strokeWidth={1.5} />
         </IconAction>
       ) : null}
     </div>

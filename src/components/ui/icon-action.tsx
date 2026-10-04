@@ -7,7 +7,10 @@ type IconActionProps = {
   label: string;
   pendingLabel?: string;
   pending?: boolean;
-  tone?: "default" | "danger";
+  /** `primary`: the filled beige action of a surface (send, record). One per block. */
+  tone?: "default" | "danger" | "primary";
+  /** A toggle ("mute"): shows the held state and sets `aria-pressed`. */
+  pressed?: boolean;
   disabled?: boolean;
   /** Shown while pending instead of the spinner, e.g. `<AnimIcon name="refresh" state="busy" />`. */
   pendingIcon?: React.ReactNode;
@@ -23,6 +26,7 @@ export function IconAction({
   pendingLabel,
   pending = false,
   tone = "default",
+  pressed,
   disabled = false,
   pendingIcon,
   shortcut,
@@ -38,12 +42,16 @@ export function IconAction({
           <button
             type="button"
             aria-label={tip}
+            aria-pressed={pressed}
             disabled={disabled || pending}
             onClick={onClick}
             className={cn(
               THEME_TOKENS.interaction.iconButton,
               THEME_TOKENS.motion.tapScale,
               tone === "danger" && THEME_TOKENS.interaction.iconDanger,
+              tone === "primary" &&
+                "btn-glow bg-beige text-cream hover:bg-beige/90 hover:text-cream disabled:bg-muted-foreground/20 disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none",
+              pressed && "bg-foreground text-background hover:bg-foreground/90 hover:text-background",
             )}
           >
             {pending ? (pendingIcon ?? <VocifySpinner size={12} />) : children}

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from "react";
-import { CaretDown } from "@phosphor-icons/react";
+import { ChevronDown } from "lucide-react";
 import { itemKey, NEEDS_OK_VISIBLE, needsOkKey, type HomeNeedsOkRow } from "@shared/ui/home.js";
 import { Button } from "@/components/ui/button";
 import type { ProductTranslations } from "@/lib/product-catalog";
@@ -107,7 +107,7 @@ function ConfirmGroup({
         className="group flex min-h-[50px] w-full items-center gap-4 px-[18px] py-3 text-left text-[14.5px] leading-normal text-foreground"
       >
         <span className="min-w-0 flex-1">{actions.copy.home_confirm_group.replace("{count}", String(entry.count))}</span>
-        <CaretDown size={14} weight="light" className="shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+        <ChevronDown size={14} strokeWidth={1.5} className="shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
       </button>
       {groupOpen
         ? entry.items.map((item) => (

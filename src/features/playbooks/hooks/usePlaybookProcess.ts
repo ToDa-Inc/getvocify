@@ -10,7 +10,6 @@ import { motionLabel } from "@/lib/motion-label";
 import {
   nothingYet,
   optimisticStatus,
-  pendingKeys,
   playbookRows,
   type AppliesTo,
 } from "@/lib/playbook-doc";
@@ -25,8 +24,8 @@ function withBaseFlows(motions: Record<string, MotionStatus>, canEdit: boolean):
 
 /**
  * Everything "Vuestro proceso" knows and does, without any markup: the data, how each call
- * type is named, and the actions that change the list (switch, delete/undo, rules, turning
- * pending changes on). The components only render what this returns.
+ * type is named, and the actions that change the list (switch, delete/undo, rules, publish).
+ * The components only render what this returns.
  */
 export function usePlaybookProcess() {
   const { t, language } = useLanguage();
@@ -38,7 +37,6 @@ export function usePlaybookProcess() {
   const canEdit = role === "owner" || role === "admin";
   const routing = (user?.company?.features ?? []).includes("PLAYBOOK_ROUTING_ENABLED");
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [activating, setActivating] = useState(false);
   // Bumped when the server changed a playbook under an open document, so it reloads.
   const [docVersion, setDocVersion] = useState(0);
   const flushes = useRef(new Map<string, Flush>());
@@ -68,7 +66,6 @@ export function usePlaybookProcess() {
   const companySummary = knowledgeSummary(company.data?.knowledge, copy.summary);
   const empty =
     canEdit && list.isSuccess && nothingYet(motions, details) && !company.isLoading && isEmptyKnowledge(company.data?.knowledge);
-  const pending = pendingKeys(motions, details);
 
   const name = (key: string) => {
     if (key === "closing" && "negotiation" in motions) return copy.closingDemoOnly;
@@ -157,27 +154,21 @@ export function usePlaybookProcess() {
     }
   };
 
-  /** One action for the page: save what is being typed, then turn every pending change on. */
-  const activate = async (): Promise<boolean> => {
-    setActivating(true);
+  /** "Publicar" on one call type: save what is being typed, then make its draft the live version. */
+  const publish = async (key: string): Promise<void> => {
+    setBusyKey(key);
     try {
-      const saved = await Promise.all([...flushes.current.values()].map((flush) => flush()));
-      if (saved.some((ok) => !ok)) throw new Error("unsaved");
-      const fresh = (await list.refetch()).data ?? list.data;
-      const keys = pendingKeys(withBaseFlows(fresh?.motions ?? {}, canEdit), fresh?.details ?? {});
-      for (const key of keys) {
-        const result = await playbooksApi.publish(key);
-        if (result.motions[key] !== "published") throw new Error("publish");
-      }
+      const flush = flushes.current.get(key);
+      if (flush && !(await flush())) throw new Error("unsaved");
+      const result = await playbooksApi.publish(key);
+      if (result.motions[key] !== "published") throw new Error("publish");
       await refresh();
       reloadDocuments();
-      toast.success(copy.activated);
-      return true;
+      toast.success(copy.publishedToast.replace("{name}", name(key)));
     } catch (error) {
-      toast.error(errorCode(error) === "contradiction" ? t.product.playbookContradiction : copy.activateFailed);
-      return false;
+      toast.error(errorCode(error) === "contradiction" ? t.product.playbookContradiction : copy.publishFailed);
     } finally {
-      setActivating(false);
+      setBusyKey(null);
     }
   };
 
@@ -193,9 +184,7 @@ export function usePlaybookProcess() {
     details,
     rows,
     empty,
-    pending,
     busyKey,
-    activating,
     docVersion,
     name,
     template,
@@ -206,7 +195,7 @@ export function usePlaybookProcess() {
     saveRule,
     toggle,
     remove,
-    activate,
+    publish,
     companySaved: () => void queryClient.invalidateQueries({ queryKey: COMPANY_KEY }),
   };
 }

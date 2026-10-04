@@ -1,7 +1,14 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { MENU_TOKENS, THEME_TOKENS } from "@/lib/theme/tokens";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { crmApi } from "@/lib/api/crm";
 import { useAuth } from "@/features/auth";
 import { memosApi } from "@/features/memos/api";
@@ -9,16 +16,15 @@ import { toast } from "sonner";
 import {
   Check,
   AlertCircle,
-  Sparkles,
   ChevronDown,
-  Search,
-  X,
   Pencil,
   Trash2,
+  Search,
+  X,
   Plus,
   UserCheck,
+  Briefcase,
   Building,
-  User,
 } from "lucide-react";
 import { ExtractionDatePicker } from "@/components/dashboard/crm/ExtractionDatePicker";
 import { formatCrmDateForDisplay, isCrmDateField } from "@/lib/crm-date";
@@ -38,6 +44,9 @@ import {
 } from "@/lib/preview-cache";
 import { AnimIcon } from "@/components/ui/anim-icon";
 
+/** The "—" choice on an option field: Radix items cannot carry "". */
+const NO_VALUE = "__none__";
+
 interface HubSpotSyncPreviewProps {
   memoId: string;
   initialDealId?: string | null;
@@ -54,6 +63,7 @@ interface HubSpotSyncPreviewProps {
   reviewAuthorName?: string | null;
   onSuccess: (data: any) => void;
   onContactName?: (name: string | null) => void;
+  onContactEmail?: (email: string | null) => void;
   /** Lista 4 T4: Hoy's 400px side panel - tighter spacing, errors inline under the button. */
   compact?: boolean;
   /** Rendered right above the confirm button (the after-call outcome step). */
@@ -68,6 +78,8 @@ interface HubSpotSyncPreviewProps {
   activeTab?: string | null;
   /** The tab bar, under who/deal: tabs never hide the target or the confirm. */
   tabBar?: ReactNode;
+  /** Top of the note panel (the rep's own note and objections: never below the fold). */
+  noteLead?: ReactNode;
   /** Bottom of the note panel. */
   noteExtra?: ReactNode;
   /** Top of the tasks panel. */
@@ -75,6 +87,8 @@ interface HubSpotSyncPreviewProps {
   /** Panels the page owns (email, coaching). Hidden, never unmounted, so drafts survive. */
   tabPanels?: ReactNode;
   onTabCounts?: (counts: { fields: number; tasks: number }) => void;
+  /** Memo review: the panel fills its pane and scrolls inside it (lg+); tabs stay on top, confirm at the bottom. */
+  paneled?: boolean;
 }
 
 /**
@@ -141,6 +155,7 @@ export const HubSpotSyncPreview = ({
   readOnly = false,
   reviewAuthorName = null,
   onContactName,
+  onContactEmail,
   compact = false,
   beforeConfirm = null,
   approveExtra = null,
@@ -148,9 +163,11 @@ export const HubSpotSyncPreview = ({
   confirmLabel = null,
   activeTab = null,
   tabBar = null,
+  noteLead = null,
   noteExtra = null,
   tasksLead = null,
   tabPanels = null,
+  paneled = false,
   onTabCounts,
 }: HubSpotSyncPreviewProps) => {
   const { user } = useAuth();
@@ -605,6 +622,9 @@ export const HubSpotSyncPreview = ({
   useEffect(() => {
     onContactName?.(selectedContact?.name || null);
   }, [selectedContact?.name, onContactName]);
+  useEffect(() => {
+    onContactEmail?.(selectedContact?.email || null);
+  }, [selectedContact?.email, onContactEmail]);
 
   const contactCandidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
   const fallbackName = String(fallbackContactName || "").trim();
@@ -729,6 +749,16 @@ export const HubSpotSyncPreview = ({
     setEditingIdx(list.length);
   };
 
+  // Paneled review: a new tab starts at its top, not wherever the last one was scrolled to.
+  const paneBodyRef = useRef<HTMLDivElement | null>(null);
+  const tabTopRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const body = paneBodyRef.current;
+    const top = tabTopRef.current?.offsetTop;
+    if (!paneled || !body || top == null) return;
+    if (body.scrollTop > top) body.scrollTop = top;
+  }, [activeTab, paneled]);
+
   if (extractionError) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-6">
@@ -783,6 +813,13 @@ export const HubSpotSyncPreview = ({
       const isOverride = !!hadExisting && !alreadyApplied;
       const canEditRow = canEditOrRemoveProposedField(update);
       const isEditing = editingIdx === idx;
+      const options: Array<{ value: string; label?: string }> = (update.options ?? []).filter(
+        (o: { value: unknown }) => o.value != null && String(o.value) !== "",
+      );
+      // An option field is edited in place, like the extension: the value is the dropdown.
+      const inlineSelect = options.length > 0 && !isCrmDateField(update) && canEditRow && !readOnly;
+      const selectValue = update.new_value == null || String(update.new_value) === "" ? NO_VALUE : String(update.new_value);
+      const valueOutsideOptions = selectValue !== NO_VALUE && !options.some((o) => String(o.value) === selectValue);
       const entryPos = entries.findIndex((e) => e.idx === idx);
       const prevObject = entryPos > 0 ? entries[entryPos - 1].u?.object_type || "deals" : null;
       const currentObject = update.object_type || "deals";
@@ -809,15 +846,15 @@ export const HubSpotSyncPreview = ({
             </div>
           )}
           <div
-            className={`group relative rounded-2xl p-4 transition-all flex items-start justify-between gap-4 border ${
+            className={`group relative rounded-xl px-3.5 py-3 transition-all flex items-start justify-between gap-3 border ${
               isOverride
                 ? "bg-destructive/[0.03] border-destructive/25 hover:border-destructive/40"
                 : "bg-card border-border/50 hover:border-beige/40 shadow-xs"
             }`}
           >
-            <div className="flex-1 min-w-0 space-y-1">
+            <div className="flex-1 min-w-0 space-y-0.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-muted-foreground">{update.field_label}</span>
+                <span className="text-[11.5px] font-medium text-muted-foreground">{update.field_label}</span>
                 {alreadyApplied ? (
                   <span className="bg-muted text-muted-foreground text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
                     Written
@@ -834,28 +871,38 @@ export const HubSpotSyncPreview = ({
               </div>
 
               {hadExisting && (
-                <p className="text-[10px] text-[#b42318] line-through dark:text-destructive">
+                <p className="text-[10px] text-destructive line-through">
                   {optionLabelFor(update.current_value, update.options) || "—"}
                 </p>
               )}
 
-              {isEditing ? (
+              {inlineSelect ? (
+                <Select
+                  value={selectValue}
+                  defaultOpen={isEditing}
+                  onValueChange={(v) => updateField(idx, v === NO_VALUE ? "" : v)}
+                  onOpenChange={(open) => {
+                    if (!open && isEditing) setEditingIdx(null);
+                  }}
+                >
+                  <SelectTrigger size="sm" aria-label={update.field_label} className="mt-1 text-success">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_VALUE}>—</SelectItem>
+                    {valueOutsideOptions ? (
+                      <SelectItem value={selectValue}>{selectValue}</SelectItem>
+                    ) : null}
+                    {options.map((o) => (
+                      <SelectItem key={String(o.value)} value={String(o.value)}>
+                        {o.label ?? String(o.value)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : isEditing ? (
                 <div className="pt-1">
-                  {update.options && update.options.length > 0 && !isCrmDateField(update) ? (
-                    <select
-                      autoFocus
-                      value={String(update.new_value ?? "")}
-                      onChange={(e) => updateField(idx, e.target.value)}
-                      className="w-full h-9 rounded-xl border border-border bg-background px-3 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-beige"
-                    >
-                      <option value="">—</option>
-                      {update.options.map((o: { value: string; label?: string }) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label ?? o.value}
-                        </option>
-                      ))}
-                    </select>
-                  ) : isCrmDateField(update) ? (
+                  {isCrmDateField(update) ? (
                     <ExtractionDatePicker
                       value={String(update.new_value ?? "")}
                       onChange={(iso) => updateField(idx, iso, false)}
@@ -869,13 +916,13 @@ export const HubSpotSyncPreview = ({
                       onChange={(e) => updateField(idx, e.target.value, false)}
                       onBlur={() => setEditingIdx(null)}
                       onKeyDown={(e) => e.key === "Enter" && setEditingIdx(null)}
-                      className="h-9 rounded-xl text-xs"
+                      className="h-8 rounded-lg text-xs md:text-xs"
                     />
                   )}
                 </div>
               ) : (
                 <p
-                  className="text-sm font-normal leading-relaxed text-[#067647] dark:text-success"
+                  className="text-[13px] font-normal leading-relaxed text-success"
                 >
                   {isCrmDateField(update)
                     ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"
@@ -885,19 +932,23 @@ export const HubSpotSyncPreview = ({
             </div>
 
             {canEditRow && !isEditing && !readOnly && (
-              <div className="flex items-center gap-1 shrink-0 pt-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-0.5 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+                {inlineSelect ? null : (
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 rounded-full text-muted-foreground hover:text-beige"
+                  aria-label={`Edit ${update.field_label}`}
+                  className="h-6 w-6 rounded-full text-muted-foreground hover:text-beige"
                   onClick={() => setEditingIdx(idx)}
                 >
                   <Pencil className="h-3 w-3" />
                 </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove ${update.field_label}`}
+                  className="h-6 w-6 rounded-full text-muted-foreground hover:text-destructive"
                   onClick={() => removeField(idx)}
                 >
                   <Trash2 className="h-3 w-3" />
@@ -921,78 +972,120 @@ export const HubSpotSyncPreview = ({
           {isSwitchingTarget && <VocifySpinner size={13} className="text-beige" />}
         </div>
         {addable.length > 0 && !loading && !readOnly && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowAddField(showAddField === scope ? null : scope)}
-            className="h-auto px-2 py-1 text-xs font-normal text-beige hover:bg-beige/10 rounded-full"
-          >
-            <Plus className="h-3 w-3 mr-1" />
-            {scope === "tasks" ? "Add task" : "Add field"}
-          </Button>
-        )}
-
-        {/* Add Field Dropdown */}
-        {showAddField === scope && addable.length > 0 && (
-          <div className="absolute right-1 top-full mt-2 z-20 w-64 max-h-56 overflow-y-auto py-2 rounded-2xl bg-popover border border-border/60 shadow-xl">
-            {(() => {
-              const unused = addable.filter((f: { name: string; object_type?: string }) => {
-                const ot = f.object_type || "deals";
-                return !updates.some((u: any) => u?.field_name === f.name && (u?.object_type || "deals") === ot);
-              });
-              const OBJECT_LABELS: Record<string, string> = {
-                deals: "Deal",
-                contacts: "Contact",
-                companies: "Company",
-              };
-              if (unused.length === 0) {
-                return <p className="px-4 py-2 text-xs text-muted-foreground">All available fields added</p>;
-              }
-              return unused.map(
-                (f: { name: string; label: string; type?: string; options?: unknown[]; object_type?: string }) => (
-                  <button
-                    key={`${f.object_type || "deals"}:${f.name}`}
-                    onClick={() => addField(f)}
-                    className="w-full text-left px-4 py-2 text-xs hover:bg-beige/10 transition-colors flex items-center justify-between"
-                  >
-                    <span className="font-medium text-foreground truncate">{f.label || f.name}</span>
-                    <span className="text-[10px] text-muted-foreground/60 ml-2 shrink-0">
-                      {OBJECT_LABELS[f.object_type || "deals"] || f.object_type}
-                    </span>
-                  </button>
-                ),
-              );
-            })()}
-          </div>
+          <DropdownMenu open={showAddField === scope} onOpenChange={(open) => setShowAddField(open ? scope : null)}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs font-normal text-beige hover:bg-beige/10 h-7 px-2.5 rounded-full"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                {scope === "tasks" ? "Add task" : "Add field"}
+              </Button>
+            </DropdownMenuTrigger>
+            {/* The new row opens its own value picker; keep focus there instead of on this trigger. */}
+            <DropdownMenuContent align="end" className="max-h-64 w-64 overflow-y-auto" onCloseAutoFocus={(e) => e.preventDefault()}>
+              {(() => {
+                const unused = addable.filter((f: { name: string; object_type?: string }) => {
+                  const ot = f.object_type || "deals";
+                  return !updates.some((u: any) => u?.field_name === f.name && (u?.object_type || "deals") === ot);
+                });
+                const OBJECT_LABELS: Record<string, string> = {
+                  deals: "Deal",
+                  contacts: "Contact",
+                  companies: "Company",
+                };
+                if (unused.length === 0) {
+                  return <p className={MENU_TOKENS.label}>All available fields added</p>;
+                }
+                return unused.map(
+                  (f: { name: string; label: string; type?: string; options?: unknown[]; object_type?: string }) => (
+                    <DropdownMenuItem key={`${f.object_type || "deals"}:${f.name}`} onSelect={() => addField(f)}>
+                      <span className="truncate">{f.label || f.name}</span>
+                      <span className="ml-auto shrink-0 pl-2 text-xs text-muted-foreground">
+                        {OBJECT_LABELS[f.object_type || "deals"] || f.object_type}
+                      </span>
+                    </DropdownMenuItem>
+                  ),
+                );
+              })()}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
     );
   };
 
-  return (
-    <div className={`${compact ? "space-y-5" : "space-y-8"} animate-in fade-in duration-300`}>
-      {/* 1. CONTACT TARGET SECTION */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <User className="h-4 w-4 text-beige" />
-            <h5 className={THEME_TOKENS.typography.capsLabel}>Contact</h5>
-          </div>
-          {displayContactName && !contactPickerOpen && !readOnly && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setContactPickerOpen(true)}
-              className="text-xs font-normal text-beige hover:bg-beige/10 h-7 px-2.5 rounded-full"
-            >
-              Change Contact
-            </Button>
-          )}
-        </div>
+  const syncFooter = (
+      <div className={`border-t border-border/40 ${paneled ? "pt-3" : "pt-4"}`}>
+        {readOnly ? (
+          <p className={THEME_TOKENS.typography.body}>
+            This call belongs to {reviewAuthorName || "a teammate"}. You can read the note and fields; only they can sync it.
+          </p>
+        ) : (
+          <>
+        <Button
+          variant="hero"
+          onClick={handleSync}
+          disabled={
+            syncing || loading || needsContactDecision || (needsDealDecision && !dealDecisionMade) || Boolean(confirmBlockedLabel)
+          }
+          className={`w-full bg-beige text-cream hover:bg-beige/90 rounded-full font-medium ${paneled ? "h-10 text-[13px] shadow-sm" : "h-12 text-sm shadow-md"} transition-all`}
+        >
+          {syncing ? <VocifySpinner size={16} className="mr-2" /> : <Check className="h-4 w-4 mr-2" />}
+          {syncing
+            ? "Syncing to CRM..."
+            : needsContactDecision
+              ? "Select a contact first"
+              : needsDealDecision && !dealDecisionMade
+                ? "Select a deal first"
+                : confirmBlockedLabel
+                  ? confirmBlockedLabel
+                  : confirmLabel
+                    ? confirmLabel
+                : alreadyWritten
+                  ? "Write correction"
+                  : skipDeal && selectedContact
+                    ? "Confirm & Update Contact"
+                    : dealMatch
+                      ? "Confirm & Update Deal"
+                      : "Confirm & Create Deal"}
+        </Button>
+        {syncError ? (
+          <p role="alert" className="mt-3 text-center text-[12px] text-destructive">{syncError}</p>
+        ) : null}
+        {alreadyWritten ? (
+          <p className="text-[10px] text-muted-foreground text-center mt-2">
+            This was written after processing. Edit anything that is wrong and write the correction.
+            Lead status is never auto-changed.
+          </p>
+        ) : loggedAs ? (
+          <p className="text-[10px] text-muted-foreground text-center mt-2">
+            Calls, notes, and tasks log in HubSpot as {loggedAs}. Existing contact owners stay put.
+          </p>
+        ) : null}
+          </>
+        )}
+      </div>
+  );
 
+  return (
+    <div className={paneled ? "review-pane lg:flex lg:h-full lg:flex-col" : undefined}>
+    <div
+      ref={paneBodyRef}
+      className={
+        paneled
+          ? "relative overflow-x-hidden scrollbar-thin lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain"
+          : undefined
+      }
+    >
+    <div className={`${compact || paneled ? "space-y-5" : "space-y-8"} animate-in fade-in duration-300 ${paneled ? "px-6 pb-6 pt-5" : ""}`}>
+      <div className="space-y-2">
+      {/* 1. CONTACT TARGET SECTION */}
+      <div className="space-y-2">
         {/* Contact Candidates Picker */}
         {showContactPicker && (
-          <div className="bg-secondary/5 rounded-2xl p-5 border border-beige/25 space-y-3">
+          <div className="bg-secondary/5 rounded-2xl p-4 border border-beige/25 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-foreground">
                 {contactCandidates.length > 1
@@ -1027,7 +1120,7 @@ export const HubSpotSyncPreview = ({
                       runContactSearch(contactSearchQuery.trim());
                     }
                   }}
-                  className="bg-card border-border/50 rounded-xl pl-10 pr-4 h-9 text-sm"
+                  className="bg-card border-border/50 rounded-xl pl-10 pr-4 h-8 text-[13px] md:text-[13px]"
                 />
               </div>
               <Button
@@ -1036,7 +1129,7 @@ export const HubSpotSyncPreview = ({
                   if (contactSearchQuery.trim().length >= 2) runContactSearch(contactSearchQuery.trim());
                 }}
                 disabled={isSearchingContacts}
-                className="bg-beige text-cream hover:bg-beige-dark rounded-xl px-4 h-9 text-xs font-normal shrink-0"
+                className="bg-beige text-cream hover:bg-beige/90 rounded-full px-3.5 h-8 text-[13px] font-normal shrink-0"
               >
                 {isSearchingContacts ? <VocifySpinner size={12} /> : "Search"}
               </Button>
@@ -1063,7 +1156,7 @@ export const HubSpotSyncPreview = ({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{c.name || "Contact"}</p>
+                        <p className="text-[13px] font-medium text-foreground truncate">{c.name || "Contact"}</p>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground mt-0.5">
                           {c.email && <span>{c.email}</span>}
                           {c.phone && <span>· {c.phone}</span>}
@@ -1100,70 +1193,49 @@ export const HubSpotSyncPreview = ({
           </div>
         )}
 
-        {/* Selected Contact Card */}
+        {/* Selected contact: one row, Change on the right. */}
         {displayContactName && !contactPickerOpen && (
-          <div className="bg-secondary/5 rounded-2xl p-5 border border-border/40 hover:border-beige/30 transition-colors">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <UserCheck className="h-4 w-4 text-success shrink-0" />
-                  <p className="text-sm font-medium text-foreground truncate">
-                    {selectedContact?.name || displayContactName}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground pt-0.5">
-                  {selectedContact?.email && <span>{selectedContact.email}</span>}
-                  {selectedContact?.phone && <span>{selectedContact.phone}</span>}
-                  {selectedContact?.company_name && (
-                    <span className="inline-flex items-center gap-1 font-medium text-foreground/80">
-                      <Building className="h-3 w-3" />
-                      {selectedContact.company_name}
-                    </span>
-                  )}
-                </div>
-                {selectedContact?.match_reason && (
-                  <p className="text-[10px] text-muted-foreground/50 pt-1">
-                    {selectedContact.match_reason} — contact and company updates will link here
-                  </p>
-                )}
-                {preview?.new_company && !selectedContact?.company_id && (
-                  <p className="text-xs text-beige pt-2">
-                    {preview.new_company.name
-                      ? `No company on this contact. Confirm will create ${preview.new_company.name}.`
-                      : "No company on this contact. Add a company name to create one."}
-                  </p>
-                )}
-              </div>
+          <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-secondary/5 px-3 py-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-success/10 text-success" title="Contact">
+              <UserCheck className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] text-foreground">
+                <span className="font-medium">{selectedContact?.name || displayContactName}</span>
+                {[selectedContact?.company_name, selectedContact?.email, selectedContact?.phone].filter(Boolean).length ? (
+                  <span className="text-muted-foreground">
+                    {"  "}
+                    {[selectedContact?.company_name, selectedContact?.email, selectedContact?.phone].filter(Boolean).join(" · ")}
+                  </span>
+                ) : null}
+              </p>
+              {preview?.new_company && !selectedContact?.company_id ? (
+                <p className="truncate text-[11.5px] text-beige">
+                  {preview.new_company.name
+                    ? `No company yet. Confirm creates ${preview.new_company.name}.`
+                    : "No company on this contact yet."}
+                </p>
+              ) : null}
             </div>
+            {!readOnly ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setContactPickerOpen(true)}
+                className="h-7 shrink-0 rounded-full px-2.5 text-xs font-normal text-beige hover:bg-beige/10"
+              >
+                Change
+              </Button>
+            ) : null}
           </div>
         )}
       </div>
 
       {/* 2. DEAL TARGET SECTION */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-beige" />
-            <h5 className={THEME_TOKENS.typography.capsLabel}>
-              {displayContactName ? "Deal Target (optional)" : "Deal Target"}
-            </h5>
-          </div>
-          {!readOnly && !dealPickerOpen && !(needsDealDecision && !dealDecisionMade) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setDealPickerOpen(true)}
-              className="text-xs font-normal text-beige hover:bg-beige/10 h-7 px-2.5 rounded-full"
-            >
-              <Search className="h-3 w-3 mr-1.5" />
-              {dealMatch ? "Change Deal" : "Choose Deal"}
-            </Button>
-          )}
-        </div>
-
+      <div className="space-y-2">
         {/* Deal Picker Drawer (Search + Matched Deals + Create New + Contact Only) */}
         {!readOnly && (dealPickerOpen || (needsDealDecision && !dealDecisionMade)) && (
-          <div className="bg-secondary/5 rounded-2xl p-5 border border-beige/30 space-y-4">
+          <div className="bg-secondary/5 rounded-2xl p-4 border border-beige/30 space-y-4">
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs font-medium text-foreground">
                 {needsDealDecision && !dealDecisionMade
@@ -1191,14 +1263,14 @@ export const HubSpotSyncPreview = ({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  className="bg-card border-border/50 rounded-xl pl-10 pr-4 h-9 text-sm"
+                  className="bg-card border-border/50 rounded-xl pl-10 pr-4 h-8 text-[13px] md:text-[13px]"
                 />
               </div>
               <Button
                 size="sm"
                 onClick={handleSearch}
                 disabled={isSearching}
-                className="bg-beige text-cream hover:bg-beige-dark rounded-xl px-4 h-9 text-xs font-normal shrink-0"
+                className="bg-beige text-cream hover:bg-beige/90 rounded-full px-3.5 h-8 text-[13px] font-normal shrink-0"
               >
                 {isSearching ? <VocifySpinner size={12} /> : "Search"}
               </Button>
@@ -1216,7 +1288,7 @@ export const HubSpotSyncPreview = ({
                     className="w-full text-left p-3 rounded-xl bg-card border border-border/40 hover:border-beige hover:bg-beige/5 transition-all flex items-center justify-between"
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{d.deal_name}</p>
+                      <p className="text-[13px] font-medium text-foreground truncate">{d.deal_name}</p>
                       <p className="text-xs text-muted-foreground">
                         {d.stage?.replace(/_/g, " ")} {d.amount ? `· ${d.amount}` : ""}
                       </p>
@@ -1245,7 +1317,7 @@ export const HubSpotSyncPreview = ({
                       }`}
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{m.deal_name}</p>
+                        <p className="text-[13px] font-medium text-foreground truncate">{m.deal_name}</p>
                         <p className="text-[11px] text-muted-foreground/60 italic">{m.match_reason}</p>
                       </div>
                       <ChevronDown className="h-4 w-4 -rotate-90 text-muted-foreground/50 shrink-0" />
@@ -1266,13 +1338,13 @@ export const HubSpotSyncPreview = ({
                     value={manualDealName}
                     onChange={(e) => setManualDealName(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && confirmManualDealName()}
-                    className="bg-card border-border/50 rounded-xl px-3 h-9 text-sm flex-1"
+                    className="bg-card border-border/50 rounded-xl px-3 h-8 text-[13px] md:text-[13px] flex-1"
                   />
                   <Button
                     size="sm"
                     onClick={confirmManualDealName}
                     disabled={!manualDealName.trim()}
-                    className="bg-beige text-cream hover:bg-beige-dark rounded-xl px-4 h-9 text-xs font-normal shrink-0"
+                    className="bg-beige text-cream hover:bg-beige/90 rounded-full px-3.5 h-8 text-[13px] font-normal shrink-0"
                   >
                     Confirm Name
                   </Button>
@@ -1307,66 +1379,54 @@ export const HubSpotSyncPreview = ({
           </div>
         )}
 
-        {/* Selected Deal Card */}
+        {/* Selected deal: one row, Change on the right. */}
         {!dealPickerOpen && !(needsDealDecision && !dealDecisionMade) && (
-          <div
-            className={`rounded-2xl p-5 border transition-all ${
-              dealMatch
-                ? "bg-success/[0.03] border-success/30"
-                : skipDeal
-                  ? "bg-secondary/5 border-border/40"
-                  : isNewDeal
-                    ? "bg-beige/[0.04] border-beige/30"
-                    : "bg-secondary/5 border-border/40"
-            }`}
-          >
-            <div className="flex items-start gap-3.5">
-              <div
-                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                  dealMatch
-                    ? "bg-success/15 text-success"
-                    : skipDeal
-                      ? "bg-secondary/20 text-muted-foreground"
-                      : "bg-beige/20 text-beige"
-                }`}
+          <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-secondary/5 px-3 py-2">
+            <span
+              title="Deal"
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                dealMatch ? "bg-success/10 text-success" : skipDeal ? "bg-foreground/[0.05] text-muted-foreground" : "bg-beige/15 text-beige"
+              }`}
+            >
+              <Briefcase className="h-3.5 w-3.5" />
+            </span>
+            <p className="min-w-0 flex-1 truncate text-[13px] text-foreground">
+              <span className="font-medium">
+                {dealMatch ? dealMatch.deal_name || "Existing deal" : skipDeal ? "No deal" : "New deal"}
+              </span>
+              <span className="text-muted-foreground">
+                {"  "}
+                {dealMatch
+                  ? "Updates this deal"
+                  : skipDeal
+                    ? `Only ${selectedContact?.name || "the contact"} is updated`
+                    : "Created in your main pipeline"}
+              </span>
+            </p>
+            {!readOnly ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDealPickerOpen(true)}
+                className="h-7 shrink-0 rounded-full px-2.5 text-xs font-normal text-beige hover:bg-beige/10"
               >
-                {dealMatch ? (
-                  <Check className="h-4 w-4" />
-                ) : skipDeal ? (
-                  <UserCheck className="h-4 w-4" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-              </div>
-              <div className="flex-1 space-y-0.5 min-w-0">
-                <h4 className="text-sm font-medium text-foreground truncate">
-                  {dealMatch
-                    ? dealMatch.deal_name || "Existing Deal"
-                    : skipDeal
-                      ? "Contact Only"
-                      : "New Deal Creation"}
-                </h4>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {dealMatch ? (
-                    <span>
-                      Targeting deal in CRM
-                      {dealMatch.match_reason ? ` (${dealMatch.match_reason.toLowerCase()})` : ""}
-                    </span>
-                  ) : skipDeal ? (
-                    <span>
-                      Updating {selectedContact?.name || "contact"} record only — no deal will be created or updated.
-                    </span>
-                  ) : (
-                    <span>A new deal will be created in your primary CRM pipeline.</span>
-                  )}
-                </p>
-              </div>
-            </div>
+                Change
+              </Button>
+            ) : null}
           </div>
         )}
       </div>
+      </div>
 
-      {tabBar}
+      {paneled && tabBar ? (
+        <>
+          <div ref={tabTopRef} aria-hidden />
+          {/* Stays on top while a long panel scrolls: the rep never hunts for the tabs. */}
+          <div className="sticky top-0 z-10 -mx-6 bg-card px-6">{tabBar}</div>
+        </>
+      ) : (
+        tabBar
+      )}
 
       {/* 3. CALL NOTE / COPILOT SUMMARY */}
       <div
@@ -1374,13 +1434,14 @@ export const HubSpotSyncPreview = ({
         role={tabbed ? "tabpanel" : undefined}
         aria-labelledby={tabbed ? "review-tab-note" : undefined}
         hidden={tabbed && activeTab !== "note"}
-        className={tabbed ? "space-y-6" : undefined}
+        className={tabbed ? "space-y-4" : undefined}
       >
+        {tabbed ? noteLead : null}
         {callSummary ? (
           <div className={tabbed ? "" : "space-y-3 pt-2"}>
             {tabbed ? null : <h5 className={THEME_TOKENS.typography.sectionRail}>Call note</h5>}
-            <div className="p-5 rounded-2xl bg-secondary/5 border border-border/30">
-              <CopilotNote markdown={callSummary} />
+            <div className="px-4 py-3.5 rounded-2xl bg-secondary/5 border border-border/30">
+              <CopilotNote markdown={callSummary} dense={paneled} />
             </div>
           </div>
         ) : tabbed ? (
@@ -1407,7 +1468,7 @@ export const HubSpotSyncPreview = ({
             </p>
           </div>
         ) : (
-          <div className="grid gap-3">{renderUpdateRows(fieldEntries)}</div>
+          <div className="grid gap-2">{renderUpdateRows(fieldEntries)}</div>
         )}
       </div>
 
@@ -1426,7 +1487,7 @@ export const HubSpotSyncPreview = ({
               <p className="text-xs text-muted-foreground">No tasks from this call.</p>
             </div>
           ) : (
-            <div className="grid gap-3">{renderUpdateRows(taskEntries, false)}</div>
+            <div className="grid gap-2">{renderUpdateRows(taskEntries, false)}</div>
           )}
         </div>
       ) : null}
@@ -1435,57 +1496,10 @@ export const HubSpotSyncPreview = ({
 
       {beforeConfirm}
 
-      {/* 5. SYNC ACTION BUTTON */}
-      <div className="pt-4 border-t border-border/40">
-        {readOnly ? (
-          <p className={THEME_TOKENS.typography.body}>
-            This call belongs to {reviewAuthorName || "a teammate"}. You can read the note and fields; only they can sync it.
-          </p>
-        ) : (
-          <>
-        <Button
-          variant="hero"
-          onClick={handleSync}
-          disabled={
-            syncing || loading || needsContactDecision || (needsDealDecision && !dealDecisionMade) || Boolean(confirmBlockedLabel)
-          }
-          className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-sm font-medium h-12 shadow-md transition-all"
-        >
-          {syncing ? <VocifySpinner size={16} className="mr-2" /> : <Check className="h-4 w-4 mr-2" />}
-          {syncing
-            ? "Syncing to CRM..."
-            : needsContactDecision
-              ? "Select a contact first"
-              : needsDealDecision && !dealDecisionMade
-                ? "Select a deal first"
-                : confirmBlockedLabel
-                  ? confirmBlockedLabel
-                  : confirmLabel
-                    ? confirmLabel
-                : alreadyWritten
-                  ? "Write correction"
-                  : skipDeal && selectedContact
-                    ? "Confirm & Update Contact"
-                    : dealMatch
-                      ? "Confirm & Update Deal"
-                      : "Confirm & Create Deal"}
-        </Button>
-        {syncError ? (
-          <p role="alert" className="mt-3 text-center text-[12px] text-destructive">{syncError}</p>
-        ) : null}
-        {alreadyWritten ? (
-          <p className="text-[10px] text-muted-foreground text-center mt-3">
-            This was written after processing. Edit anything that is wrong and write the correction.
-            Lead status is never auto-changed.
-          </p>
-        ) : loggedAs ? (
-          <p className="text-[10px] text-muted-foreground text-center mt-3">
-            Calls, notes, and tasks log in HubSpot as {loggedAs}. Existing contact owners stay put.
-          </p>
-        ) : null}
-          </>
-        )}
-      </div>
+      {paneled ? null : syncFooter}
+    </div>
+    </div>
+      {paneled ? <div className="shrink-0 bg-card px-6 pb-4">{syncFooter}</div> : null}
     </div>
   );
 };

@@ -224,6 +224,7 @@ def test_get_lists_the_published_types_and_says_the_author_can_change_it():
         "sales_motion_key": "closing",
         "playbook_version_id": "v-closing-old",
         "can_change": True,
+        "suggested": False,
         "options": [
             {"key": "discovery", "label": None},
             {"key": "closing", "label": None},
@@ -234,10 +235,11 @@ def test_get_lists_the_published_types_and_says_the_author_can_change_it():
     }
 
 
-def test_get_can_change_needs_the_routing_flag(monkeypatch):
+def test_get_the_author_can_change_it_without_the_routing_flag(monkeypatch):
+    # The type can be wrong whatever decided it (rules or Jev): its author can always fix it.
     monkeypatch.setattr(settings, "PLAYBOOK_ROUTING_ENABLED", False)
     body = _client(_Db(_memo())).get(f"/api/v1/memos/{MEMO}/playbook").json()
-    assert body["can_change"] is False
+    assert body["can_change"] is True
     assert body["sales_motion_key"] == "closing"
 
 
@@ -288,3 +290,9 @@ def test_the_memo_routes_are_registered_on_the_real_router():
     assert {"get", "post"} <= set(schema["/api/v1/memos/{memo_id}/playbook"])
     assert "get" in schema["/api/v1/playbooks/catalog"] and "get" in schema["/api/v1/playbooks/deal-stages"]
     assert "put" in schema["/api/v1/playbooks/{sales_motion_key}/rule"]
+
+
+def test_get_says_when_the_type_is_the_call_readings_suggestion():
+    memo = {**_memo(), "pipeline_meta": {"playbook_pin": {"source": "reading"}}}
+    body = _client(_Db(memo)).get(f"/api/v1/memos/{MEMO}/playbook").json()
+    assert body["suggested"] is True

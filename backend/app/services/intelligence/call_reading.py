@@ -73,8 +73,12 @@ def build_reading_messages(
     rep_name: str | None = None,
     company_name: str | None = None,
     prior_conversations: int | None = None,
+    playbooks: dict[str, str] | None = None,
 ) -> list[dict]:
     payload: dict[str, Any] = {"captured_at": captured_at, "turns": numbered(turns)}
+    if playbooks:
+        # The company's own types: the same read also says which playbook the call was.
+        payload["playbooks"] = [{"key": key, "what_it_is": what} for key, what in playbooks.items()]
     if rep_name:
         payload["rep_name"] = rep_name
     if company_name:
@@ -102,7 +106,7 @@ def _turn_numbers(value: Any, count: int) -> set[int]:
     return out
 
 
-def shape_reading(raw: Any, turns: list[dict]) -> dict:
+def shape_reading(raw: Any, turns: list[dict], playbooks: dict[str, str] | None = None) -> dict:
     """Only values the schema allows. A turn nobody claimed stays the prospect's: the rep is
     the one with something to prove, so an unclaimed line never counts as the rep doing a step."""
     raw = raw if isinstance(raw, dict) else {}
@@ -117,6 +121,9 @@ def shape_reading(raw: Any, turns: list[dict]) -> dict:
     if call_type == "no_conversation":
         reached, phase = False, "none"
     reason = " ".join(str(raw.get("call_type_reason") or "").split())[:200] or None
+    playbook = raw.get("playbook")
+    # Only one of the company's types; "unknown" (or anything else) names none.
+    playbook = playbook if playbooks and isinstance(playbook, str) and playbook in playbooks and playbook != "unknown" else None
     return {
         "version": PROMPT_VERSION,
         "call_type": call_type,
@@ -127,6 +134,7 @@ def shape_reading(raw: Any, turns: list[dict]) -> dict:
         "rep_turns": sorted(rep),
         "other_turns": sorted(other),
         "turn_count": count,
+        "playbook": playbook,
     }
 
 
@@ -147,6 +155,7 @@ async def read_call(
     rep_name: str | None = None,
     company_name: str | None = None,
     prior_conversations: int | None = None,
+    playbooks: dict[str, str] | None = None,
 ) -> tuple[dict | None, str, dict]:
     """(reading, You:/Them: transcript, call meta). No reading when there is no text, or one
     unlabeled block with nothing to split: the transcript is then returned as it was."""
@@ -159,7 +168,7 @@ async def read_call(
     raw = await llm.chat_json(
         build_reading_messages(
             turns, captured_at=captured_at, rep_name=rep_name,
-            company_name=company_name, prior_conversations=prior_conversations,
+            company_name=company_name, prior_conversations=prior_conversations, playbooks=playbooks,
         ),
         model=model,
         temperature=0.0,
@@ -167,7 +176,7 @@ async def read_call(
         **({"reasoning_effort": effort} if effort else {}),
     )
     meta = dict(getattr(llm, "last_call_meta", None) or {})
-    reading = shape_reading(raw, turns)
+    reading = shape_reading(raw, turns, playbooks)
     if len(turns) < 2:
         # Nothing to split: a dictated note, or a transcript without speaker labels. The text
         # stays as it was and the judging pass is told the roles are not marked.

@@ -40,7 +40,7 @@ export function PostInteractionBrief({
   if (query.isError) {
     return (
       <section aria-labelledby="post-brief-title" className={CARD}>
-        <h2 id="post-brief-title" className={THEME_TOKENS.typography.sectionTitle}>{t.product.briefReadFailed}</h2>
+        <h2 id="post-brief-title" className="text-[14px] font-medium tracking-tight text-foreground">{t.product.briefReadFailed}</h2>
       </section>
     );
   }
@@ -61,7 +61,7 @@ function CoachCard({ brief, lang, title }: { brief: BriefView; lang: "es" | "en"
   return (
     <section aria-labelledby="post-brief-title" className={`${CARD} ${THEME_TOKENS.motion.fadeIn}`}>
       <div className="flex items-baseline justify-between gap-3">
-        <h2 id="post-brief-title" className={THEME_TOKENS.typography.sectionTitle}>{title}</h2>
+        <h2 id="post-brief-title" className="text-[14px] font-medium tracking-tight text-foreground">{title}</h2>
         {view.state === "ready" && view.bars.length > 0 ? <Trend bars={view.bars} label={copy.debriefTrend} /> : null}
       </div>
 
@@ -95,7 +95,7 @@ function CoachCard({ brief, lang, title }: { brief: BriefView; lang: "es" | "en"
                   </span>
                 ) : null}
               </p>
-              <p className="text-[15px] text-foreground">{view.fix.label}</p>
+              <p className="text-[13.5px] text-foreground">{view.fix.label}</p>
               {view.fix.criterion ? <p className="text-sm text-muted-foreground">{view.fix.criterion}</p> : null}
               {view.fix.say ? (
                 <p className="pt-0.5 text-sm text-foreground">
@@ -161,7 +161,7 @@ function LegacyBrief({ brief, onPlay }: { brief: BriefView | undefined; onPlay?:
   const title = surface?.title ?? t.product.briefNotReady;
   return (
     <section aria-labelledby="post-brief-title" className={CARD}>
-      <h2 id="post-brief-title" className={THEME_TOKENS.typography.sectionTitle}>{title}</h2>
+      <h2 id="post-brief-title" className="text-[14px] font-medium tracking-tight text-foreground">{title}</h2>
       {!surface ? null : (
         <div className="space-y-2 text-sm text-foreground">
           {surface.highlightNote ? <p className={THEME_TOKENS.typography.capsLabel}>{surface.highlightNote}</p> : null}

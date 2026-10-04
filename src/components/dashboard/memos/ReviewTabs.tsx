@@ -19,8 +19,19 @@ function scoreReadable(score: ScoreView | undefined, role: string): boolean {
 }
 
 /** The post-call review tabs for one memo. Email and coaching belong to the memo's author. */
-export function useReviewTabs({ memoId, own, role }: { memoId: string; own: boolean; role: string }) {
-  const [picked, setPicked] = useState<string>("note");
+export function useReviewTabs({
+  memoId,
+  own,
+  role,
+  initialTab,
+}: {
+  memoId: string;
+  own: boolean;
+  role: string;
+  /** e.g. "email" when opened from the island's "Open email". Falls back until that tab exists. */
+  initialTab?: string | null;
+}) {
+  const [picked, setPicked] = useState<string>(initialTab || "note");
   const [counts, setCounts] = useState({ fields: 0, tasks: 0 });
   const [followupStatus, setFollowupStatus] = useState<string | null>(null);
   const enabled = own && Boolean(memoId);

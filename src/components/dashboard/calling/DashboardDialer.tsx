@@ -1,13 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Device, Call } from "@twilio/voice-sdk";
-import {
-  MagnifyingGlass,
-  Microphone,
-  MicrophoneSlash,
-  PhoneDisconnect,
-} from "@phosphor-icons/react";
+import { Mic, MicOff, PhoneOff, Search } from "lucide-react";
 import { AnimIcon } from "@/components/ui/anim-icon";
+import { Button } from "@/components/ui/button";
+import { IconAction } from "@/components/ui/icon-action";
 import { toast } from "sonner";
 import { callsApi } from "@/features/calls/api";
 import type { CallerId } from "@/features/calls/types";
@@ -635,33 +632,24 @@ export const DashboardDialer = ({
             </div>
             <div className="flex items-center gap-2">
               {state === CALL_STATES.ACTIVE ? (
-                <button
-                  type="button"
-                  aria-label={muted ? callCopy.dialUnmuteMic : callCopy.dialMuteMic}
-                  aria-pressed={muted}
-                  onClick={toggleMute}
-                  className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
-                    muted
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
-                  }`}
-                >
+                <IconAction label={muted ? callCopy.dialUnmuteMic : callCopy.dialMuteMic} pressed={muted} onClick={toggleMute}>
                   {muted ? (
-                    <MicrophoneSlash size={15} weight="light" />
+                    <MicOff size={15} strokeWidth={1.5} />
                   ) : (
-                    <Microphone size={15} weight="light" />
+                    <Mic size={15} strokeWidth={1.5} />
                   )}
-                </button>
+                </IconAction>
               ) : null}
-              <button
+              <Button
                 type="button"
+                variant="dangerGhost"
+                size="sm"
                 onClick={() => hangup()}
-                aria-label={callCopy.panel_hang_up}
-                className="inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] text-destructive hover:bg-destructive/10"
+                className="gap-1.5"
               >
-                <PhoneDisconnect size={15} weight="light" />
+                <PhoneOff size={15} strokeWidth={1.5} />
                 {callCopy.panel_hang_up}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -693,27 +681,18 @@ export const DashboardDialer = ({
 
         <div className="mt-4 flex items-center justify-center gap-2">
           {live ? (
-            <button
-              type="button"
-              aria-label={muted ? callCopy.dialUnmuteMic : callCopy.dialMuteMic}
-              aria-pressed={muted}
-              onClick={toggleMute}
-              className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
-                muted
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
-              }`}
-            >
+            <IconAction label={muted ? callCopy.dialUnmuteMic : callCopy.dialMuteMic} pressed={muted} onClick={toggleMute}>
               {muted ? (
-                <MicrophoneSlash size={16} weight="light" />
+                <MicOff size={16} strokeWidth={1.5} />
               ) : (
-                <Microphone size={16} weight="light" />
+                <Mic size={16} strokeWidth={1.5} />
               )}
-            </button>
+            </IconAction>
           ) : null}
 
-          <button
+          <Button
             type="button"
+            size="sm"
             onClick={() => {
               if (inCall) {
                 hangup();
@@ -723,34 +702,33 @@ export const DashboardDialer = ({
             }}
             disabled={!canPlace && !inCall}
             aria-label={callButtonLabel(state)}
-            className={`inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] transition-colors disabled:opacity-40 ${
-              inCall
-                ? "text-destructive hover:bg-destructive/10"
-                : "bg-beige text-cream hover:bg-beige-dark"
-            }`}
+            variant={inCall ? "dangerGhost" : "default"}
+            className="gap-1.5"
           >
             {inCall ? (
-              <PhoneDisconnect size={15} weight="light" />
+              <PhoneOff size={15} strokeWidth={1.5} />
             ) : (
               <AnimIcon name="phone" size={15} stroke={1.25} />
             )}
             {inCall ? "Colgar" : "Llamar"}
-          </button>
+          </Button>
         </div>
 
         {!inCall ? (
-          <button
+          <Button
             type="button"
+            variant="quiet"
+            size="text"
             onClick={() => {
               setSelected(null);
               setError(null);
               setOutcome(null);
               window.setTimeout(() => searchRef.current?.focus(), 0);
             }}
-            className="mt-3 w-full text-center text-[11px] text-muted-foreground hover:text-foreground"
+            className="mt-3 w-full"
           >
             Buscar otro contacto
-          </button>
+          </Button>
         ) : null}
 
         {from ? (
@@ -778,9 +756,9 @@ export const DashboardDialer = ({
   return (
     <div className="select-none">
       <div className="relative">
-        <MagnifyingGlass
+        <Search
           size={14}
-          weight="light"
+          strokeWidth={1.5}
           className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
         />
         <input
@@ -843,7 +821,7 @@ export const DashboardDialer = ({
                 type="button"
                 disabled={!canPlace || !dest}
                 onClick={() => callContact(hit)}
-                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-beige/10 disabled:opacity-40"
+                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-secondary/60 disabled:opacity-40"
               >
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border/50 text-[9px] font-medium text-muted-foreground">
                   {contactInitials(hit.name || hit.email)}

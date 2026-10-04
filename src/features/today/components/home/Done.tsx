@@ -1,4 +1,4 @@
-import { CaretDown } from "@phosphor-icons/react";
+import { ChevronDown } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { ProductTranslations } from "@/lib/product-catalog";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -19,7 +19,7 @@ export function Done({ section, copy }: { section: SectionOf<"done">; copy: Prod
         className={`group flex w-full items-center gap-1.5 border-t ${hairline} px-0.5 pt-3.5 ${THEME_TOKENS.typography.capsLabel} transition-colors hover:text-foreground`}
       >
         {copy.home_done} · <span className="tabular-nums">{section.count}</span>
-        <CaretDown size={14} weight="light" className="ml-auto transition-transform group-data-[state=open]:rotate-180" />
+        <ChevronDown size={14} strokeWidth={1.5} className="ml-auto transition-transform group-data-[state=open]:rotate-180" />
       </CollapsibleTrigger>
       <CollapsibleContent>
         <ul className="mt-2">

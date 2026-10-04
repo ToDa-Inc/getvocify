@@ -7,10 +7,10 @@ import logging
 import time
 from httpcore import ReadError as HttpcoreReadError
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, status, Body
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 from uuid import UUID
-from typing import Optional, List, Union
+from typing import Annotated, Optional, List, Union
 from app.services.usage import scoped
 from app.deps import get_supabase, get_user_id
 from app.services.activity_scope import (
@@ -37,7 +37,7 @@ from app.services.followup import schedule_followup
 from app.services.followup_logic import SKIPPED_SCREENING
 from app.services.storage import StorageService
 from app.services.memo_playback import can_retranscribe, recording_path_for_memo, sign_memo_audio
-from app.services.extraction import ExtractionService
+from app.services.extraction import USER_NOTES_MAX_CHARS, ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
@@ -262,6 +262,8 @@ def _memo_from_row(
             screeningOutcome=memo_data.get("screening_outcome"),
             interactionKind=interaction_kind_of(memo_data),
             salesMotionKey=memo_data.get("sales_motion_key"),
+            userNotes=memo_data.get("user_notes"),
+            attendees=memo_data.get("attendees") or [],
         )
     except Exception as e:
         logger.exception("Failed to build Memo from row %s: %s", memo_data.get("id"), e)
@@ -309,9 +311,14 @@ async def _read_call_first(
             context["company_name"] = profile["company_name"]
         from app.config import settings
 
+        from app.services.playbooks.type_classifier import reading_playbooks
+
         reading, relabeled, _ = await read_call(
             transcript, LLMClient(), model=settings.INTELLIGENCE_MODEL,
-            captured_at=str(call_date or memo.get("created_at") or ""), **context,
+            captured_at=str(call_date or memo.get("created_at") or ""),
+            # The same read names the playbook the call was, from the company's own types.
+            playbooks=reading_playbooks(memo.get("company_id")),
+            **context,
         )
         if reading is not None and context.get("company_name"):
             reading = {**reading, "rep_company": context["company_name"]}
@@ -334,6 +341,7 @@ async def extract_memo_async(
     trigger: str = "extract",
     call_date: Optional[str] = None,
     existing_values: Optional[dict] = None,
+    user_notes: Optional[str] = None,
 ):
     """
     Background task to extract structured data from pre-transcribed memo.
@@ -379,18 +387,18 @@ async def extract_memo_async(
             extraction_complete_update,
             is_two_party_source,
             prepare_transcript_for_extraction,
+            speakers_are_verified,
         )
 
-        memo_row = None
+        fetched = (
+            supabase.table("memos")
+            .select("transcript_stt_meta,created_at,source,source_type")
+            .eq("id", memo_id)
+            .limit(1)
+            .execute()
+        )
+        memo_row = (fetched.data or [None])[0]
         if call_date is None:
-            fetched = (
-                supabase.table("memos")
-                .select("transcript_stt_meta,created_at,source,source_type")
-                .eq("id", memo_id)
-                .limit(1)
-                .execute()
-            )
-            memo_row = (fetched.data or [None])[0]
             call_date = _call_date_from_memo(memo_row)
 
         with pipeline_run(run_id=run_id, trigger=trigger) as stages:
@@ -415,6 +423,7 @@ async def extract_memo_async(
                 existing_values,
                 extra_names=[profile.get("full_name"), profile.get("company_name")],
                 two_party=is_two_party_source(source_type),
+                speakers_verified=speakers_are_verified((memo_row or {}).get("transcript_stt_meta")),
             )
             call_reading, transcript = await _read_call_first(
                 supabase, memo_id, transcript, profile=profile, call_date=call_date,
@@ -428,12 +437,18 @@ async def extract_memo_async(
                 existing_values=existing_values,
                 call_date=call_date,
                 call_reading=call_reading,
+                user_notes=user_notes,
             )
 
         stored_extraction = extraction.model_dump()
         if call_reading:
             # C04 reuses it instead of reading the same call a second time.
             stored_extraction["call_reading"] = call_reading
+        # The reading also said which playbook the call was. Pinned before the memo is ready and
+        # before the hooks: the island and the memo page read it at once, and scoring uses it.
+        from app.services.playbooks.type_classifier import apply_reading_type
+
+        apply_reading_type(supabase, memo_id, call_reading)
         update_memo_row(
             supabase,
             memo_id,
@@ -506,6 +521,7 @@ async def start_extraction_from_transcript(
     run_id: Optional[str] = None,
     call_date: Optional[str] = None,
     trigger: str = "extract",
+    user_notes: Optional[str] = None,
 ) -> None:
     """
     Persist transcript and kick off background CRM field extraction.
@@ -544,6 +560,7 @@ async def start_extraction_from_transcript(
         run_id=run_id,
         trigger=trigger,
         call_date=call_date,
+        user_notes=user_notes,
     )
     if run_id:
         await extract_coro
@@ -801,11 +818,48 @@ async def upload_memo(
         )
 
 
+def _pin_picked_type(supabase: Client, memo: dict, key: str) -> None:
+    """Pins the type the rep picked during the call as a manual choice. A type with no live
+    playbook is ignored (the memo keeps the pin it was born with). Never raises."""
+    from app.services.playbooks.catalog import INTERNAL_KEY
+    from app.services.playbooks.live import live_version_id
+    from app.services.playbooks.routing import merge_pin_meta
+
+    try:
+        version = None
+        if key != INTERNAL_KEY:
+            version = live_version_id(supabase, str(memo.get("company_id") or ""), key)
+            if not version:
+                return
+        supabase.table("memos").update(
+            {
+                "sales_motion_key": key,
+                "playbook_version_id": str(version) if version else None,
+                "pipeline_meta": merge_pin_meta(memo.get("pipeline_meta"), "manual", picked="during_call"),
+            }
+        ).eq("id", str(memo["id"])).execute()
+    except Exception:
+        logger.warning("could not pin the type picked during the call", exc_info=True)
+
+
 class UploadTranscriptRequest(BaseModel):
     """Transcript-only upload (from real-time transcription or meeting transcript paste)"""
     transcript: str
     source_type: Optional[str] = None  # 'voice_memo' | 'meeting_transcript', default voice_memo
     interaction_kind: Optional[str] = None  # call | meeting | visit | voice_note; absent = derived
+    # True when speakers come from separate audio channels (desktop: mic = rep, meeting audio = others).
+    speakers_verified: bool = False
+    # What the rep typed during the meeting; steers the summary.
+    notes: Optional[str] = None
+    # The CRM contact the call was with, known live from the record on screen (desktop).
+    hubspot_contact_id: Optional[str] = Field(default=None, pattern=r"^\d{1,32}$")
+    # The app the call happened in, as the desktop saw it (e.g. "Google Meet", "Zoom"): context
+    # for reading the call's type.
+    call_source: Optional[str] = Field(default=None, max_length=60)
+    # The call's type, if the rep picked it while recording: theirs, so nothing re-types it.
+    sales_motion_key: Optional[str] = Field(default=None, max_length=64)
+    # Who the meeting app showed speaking on the other side (desktop reads Zoom's screen).
+    participants: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list, max_length=20)
 
 
 @router.post("/upload-transcript", response_model=UploadResponse)
@@ -890,20 +944,24 @@ async def upload_transcript_and_extract(
     from app.services.transcript_sanitize import raw_speaker_count, sanitize_user_transcript
 
     transcript_raw = transcript
-    transcript = await sanitize_user_transcript(transcript_raw, user_id, supabase)
+    transcript = await sanitize_user_transcript(
+        transcript_raw, user_id, supabase, speakers_verified=body.speakers_verified
+    )
 
     field_specs = await _curated_field_specs_for_primary_crm(supabase, user_id)
     stt_meta = {
         "provider": "upload",
         "raw_speaker_count": raw_speaker_count(transcript_raw),
     }
+    if body.speakers_verified:
+        stt_meta["speakers"] = "channels"
 
-    estimated_duration = len(transcript) / 15
     source_type = body.source_type or "voice_memo"
     if source_type not in ("voice_memo", "meeting_transcript"):
         source_type = "voice_memo"
 
-    created = insert_memo_row(supabase, pin_playbook=True, payload={
+    estimated_duration = len(transcript) / 15
+    payload = {
         "user_id": user_id,
         "audio_url": "",
         "audio_duration": estimated_duration,
@@ -912,9 +970,25 @@ async def upload_transcript_and_extract(
         "source_type": source_type,
         "processing_started_at": datetime.utcnow().isoformat(),
         **stored_kind,
-    })
+    }
+    if body.hubspot_contact_id:
+        # Born with its contact: playbook routing, extraction and the review target use it.
+        payload["hubspot_contact_id"] = body.hubspot_contact_id
+    call_source = (body.call_source or "").strip()
+    if call_source:
+        payload["pipeline_meta"] = {"call_source": call_source}
+    user_notes = (body.notes or "").strip()[:USER_NOTES_MAX_CHARS] or None
+    if user_notes:
+        # Only written when present, so memos without notes never depend on migration 073.
+        payload["user_notes"] = user_notes
+    participants = [name.strip() for name in body.participants if name.strip()]
+    if participants:
+        payload["attendees"] = [{"name": name, "email": None} for name in participants]
+    created = insert_memo_row(supabase, pin_playbook=True, payload=payload)
 
     memo_id = created["id"]
+    if body.sales_motion_key:
+        _pin_picked_type(supabase, created, body.sales_motion_key.strip())
 
     await start_extraction_from_transcript(
         str(memo_id),
@@ -924,6 +998,7 @@ async def upload_transcript_and_extract(
         field_specs=field_specs,
         source_type=source_type,
         extra_update={"transcript_raw": transcript_raw, "transcript_stt_meta": stt_meta},
+        user_notes=user_notes,
     )
 
     return UploadResponse(
@@ -1360,6 +1435,43 @@ async def approve_memo(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=detail,
         ) from e
+
+
+class ApproveContactRequest(BaseModel):
+    # Built like the review screen builds it when the rep unticked fields; absent = as extracted.
+    extraction: Optional[MemoExtraction] = None
+
+
+@router.post("/{memo_id}/approve-contact", response_model=Union[Memo, SyncResult])
+async def approve_memo_for_contact(
+    memo_id: UUID,
+    body: Optional[ApproveContactRequest] = None,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    One-click approve from the Mac app right after a call: exactly what auto-approve sends
+    (the memo's own contact and its matched deal, no new company, the extraction as is).
+    Anything that needs a choice (another contact, a new deal, edits) goes through review.
+    """
+    from app.services.hubspot.auto_sync import approval_payload_for_auto_sync
+    from app.services.playbooks.catalog import INTERNAL_KEY
+
+    memo_data = _require_readable_memo(supabase, str(memo_id), user_id)
+    if str(memo_data.get("user_id") or "") != str(user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the rep who made the call approves from here")
+    contact_id = str(memo_data.get("hubspot_contact_id") or "").strip()
+    if not contact_id or memo_data.get("sales_motion_key") == INTERNAL_KEY:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Needs review: no contact to update")
+    if memo_data.get("status") not in ("pending_review", "approved"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Not ready to approve yet")
+    payload = approval_payload_for_auto_sync(
+        contact_id=contact_id,
+        deal_id=memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id"),
+    )
+    if body and body.extraction:
+        payload.extraction = body.extraction
+    return await approve_memo(memo_id, payload, supabase, user_id)
 
 
 @router.get("/{memo_id}/crm-updates", response_model=List[CRMUpdate])
@@ -2247,6 +2359,7 @@ async def reextract_memo_row(supabase: Client, memo_data: dict, *, trigger: str 
         is_two_party_source,
         prepare_transcript_for_extraction,
         schedule_transcript_polish,
+        speakers_are_verified,
     )
 
     source_type = extraction_source_type(
@@ -2266,6 +2379,7 @@ async def reextract_memo_row(supabase: Client, memo_data: dict, *, trigger: str 
                 existing_values,
                 extra_names=[profile.get("full_name"), profile.get("company_name")],
                 two_party=is_two_party_source(source_type),
+                speakers_verified=speakers_are_verified(memo_data.get("transcript_stt_meta")),
             )
             extraction_service = ExtractionService()
             extraction = await extraction_service.extract(
@@ -2275,6 +2389,7 @@ async def reextract_memo_row(supabase: Client, memo_data: dict, *, trigger: str 
                 product_context=product_context,
                 existing_values=existing_values,
                 call_date=call_date,
+                user_notes=memo_data.get("user_notes"),
             )
     except Exception as e:
         err_msg = str(e)

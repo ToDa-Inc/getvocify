@@ -115,7 +115,7 @@ class VertexAIProvider(BaseLLMProvider):
                     "total_tokens": getattr(meta, "total_token_count", None),
                 }
                 inc_llm_request("success", PROVIDER_NAME, model_used)
-                record_llm_usage(PROVIDER_NAME, self.last_call_meta, duration_ms=round(elapsed_ms))
+                record_llm_usage(PROVIDER_NAME, self.last_call_meta)
                 logger.info(
                     "LLM chat success",
                     extra=log_domain(

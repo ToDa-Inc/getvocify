@@ -5,6 +5,7 @@ import { CopilotNote } from "@/components/dashboard/CopilotNote";
 import { DoneMark } from "@/components/dashboard/DoneMark";
 import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { memoKeys, memosApi } from "@/features/memos/api";
 import {
   OTHER_REASON,
@@ -35,6 +36,9 @@ import { todayKeys } from "../api";
 const field = "h-8 w-full rounded-md border border-border bg-background px-2 text-[13px] text-foreground";
 const quiet = "px-1 py-1.5 text-[13px] text-muted-foreground hover:text-foreground";
 const hairline = "my-5 border-0 border-t border-[hsl(var(--hairline))]";
+
+/** The "—" option (no lead status): Radix items cannot carry "". */
+const STATUS_NONE = "__status_none__";
 
 function errorText(error: unknown, fallback: string): string {
   const detail = error instanceof ApiError ? (error.data as { detail?: unknown } | null | undefined)?.detail : null;
@@ -93,18 +97,20 @@ function OutcomeStep({
 
       {needsReason(draft.outcome) ? (
         <div className="space-y-1.5">
-          <select
-            aria-label={copy.after_call_reason}
-            className={field}
+          <Select
             value={draft.reason}
-            onChange={(event) => onChange({ ...draft, reason: event.target.value })}
+            onValueChange={(v) => onChange({ ...draft, reason: v })}
           >
-            <option value="">{copy.after_call_reason_pick}</option>
-            {context.lost_reasons.map((reason) => (
-              <option key={reason} value={reason}>{reason}</option>
-            ))}
-            <option value={OTHER_REASON}>{copy.after_call_reason_other}</option>
-          </select>
+            <SelectTrigger aria-label={copy.after_call_reason} size="sm">
+              <SelectValue placeholder={copy.after_call_reason_pick} />
+            </SelectTrigger>
+            <SelectContent>
+              {context.lost_reasons.map((reason) => (
+                <SelectItem key={reason} value={reason}>{reason}</SelectItem>
+              ))}
+              <SelectItem value={OTHER_REASON}>{copy.after_call_reason_other}</SelectItem>
+            </SelectContent>
+          </Select>
           {draft.reason === OTHER_REASON ? (
             <input
               type="text"
@@ -123,16 +129,20 @@ function OutcomeStep({
           <label className="flex items-center justify-between gap-3 text-[13px] text-muted-foreground">
             <span>{copy.after_call_lead_status}</span>
             {lead.editable ? (
-              <select
-                className={`${field} w-auto`}
-                value={lead.value ?? ""}
-                onChange={(event) => onChange({ ...draft, leadStatus: event.target.value || null })}
+              <Select
+                value={lead.value ?? (lead.proposed ? "" : STATUS_NONE)}
+                onValueChange={(v) => onChange({ ...draft, leadStatus: v === STATUS_NONE ? null : v })}
               >
-                {lead.proposed ? null : <option value="">—</option>}
-                {lead.options.map((value) => (
-                  <option key={value} value={value}>{value}</option>
-                ))}
-              </select>
+                <SelectTrigger size="sm" className="w-auto">
+                  <SelectValue placeholder="—" />
+                </SelectTrigger>
+                <SelectContent>
+                  {lead.proposed ? null : <SelectItem value={STATUS_NONE}>—</SelectItem>}
+                  {lead.options.map((value) => (
+                    <SelectItem key={value} value={value}>{value}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             ) : (
               <span className="text-foreground">{lead.value}</span>
             )}
@@ -209,9 +219,9 @@ export function AfterCallReview({
     return (
       <div className="flex flex-wrap items-center gap-2" role="alert">
         <p className={THEME_TOKENS.typography.body}>{copy.after_call_load_failed}</p>
-        <button type="button" className={quiet} onClick={() => void contextQuery.refetch()}>
+        <Button type="button" variant="quiet" size="text" onClick={() => void contextQuery.refetch()}>
           {copy.after_call_retry}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -296,9 +306,9 @@ export function AfterCallReview({
             <FollowupCard memoId={memoId} onSendReady={registerSend} />
           </section>
         ) : (
-          <button type="button" className={quiet} onClick={() => setFollowupRevealed(true)}>
+          <Button type="button" variant="quiet" size="text" onClick={() => setFollowupRevealed(true)}>
             {copy.after_call_followup_link}
-          </button>
+          </Button>
         )}
       </div>
     );
@@ -337,15 +347,15 @@ export function AfterCallReview({
             <CopilotNote markdown={memo.extraction.summary} />
           </section>
         ) : null}
-        <button type="button" className={quiet} onClick={() => onOpenMemo(memoId)}>
+        <Button type="button" variant="quiet" size="text" onClick={() => onOpenMemo(memoId)}>
           {copy.after_call_open_fields}
-        </button>
+        </Button>
       </div>
       {outcomeStep}
       <div>
         <Button
           type="button"
-          className="h-11 w-full rounded-full bg-beige px-[18px] text-[15px] font-normal text-cream hover:bg-beige-dark"
+          size="lg"
           disabled={saving || Boolean(blocked)}
           onClick={() => void confirmOutcome()}
         >
@@ -354,9 +364,9 @@ export function AfterCallReview({
         {error ? (
           <div role="alert" className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-destructive">
             <span>{error}</span>
-            <button type="button" className={quiet} disabled={saving} onClick={() => void confirmOutcome()}>
+            <Button type="button" variant="quiet" size="text" disabled={saving} onClick={() => void confirmOutcome()}>
               {copy.after_call_retry}
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>

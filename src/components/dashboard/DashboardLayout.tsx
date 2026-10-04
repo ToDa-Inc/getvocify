@@ -1,23 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/features/auth";
-import { getUserDisplayName, getUserInitials } from "@/features/auth/types";
+import { getUserDisplayName } from "@/features/auth/types";
 import {
   Home,
   Settings,
   Menu,
   X,
   Phone,
-  LogOut,
-  MessageCircle,
   Users,
-  BookOpen,
-  Workflow,
   GraduationCap,
+  ListChecks,
   type LucideIcon,
+  Workflow,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { IconAction } from "@/components/ui/icon-action";
 import Logo from "@/components/Logo";
 import { isAskShortcut } from "@/lib/ask-shortcut";
 import { useLanguage } from "@/lib/i18n";
@@ -25,24 +22,25 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { ReportBell } from "@/components/dashboard/ReportBell";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
 import ImpersonationBanner from "@/components/admin/ImpersonationBanner";
-import { getImpersonation, returnToAdmin } from "@/lib/admin-impersonation";
-import { FloatingDialer } from "@/components/dashboard/calling/FloatingDialer";
+import { AvatarMenu } from "@/components/dashboard/AvatarMenu";
+import { DialerDock } from "@/components/dashboard/calling/DialerDock";
+import { DockHeader, DockPanel, DockTab, DockTabs } from "@/components/dashboard/RightDock";
+import { TodayPanel } from "@/features/today/components/TodayPanel";
 import { DialerFocusProvider, useDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
 import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
-import { DesktopShellBridge } from "@/features/desktop/DesktopShellBridge";
+import { DesktopMeetingProvider } from "@/features/desktop/DesktopMeetingProvider";
+import { DesktopRecordingChip } from "@/features/desktop/DesktopRecordingChip";
 import { isDesktopHost } from "@/lib/desktop-host";
-import { isManagerRole, isNavActive, navItemsFor, type NavItemId } from "@/lib/nav";
+import { isManagerRole, isNavActive, navItemsFor, topBarActions, usesRepHome, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
-import { useWideScreen } from "@/features/today/hooks/useWideScreen";
 
 const NAV_ICONS: Record<NavItemId, LucideIcon> = {
   home: Home,
+  process: Workflow,
   insights: Users,
   coach: GraduationCap,
-  playbook: BookOpen,
-  process: Workflow,
   settings: Settings,
 };
 
@@ -50,30 +48,43 @@ const BILLING_PATH = "/dashboard/settings/billing";
 
 const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [dialerOpen, setDialerOpen] = useState(false);
+  // The right dock holds one panel at a time: the call panel (Llamar), later Hoy on Inicio.
+  const [dock, setDock] = useState<"call" | "today" | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [callState, setCallState] = useState<CallState>(CALL_STATES.IDLE);
   const [columnNode, setColumnNode] = useState<HTMLElement | null>(null);
   const location = useLocation();
   const { t } = useLanguage();
-  const { user, logout } = useAuth();
-  const impersonating = !!getImpersonation();
+  const { user } = useAuth();
   const dialerLive = isInCall(callState);
-  const dialerActive = dialerOpen || dialerLive;
+  const dialerOpen = dock === "call";
+  const setDialerOpen = useCallback(
+    (open: boolean) => setDock((current) => (open ? "call" : current === "call" ? null : current)),
+    [],
+  );
   const canManageBilling = isManagerRole(user?.company?.role);
   const paywalled = companyIsPaywalled(user?.company);
+  const repTopBar = topBarActions(user?.company?.role);
+  // Hoy lives on the right of Inicio for a rep with the workspace: a panel you open and close.
+  const todayDock = location.pathname === "/dashboard" && repTopBar && usesRepHome(user?.company);
+  useEffect(() => {
+    if (dock === "today" && !todayDock) setDock(null);
+  }, [dock, todayDock]);
   const menu = navItemsFor({
     role: user?.company?.role,
     repWorkspace: user?.company?.repWorkspace,
-    // The Playbook tab is where a rep reads the process they are scored against: always there.
-    playbookTabEnabled: true,
   });
+  const billing = !menu.showPlans
+    ? null
+    : canManageBilling
+      ? { label: paywalled ? t.product.navChoosePlan : t.product.navManageBilling, href: BILLING_PATH }
+      : { label: t.product.navBookDemo, href: DEMO_BOOKING_URL, external: true };
 
+  // Ask is the floating sheet: /dashboard/ask (state.ask) and ⌘K / Ctrl+K open it.
   useEffect(() => {
     const state = location.state as { ask?: boolean } | null;
     if (state?.ask) setAskOpen(true);
   }, [location.state]);
-  // ⌘K / Ctrl+K opens Ask too.
   useEffect(() => {
     if (paywalled) return;
     const onKey = (event: KeyboardEvent) => {
@@ -99,9 +110,9 @@ const DashboardLayout = () => {
   }
 
   return (
+    <DesktopMeetingProvider>
     <DialerFocusProvider onOpenDialer={() => setDialerOpen(true)}>
     <HomeColumnContext.Provider value={column}>
-    <DesktopShellBridge />
     <div className="dashboard-shell h-dvh bg-background flex w-full overflow-hidden">
       {sidebarOpen && (
         <div
@@ -117,7 +128,8 @@ const DashboardLayout = () => {
       >
         <div className="px-5 py-6 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <Logo size="sm" />
+            {/* The wordmark is a dark raster: in dark it is inverted with its hues kept (gold mic, light text). */}
+            <Logo size="sm" className="dark:[filter:invert(1)_hue-rotate(180deg)]" />
             <span className="px-1.5 py-px text-[10px] font-medium text-beige bg-beige/10 rounded-md">
               Beta
             </span>
@@ -161,36 +173,23 @@ const DashboardLayout = () => {
           })}
         </nav>
 
-        {menu.showPlans && (
-          <div className="p-4 mt-auto shrink-0">
-            <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-4`}>
-              <p className="text-sm font-normal text-foreground mb-1">
-                {canManageBilling ? t.product.navPlans : t.product.navScale}
-              </p>
-              <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-                {canManageBilling ? t.product.navPlansBody : t.product.navScaleBody}
-              </p>
-              <Button
-                asChild
-                size="sm"
-                className="w-full bg-beige text-cream hover:bg-beige-dark"
-              >
-                {canManageBilling ? (
-                  <Link to={BILLING_PATH}>{paywalled ? t.product.navChoosePlan : t.product.navManageBilling}</Link>
-                ) : (
-                  <a href={DEMO_BOOKING_URL} target="_blank" rel="noopener noreferrer">
-                    {t.product.navBookDemo}
-                  </a>
-                )}
-              </Button>
-            </div>
+        {/* Desktop: the account (and plan) lives at the foot of the sidebar, so the page gets the top bar's height back. */}
+        <div className="mt-auto hidden shrink-0 border-t border-border p-3 lg:block">
+          {/* The top bar only shows below lg, so a live or unsent meeting stays reachable here at desktop widths. */}
+          <div className="pb-2 empty:hidden">
+            <DesktopRecordingChip />
           </div>
-        )}
+          <AvatarMenu variant="sidebar" billing={billing} />
+        </div>
       </aside>
 
-      <div className="lg:pl-60 flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+      <div
+        className={`lg:pl-60 flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden transition-[margin] duration-200 ease-silk motion-reduce:transition-none ${
+          dock && !homeColumn ? "xl:mr-[400px]" : ""
+        }`}
+      >
         <ImpersonationBanner />
-        <header className="h-14 shrink-0 z-30 px-6 flex items-center justify-between bg-background border-b border-border">
+        <header className="h-14 shrink-0 z-30 px-6 flex items-center justify-between bg-background border-b border-border lg:hidden">
           <Button
             variant="ghost"
             size="icon"
@@ -200,37 +199,9 @@ const DashboardLayout = () => {
             <Menu className="h-5 w-5" />
           </Button>
 
-          {/* Lista 4 E3: Ask and Call live in the top bar, left side, for every role. */}
+          {/* Llamar lives in the top bar for reps who can dial; the Head of Sales doesn't dial. */}
           <div className="flex flex-1 items-center gap-1.5 lg:gap-2">
-            {!paywalled ? (
-              <button
-                type="button"
-                aria-label={t.product.navAsk}
-                aria-expanded={askOpen}
-                onClick={() => setAskOpen((open) => !open)}
-                className={`inline-flex items-center gap-2 ${THEME_TOKENS.interaction.navPill} ${
-                  askOpen ? THEME_TOKENS.interaction.navPillActive : THEME_TOKENS.interaction.navPillIdle
-                }`}
-              >
-                <MessageCircle className={`h-4 w-4 ${askOpen ? "opacity-100" : "opacity-70"}`} />
-                <span className="hidden sm:inline">{t.product.navAsk}</span>
-              </button>
-            ) : null}
-            {showDialer ? (
-              <button
-                type="button"
-                aria-label={t.product.navCall}
-                aria-expanded={dialerOpen}
-                onClick={() => setDialerOpen((current) => !current)}
-                className={`inline-flex items-center gap-2 ${THEME_TOKENS.interaction.navPill} ${
-                  dialerActive ? THEME_TOKENS.interaction.navPillActive : THEME_TOKENS.interaction.navPillIdle
-                }`}
-              >
-                <Phone className={`h-4 w-4 ${dialerActive ? "opacity-100" : "opacity-70"}`} />
-                <span className="hidden sm:inline">{t.product.navCall}</span>
-                {dialerLive ? <span className="h-1.5 w-1.5 rounded-full bg-beige" /> : null}
-              </button>
-            ) : null}
+            <DesktopRecordingChip />
           </div>
 
           <div className="flex items-center gap-3">
@@ -243,36 +214,13 @@ const DashboardLayout = () => {
               </p>
             </div>
 
-            <span data-testid="session-sign-out">
-              <IconAction
-                label={t.product.navLogOut}
-                tone="danger"
-                onClick={() => {
-                  void logout().then(() => window.location.replace("/login"));
-                }}
-              >
-                <LogOut className="h-4 w-4" />
-              </IconAction>
-            </span>
-
-            <Link
-              to={impersonating ? "#" : "/dashboard/profile"}
-              onClick={(e) => {
-                if (impersonating) {
-                  e.preventDefault();
-                  returnToAdmin();
-                }
-              }}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-xs font-medium text-beige hover:border-beige/40 transition-colors"
-            >
-              {user ? getUserInitials(user) : "U"}
-            </Link>
+            <AvatarMenu billing={billing} />
           </div>
         </header>
 
         {homeColumn ? (
           <div className="flex min-h-0 flex-1">
-            <main className="min-w-0 flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
+            <main className="app-scroll min-w-0 flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
               <Outlet />
             </main>
             <div
@@ -285,7 +233,7 @@ const DashboardLayout = () => {
             />
           </div>
         ) : (
-          <main className="flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
+          <main className="app-scroll flex-1 min-h-0 overflow-y-auto p-6 md:p-8">
             <Outlet />
           </main>
         )}
@@ -302,45 +250,64 @@ const DashboardLayout = () => {
         </aside>
       ) : null}
 
+      {dock ? (
+        <div className="fixed inset-0 z-30 bg-foreground/20 xl:hidden" onClick={() => setDock(null)} aria-hidden />
+      ) : null}
+
+      {dock === "today" && todayDock ? (
+        <DockPanel open label={t.product.todayTitle}>
+          <DockHeader title={t.product.todayTitle} closeLabel={t.product.askClose} onClose={() => setDock(null)} />
+          <TodayPanel />
+        </DockPanel>
+      ) : null}
+
       {showDialer ? (
-        <DialerChrome
-          open={dialerOpen}
-          onOpenChange={setDialerOpen}
-          onCallStateChange={setCallState}
-          homeColumn={homeColumn}
-        />
+        <DialerDockMount open={dialerOpen} onOpenChange={setDialerOpen} onCallStateChange={setCallState} />
+      ) : null}
+
+      {dock === null && !askOpen ? (
+        <DockTabs>
+          {todayDock ? <DockTab label={t.product.todayTitle} icon={ListChecks} onClick={() => setDock("today")} /> : null}
+          {repTopBar && showDialer ? (
+            <CallTab live={dialerLive} onOpen={() => setDialerOpen(true)} label={t.product.navCall} />
+          ) : null}
+        </DockTabs>
       ) : null}
     </div>
     </HomeColumnContext.Provider>
     </DialerFocusProvider>
+    </DesktopMeetingProvider>
   );
 };
 
-function DialerChrome({
+/** The call dock lives inside the focus provider so a contact's own "Llamar" can open it. */
+function DialerDockMount({
   open,
   onOpenChange,
   onCallStateChange,
-  homeColumn,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCallStateChange: (state: CallState) => void;
-  homeColumn: boolean;
 }) {
   const { focus, clearFocus, reportLive, reportEnded } = useDialerFocus();
-  const columnVisible = useWideScreen();
   return (
-    <FloatingDialer
+    <DialerDock
       open={open}
       onOpenChange={onOpenChange}
       onCallStateChange={onCallStateChange}
       focusContact={focus}
       onFocusHandled={clearFocus}
-      placement={homeColumn && columnVisible ? "panel" : "floating"}
       onLiveReport={reportLive}
       onCallEnded={reportEnded}
     />
   );
+}
+
+/** The slim "Llamar" tab on the right edge: lit, with the running time, while a call is in progress. */
+function CallTab({ live, onOpen, label }: { live: boolean; onOpen: () => void; label: string }) {
+  const { liveElapsed } = useDialerFocus();
+  return <DockTab label={label} icon={Phone} onClick={onOpen} live={live} liveText={liveElapsed} />;
 }
 
 export default DashboardLayout;

@@ -3,15 +3,18 @@ import assert from "node:assert/strict";
 import { productCatalog } from "./product-catalog.ts";
 import {
   CHANNELS,
+  callOutcome,
   channelOf,
   feedBusy,
   feedQuery,
   groupByDay,
+  initialsOf,
   interactionsAuthor,
   memoTypeLine,
   memoTypeName,
   pageOf,
   retagOptions,
+  scrolledToEnd,
   summaryParts,
   rowHeadline,
   rowStatus,
@@ -304,5 +307,64 @@ describe("groupByDay", () => {
   });
   it("is empty for no items", () => {
     assert.deepEqual(groupByDay([], now, "es-ES"), []);
+  });
+});
+
+describe("initialsOf", () => {
+  it("extracts initials from a two-part name", () => {
+    assert.equal(initialsOf({ name: "Juan Poblet", email: "juan@example.com" }), "JP");
+  });
+
+  it("extracts initials from a single-name person", () => {
+    assert.equal(initialsOf({ name: "Madonna", email: "madonna@example.com" }), "M");
+  });
+
+  it("falls back to email local-part when name is missing or null", () => {
+    assert.equal(initialsOf({ name: null, email: "john.doe@example.com" }), "JD");
+    assert.equal(initialsOf({ name: "", email: "alice@example.com" }), "A");
+  });
+
+  it("trims whitespace and handles multi-part names", () => {
+    assert.equal(initialsOf({ name: "  Ana María García  ", email: "ana@example.com" }), "AG");
+  });
+
+  it("returns empty string when both name and email are empty", () => {
+    assert.equal(initialsOf({ name: null, email: "" }), "");
+  });
+});
+
+describe("callOutcome", () => {
+  it("returns voicemail when screeningOutcome is voicemail", () => {
+    assert.equal(callOutcome({ screeningOutcome: "voicemail", audioDuration: 30 }), "voicemail");
+  });
+
+  it("returns no_response when screeningOutcome is no_response", () => {
+    assert.equal(callOutcome({ screeningOutcome: "no_response", audioDuration: 0 }), "no_response");
+  });
+
+  it("returns connected when audioDuration > 0 and no special screeningOutcome", () => {
+    assert.equal(callOutcome({ screeningOutcome: "connected", audioDuration: 120 }), "connected");
+    assert.equal(callOutcome({ audioDuration: 45 }), "connected");
+  });
+
+  it("returns connected when screeningOutcome is missing", () => {
+    assert.equal(callOutcome({ audioDuration: 10 }), "connected");
+  });
+
+  it("prioritizes screeningOutcome over audioDuration", () => {
+    assert.equal(callOutcome({ screeningOutcome: "voicemail", audioDuration: 0 }), "voicemail");
+    assert.equal(callOutcome({ screeningOutcome: "no_response", audioDuration: 100 }), "no_response");
+  });
+});
+
+describe("scrolledToEnd", () => {
+  it("is false while there is more below, true at the bottom (with a little slack)", () => {
+    assert.equal(scrolledToEnd({ scrollTop: 0, clientHeight: 400, scrollHeight: 1000 }), false);
+    assert.equal(scrolledToEnd({ scrollTop: 592, clientHeight: 400, scrollHeight: 1000 }), true);
+    assert.equal(scrolledToEnd({ scrollTop: 560, clientHeight: 400, scrollHeight: 1000 }), false);
+  });
+
+  it("counts a list that does not overflow as read", () => {
+    assert.equal(scrolledToEnd({ scrollTop: 0, clientHeight: 400, scrollHeight: 380 }), true);
   });
 });

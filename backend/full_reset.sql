@@ -122,6 +122,7 @@ CREATE TABLE user_profiles (
   stt_languages TEXT[] NOT NULL DEFAULT ARRAY['es'],
   company_id UUID,
   writing_samples JSONB NOT NULL DEFAULT '[]'::jsonb,
+  followup_suggestions BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -348,12 +349,14 @@ CREATE TABLE memos (
   transcript_complete BOOLEAN NOT NULL DEFAULT false,
   followup JSONB,
   followup_run_started_at TIMESTAMPTZ,
+  user_notes TEXT,
   whatsapp_message_id TEXT,
   conversation_id UUID,
   hubspot_engagement_id TEXT,
   hubspot_deal_id TEXT,
   hubspot_contact_id TEXT,
-  speechmatics_job_id TEXT
+  speechmatics_job_id TEXT,
+  attendees JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
 CREATE TABLE IF NOT EXISTS memo_jobs (

@@ -141,7 +141,7 @@ const OnboardingWizard = () => {
               type="button"
               variant="outline"
               className="rounded-full"
-              onClick={() => navigate("/dashboard/settings/playbooks")}
+              onClick={() => navigate("/dashboard/process")}
             >
               {t.product.onboardingStepPlaybooksCta}
             </Button>

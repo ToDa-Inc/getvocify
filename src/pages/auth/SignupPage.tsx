@@ -1,3 +1,4 @@
+import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth";
@@ -103,7 +104,7 @@ const SignupPage = () => {
               disabled={isLoading}
             >
               {isLoading ? (
-                <div className="w-5 h-5 border-2 border-cream border-t-transparent rounded-full animate-spin" />
+                <VocifySpinner size={20} tone="onFill" />
               ) : (
                 <>
                   <span className="font-bold">Create Account</span>

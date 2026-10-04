@@ -1,4 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import Composer from "@/features/ask/components/Composer";
 import { useAskSuggestions } from "@/features/ask/hooks/useAskSuggestions";
 import { useLanguage } from "@/lib/i18n";
@@ -67,13 +68,14 @@ export const HomeComposer = forwardRef<HomeComposerHandle, { onSend: (text: stri
         <ul className="mt-3 flex flex-wrap justify-center gap-2" aria-label={t.product.askTitle}>
           {suggestions.map((text) => (
             <li key={text}>
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => send(text)}
-                className="rounded-full border border-[hsl(var(--hairline))] bg-card/60 px-3.5 py-1.5 text-[13px] text-foreground/80 transition-colors duration-150 hover:bg-secondary/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
               >
                 {text}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

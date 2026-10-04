@@ -41,14 +41,17 @@ if not hasattr(ssl, "_orig_create_default_context"):
     ssl._create_default_https_context = ssl._create_unverified_context
 
 import websockets
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, Depends, WebSocket
 
 from app.config import settings
-from app.deps import get_supabase
+from app.deps import get_supabase, get_user_id
 from app.services.glossary import GlossaryService
+from app.services.live_channel_sessions import ChannelSessions
+from app.services.live_ticket import issue_ticket, user_for_ticket
 from app.services.usage import record_stt_usage, usage_scope
 from app.services.stt_channels import (
     COPILOT_CHANNEL_MODE,
+    speechmatics_words as _extract_words,
     accepts_client_pcm_bytes,
     client_text_to_sm_item,
     parse_channel_labels,
@@ -68,46 +71,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/transcription", tags=["transcription"])
 
 VALID_MODES = {"default", "memo", "enroll", "copilot", COPILOT_CHANNEL_MODE}
-
-
-def _offset_ms(value: Any) -> int | None:
-    if value is None:
-        return None
-    return int(round(float(value) * 1000))
-
-
-def _extract_words(data: dict) -> list[dict[str, Any]]:
-    """Pull word-level content + speaker from Speechmatics results[]."""
-    words: list[dict[str, Any]] = []
-    for item in data.get("results") or []:
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") not in (None, "word"):
-            # Keep punctuation attached as text without speaker votes
-            if item.get("type") == "punctuation":
-                alts = item.get("alternatives") or []
-                content = (alts[0] or {}).get("content") if alts else None
-                if content:
-                    words.append({"text": str(content), "speaker": None, "is_punct": True})
-            continue
-        alts = item.get("alternatives") or []
-        if not alts:
-            continue
-        alt = alts[0] if isinstance(alts[0], dict) else {}
-        content = alt.get("content")
-        if not content:
-            continue
-        speaker = alt.get("speaker")
-        words.append(
-            {
-                "text": str(content),
-                "speaker": str(speaker) if speaker else None,
-                "is_punct": False,
-                "start_ms": _offset_ms(item.get("start_time")),
-                "end_ms": _offset_ms(item.get("end_time")),
-            }
-        )
-    return words
 
 
 def _identifiers_from_speakers_result(data: dict) -> list[str]:
@@ -182,6 +145,9 @@ class SpeechmaticsProxy:
             # Speechmatics voice-agent guidance ~1.5s; keep enroll a bit snappier.
             "max_delay": 1.2 if self.mode == "enroll" else (1.8 if use_speaker else 1.5),
             "max_delay_mode": "flexible",
+            # Spanish reps take calls in English too: the bilingual pack transcribes both,
+            # mixed or not, and Spanish-only calls are unchanged. Verified in realtime.
+            **({"domain": "bilingual-en"} if target_lang == "es" else {}),
             "conversation_config": {
                 "end_of_utterance_silence_trigger": 0.8 if use_speaker else 0.6,
             },
@@ -321,6 +287,11 @@ class SpeechmaticsProxy:
                             }
                             if words:
                                 response["words"] = words
+                            meta = data.get("metadata") or {}
+                            if isinstance(meta.get("start_time"), (int, float)):
+                                # Seconds since the stream began; lets clients order both channels by speech time.
+                                response["start"] = meta["start_time"]
+                                response["end"] = meta.get("end_time", meta["start_time"])
                             audio_channel = speechmatics_audio_channel(data)
                             if audio_channel:
                                 # Keep Deepgram-shaped `channel.alternatives` for text;
@@ -375,6 +346,10 @@ class SpeechmaticsProxy:
                                 "Speechmatics warning: %s", data.get("reason")
                             )
 
+                        elif msg_type == "EndOfTranscript":
+                            # Every final is out: clients can finish without waiting for the socket to close.
+                            await client_ws.send_json({"type": "EndOfTranscript"})
+
                 await asyncio.gather(send_audio(), receive_transcripts())
 
         except Exception as e:
@@ -425,8 +400,7 @@ class SpeechmaticsOnlyProxy:
             "realtime",
             time.monotonic() - started,
             channels=max(1, channels),
-            model="enhanced",
-            meta={"stt_mode": self.mode, "language": self.language},
+            tier="enhanced",
         )
 
     async def proxy_session(self, client_ws: WebSocket):
@@ -480,36 +454,93 @@ class SpeechmaticsOnlyProxy:
             self._record_usage()
 
 
+@router.post("/ticket")
+async def live_ticket(user_id: str = Depends(get_user_id)) -> dict:
+    """A pass for the live transcription service, which has no session of its own."""
+    ticket, expires_at = issue_ticket(user_id)
+    return {"ticket": ticket, "expires_at": expires_at}
+
+
 @router.websocket("/live")
 async def live_transcription(websocket: WebSocket):
     """
     FastAPI WebSocket entry point for real-time transcription (Speechmatics).
+    The user comes from the query, as older clients send it.
     """
     await websocket.accept()
+    await serve_live(websocket, websocket.query_params.get("user_id"), service="api")
+
+
+# The live transcription service (app.live_main) serves only this route. It trusts no query
+# parameter for the user: the first message must be {"type": "Auth", "ticket": ...}.
+live_router = APIRouter(prefix="/api/v1/transcription", tags=["transcription"])
+AUTH_TIMEOUT_S = 10
+
+
+@live_router.websocket("/live")
+async def authenticated_live_transcription(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        first = await asyncio.wait_for(websocket.receive_json(), AUTH_TIMEOUT_S)
+    except Exception:
+        first = None
+    user_id = (
+        user_for_ticket(str(first.get("ticket") or ""))
+        if isinstance(first, dict) and first.get("type") == "Auth"
+        else None
+    )
+    if not user_id:
+        await websocket.send_json({"type": "Error", "provider": "vocify", "error": "Sign in again to transcribe."})
+        await websocket.close(code=4401)
+        return
+    await serve_live(websocket, user_id, service="live")
+
+
+def _session_context(user_id: Optional[str], mode: str) -> tuple[list, Optional[List[str]], Optional[dict]]:
+    """Glossary, call languages and voice enrollment for a session. Blocking database reads:
+    run in a thread, so the event loop keeps every other call's audio moving meanwhile."""
+    glossary: list = []
+    profile_languages: Optional[List[str]] = None
+    enrolled_speaker = None
+    if not user_id or user_id == "anonymous":
+        return glossary, profile_languages, enrolled_speaker
+    try:
+        glossary = asyncio.run(GlossaryService().get_user_glossary(user_id))
+        logger.info("Loaded %d glossary terms for user %s", len(glossary), user_id)
+    except Exception as e:
+        logger.error("Failed to load glossary: %s", e)
+    try:
+        profile = load_stt_profile(get_supabase(), user_id)
+        profile_languages = profile.get("stt_languages")
+        for name in (profile.get("full_name"), profile.get("company_name")):
+            if name:
+                glossary.append({"target_word": name, "phonetic_hints": []})
+    except Exception as e:
+        logger.error("Failed to load STT profile names: %s", e)
+    if mode == "copilot":
+        try:
+            enrolled_speaker = VoiceEnrollmentService(get_supabase()).get_identifiers_for_stt(user_id)
+            if enrolled_speaker:
+                logger.info(
+                    "Loaded voice enrollment for user %s (%d ids)",
+                    user_id,
+                    len(enrolled_speaker.get("speaker_identifiers") or []),
+                )
+        except Exception as e:
+            logger.error("Failed to load voice enrollment: %s", e)
+    return glossary, profile_languages, enrolled_speaker
+
+
+async def serve_live(websocket: WebSocket, user_id: Optional[str], *, service: str) -> None:
+    """One live session on an accepted socket, for this user. `service` names which app served
+    it (the API or the live service) in the call's report."""
     language = websocket.query_params.get("language", "multi")
-    user_id = websocket.query_params.get("user_id")
     session_vocab_raw = websocket.query_params.get("session_vocab") or ""
     mode = (websocket.query_params.get("mode") or "default").strip().lower()
     if mode not in VALID_MODES:
         mode = "default"
 
-    glossary: list = []
-    profile_languages: Optional[List[str]] = None
-    if user_id:
-        try:
-            glossary_service = GlossaryService()
-            glossary = await glossary_service.get_user_glossary(user_id)
-            logger.info("Loaded %d glossary terms for user %s", len(glossary), user_id)
-        except Exception as e:
-            logger.error("Failed to load glossary: %s", e)
-        try:
-            profile = load_stt_profile(get_supabase(), user_id)
-            profile_languages = profile.get("stt_languages")
-            for name in (profile.get("full_name"), profile.get("company_name")):
-                if name:
-                    glossary.append({"target_word": name, "phonetic_hints": []})
-        except Exception as e:
-            logger.error("Failed to load STT profile names: %s", e)
+    glossary, profile_languages, enrolled_speaker = await asyncio.to_thread(_session_context, user_id, mode)
 
     if session_vocab_raw:
         seen = {
@@ -542,25 +573,31 @@ async def live_transcription(websocket: WebSocket):
                 }
             )
 
-    enrolled_speaker = None
     channel_labels = None
     if mode == COPILOT_CHANNEL_MODE:
         channel_labels = parse_channel_labels(
             websocket.query_params.get("channel_labels")
         )
-    elif mode == "copilot" and user_id and user_id != "anonymous":
-        try:
-            enrolled_speaker = VoiceEnrollmentService(
-                get_supabase()
-            ).get_identifiers_for_stt(user_id)
-            if enrolled_speaker:
-                logger.info(
-                    "Loaded voice enrollment for user %s (%d ids)",
-                    user_id,
-                    len(enrolled_speaker.get("speaker_identifiers") or []),
-                )
-        except Exception as e:
-            logger.error("Failed to load voice enrollment: %s", e)
+
+    if mode == COPILOT_CHANNEL_MODE and websocket.query_params.get("detect") == "1":
+        # Clients that understand ChannelReset: one stream per side, each in its own language.
+        sessions = ChannelSessions(
+            websocket,
+            labels=channel_labels or ["prospect", "rep"],
+            language=resolve_speechmatics_rt_language(language, profile_languages=profile_languages),
+            profile_languages=profile_languages,
+            glossary=glossary,
+            detect=True,
+            user_id=user_id if user_id and user_id != "anonymous" else None,
+            service=service,
+        )
+        with usage_scope(
+            "live_stt",
+            user_id=user_id if user_id and user_id != "anonymous" else None,
+            capture_id=websocket.query_params.get("capture_id"),
+        ):
+            await sessions.run()
+        return
 
     proxy = SpeechmaticsOnlyProxy(
         language=language,

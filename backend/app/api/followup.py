@@ -10,10 +10,16 @@ from supabase import Client
 
 from app.api.memos import _require_readable_memo
 from app.deps import get_membership, get_supabase, get_user_id, require_rep_workspace
-from app.models.followup import FollowupActionRequest, FollowupSendRequest, WritingSamplesRequest
+from app.models.followup import (
+    FollowupActionRequest,
+    FollowupPreference,
+    FollowupSendRequest,
+    FollowupSkipRequest,
+    WritingSamplesRequest,
+)
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
-from app.services.followup import schedule_followup
+from app.services.followup import read_followup_preference, schedule_followup, write_followup_preference
 from app.services.followup_crm_note import log_followup_note
 from app.services.followup_logic import (
     LIST_LIMIT,
@@ -27,6 +33,8 @@ from app.services.followup_logic import (
     pasted_samples,
     pending_row,
     should_generate,
+    skip_followup,
+    unskip_followup,
     with_pasted,
 )
 from app.services.followup_send import claim_send, finish_send, rate_limited, rep_identity, send_followup_email, send_hash
@@ -83,6 +91,44 @@ async def get_followup(
         and schedule_followup(supabase, str(memo_id), company_id=memo.get("company_id"))
     )
     return followup_view(memo, scheduled=scheduled)
+
+
+@router.post("/{memo_id}/followup/skip")
+async def skip_followup_draft(
+    memo_id: UUID,
+    payload: FollowupSkipRequest,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+) -> dict:
+    """The rep won't send this draft (or takes that back). Only the author decides."""
+    memo = _require_readable_memo(supabase, str(memo_id), user_id)
+    if str(memo.get("user_id") or "") != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the memo's author can skip its follow-up")
+    current = memo.get("followup") or {}
+    try:
+        updated = unskip_followup(current) if payload.undo else skip_followup(current, _now())
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    supabase.table("memos").update({"followup": updated}).eq("id", str(memo_id)).execute()
+    return followup_view({**memo, "followup": updated})
+
+
+@listing.get("/followup-preference", response_model=FollowupPreference)
+async def get_followup_preference(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+) -> FollowupPreference:
+    return FollowupPreference(suggest=read_followup_preference(supabase, user_id))
+
+
+@listing.put("/followup-preference", response_model=FollowupPreference)
+async def put_followup_preference(
+    payload: FollowupPreference,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+) -> FollowupPreference:
+    write_followup_preference(supabase, user_id, payload.suggest)
+    return payload
 
 
 @router.post("/{memo_id}/followup")

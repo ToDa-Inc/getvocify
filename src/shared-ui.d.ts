@@ -285,3 +285,22 @@ declare namespace JSX {
     "v-review-tabs": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
   }
 }
+
+declare module "@shared/ui/meeting-proposal.js" {
+  export type MeetingProposalPhrases = { save: string; omit: string; reconcile: string };
+  export type MeetingProposalView = {
+    visible: boolean;
+    title?: string;
+    startsAt?: string | null;
+    timezone?: string | null;
+    save?: boolean;
+    omit?: boolean;
+    reconcile?: boolean;
+    phrases?: MeetingProposalPhrases;
+  };
+  export function meetingProposalView(
+    proposal: Record<string, unknown> | null,
+    options?: { surface?: "review" | "live"; extractionPending?: boolean; lang?: string },
+  ): MeetingProposalView;
+  export function renderMeetingProposal(view: MeetingProposalView): unknown;
+}

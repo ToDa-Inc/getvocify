@@ -155,13 +155,13 @@ export default function TeamRepDetailPage() {
         <div className="flex shrink-0 items-center gap-4">
           {isManager ? (
             <Link
-              className="rounded-full border border-border px-3.5 py-1.5 text-sm text-foreground hover:bg-secondary/40"
+              className="rounded-full border border-border px-3.5 py-1.5 text-sm text-foreground hover:bg-secondary/60"
               to={`/dashboard/memos?author=${encodeURIComponent(userId)}`}
             >
               {p.hosSeeCalls}
             </Link>
           ) : null}
-          <Link className="text-sm underline text-foreground" to="/dashboard/insights">
+          <Link className="text-sm underline text-foreground" to="/dashboard/insights?tab=people">
             {p.teamRepDetailBack}
           </Link>
         </div>

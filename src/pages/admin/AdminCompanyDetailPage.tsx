@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Copy, Loader2, LogIn, Minus, Plus } from "lucide-react";
+import { ArrowLeft, Copy, LogIn, Minus, Plus } from "lucide-react";
+import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { toast } from "sonner";
 import { adminApi, adminKeys } from "@/features/admin/api";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 import { Input } from "@/components/ui/input";
 import { loginAsAccount } from "@/lib/admin-impersonation";
 
@@ -205,28 +207,16 @@ const AdminCompanyDetailPage = () => {
 
         <div className="space-y-2">
           <p className={THEME_TOKENS.typography.capsLabel}>Access</p>
-          <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-            {(
-              [
-                { value: "open" as const, label: "Open" },
-                { value: "paywalled" as const, label: "Require payment" },
-                { value: "unlocked" as const, label: "Unlocked" },
-              ]
-            ).map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setAccessMode(option.value)}
-                className={`rounded-full px-4 h-8 text-xs font-medium transition-colors ${
-                  accessMode === option.value
-                    ? "bg-beige text-cream"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <Segmented<"open" | "paywalled" | "unlocked">
+            value={accessMode}
+            onValueChange={setAccessMode}
+            options={[
+              { value: "open", label: "Open" },
+              { value: "paywalled", label: "Require payment" },
+              { value: "unlocked", label: "Unlocked" },
+            ]}
+            aria-label="Access mode"
+          />
           <p className="text-xs text-muted-foreground">
             Open is the default. Require payment locks the product until they subscribe.
             Unlocked ignores Stripe and uses the license slider.
@@ -239,7 +229,7 @@ const AdminCompanyDetailPage = () => {
             <button
               type="button"
               aria-label="Decrease licenses"
-              className="h-10 w-10 rounded-full border border-border/40 bg-secondary/5 text-foreground hover:bg-secondary/10 disabled:opacity-40"
+              className="h-10 w-10 rounded-full border border-border/40 bg-secondary/5 text-foreground hover:bg-secondary/60 disabled:opacity-40"
               disabled={licenseCount <= Math.max(1, seatsUsed)}
               onClick={() => setLicenseCount((n) => Math.max(1, n - 1))}
             >
@@ -255,7 +245,7 @@ const AdminCompanyDetailPage = () => {
             <button
               type="button"
               aria-label="Increase licenses"
-              className="h-10 w-10 rounded-full border border-border/40 bg-secondary/5 text-foreground hover:bg-secondary/10"
+              className="h-10 w-10 rounded-full border border-border/40 bg-secondary/5 text-foreground hover:bg-secondary/60"
               onClick={() => setLicenseCount((n) => n + 1)}
             >
               <Plus className="h-4 w-4 mx-auto" />
@@ -274,7 +264,7 @@ const AdminCompanyDetailPage = () => {
           >
             {saveMutation.isPending ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <VocifySpinner size={16} tone="onFill" />
                 Saving…
               </>
             ) : (
@@ -318,7 +308,7 @@ const AdminCompanyDetailPage = () => {
           >
             {reprocess?.running ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <VocifySpinner size={16} tone="onFill" />
                 Reprocessing…
               </>
             ) : (
@@ -390,22 +380,12 @@ const AdminCompanyDetailPage = () => {
               <>
                 <p className={THEME_TOKENS.typography.capsLabel}>Role</p>
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-                    {INVITE_ROLES.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setInviteRole(option.value)}
-                        className={`rounded-full px-4 h-8 text-xs font-medium transition-colors ${
-                          inviteRole === option.value
-                            ? "bg-beige text-cream"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
+                  <Segmented<"member" | "admin">
+                    value={inviteRole}
+                    onValueChange={setInviteRole}
+                    options={INVITE_ROLES}
+                    aria-label="Invite role"
+                  />
                   <Button
                     type="submit"
                     disabled={inviteMutation.isPending}
@@ -474,25 +454,15 @@ const AdminCompanyDetailPage = () => {
                     </Button>
                   </div>
                 </div>
-                <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-                  {ROLE_OPTIONS.map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      disabled={roleMutation.isPending}
-                      onClick={() => {
-                        if (option !== role) roleMutation.mutate({ memberId, role: option });
-                      }}
-                      className={`rounded-full px-3 h-7 text-[11px] font-medium capitalize transition-colors ${
-                        role === option
-                          ? "bg-beige text-cream"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
+                <Segmented<"owner" | "admin" | "member">
+                  value={role as "owner" | "admin" | "member"}
+                  onValueChange={(newRole) => {
+                    if (newRole !== role) roleMutation.mutate({ memberId, role: newRole });
+                  }}
+                  options={ROLE_OPTIONS.map((opt) => ({ value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) }))}
+                  aria-label="Member role"
+                  className={roleMutation.isPending ? "opacity-50" : ""}
+                />
               </div>
             );
           })}

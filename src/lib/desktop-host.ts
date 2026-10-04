@@ -1,5 +1,8 @@
-/** macOS Vocify.app WKWebView — injected via desktop/macos bridge.js */
+/** The Vocify Mac app's WKWebView bridge, injected by the native shell's bridge.js. */
 export type DesktopPermissionStatus = "authorized" | "denied" | "never_requested";
+
+/** `label` is null when the shortcut is off. */
+export type RecordShortcutState = { label: string | null; defaultLabel: string };
 
 export type VocifyDesktopBridge = {
   platform: "darwin";
@@ -14,9 +17,15 @@ export type VocifyDesktopBridge = {
       platform: string;
       microphone: DesktopPermissionStatus;
       systemAudio: DesktopPermissionStatus;
+      signing?: "adhoc" | "signed";
+      signingAuthority?: string;
+      systemAudioError?: string;
     }>;
     request(type: "microphone" | "systemAudio"): Promise<unknown>;
     open(type: "microphone" | "systemAudio"): Promise<void>;
+    guide?(type: "microphone" | "systemAudio"): Promise<unknown>;
+    appInfo?(): Promise<{ name?: string; bundleId?: string } | null>;
+    onChanged?(cb: () => void): () => void;
   };
   shell: {
     setState(state: Record<string, unknown>): void;
@@ -26,7 +35,13 @@ export type VocifyDesktopBridge = {
     openExternal(url: string): Promise<{ ok?: boolean }>;
     command(name: string): void;
     onCommand(cb: (name: string) => void): () => void;
+    /** Live help events for the Mac's log (written only while its test switch is on). */
+    log?(name: string, details?: Record<string, unknown>): void;
     onOverlayState?(cb: (state: Record<string, unknown>) => void): () => void;
+    /** The call type picked in the island while recording ({ key: null }: Vocify decides). */
+    onCallType?(cb: (payload: { key: string | null }) => void): () => void;
+    /** A choice made in the island's post-call card: { type, ...details }. */
+    onPostCallAction?(cb: (action: { type: string; [key: string]: unknown }) => void): () => void;
   };
   saas: {
     request(payload: Record<string, unknown>): Promise<{
@@ -36,7 +51,49 @@ export type VocifyDesktopBridge = {
       error?: string;
     }>;
   };
-  capture: {
+  /** CRM pages open in the rep's browsers. Missing in builds older than the call contact. */
+  crm?: {
+    pages(options?: { ask?: boolean }): Promise<{
+      urls: string[];
+      browsers: { name: string; bundleId: string; access: string }[];
+    }>;
+    openAutomationSettings(): Promise<unknown>;
+    /** The notch island detected a call with these CRM pages on screen. */
+    onCallPages(cb: (payload: { urls: string[] }) => void): () => void;
+    /** The detected call ended (the call app let go of the mic). */
+    onCallEnded?(cb: () => void): () => void;
+    /** Where the detected call happens; null when it can't be told. */
+    onCallSource?(cb: (source: { name: string; kind: "call" | "meeting" | null } | null) => void): () => void;
+  };
+  /** The global record shortcut. Missing in older builds. */
+  shortcut?: {
+    get(): Promise<RecordShortcutState>;
+    set(combo: { code: string; meta: boolean; alt: boolean; ctrl: boolean; shift: boolean }): Promise<
+      RecordShortcutState & { ok: boolean; reason?: "invalid" | "taken" }
+    >;
+    clear(): Promise<RecordShortcutState>;
+  };
+  /**
+   * The Mac records the call itself: mic, call audio and transcription socket. The page gets
+   * copies of the transcript (a MeetingTranscript) and levels. Missing in older builds.
+   */
+  recorder?: {
+    /** `ticket` is sent first on every connection (the live service requires it). */
+    start(options: { url: string; ticket?: string }): Promise<{ ok: boolean; reason?: string }>;
+    pause(paused: boolean): Promise<unknown>;
+    stop(): Promise<{ transcript: unknown } | null>;
+    onTranscript(cb: (transcript: unknown) => void): () => void;
+    onLevels(cb: (levels: { you: number; them: number }) => void): () => void;
+    onWarning(cb: (payload: { text: string | null }) => void): () => void;
+  };
+  /** Meeting drafts on disk. Missing in builds older than local recovery. */
+  drafts?: {
+    save(draft: object): Promise<{ ok: boolean } | null>;
+    list(): Promise<unknown[] | null>;
+    remove(id: string): Promise<unknown>;
+  };
+  /** Only the first-version host (desktop/macos, VocifyHost) has these. */
+  capture?: {
     begin(payload: Record<string, unknown>): Promise<unknown>;
     append(payload: Record<string, unknown>): Promise<unknown>;
     channelAbsent(payload: Record<string, unknown>): Promise<unknown>;
@@ -61,7 +118,8 @@ export function getDesktopBridge(): VocifyDesktopBridge | null {
   return isDesktopHost() ? window.vocifyDesktop! : null;
 }
 
-export const DESKTOP_SHELL_EVENTS = {
-  listen: "vocify-desktop:listen",
-  stop: "vocify-desktop:stop",
-} as const;
+/** A memo changed outside its page (e.g. approved from the island): its page reloads it. */
+export const MEMO_CHANGED_EVENT = "vocify:memo-changed";
+
+/** Opens transcript search on the meeting screen (e.g. from the floating pill). */
+export const TRANSCRIPT_SEARCH_EVENT = "vocify:transcript-search";

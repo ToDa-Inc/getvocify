@@ -85,11 +85,20 @@ ended_abruptly is true when the conversation stops in the middle, without a good
 next step: the line drops, the audio fails, the recording cuts, or the prospect hangs up mid-sentence.
 false when they said goodbye, agreed something, or the prospect clearly ended it ("no me interesa").
 
+## Playbook
+
+When the user message has `playbooks` (the company's types of sales conversation, each a key with
+what it is), say which one this conversation is in `playbook`: the key that fits why the call
+happened and what it was trying to achieve, read together with call_type. "internal" when no
+customer or prospect takes part. "unknown" when none clearly fits, or when there was no real
+conversation to tell (no_conversation, bad_moment, gatekeeper, wrong_person, dictated_note). Do
+not guess between two that fit equally: "unknown". Without `playbooks`, leave playbook out.
+
 ## Output
 
 Return JSON only:
 {"call_type": "...", "call_type_reason": "...", "phase_reached": "...",
- "reached_conversation": true, "ended_abruptly": false,
+ "reached_conversation": true, "ended_abruptly": false, "playbook": "...",
  "rep_turns": [list every turn number the rep said; ranges like "12-18" are allowed],
  "other_turns": [turn numbers of third parties, usually empty]}
 Every turn not in rep_turns or other_turns is the prospect's. List ALL the rep's turns, not a sample.
