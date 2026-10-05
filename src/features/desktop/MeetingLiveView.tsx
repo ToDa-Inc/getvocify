@@ -59,7 +59,7 @@ export function MeetingLiveView() {
     const card = assist.active;
     getDesktopBridge()?.shell.setState({
       assist: card
-        ? { label: card.label, kind: card.kind, stage: card.stage, bridge: card.bridge, sayThis: card.sayThis, thenAsk: card.thenAsk }
+        ? { label: card.label, kind: card.kind, stage: card.stage, bridge: card.bridge, sayThis: card.sayThis }
         : null,
     });
   }, [assist.active]);

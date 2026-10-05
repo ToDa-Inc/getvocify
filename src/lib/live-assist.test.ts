@@ -7,6 +7,7 @@ import {
   draftCard,
   nextStep,
   objectionCard,
+  PAUSE_MS,
   prospectSilent,
   streamedDraft,
   turnCheck,
@@ -86,7 +87,6 @@ describe("objectionCard", () => {
     const card = objectionCard(suggestion(), 1);
     assert.equal(card?.label, "Price");
     assert.equal(card?.sayThis, "¿Comparado con qué os parece caro?");
-    assert.equal(card?.thenAsk, "¿Qué os cuesta hoy hacerlo a mano?");
   });
 
   it("shows nothing when there is no objection or nothing to say", () => {
@@ -164,6 +164,12 @@ describe("turnCheck", () => {
   });
 });
 
+describe("PAUSE_MS", () => {
+  it("their side quiet for 0.3 s is enough to check: the classifier guards a mid-sentence breath", () => {
+    assert.equal(PAUSE_MS, 300);
+  });
+});
+
 describe("prospectSilent", () => {
   it("their side is silent below speech level, never on a quiet word", () => {
     assert.equal(prospectSilent(0), true);
@@ -204,6 +210,22 @@ describe("answerCard", () => {
     assert.equal(shown.bridge, draft.bridge);
     assert.equal(shown.stage, "ready");
     assert.equal(shown.sayThis, "¿Comparado con qué os parece caro?");
+  });
+
+  it("no answer (failed, silent or too slow) never takes the card away: the filler stays, the dots stop", () => {
+    const draft = draftCard("trust", "me da miedo que la IA escriba mal", 100);
+    const shown = answerCard(draft, null)!;
+    assert.equal(shown.id, draft.id);
+    assert.equal(shown.label, "Trust");
+    assert.equal(shown.bridge, draft.bridge);
+    assert.equal(shown.stage, "ready");
+    assert.equal(shown.sayThis, "");
+    assert.equal(answerCard(null, null), null);
+  });
+
+  it("the card is the label, the filler line and one line: nothing else to read", () => {
+    const card = objectionCard(suggestion(), 900, "me parece caro")!;
+    assert.deepEqual(Object.keys(card).sort(), ["at", "bridge", "id", "kind", "label", "sayThis", "source", "stage"]);
   });
 
   it("with no card on screen yet, the answer shows as it came", () => {

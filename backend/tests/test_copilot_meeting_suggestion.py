@@ -37,9 +37,17 @@ def test_everything_else_stays_silent():
         assert result["is_objection"] is False and result["say_this"] == "", raw
 
 
-def test_long_follow_up_is_dropped_but_the_line_stays():
-    result = meeting_suggestion(_raw(next_question="y" * 170))
-    assert result["is_objection"] is True and result["next_question"] == ""
+def test_the_card_is_one_line_and_nothing_else():
+    # A follow-up, "why it works" or "don't say" pulls the rep's eyes off the call: never shown.
+    result = meeting_suggestion(_raw())
+    assert result["say_this"] == "¿Caro comparado con qué?"
+    assert result["next_question"] == "" and result["why_it_works"] == "" and result["dont_say"] == ""
+
+
+def test_a_desktop_phone_call_gets_the_same_live_help_as_a_meeting():
+    # The Mac sends "softphone" for a call from a dialer: one line, never erased.
+    assert system_prompt_for("softphone") is MEETING_SYSTEM_PROMPT
+    assert _suggestion_for_mode(_raw(), "softphone") == meeting_suggestion(_raw())
 
 
 def test_phone_calls_keep_the_existing_coach():

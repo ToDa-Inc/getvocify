@@ -30,10 +30,8 @@ export type AssistCard = {
   bridge: string;
   /** Short tag such as "Price" or a competitor name. */
   label: string;
+  /** The one line to say; empty when no answer came (the filler line stays). */
   sayThis: string;
-  thenAsk: string;
-  why: string;
-  avoid: string;
   at: number;
 };
 
@@ -126,9 +124,6 @@ export function draftCard(type: string, latestTurn: string, at: number): AssistC
     bridge: bridgeLine(type, latestTurn),
     label: OBJECTION_LABEL[type] ?? "Objection",
     sayThis: "",
-    thenAsk: "",
-    why: "",
-    avoid: "",
     at,
   };
 }
@@ -138,7 +133,7 @@ export function draftCard(type: string, latestTurn: string, at: number): AssistC
  * classifier says *whether* the thought is complete (a breath mid-sentence is not a turn end).
  * A real pause in their words is the backstop, and the only signal when no audio can be read.
  */
-export const PAUSE_MS = 400;
+export const PAUSE_MS = 300;
 /** After the classifier says "still going": this much more quiet and the turn is over. */
 export const BACKSTOP_MS = 2000;
 
@@ -171,9 +166,13 @@ export function nextStep(reading: TurnReading | null, final: boolean): TurnStep 
   return type && type !== "none" && type in OBJECTION_LABEL ? { do: "answer", type } : { do: "skip" };
 }
 
-/** The answer lands in the card already on screen and keeps its place, label, filler line and clock. */
-export function answerCard(draft: AssistCard | null, answer: AssistCard): AssistCard {
+/**
+ * The answer lands in the card already on screen and keeps its place, label, filler line and clock.
+ * No answer (failed, silent or too slow) never takes the card away: the filler stays, the dots stop.
+ */
+export function answerCard(draft: AssistCard | null, answer: AssistCard | null): AssistCard | null {
   if (!draft) return answer;
+  if (!answer) return { ...draft, stage: "ready" };
   return { ...answer, id: draft.id, at: draft.at, kind: draft.kind, label: draft.label, bridge: draft.bridge };
 }
 
@@ -227,9 +226,6 @@ export function objectionCard(suggestion: ObjectionSuggestion | null, at: number
     bridge: bridgeLine(type, latestTurn),
     label: OBJECTION_LABEL[type] ?? "Objection",
     sayThis,
-    thenAsk: suggestion.next_question?.trim() ?? "",
-    why: suggestion.why_it_works?.trim() ?? "",
-    avoid: suggestion.dont_say?.trim() ?? "",
     at,
   };
 }

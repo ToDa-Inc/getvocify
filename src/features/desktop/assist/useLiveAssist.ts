@@ -18,6 +18,9 @@ import type { MeetingDisplayTurn } from "@/lib/meeting-transcript";
 import { getDesktopBridge } from "@/lib/desktop-host";
 import { ASSIST_SOURCES, readTurn } from "./sources";
 
+/** An answer later than this is no use: the rep has said the filler and moved on. The card stays. */
+const ANSWER_MS = 5000;
+
 /** One line in the Mac's live-help log (a test switch on the Mac turns it on). */
 function note(name: string, details: Record<string, unknown> = {}) {
   getDesktopBridge()?.shell.log?.(name, details);
@@ -118,23 +121,31 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       present(card);
     };
     const asked = { ...ctx, ...(type && { objectionType: type }) };
-    void Promise.all(ASSIST_SOURCES.map((source) => source.request(asked, controller.signal, onDraft))).then((results) => {
-      if (controller.signal.aborted) return;
+    let done = false;
+    const finish = (results: (AssistCard | null)[], late = false) => {
+      if (done || controller.signal.aborted) return;
+      done = true;
+      window.clearTimeout(limit);
       setThinking(false);
       const now = Date.now();
-      const card = results.find((result) => result && (draft || !coolingDown(result, lastShownRef.current, now)));
+      const card = results.find((result) => result && (draft || !coolingDown(result, lastShownRef.current, now))) ?? null;
       if (!card) {
         const cooling = results.find(Boolean);
-        note(cooling ? "answer-cooling" : "silent", { label: cooling?.label ?? null, withdrawn: Boolean(draft), ms: now - since });
-        // The answer turned out not to be worth showing: withdraw the filler quietly.
-        if (draft) setActive((current) => (current?.id === draft!.id ? null : current));
-        return;
+        note(late ? "answer-late" : cooling ? "answer-cooling" : "silent", { label: draft?.label ?? cooling?.label ?? null, ms: now - since });
       }
+      // No answer never takes a card away: its label and filler line stay, the dots stop.
       const shown = answerCard(draft, card);
-      lastShownRef.current[cooldownKey(shown)] = shown.at;
-      note("answer", { label: shown.label, sayThis: shown.sayThis, thenAsk: shown.thenAsk, ms: now - since });
+      if (!shown) return;
+      if (card) {
+        lastShownRef.current[cooldownKey(shown)] = shown.at;
+        note("answer", { label: shown.label, sayThis: shown.sayThis, ms: now - since });
+      }
       present(shown);
-    });
+    };
+    const limit = window.setTimeout(() => finish([], true), ANSWER_MS);
+    void Promise.all(ASSIST_SOURCES.map((source) => source.request(asked, controller.signal, onDraft))).then((results) =>
+      finish(results),
+    );
   };
 
   /** One turn check on their words. final: they have been quiet long enough that "still going" means done. */
