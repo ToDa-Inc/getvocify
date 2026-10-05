@@ -1,21 +1,33 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Unplug } from "lucide-react";
+import { Bot, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { IconAction } from "@/components/ui/icon-action";
 import { Switch } from "@/components/ui/switch";
+import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { calendarApi, calendarKeys, type CalendarProvider, type CalendarState } from "@/lib/api/calendar";
+import googleCalendarLogo from "@/assets/brands/google-calendar.svg";
+import outlookLogo from "@/assets/brands/outlook.svg";
 
-const PROVIDER_NAME: Record<CalendarProvider, string> = {
-  google: "Google Calendar",
-  microsoft: "Outlook",
+const PROVIDER: Record<CalendarProvider, { name: string; logo: string }> = {
+  google: { name: "Google Calendar", logo: googleCalendarLogo },
+  microsoft: { name: "Outlook", logo: outlookLogo },
 };
+
+/** The provider's own logo on the same tile the CRM list uses. */
+function ProviderLogo({ provider }: { provider: CalendarProvider }) {
+  return (
+    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border/50 bg-card p-2.5 shadow-xs">
+      <img src={PROVIDER[provider].logo} alt="" className="h-full w-full object-contain" />
+    </div>
+  );
+}
 
 const PLATFORM_PROVIDER: Record<string, CalendarProvider> = {
   google_calendar: "google",
@@ -36,7 +48,7 @@ export const CalendarSettings = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const enabled = Boolean(user?.company?.features?.includes("RECALL_BOT_ENABLED"));
 
-  const { data } = useQuery({ queryKey: calendarKeys.state, queryFn: calendarApi.get, enabled });
+  const { data, isLoading } = useQuery({ queryKey: calendarKeys.state, queryFn: calendarApi.get, enabled });
 
   useEffect(() => {
     const result = searchParams.get("calendar");
@@ -97,61 +109,77 @@ export const CalendarSettings = () => {
 
   const connection = data?.connection ?? null;
   const providers = data?.providers ?? [];
-  if (!enabled || !data) return null;
+  if (!enabled) return null;
+  if (isLoading || !data) {
+    return (
+      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} ${THEME_TOKENS.interaction.pageLoad}`}>
+        <VocifyLoader size="md" />
+      </div>
+    );
+  }
 
   const connectedProvider = connection ? PLATFORM_PROVIDER[connection.platform] : null;
-
-  const connectButton = (provider: CalendarProvider, label: string) => (
-    <Button
-      size="sm"
-      className="rounded-full bg-beige text-cream h-9 px-4"
-      disabled={redirecting !== null}
-      onClick={() => connect(provider)}
-    >
-      {label}
-    </Button>
-  );
+  const lost = connection?.status === "disconnected";
 
   return (
-    <div id="calendar" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-5 p-6 md:p-8`}>
+    <div id="calendar" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-6 p-6 md:p-8`}>
       <div>
         <h3 className={THEME_TOKENS.typography.sectionTitle}>{t.product.calendarTitle}</h3>
-        <p className="text-xs text-muted-foreground mt-1">{t.product.calendarHint}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{t.product.calendarHint}</p>
       </div>
 
       {connection && connectedProvider ? (
-        <div className="space-y-4">
-          <div className="flex items-center gap-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary/5">
-              <CalendarDays className="h-5 w-5 text-muted-foreground" aria-hidden />
-            </div>
+        <div className="overflow-hidden rounded-xl border border-border/60">
+          <div className="flex items-center gap-4 px-4 py-4">
+            <ProviderLogo provider={connectedProvider} />
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-foreground">{PROVIDER_NAME[connectedProvider]}</p>
-              <p className="text-xs mt-0.5 truncate">
-                {connection.status === "disconnected" ? (
-                  <span className="text-warning">{t.product.calendarDisconnected}</span>
-                ) : connection.email ? (
-                  <span className="text-muted-foreground">{connection.email}</span>
+              <div className="flex items-center gap-2">
+                <p className="text-sm text-foreground">{PROVIDER[connectedProvider].name}</p>
+                {connection.status === "connected" ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden />
+                    {t.product.calendarStatusConnected}
+                  </span>
+                ) : lost ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
+                    <span className="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden />
+                    {t.product.calendarStatusDisconnected}
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-0.5 truncate text-[13px] text-muted-foreground">
+                {connection.email ? (
+                  connection.email
+                ) : lost ? (
+                  t.product.calendarDisconnected
                 ) : (
-                  <span className="text-muted-foreground">{t.product.calendarConnecting}</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <VocifySpinner />
+                    {t.product.calendarConnecting}
+                  </span>
                 )}
               </p>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
-              {connection.status === "disconnected" &&
-                providers.includes(connectedProvider) &&
-                connectButton(connectedProvider, t.product.calendarReconnect)}
+            <div className="flex shrink-0 items-center gap-1">
+              {lost && providers.includes(connectedProvider) ? (
+                <Button size="sm" disabled={redirecting !== null} onClick={() => connect(connectedProvider)}>
+                  {t.product.calendarReconnect}
+                </Button>
+              ) : null}
               <IconAction label={t.product.calendarDisconnect} tone="danger" onClick={() => setConfirmOpen(true)}>
-                <Unplug className="h-4 w-4" />
+                <Unplug className="h-4 w-4" strokeWidth={1.5} />
               </IconAction>
             </div>
           </div>
 
-          <label className="flex items-center justify-between gap-4 border-t border-border/60 pt-4 text-sm">
-            <span>{t.product.calendarAutoJoin}</span>
+          <label className="flex cursor-pointer items-center gap-4 border-t border-border/60 bg-secondary/[0.03] px-4 py-3.5">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center" aria-hidden>
+              <Bot className="h-5 w-5 text-beige" strokeWidth={1.5} />
+            </span>
+            <span className="min-w-0 flex-1 text-sm text-foreground">{t.product.calendarAutoJoin}</span>
             <Switch
               checked={connection.auto_join}
-              disabled={connection.status === "disconnected"}
+              disabled={lost}
               onCheckedChange={(checked) => autoJoin.mutate(checked)}
             />
           </label>
@@ -162,11 +190,12 @@ export const CalendarSettings = () => {
         <div className="divide-y divide-border/40">
           {providers.map((provider) => (
             <div key={provider} className="flex items-center gap-4 py-4 first:pt-0 last:pb-0">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary/5">
-                <CalendarDays className="h-5 w-5 text-muted-foreground" aria-hidden />
-              </div>
-              <p className="min-w-0 flex-1 text-sm text-foreground">{PROVIDER_NAME[provider]}</p>
-              {connectButton(provider, t.product.calendarConnect)}
+              <ProviderLogo provider={provider} />
+              <p className="min-w-0 flex-1 text-sm text-foreground">{PROVIDER[provider].name}</p>
+              <Button size="sm" disabled={redirecting !== null} onClick={() => connect(provider)}>
+                {redirecting === provider ? <VocifySpinner tone="onFill" /> : null}
+                {t.product.calendarConnect}
+              </Button>
             </div>
           ))}
         </div>
