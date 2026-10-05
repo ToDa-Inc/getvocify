@@ -186,3 +186,11 @@ def test_a_failing_pinned_provider_never_costs_the_rep_the_line(monkeypatch):
     result = next(event for event in events if event["type"] == "result")
     assert result["suggestion"]["say_this"] == "En la demo te digo el precio exacto."
     assert "provider" in sent[0] and "provider" not in sent[1]
+
+
+def test_a_product_question_is_answered_only_from_what_the_offer_states():
+    from app.services.copilot.prompts import MEETING_SYSTEM_PROMPT
+
+    # 2026-10-05 live test: an offer about "llamadas, visitas… por voz" made the model say mobile and
+    # Windows work, 6 of 6 times. Neither is written anywhere: the rep must offer to confirm.
+    assert "never infer it from a general description" in MEETING_SYSTEM_PROMPT
