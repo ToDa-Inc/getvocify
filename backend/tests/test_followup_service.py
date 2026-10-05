@@ -85,9 +85,17 @@ class FakeClient:
         return FakeQuery(self.tables[name])
 
 
+_BODY_90 = (
+    "Hola Marina,\n\nTe paso el caso de logística que me pediste y la propuesta con los precios por comercial que "
+    "vimos hoy en la llamada, para que lo reviséis con calma con tu director comercial. En el caso verás cómo el equipo "
+    "de Barcelona dejó de rellenar el CRM a mano y cuánto tiempo recuperó cada comercial al día.\n\nEl jueves a las "
+    "once lo repasamos juntos y resolvemos las dudas sobre la integración.\n\nUn saludo,\nLucía"
+)
+
+
 class FakeLLM:
     def __init__(self, payload=None, error=None, log=None):
-        self.payload = payload or {"subject": "Caso de logística", "body": "Hola Marina, te paso el caso.", "language": "es"}
+        self.payload = payload or {"subject": "Caso de logística", "body": _BODY_90, "language": "es"}
         self.error, self.calls, self.log = error, 0, log if log is not None else []
 
     async def chat_json(self, messages, **kwargs):

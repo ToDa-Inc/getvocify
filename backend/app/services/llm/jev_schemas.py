@@ -27,6 +27,36 @@ PAIN_CONFIRMED = {
 
 INTELLIGENCE_QUESTIONS = [MEETING_AGREED, PAIN_CONFIRMED]
 
+# Next actions after a call (settings.JEV_DECISIONS_ENABLED): the wording measured on 151 labeled
+# calls. "unknown" (low confidence) keeps the C04 verdict.
+FOLLOWUP_EMAIL_NEEDED = {
+    "question": "followup_email",
+    "allowed": ["yes", "no"],
+    "on_missing": "unknown",
+    "instructions": "Must the rep send an email after this call? Yes when the rep promised to send something "
+    "(information, a proposal, success cases, prices, a calendar invite) or the prospect asked for it "
+    "('mándame un correo', 'envíame la info').",
+    "criteria": {"yes": "an email/invite was promised or asked for", "no": "nothing to send"},
+}
+CALLBACK_NEEDED = {
+    "question": "callback",
+    "allowed": ["yes", "no"],
+    "on_missing": "unknown",
+    "instructions": "Will or should someone call again? Yes when the prospect asked to be called ('llámame luego', "
+    "'en enero') or the rep said they would call. No when a meeting was booked, the prospect said a final no or "
+    "asked not to be called, they are not the right person, or nobody mentioned calling again.",
+    "criteria": {"yes": "a callback was asked for or promised", "no": "no callback"},
+}
+MEETING_BOOKED = {
+    "question": "meeting_agreed",
+    "allowed": ["yes", "no"],
+    "on_missing": "unknown",
+    "instructions": "Was a meeting (demo, visit, video call) at an agreed day accepted by both sides in this call? "
+    "A callback is not a meeting.",
+    "criteria": {"yes": "both sides accepted a meeting", "no": "no meeting agreed"},
+}
+DECISION_QUESTIONS = [FOLLOWUP_EMAIL_NEEDED, CALLBACK_NEEDED, MEETING_BOOKED]
+
 
 def evidence_state(transcript: str, excerpts: list[str], *, limit: int = MAX_STATE_CHARS) -> dict:
     """Keep cited excerpts even when they sit past the first 16k characters."""

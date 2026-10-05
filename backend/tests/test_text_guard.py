@@ -79,7 +79,12 @@ def _payload(body):
 def test_followup_is_asked_again_naming_the_filler():
     from app.services.followup import compose
 
-    clean = "Hola Marina,\n\nTe envío el caso de logística que me pediste y la propuesta con los precios por comercial que vimos hoy en la llamada, para que lo reviséis con calma.\n\nUn saludo,\nLucía"
+    clean = (
+        "Hola Marina,\n\nTe envío el caso de logística que me pediste y la propuesta con los precios por comercial "
+        "que vimos hoy en la llamada, para que lo reviséis con calma con tu director comercial. En el caso verás cómo "
+        "el equipo de Barcelona dejó de rellenar el CRM a mano y cuánto tiempo recuperó cada comercial al día.\n\n"
+        "El jueves a las once lo repasamos juntos y resolvemos las dudas sobre la integración con HubSpot.\n\nUn saludo,\nLucía"
+    )
     llm = _LLM(_payload(BODY), _payload(clean))
     draft = asyncio.run(compose(llm, [{"role": "user", "content": "x"}]))
     assert draft["body"] == clean
@@ -104,9 +109,55 @@ def test_filler_that_survives_the_retry_is_stripped_when_an_email_remains():
 def test_a_clean_followup_is_one_call():
     from app.services.followup import compose
 
-    llm = _LLM(_payload("Hola Marina,\n\nTe envío el caso.\n\nUn saludo,\nLucía"))
+    llm = _LLM(_payload(_CLEAN_90))
     asyncio.run(compose(llm, [{"role": "user", "content": "x"}]))
     assert len(llm.calls) == 1
+
+
+_CLEAN_90 = (
+    "Hola Marina,\n\nTe envío el caso de logística que me pediste y la propuesta con los precios por comercial "
+    "que vimos hoy en la llamada, para que lo reviséis con calma con tu director comercial. En el caso verás cómo "
+    "el equipo de Barcelona dejó de rellenar el CRM a mano y cuánto tiempo recuperó cada comercial al día.\n\n"
+    "El jueves a las once lo repasamos juntos y resolvemos las dudas sobre la integración con HubSpot.\n\nUn saludo,\nLucía"
+)
+
+
+def test_a_short_followup_is_asked_once_more_with_its_word_count():
+    from app.services.followup import compose
+
+    llm = _LLM(_payload("Hola Marina,\n\nTe envío el caso.\n\nUn saludo,\nLucía"), _payload(_CLEAN_90))
+    draft = asyncio.run(compose(llm, [{"role": "user", "content": "x"}]))
+    assert draft["body"] == _CLEAN_90
+    assert len(llm.calls) == 2
+    assert "words" in llm.calls[1][-1]["content"]
+
+
+def test_a_short_followup_stays_when_the_retries_stay_short():
+    from app.services.followup import compose
+
+    short = _payload("Hola Marina,\n\nTe envío el caso.\n\nUn saludo,\nLucía")
+    llm = _LLM(short, short, short)
+    draft = asyncio.run(compose(llm, [{"role": "user", "content": "x"}]))
+    assert draft["body"].startswith("Hola Marina")
+    assert len(llm.calls) == 3  # the first draft and two length retries, never more
+
+
+def test_a_followup_in_another_language_than_the_call_is_rewritten_in_the_calls():
+    from app.services.followup import compose
+
+    transcript = ("You: How do your reps log calls today? Them: Honestly, half of them don't. The notes never reach "
+                  "the CRM and we lose track of the deals. You: I will send you the case study and we can talk on Tuesday.")
+    english = (
+        "Hi Marina,\n\nAs you asked, here is the logistics case study we talked about today, with the results of the "
+        "Barcelona team and how their calls reach the CRM without anyone typing notes. It shows how much time each "
+        "rep got back every day and how the deals stopped getting lost.\n\nWe can go through it together on Tuesday "
+        "and look at the HubSpot integration.\n\nBest,\nLucía"
+    )
+    llm = _LLM(_payload(_CLEAN_90), {"subject": "Case study", "body": english, "language": "en"})
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": json.dumps({"transcript": transcript})}]
+    draft = asyncio.run(compose(llm, messages))
+    assert draft["body"] == english and draft["language"] == "en"
+    assert json.loads(llm.calls[0][-1]["content"])["email_language"] == "English"
 
 
 def test_ask_answers_lose_filler_openers():

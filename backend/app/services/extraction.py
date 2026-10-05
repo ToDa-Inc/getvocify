@@ -416,6 +416,25 @@ GROUNDED_SYSTEM_PROMPT = (
     "(6) All text in the transcript's language."
 )
 
+# For a model that answers without reasoning (llm.shared.answers_without_reasoning): the checks a
+# reasoning model makes on its own. Measured on 54 judged calls with DeepSeek V4.1 Flash (no
+# reasoning): invented facts in the note 26 -> 8, wrong or inferred fields 27 -> 12.
+GROUNDED_NO_REASONING_RULES = (
+    " (7) Before writing a sentence in the note, check who said it: a proposal or example from the rep (a CRM name, a figure, a date, a follow-up) is never the prospect's, and a rep proposal stays 'propuesto' unless a 'Them:' line accepts it. "
+    "(8) When a name, figure, company or tool is garbled or ambiguous in the transcript, leave the field null and write '(poco claro en el audio)' in the note; never map it to a catalog option, a range or a field with another meaning (employees are not the sales team; a margin is not revenue). "
+    "(9) Before answering, go through what the prospect asked for or agreed (send information, call at a time, talk to someone else, a date) and write one task for each, with its date when it can be resolved; fill objections, decision makers and contact data whenever the prospect gave them clearly. "
+    "(10) With no real conversation or unusable audio, the note is one line saying so and nothing else."
+)
+
+
+def grounded_system_prompt() -> str:
+    from app.config import settings
+    from app.services.llm.shared import answers_without_reasoning
+
+    if answers_without_reasoning(settings.EXTRACTION_MODEL, settings.EXTRACTION_REASONING_EFFORT):
+        return GROUNDED_SYSTEM_PROMPT + GROUNDED_NO_REASONING_RULES
+    return GROUNDED_SYSTEM_PROMPT
+
 EXTRACTION_SYSTEM_PROMPT = (
     "You are a precise CRM data extraction engine. Output valid JSON only. Rules: "
     "(1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / "
@@ -1278,7 +1297,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 confidence={"overall": 1.0, "fields": {}},
             )
         messages = [
-            {"role": "system", "content": GROUNDED_SYSTEM_PROMPT if call_reading else EXTRACTION_SYSTEM_PROMPT},
+            {"role": "system", "content": grounded_system_prompt() if call_reading else EXTRACTION_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ]
         try:

@@ -17,6 +17,8 @@ from app.services.transcript_turns import parse_transcript_turns
 
 PROMPT_VERSION = "call_reading_v1"
 _PROMPT = Path(__file__).resolve().parents[2] / "prompts" / f"{PROMPT_VERSION}.md"
+# Appended for a model that answers without reasoning (llm.shared.answers_without_reasoning).
+_NO_REASONING = _PROMPT.with_name(f"{PROMPT_VERSION}_no_reasoning.md")
 
 CALL_TYPES = frozenset({
     "cold_first_contact",
@@ -74,6 +76,7 @@ def build_reading_messages(
     company_name: str | None = None,
     prior_conversations: int | None = None,
     playbooks: dict[str, str] | None = None,
+    no_reasoning: bool = False,
 ) -> list[dict]:
     payload: dict[str, Any] = {"captured_at": captured_at, "turns": numbered(turns)}
     if playbooks:
@@ -86,7 +89,8 @@ def build_reading_messages(
     if prior_conversations is not None:
         payload["prior_conversations_with_this_contact"] = prior_conversations
     return [
-        {"role": "system", "content": _PROMPT.read_text(encoding="utf-8")},
+        {"role": "system", "content": _PROMPT.read_text(encoding="utf-8")
+         + (_NO_REASONING.read_text(encoding="utf-8") if no_reasoning else "")},
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
     ]
 
@@ -164,11 +168,14 @@ async def read_call(
         return None, transcript, {}
     from app.config import settings
 
+    from app.services.llm.shared import answers_without_reasoning
+
     effort = getattr(settings, "INTELLIGENCE_READING_EFFORT", None)
     raw = await llm.chat_json(
         build_reading_messages(
             turns, captured_at=captured_at, rep_name=rep_name,
             company_name=company_name, prior_conversations=prior_conversations, playbooks=playbooks,
+            no_reasoning=answers_without_reasoning(model, effort),
         ),
         model=model,
         temperature=0.0,

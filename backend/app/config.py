@@ -63,7 +63,8 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: Optional[str] = None
     # CRM note, field extraction, fill/update decisions, transcript repair.
     # Not used for live copilot (COPILOT_MODEL) or the STT engine.
-    EXTRACTION_MODEL: str = "google/gemini-3.5-flash-lite"
+    # DeepSeek V4.1 Flash on Together AI, without reasoning (see TOGETHER_* below).
+    EXTRACTION_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
     # Live call objection copilot (OpenRouter chat; abortable stream)
     # Note: gemini-3.6-flash has mandatory reasoning (~4s TTFT) — too slow for live coaching.
     # Gemini Live (3.1 Flash Live) is Google Live API only (not OpenRouter) and needs AI Studio key.
@@ -101,9 +102,9 @@ class Settings(BaseSettings):
     ASK_FALLBACK_MODEL: Optional[str] = "google/gemini-3.8-flash"
     # Cheap second pass after deterministic name repair. Not the CRM extractor.
     TRANSCRIPT_SANITIZE_LLM: bool = True
-    TRANSCRIPT_SANITIZE_MODEL: str = "google/gemini-3.5-flash-lite"
+    TRANSCRIPT_SANITIZE_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
     # After file STT, pick one of the user's selected languages. Lite is enough.
-    STT_LANGUAGE_DETECT_MODEL: str = "google/gemini-3.5-flash-lite"
+    STT_LANGUAGE_DETECT_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
 
     # Fast System One structured classification (CRM enums, language triage)
     USE_JEV_CLASSIFIER: bool = True
@@ -340,7 +341,7 @@ class Settings(BaseSettings):
     GOOGLE_CALENDAR_CLIENT_SECRET: Optional[str] = None
     MICROSOFT_CALENDAR_CLIENT_ID: Optional[str] = None
     MICROSOFT_CALENDAR_CLIENT_SECRET: Optional[str] = None
-    INTELLIGENCE_MODEL: str = "google/gemini-3.8-flash"
+    INTELLIGENCE_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
     # Output cap on every OpenRouter call (see providers/openrouter.py). A long call reading
     # (every rep turn listed) plus a v8 verdict stays well under it.
     LLM_MAX_OUTPUT_TOKENS: int = 16000
@@ -352,7 +353,20 @@ class Settings(BaseSettings):
     # default. A reasoning model left at its default makes the rep wait for the note.
     EXTRACTION_REASONING_EFFORT: Optional[str] = None
     # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
-    FOLLOWUP_MODEL: Optional[str] = "google/gemini-3.8-flash"
+    FOLLOWUP_MODEL: Optional[str] = "together/deepseek-ai/DeepSeek-V4.1-Flash"
+    FOLLOWUP_REASONING_EFFORT: Optional[str] = None
+
+    # Together AI (OpenAI-compatible). A model id "together/<id>" is served there instead of
+    # OpenRouter; with no reasoning effort set it answers without reasoning ("none"), the way it
+    # was measured (C04 151 calls, step 1 54 calls, F02). Together reports no cost: it is priced
+    # here (USD per million tokens, in/out) so memos.cost_breakdown stays complete.
+    TOGETHER_API_KEY: Optional[str] = None
+    TOGETHER_PRICES: dict[str, tuple[float, float]] = {"deepseek-ai/DeepSeek-V4.1-Flash": (0.30, 1.20)}
+    # When Together fails after its retries, the same model through OpenRouter answers instead.
+    TOGETHER_FALLBACKS: dict[str, str] = {"deepseek-ai/DeepSeek-V4.1-Flash": "deepseek/deepseek-v4.1-flash"}
+    # Jev (OpenRouter System One) decides follow-up email / callback / meeting on top of the C04
+    # verdict: 36 calls with a wrong next action vs 38 for the DeepSeek verdict alone (151 calls).
+    JEV_DECISIONS_ENABLED: bool = False
 
     CALLING_PROVIDER: str = "twilio"
     TELNYX_API_KEY: Optional[str] = None
