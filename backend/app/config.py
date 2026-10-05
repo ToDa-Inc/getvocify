@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     # Live help's reasoning effort. Empty means "minimal" (Gemini Flash-Lite refuses "none");
     # "none" for models that think before their first word even at "minimal" (GPT-6 Luna).
     COPILOT_REASONING_EFFORT: Optional[str] = None
+    # OpenRouter provider tried first for COPILOT_MODEL (e.g. "Cerebras"); the rest stay as fallback.
+    COPILOT_PROVIDER: Optional[str] = None
     # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
     CRM_COPILOT_MODEL: str = "google/gemini-3.8-flash"
     CRM_COPILOT_MAX_ROUNDS: int = 8

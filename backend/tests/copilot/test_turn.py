@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api import copilot as copilot_api
-from app.deps import get_membership, get_supabase
+from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
 from app.services.copilot import turn
 from app.services.copilot.prompts import build_user_prompt
@@ -84,6 +84,7 @@ def _client() -> TestClient:
     app = FastAPI()
     app.include_router(copilot_api.router)
     app.dependency_overrides[get_supabase] = lambda: object()
+    app.dependency_overrides[get_user_id] = lambda: "user-1"
     app.dependency_overrides[get_membership] = lambda: Membership(
         id="m-1", company_id="co-1", user_id="user-1", role="member", status="active",
     )
@@ -164,3 +165,18 @@ def test_a_goodbye_or_an_agreed_next_step_is_no_objection():
     # 2026-10-05 live test: "Vale, pues lo hablamos la semana que viene. Un saludo" showed a Timing card.
     assert "goodbye" in turn.OBJECTIONS["none"] and "next step" in turn.OBJECTIONS["none"]
     assert "pushback" in turn.OBJECTIONS["timing"].lower()
+
+
+def test_the_turn_check_needs_a_signed_in_rep_and_no_database_lookup(monkeypatch):
+    # Every pause runs it: a company lookup per check only adds a database round trip.
+    def no_lookup():
+        raise AssertionError("the turn check must not look up the company")
+
+    _answers(monkeypatch, {"turn": {"choice": "finished", "confidence": 0.9}, "objection": {"choice": "price", "confidence": 1}})
+    app = FastAPI()
+    app.include_router(copilot_api.router)
+    app.dependency_overrides[get_user_id] = lambda: "user-1"
+    app.dependency_overrides[get_membership] = no_lookup
+    app.dependency_overrides[get_supabase] = no_lookup
+    response = TestClient(app).post("/api/v1/copilot/turn", json={"transcript_window": "Them: caro", "latest_turn": "me parece caro"})
+    assert response.json() == {"finished": True, "objection": "price"}

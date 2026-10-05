@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from supabase import Client
 
 from app.api.briefs import _handoff_restricted_user_ids
-from app.deps import get_membership, get_supabase
+from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
 from app.services.copilot.contact_history import load_contact_history
 from app.services.copilot.context import live_assist_kind_from_call_mode, resolve_suggest_context
@@ -210,10 +210,11 @@ async def suggest_objection_handling(
 @router.post("/turn")
 async def check_turn(
     body: TurnRequest,
-    membership: Membership = Depends(get_membership),
+    user_id: str = Depends(get_user_id),
 ):
-    """About 0.3 s: has the prospect finished, and which objection is it. Nulls mean no classifier."""
-    del membership
+    """About 0.3 s: has the prospect finished, and which objection is it. Nulls mean no classifier.
+    A signed-in rep is enough: it runs on every pause, so it does no database lookup."""
+    del user_id
     if (body.sales_motion_key or "").strip() == INTERNAL_KEY:
         return {"finished": True, "objection": "none"}
     return await turn.read_turn(body.transcript_window, body.latest_turn)
