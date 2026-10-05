@@ -27,6 +27,7 @@ const objectionSource: AssistSource = {
           ...(context.contactId && { contact_id: context.contactId }),
           ...(context.typeKey && { sales_motion_key: context.typeKey }),
           ...(context.objectionType && { objection_type: context.objectionType }),
+          ...(context.filler && { filler: context.filler }),
         },
         (event) => {
           if (event.type === "restart") {

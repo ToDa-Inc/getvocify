@@ -4,6 +4,7 @@ import {
   addCard,
   answerCard,
   assistContext,
+  bridgeLine,
   draftCard,
   nextStep,
   objectionCard,
@@ -161,6 +162,13 @@ describe("turnCheck", () => {
   it("with no audio to read, a settled sentence is checked at once and words still settling after a pause", () => {
     assert.deepEqual(turnCheck({ settled: true, paused: null }), { afterMs: 300, final: true });
     assert.deepEqual(turnCheck({ settled: false, paused: null }), { afterMs: 2500, final: true });
+  });
+});
+
+describe("bridgeLine", () => {
+  it("a question's filler promises nothing: the answer may be \"I'll confirm it\"", () => {
+    assert.equal(bridgeLine("question", "¿Y esto funciona también desde el móvil?"), "Mira…");
+    assert.equal(bridgeLine("question", "Does this work from a phone?"), "Right, so…");
   });
 });
 

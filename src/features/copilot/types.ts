@@ -35,6 +35,8 @@ export interface SuggestRequest {
   sales_motion_key?: string;
   /** The objection the turn check already put on screen: the answer is written for it. */
   objection_type?: string;
+  /** The filler line the rep is already saying: the answer is the next sentence after it. */
+  filler?: string;
 }
 
 export interface SuggestResultEvent {

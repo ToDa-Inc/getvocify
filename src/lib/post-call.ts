@@ -46,8 +46,8 @@ export type PostCallCrmStage =
   | "internal";
 
 export type PostCallEmail = {
-  /** ready: drafted, not sent. skipped/sent: settled, shown briefly then gone. */
-  state: "ready" | "skipped" | "sent";
+  /** writing: the draft is on its way. ready: drafted, not sent. skipped/sent: settled. */
+  state: "writing" | "ready" | "skipped" | "sent";
   /** Who it's for, as extracted. */
   to: string | null;
   subject: string | null;
@@ -123,7 +123,7 @@ export type PostCall = {
   meeting: PostCallMeeting | null;
   /** The memo has a call note to read. */
   notes: boolean;
-  /** The note's first lines, as plain text. */
+  /** The call note as plain text, one line per line of the note. */
   summary?: string | null;
   /** The connected CRM's name ("HubSpot", "Pipedrive"...); null when none is known. */
   crm?: string | null;
@@ -199,14 +199,38 @@ export function withEdits(proposed: Update[], edits: Record<string, unknown> | n
   });
 }
 
+/** A note line as the rep reads it: no heading or bullet marks, no bold. */
+function plainLine(line: string): string {
+  return line.replace(/^\s*(?:#+\s*|[-*•]\s+|\d+[.)]\s+)/, "").replace(/\*\*|__|`/g, "").trim();
+}
+
 /** The note's first lines as plain text, for the island's Notes tab. */
-export function summaryLines(markdown: string | null | undefined, max = 5): string | null {
+export function summaryLines(markdown: string | null | undefined, max = Infinity): string | null {
   const lines = String(markdown ?? "")
     .split("\n")
-    .map((line) => line.replace(/^\s*(?:#+|[-*•]|\d+[.)])\s*/, "").replace(/\*\*|__|`/g, "").trim())
+    .map(plainLine)
     .filter(Boolean)
     .slice(0, max);
   return lines.length ? lines.join("\n") : null;
+}
+
+/**
+ * The note the rep edited in the island, back as the note's markdown: a line they left as it
+ * was keeps its heading, bullet and bold; a line they wrote or changed is plain text. Lines
+ * are blank-line separated, so the CRM note keeps one line per line either way.
+ */
+export function noteMarkdown(text: string, original: string | null | undefined): string {
+  const kept = new Map<string, string>();
+  for (const line of String(original ?? "").split("\n")) {
+    const plain = plainLine(line);
+    if (plain && !kept.has(plain)) kept.set(plain, line.trim());
+  }
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => kept.get(line) ?? line)
+    .join("\n\n");
 }
 
 /** The changes ticked by default: everything the extraction is sure enough about. */
@@ -221,6 +245,7 @@ const EMAIL_PREVIEW_CHARS = 280;
 
 export function emailFrom(view: FollowupView | null | undefined): PostCallEmail | null {
   const status = view?.status;
+  if (status === "generating") return { state: "writing", to: text(view?.recipientName) || null, subject: null, preview: null };
   if (status !== "ready" && status !== "skipped" && status !== "sent") return null;
   const body = text(view?.body);
   return {

@@ -130,3 +130,10 @@ def test_an_approved_answer_is_never_swapped_for_a_tactic_of_the_models_own():
     # 2026-10-05: with "go straight to one sharp question" the price card asked "what would be
     # reasonable?" instead of the team's "it depends on your team; exact price in the demo".
     assert "Keep its idea and its claims" in MEETING_SYSTEM_PROMPT
+
+
+def test_the_line_never_talks_about_what_the_model_was_given():
+    from app.services.copilot.prompts import MEETING_SYSTEM_PROMPT
+
+    # 2026-10-05: "Lo confirmo; el contexto solo especifica una app de Mac…" is not something a rep says.
+    assert 'never mention "the context"' in MEETING_SYSTEM_PROMPT
