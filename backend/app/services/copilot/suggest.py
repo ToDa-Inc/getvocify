@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import aclosing
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Callable, Optional
 
 import httpx
 
@@ -30,7 +31,88 @@ def live_provider() -> dict[str, Any]:
     """The provider to try first: the same model can be several times slower elsewhere."""
     name = (settings.COPILOT_PROVIDER or "").strip()
     # "only": with "order", OpenRouter kept routing to a slower provider that held the cached prompt.
-    return {"provider": {"only": [name]}} if name else {}
+    return {"provider": {"only": [name]}} if name else {"provider": {"sort": "latency"}}
+
+
+def live_direct() -> Optional[tuple[str, str, str]]:
+    """(url, key, model) of the direct provider for live help, when one is configured."""
+    url, key, model = (
+        (settings.COPILOT_DIRECT_URL or "").strip(),
+        (settings.COPILOT_DIRECT_API_KEY or "").strip(),
+        (settings.COPILOT_DIRECT_MODEL or "").strip(),
+    )
+    return (url, key, model) if url and key and model else None
+
+
+async def _sse_pieces(client: httpx.AsyncClient, url: str, headers: dict, payload: dict) -> AsyncIterator[str]:
+    """The text an OpenAI-compatible stream writes; an HTTP error raises."""
+    async with client.stream("POST", url, headers=headers, json=payload) as resp:
+        if resp.status_code >= 400:
+            body = await resp.aread()
+            raise RuntimeError(f"HTTP {resp.status_code}: {body[:200].decode(errors='ignore')}")
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = line[6:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                choices = json.loads(data).get("choices") or []
+            except json.JSONDecodeError:
+                continue
+            delta = (choices[0].get("delta") or {}).get("content") if choices else None
+            if delta:
+                yield delta
+
+
+async def first_writer(
+    sources: list[tuple[str, Callable[[], AsyncIterator[str]]]], hedge_s: float,
+) -> AsyncIterator[tuple[str, str]]:
+    """(source, text) from whichever source writes first. The next source starts when none has written
+    within hedge_s, or as soon as one fails; the slower ones are cancelled. All failing raises."""
+    waiting = list(sources)
+    running: dict[asyncio.Future, tuple[str, AsyncIterator[str]]] = {}
+    errors: list[str] = []
+
+    def start_next() -> None:
+        name, start = waiting.pop(0)
+        stream = start()
+        running[asyncio.ensure_future(stream.__anext__())] = (name, stream)
+
+    start_next()
+    while running:
+        done, _ = await asyncio.wait(running, timeout=hedge_s if waiting else None, return_when=asyncio.FIRST_COMPLETED)
+        if not done:
+            logger.warning("Live help: no word in %.1f s, starting the backup", hedge_s)
+            start_next()
+            continue
+        for task in done:
+            name, stream = running.pop(task)
+            try:
+                text = task.result()
+            except StopAsyncIteration:
+                errors.append(f"{name}: wrote nothing")
+                continue
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+                continue
+            for other in running:
+                other.cancel()
+            await asyncio.gather(*running, return_exceptions=True)
+            for _, other_stream in running.values():
+                await other_stream.aclose()
+            running.clear()
+            try:
+                yield name, text
+                async for text in stream:
+                    yield name, text
+            finally:
+                await stream.aclose()
+            return
+        if waiting:
+            logger.warning("Live help source failed (%s), starting the backup", errors[-1])
+            start_next()
+    raise RuntimeError("; ".join(errors) or "no source wrote")
 
 
 def temperature_for(call_mode: str) -> float:
@@ -122,6 +204,38 @@ async def stream_objection_suggestion(
     t0 = time.perf_counter()
     assembled = ""
 
+    direct = live_direct()
+    if call_mode in LIVE_MODES and direct:
+        # The direct provider writes the line; OpenRouter is the backup when it is slow to start or fails.
+        url, key, direct_model = direct
+        direct_payload = {
+            **{k: v for k, v in payload.items() if k not in ("reasoning", "provider")},
+            "model": direct_model,
+            "reasoning_effort": live_reasoning()["reasoning"]["effort"],
+        }
+        router_headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": settings.FRONTEND_URL,
+            "X-Title": "Vocify Call Copilot",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
+                sources = [
+                    ("direct", lambda: _sse_pieces(client, url, {"Authorization": f"Bearer {key}"}, direct_payload)),
+                    ("openrouter", lambda: _sse_pieces(client, OPENROUTER_URL, router_headers, payload)),
+                ]
+                winner = ""
+                async for winner, text in first_writer(sources, settings.COPILOT_HEDGE_MS / 1000):
+                    assembled += text
+                    yield {"type": "token", "text": text}
+            used = f"direct:{direct_model}" if winner == "direct" else f"openrouter:{model_used}"
+            yield _result_event(assembled, call_mode, grounding, latest_turn, used, t0)
+        except Exception as e:
+            logger.exception("Copilot suggest failed")
+            yield {"type": "error", "message": str(e) or type(e).__name__}
+        return
+
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
             headers = {
@@ -132,7 +246,7 @@ async def stream_objection_suggestion(
             }
             req = client.build_request("POST", OPENROUTER_URL, headers=headers, json=payload)
             resp = await client.send(req, stream=True)
-            if resp.status_code >= 400 and "provider" in payload:
+            if resp.status_code >= 400 and settings.COPILOT_PROVIDER:
                 # The pinned provider is down or busy: the rep still gets the line, from any provider.
                 body = await resp.aread()
                 await resp.aclose()
@@ -187,23 +301,24 @@ async def stream_objection_suggestion(
                         assembled += delta
                         yield {"type": "token", "text": delta}
 
-        suggestion = _suggestion_for_mode(assembled, call_mode)
-        elapsed_ms = int((time.perf_counter() - t0) * 1000)
-        finalized = finalize_suggest_result(
-            call_mode=call_mode,
-            suggestion=suggestion,
-            grounding=grounding,
-            latest_turn=latest_turn,
-        )
-        yield {
-            "type": "result",
-            "model": model_used,
-            "latency_ms": elapsed_ms,
-            **finalized,
-        }
+        yield _result_event(assembled, call_mode, grounding, latest_turn, model_used, t0)
     except Exception as e:
         logger.exception("Copilot suggest failed")
         yield {"type": "error", "message": str(e) or type(e).__name__}
+
+
+def _result_event(
+    assembled: str, call_mode: str, grounding: Optional[SuggestGrounding], latest_turn: str, model: str, t0: float,
+) -> dict[str, Any]:
+    import time
+
+    finalized = finalize_suggest_result(
+        call_mode=call_mode,
+        suggestion=_suggestion_for_mode(assembled, call_mode),
+        grounding=grounding,
+        latest_turn=latest_turn,
+    )
+    return {"type": "result", "model": model, "latency_ms": int((time.perf_counter() - t0) * 1000), **finalized}
 
 
 async def _fallback_non_stream(

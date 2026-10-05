@@ -146,7 +146,7 @@ def test_live_help_can_be_pinned_to_its_fastest_provider(monkeypatch):
     # Measured 2026-10-05: Qwen 3.8 27B on Cerebras writes the line in ~0.5 s, GPT-6 Luna in ~1.7 s;
     # unpinned, a model can land on a provider many seconds slower. Others stay as a fallback.
     monkeypatch.setattr(settings, "COPILOT_PROVIDER", None, raising=False)
-    assert suggest.live_provider() == {}
+    assert suggest.live_provider() == {"provider": {"sort": "latency"}}
     monkeypatch.setattr(settings, "COPILOT_PROVIDER", "Cerebras", raising=False)
     # "only": with "order", OpenRouter kept routing to a slower provider that held the cached prompt.
     assert suggest.live_provider() == {"provider": {"only": ["Cerebras"]}}
