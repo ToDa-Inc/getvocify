@@ -1028,14 +1028,6 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     return bridge.shell.onPostCallAction((action) => void onPostCallActionRef.current(action));
   }, []);
 
-  // The island only offers Record when there's someone signed in to record for.
-  useEffect(() => {
-    const bridge = getDesktopBridge();
-    if (!bridge) return;
-    bridge.shell.setState({ recorderReady: Boolean(user?.id) });
-    return () => bridge.shell.setState({ recorderReady: false });
-  }, [user?.id]);
-
   // The island detected a call: name the CRM contact on screen for its call menu.
   useEffect(() => {
     const bridge = getDesktopBridge();
