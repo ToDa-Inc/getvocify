@@ -71,8 +71,7 @@ class Settings(BaseSettings):
     # DeepSeek V4.1 Flash thinks by default (~540 hidden tokens); suggest.py turns that off.
     COPILOT_MODEL: str = "deepseek/deepseek-v4.1-flash"
     # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
-    # Tool loop with streaming: stays on OpenRouter (Together serves only plain JSON calls).
-    CRM_COPILOT_MODEL: str = "deepseek/deepseek-v4.1-flash"
+    CRM_COPILOT_MODEL: str = "google/gemini-3.8-flash"
     CRM_COPILOT_MAX_ROUNDS: int = 8
     # Ask (web + WhatsApp): team metrics, conversations, objections, priorities and Pipedrive reads.
     ASK_VOCIFY_DATA_TOOLS_ENABLED: bool = False
@@ -89,8 +88,7 @@ class Settings(BaseSettings):
     # Web Ask only (see crm_copilot/model_profile.py). Empty ASK_MODEL means CRM_COPILOT_MODEL; the fallback runs
     # once if the first call fails. DeepSeek V4.1 Flash runs with low-effort reasoning (model_profile).
     ASK_MODEL: Optional[str] = "deepseek/deepseek-v4.1-flash"
-    # Same model once more: OpenRouter routes the retry to another host.
-    ASK_FALLBACK_MODEL: Optional[str] = "deepseek/deepseek-v4.1-flash"
+    ASK_FALLBACK_MODEL: Optional[str] = "google/gemini-3.8-flash"
     # Cheap second pass after deterministic name repair. Not the CRM extractor.
     TRANSCRIPT_SANITIZE_LLM: bool = True
     TRANSCRIPT_SANITIZE_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
