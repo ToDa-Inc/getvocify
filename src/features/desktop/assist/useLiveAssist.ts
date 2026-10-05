@@ -38,7 +38,12 @@ function useProspectPause(level: number | undefined): boolean | null {
   useEffect(() => {
     setPaused(false);
     if (!silent) return;
-    const timer = window.setTimeout(() => setPaused(true), PAUSE_MS);
+    // Logged to time their last word against the card: when their level drops, and when it counts as a pause.
+    if (heardRef.current) note("quiet");
+    const timer = window.setTimeout(() => {
+      setPaused(true);
+      if (heardRef.current) note("pause");
+    }, PAUSE_MS);
     return () => window.clearTimeout(timer);
   }, [silent]);
   return heardRef.current ? paused && silent : null;
