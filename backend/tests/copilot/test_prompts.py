@@ -137,3 +137,52 @@ def test_the_line_never_talks_about_what_the_model_was_given():
 
     # 2026-10-05: "Lo confirmo; el contexto solo especifica una app de Mac…" is not something a rep says.
     assert 'never mention "the context"' in MEETING_SYSTEM_PROMPT
+
+
+def test_live_help_can_be_pinned_to_its_fastest_provider(monkeypatch):
+    from app.config import settings
+    from app.services.copilot import suggest
+
+    # Measured 2026-10-05: Qwen 3.8 27B on Cerebras writes the line in ~0.5 s, GPT-6 Luna in ~1.7 s;
+    # unpinned, a model can land on a provider many seconds slower. Others stay as a fallback.
+    monkeypatch.setattr(settings, "COPILOT_PROVIDER", None, raising=False)
+    assert suggest.live_provider() == {}
+    monkeypatch.setattr(settings, "COPILOT_PROVIDER", "Cerebras", raising=False)
+    # "only": with "order", OpenRouter kept routing to a slower provider that held the cached prompt.
+    assert suggest.live_provider() == {"provider": {"only": ["Cerebras"]}}
+
+
+def test_a_failing_pinned_provider_never_costs_the_rep_the_line(monkeypatch):
+    import asyncio
+    import json
+
+    import httpx
+
+    from app.config import settings
+    from app.services.copilot import suggest
+
+    monkeypatch.setattr(settings, "COPILOT_PROVIDER", "Cerebras", raising=False)
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "test-key", raising=False)
+    sent = []
+    line = json.dumps({"is_objection": True, "objection_type": "price", "source_id": None, "say_this": "En la demo te digo el precio exacto."})
+
+    def reply(request):
+        body = json.loads(request.content)
+        sent.append(body)
+        if "provider" in body:
+            return httpx.Response(503, text="provider overloaded")
+        chunk = json.dumps({"choices": [{"delta": {"content": line}}]})
+        return httpx.Response(200, text=f"data: {chunk}\n\ndata: [DONE]\n\n", headers={"content-type": "text/event-stream"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(suggest.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(reply), **kw))
+
+    async def run():
+        return [event async for event in suggest.stream_objection_suggestion(
+            transcript_window="Them: caro", latest_turn="me parece caro", call_mode="meeting", model="qwen/qwen3.8-27b",
+        )]
+
+    events = asyncio.run(run())
+    result = next(event for event in events if event["type"] == "result")
+    assert result["suggestion"]["say_this"] == "En la demo te digo el precio exacto."
+    assert "provider" in sent[0] and "provider" not in sent[1]

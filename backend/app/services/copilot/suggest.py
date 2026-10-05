@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import aclosing
 from typing import Any, AsyncIterator, Optional
 
 import httpx
@@ -23,6 +24,13 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 def live_reasoning() -> dict[str, Any]:
     effort = (settings.COPILOT_REASONING_EFFORT or "").strip() or "minimal"
     return {"reasoning": {"effort": effort}}
+
+
+def live_provider() -> dict[str, Any]:
+    """The provider to try first: the same model can be several times slower elsewhere."""
+    name = (settings.COPILOT_PROVIDER or "").strip()
+    # "only": with "order", OpenRouter kept routing to a slower provider that held the cached prompt.
+    return {"provider": {"only": [name]}} if name else {}
 
 
 def temperature_for(call_mode: str) -> float:
@@ -106,6 +114,7 @@ async def stream_objection_suggestion(
         "stream": True,
         "response_format": {"type": "json_object"},
         **live_reasoning(),
+        **live_provider(),
     }
 
     import time
@@ -115,17 +124,22 @@ async def stream_objection_suggestion(
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
-            async with client.stream(
-                "POST",
-                OPENROUTER_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": settings.FRONTEND_URL,
-                    "X-Title": "Vocify Call Copilot",
-                },
-                json=payload,
-            ) as resp:
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": settings.FRONTEND_URL,
+                "X-Title": "Vocify Call Copilot",
+            }
+            req = client.build_request("POST", OPENROUTER_URL, headers=headers, json=payload)
+            resp = await client.send(req, stream=True)
+            if resp.status_code >= 400 and "provider" in payload:
+                # The pinned provider is down or busy: the rep still gets the line, from any provider.
+                body = await resp.aread()
+                await resp.aclose()
+                logger.warning("Copilot pinned provider failed (%s), retrying unpinned: %s", resp.status_code, body[:200])
+                payload = {key: value for key, value in payload.items() if key != "provider"}
+                resp = await client.send(client.build_request("POST", OPENROUTER_URL, headers=headers, json=payload), stream=True)
+            async with aclosing(resp):
                 if resp.status_code == 400:
                     # Some models reject response_format — retry without stream framing once
                     body = await resp.aread()
@@ -210,6 +224,7 @@ async def _fallback_non_stream(
         "messages": messages,
         "temperature": temperature_for(call_mode),
         **live_reasoning(),
+        **live_provider(),
     }
     resp = await client.post(
         OPENROUTER_URL,
