@@ -18,7 +18,6 @@ from app.services.deal_stage_confirm import STAGE_FIELD, stage_confirm_enabled, 
 from app.services.feature_flags import is_enabled
 from app.services.hoy.confirm_copy import confirm_reason, failed_detail
 from app.services.hoy.signals import Signal
-from app.services.meetings.accept import accept_meeting_proposal
 from app.services.meetings.proposals import latest_proposal
 from app.services.memo_approval import write_confirmed_stage
 from app.services.rep_timezone import rep_timezone
@@ -50,7 +49,6 @@ class PendingConfirm:
     contact_name: Optional[str]
     deal_id: Optional[str]
     connection_id: str
-    meeting: Optional[dict[str, Any]]
     stage: Optional[dict[str, Any]]
 
 
@@ -66,16 +64,6 @@ def _meeting_booked(proposal: Optional[dict], config: Any) -> Optional[dict[str,
     if not pipeline_id or not stage_id:
         return None
     return {"pipeline_id": pipeline_id, "stage_id": stage_id}
-
-
-def _meeting_pending(proposal: Optional[dict]) -> Optional[dict[str, Any]]:
-    if not proposal:
-        return None
-    if proposal["agreement"] != "agreed" or proposal["decision"] in {"accepted", "omitted", "corrected"}:
-        return None
-    if proposal.get("needs_review") or not proposal.get("starts_at"):
-        return None
-    return {"proposal_id": proposal["proposal_id"], "starts_at": proposal["starts_at"]}
 
 
 def _stage_pending(
@@ -114,18 +102,21 @@ def pending_confirm_parts(
     supabase: Any,
     company_id: Optional[str],
 ) -> Optional[PendingConfirm]:
-    """Whether a confirm_pending signal applies. Reads only company flags."""
+    """Whether a confirm_pending signal applies. Reads only company flags.
+
+    Only the deal stage is confirmed here. A detected meeting is information on memo review:
+    Vocify never writes it to the CRM, so it never asks to confirm one.
+    """
     if not is_enabled(supabase, company_id, CONFIRM_FLAG):
         return None
     proposal = latest_proposal(proposal_rows)
-    meeting = _meeting_pending(proposal)
     stage = None
     extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
     if deal and stage_confirm_enabled(supabase, company_id, deal.provider):
         inferred = extraction.get("dealStage")
         inferred = inferred.strip() or None if isinstance(inferred, str) else None
         stage = _stage_pending(deal=deal, meeting_booked=_meeting_booked(proposal, config), inferred=inferred)
-    if not meeting and not stage:
+    if not stage:
         return None
     contact_name = extraction.get("contactName")
     return PendingConfirm(
@@ -134,7 +125,6 @@ def pending_confirm_parts(
         contact_name=str(contact_name).strip() if contact_name else None,
         deal_id=str(memo.get("hubspot_deal_id") or memo.get("matched_deal_id") or "") or None,
         connection_id=str(memo.get("connection_id") or ""),
-        meeting=meeting,
         stage=stage,
     )
 
@@ -143,8 +133,6 @@ def confirm_payload(pending: PendingConfirm, *, lang: str = "es", tz_name: str =
     payload: dict[str, Any] = {}
     if pending.contact_name:
         payload["contact_name"] = pending.contact_name
-    if pending.meeting:
-        payload["meeting"] = dict(pending.meeting)
     if pending.stage:
         payload["stage"] = dict(pending.stage)
     payload["reason"] = confirm_reason(payload, lang=lang, tz_name=tz_name)
@@ -351,21 +339,11 @@ def claim_confirm_write(supabase, row: dict, now: datetime) -> Optional[dict]:
 
 
 async def apply_confirm_writes(supabase, *, row: dict, company_id: str, user_id: str) -> None:
-    """The same CRM writes the review does: meeting via accept, stage via the review's stage write."""
+    """The stage write the review does. A `meeting` left in an older signal is never written."""
     payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
     memo_id = str(row.get("memo_id") or "")
     if not memo_id:
         raise ValueError("confirm_pending without memo_id")
-    meeting = payload.get("meeting") if isinstance(payload.get("meeting"), dict) else None
-    if meeting and meeting.get("proposal_id"):
-        await asyncio.to_thread(
-            accept_meeting_proposal,
-            supabase,
-            company_id=company_id,
-            memo_id=memo_id,
-            decision="accept",
-            proposal_id=str(meeting["proposal_id"]),
-        )
     stage = payload.get("stage") if isinstance(payload.get("stage"), dict) else None
     if stage and stage.get("stage_id"):
         await write_confirmed_stage(
