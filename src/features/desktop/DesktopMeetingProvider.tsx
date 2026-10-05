@@ -55,6 +55,7 @@ import {
   emailFrom,
   meetingFrom,
   pollDelayMs,
+  noteMarkdown,
   retypedTo,
   summaryLines,
   withEdits,
@@ -547,15 +548,15 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         summary: summaryLines(memo.extraction?.summary),
       });
 
-      // The email draft is written after the CRM changes; it joins the card when it's ready.
+      // The email draft is written after the CRM changes: the card says it's on its way,
+      // then shows it once it's ready.
       for (let attempt = 0; Date.now() - startedAt < POST_CALL_GIVE_UP_MS; attempt++) {
         const view = await memosApi.getFollowup(memoId).catch(() => null);
         if (run.cancelled) return;
-        if (view && view.status !== "generating") {
-          showPostCall({ email: emailFrom(view) });
-          return;
-        }
-        await sleep(attempt + 10);
+        const email = emailFrom(view);
+        if (email?.state !== postCallRef.current?.state.email?.state) showPostCall({ email });
+        if (view && view.status !== "generating") return;
+        await sleep(attempt);
         if (run.cancelled) return;
       }
     },
@@ -576,6 +577,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           if (current.state.stage !== "ready" || !current.state.canApprove) return;
           const omit = (Array.isArray(action.omit) ? action.omit : []).map(String);
           const edits = action.edits && typeof action.edits === "object" ? (action.edits as Record<string, unknown>) : null;
+          // The note as the rep left it in the island; absent when they didn't touch it.
+          const note = typeof action.note === "string" ? action.note : null;
           const kept = current.state.changes.length - omit.filter((key) => current.state.changes.some((c) => c.key === key)).length;
           if (kept <= 0) return;
           showPostCall({ stage: "applying", undoUntil: Date.now() + UNDO_MS });
@@ -588,7 +591,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
                 memoExtraction: (memo.extraction ?? null) as unknown as Record<string, unknown> | null,
                 updates: withEdits(current.proposed, edits).filter((update) => !omit.includes(proposedFieldKey(update) ?? "")),
                 omittedKeys: omit,
-                summary: memo.extraction?.summary ?? "",
+                summary: note !== null ? noteMarkdown(note, memo.extraction?.summary) : memo.extraction?.summary ?? "",
                 nextSteps: memo.extraction?.nextSteps ?? [],
               });
               await memosApi.approveForContact(memoId, extraction);
@@ -649,16 +652,21 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           const type = current.state.type;
           const next = type ? retypedTo(type, String(action.key ?? ""), current.typeOrder ?? []) : null;
           if (!type || !next) return;
+          // The card shows the new type at once; the type goes back if Vocify can't save it.
+          // Into or out of internal: the CRM part follows; otherwise it stays as it is.
+          const crmChanges = current.crm && (next.key === "internal" || current.state.stage === "internal");
+          const before: Partial<PostCall> = {
+            type,
+            ...(crmChanges ? { stage: current.state.stage, changes: current.state.changes, canApprove: current.state.canApprove, note: current.state.note } : {}),
+          };
+          showPostCall({ type: next, ...(crmChanges ? crmForType(next.key, current.crm!) : {}) });
           try {
             await playbooksApi.changeMemoPlaybook(memoId, next.key);
             if (current.run.cancelled) return;
-            // Into or out of internal: the CRM part follows; otherwise it stays as it is.
-            const crmChanges = current.crm && (next.key === "internal" || current.state.stage === "internal");
-            showPostCall({ type: next, ...(crmChanges ? crmForType(next.key, current.crm!) : {}) });
             queryClient.invalidateQueries({ queryKey: ["memo-playbook", memoId] });
             memoChanged(memoId);
           } catch {
-            // Unchanged: the card keeps showing what the call is scored as.
+            if (current.state.type?.key === next.key) fail(before);
           }
           return;
         }

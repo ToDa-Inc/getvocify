@@ -8,6 +8,7 @@ import {
   defaultKept,
   emailFrom,
   meetingFrom,
+  noteMarkdown,
   pendingItems,
   pollDelayMs,
   retypedTo,
@@ -116,12 +117,30 @@ describe("summaryLines", () => {
     assert.equal(summaryLines("a\nb\nc", 2), "a\nb");
     assert.equal(summaryLines("  "), null);
   });
+
+  it("keeps bold at the start of a line from leaving a star behind", () => {
+    assert.equal(summaryLines("**Resultado:** Quedan en hablar.\n**Situación:** 8 comerciales"), "Resultado: Quedan en hablar.\nSituación: 8 comerciales");
+  });
+});
+
+describe("noteMarkdown", () => {
+  const original = "**Resultado:** Quedan en hablar.\n## Situación\n- 8 comerciales\n- Usan **Gong**";
+  it("keeps the markdown of the lines the rep left as they were", () => {
+    assert.equal(noteMarkdown(summaryLines(original)!, original), "**Resultado:** Quedan en hablar.\n\n## Situación\n\n- 8 comerciales\n\n- Usan **Gong**");
+  });
+  it("writes a changed or new line as plain text, one per line", () => {
+    assert.equal(
+      noteMarkdown("Resultado: Reunión el martes.\nSituación\n8 comerciales\n\nPiden precio", original),
+      "Resultado: Reunión el martes.\n\n## Situación\n\n- 8 comerciales\n\nPiden precio",
+    );
+    assert.equal(noteMarkdown("Una nota", null), "Una nota");
+  });
 });
 
 describe("emailFrom", () => {
-  it("only shows a draft that exists", () => {
+  it("shows a draft that exists, or that is being written", () => {
     assert.deepEqual(emailFrom({ status: "ready", recipientName: "Marta" }), { state: "ready", to: "Marta", subject: null, preview: null });
-    assert.equal(emailFrom({ status: "generating" }), null);
+    assert.deepEqual(emailFrom({ status: "generating", recipientName: "Marta" }), { state: "writing", to: "Marta", subject: null, preview: null });
     assert.equal(emailFrom({ status: "unavailable" }), null);
     assert.equal(emailFrom(null), null);
   });
