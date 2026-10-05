@@ -145,6 +145,12 @@ function newDraftId(): string {
   return crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+
+/** Only a change the meter can show re-renders: silence settles at 0 and stays put. */
+function levelStep(value: number): number {
+  return Math.round(value * 20) / 20;
+}
+
 export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const available = isDesktopHost();
   const savedOnDevice = Boolean(getDesktopBridge()?.drafts);
@@ -830,6 +836,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           recorder.onTranscript((raw) => updateTranscript(normalizeMeetingTranscript(raw))),
           recorder.onLevels((next) => {
             levelRef.current = next;
+            // Shown as they arrive (4 a second): the meter timer runs once a second while this window is
+            // hidden, which made live help notice the prospect's pause up to a second late.
+            setLevels((prev) =>
+              prev.you === levelStep(next.you) && prev.them === levelStep(next.them)
+                ? prev
+                : { you: levelStep(next.you), them: levelStep(next.them) },
+            );
           }),
           recorder.onWarning(({ text }) => setWarning(text)),
           bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
@@ -866,10 +879,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       setPaused(false);
       timerRef.current = window.setInterval(() => {
         const { you, them } = levelRef.current;
-        // Only a change the meter can show re-renders: silence settles at 0 and stays put.
-        const step = (value: number) => Math.round(value * 20) / 20;
         setLevels((prev) =>
-          prev.you === step(you) && prev.them === step(them) ? prev : { you: step(you), them: step(them) },
+          prev.you === levelStep(you) && prev.them === levelStep(them)
+            ? prev
+            : { you: levelStep(you), them: levelStep(them) },
         );
         levelRef.current = { you: you * 0.6, them: them * 0.6 };
         // Computed every tick from the wall clock, so a throttled timer never shows a stale time.
