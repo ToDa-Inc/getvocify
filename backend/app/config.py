@@ -72,8 +72,14 @@ class Settings(BaseSettings):
     # Live help's reasoning effort. Empty means "minimal" (Gemini Flash-Lite refuses "none");
     # "none" for models that think before their first word even at "minimal" (GPT-6 Luna).
     COPILOT_REASONING_EFFORT: Optional[str] = None
-    # OpenRouter provider tried first for COPILOT_MODEL (e.g. "Cerebras"); the rest stay as fallback.
+    # OpenRouter provider pinned for COPILOT_MODEL (e.g. "Cerebras"); unset, OpenRouter picks the fastest.
     COPILOT_PROVIDER: Optional[str] = None
+    # Live help's line from an OpenAI-compatible provider directly (e.g. Together), with OpenRouter
+    # (COPILOT_MODEL) as the backup: it starts when the direct one has not written in COPILOT_HEDGE_MS, or fails.
+    COPILOT_DIRECT_URL: Optional[str] = None
+    COPILOT_DIRECT_API_KEY: Optional[str] = None
+    COPILOT_DIRECT_MODEL: Optional[str] = None
+    COPILOT_HEDGE_MS: int = 600
     # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
     CRM_COPILOT_MODEL: str = "google/gemini-3.8-flash"
     CRM_COPILOT_MAX_ROUNDS: int = 8
