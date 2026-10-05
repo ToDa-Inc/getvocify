@@ -259,7 +259,6 @@ def test_different_stage_yields_pending_parts():
     assert pending is not None
     assert pending.stage["stage_id"] == "appointmentscheduled"
     assert pending.stage["stage_label"] == "Meeting booked"
-    assert pending.meeting is None
 
 
 def test_same_stage_yields_nothing():
@@ -274,18 +273,16 @@ def test_same_stage_yields_nothing():
     ) is None
 
 
-def test_unaccepted_meeting_yields_pending():
+def test_detected_meeting_alone_never_asks_to_confirm():
     db = _Store(company_feature_flags=_flags(True))
-    pending = pending_confirm_parts(
+    assert pending_confirm_parts(
         memo=_memo(),
         proposal_rows=[_proposal()],
         config=CONFIG,
         deal=None,
         supabase=db,
         company_id=COMPANY,
-    )
-    assert pending.meeting == {"proposal_id": "meet-1", "starts_at": "2026-10-01T09:00:00+00:00"}
-    assert pending.stage is None
+    ) is None
 
 
 def test_accepted_meeting_yields_nothing():
@@ -325,25 +322,14 @@ def test_pending_parts_do_no_io_beyond_flags():
     assert set(db.tables) == {"company_feature_flags"}
 
 
-def test_stage_and_meeting_one_signal_with_brief_reason():
+def test_agreed_meeting_signal_confirms_the_stage_only():
     pending = _both_pending()
     signal = build_confirm_signal(pending, tz_name="Europe/Madrid")
     assert signal.type == CONFIRM_TYPE
     assert signal.dedupe_key == f"confirm:{MEMO}"
-    assert signal.payload["reason"] == "Confirma: reunión jue 1 oct, 11:00 con Marina · etapa → Meeting booked"
+    assert signal.payload["reason"] == "Confirma: etapa → Meeting booked"
+    assert "meeting" not in signal.payload
     assert "detail" not in signal.payload
-
-
-def test_reason_meeting_only_and_stage_only():
-    pending = _both_pending()
-    meeting_only = build_confirm_signal(
-        confirmations.PendingConfirm(**{**pending.__dict__, "stage": None}), tz_name="Europe/Madrid",
-    )
-    stage_only = build_confirm_signal(
-        confirmations.PendingConfirm(**{**pending.__dict__, "meeting": None}), tz_name="Europe/Madrid",
-    )
-    assert meeting_only.payload["reason"] == "Confirma: reunión jue 1 oct, 11:00 con Marina"
-    assert stage_only.payload["reason"] == "Confirma: etapa → Meeting booked"
 
 
 def test_stage_label_comes_from_the_crm_stage_name():
@@ -358,7 +344,7 @@ def test_stage_label_comes_from_the_crm_stage_name():
     )
     assert pending.stage["stage_label"] == "Cita agendada"
     reason = build_confirm_signal(pending, tz_name="Europe/Madrid").payload["reason"]
-    assert reason.endswith("· etapa → Cita agendada")
+    assert reason == "Confirma: etapa → Cita agendada"
 
 
 def test_today_item_reason_follows_the_rep_language():
@@ -413,7 +399,7 @@ async def test_materialize_after_auto_approve_inserts_signal():
     [row] = store.tables["action_signals"]
     assert row["type"] == CONFIRM_TYPE
     assert row["status"] == "pending"
-    assert row["payload"]["reason"] == "Confirma: reunión jue 1 oct, 11:00 con Marina · etapa → Meeting booked"
+    assert row["payload"]["reason"] == "Confirma: etapa → Meeting booked"
 
 
 class _NoMemoConnectionQuery(_Query):
@@ -684,17 +670,14 @@ def test_get_today_never_writes_to_the_crm():
 
 
 @pytest.mark.asyncio
-async def test_run_writes_through_review_functions_once():
+async def test_run_writes_the_stage_once_and_never_an_older_signals_meeting():
     store = _Store(action_signals=[_due_row()], company_feature_flags=_flags(True))
-    with patch("app.services.hoy.confirmations.accept_meeting_proposal") as accept, patch(
+    with patch("app.services.meetings.accept.accept_meeting_proposal") as accept, patch(
         "app.services.hoy.confirmations.write_confirmed_stage", new_callable=AsyncMock,
     ) as stage:
         assert await run_confirm_write(store, SIGNAL) == "applied"
         assert await run_confirm_write(store, SIGNAL) == "skipped"
-    accept.assert_called_once()
-    assert accept.call_args.kwargs == {
-        "company_id": COMPANY, "memo_id": MEMO, "decision": "accept", "proposal_id": "meet-1",
-    }
+    accept.assert_not_called()
     stage.assert_awaited_once()
     assert stage.call_args.kwargs["stage_id"] == "appointmentscheduled"
     payload = store.tables["action_signals"][0]["payload"]

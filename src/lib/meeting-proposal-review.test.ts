@@ -1,106 +1,23 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { productCatalog } from "./product-catalog.ts";
-import {
-  meetingProposalReadErrorView,
-  meetingProposalReviewSurface,
-  meetingWhen,
-} from "./meeting-proposal-review.ts";
+import { detectedMeeting, meetingWhen } from "./meeting-proposal-review.ts";
 
-const agreed = { agreement: "agreed", starts_at: "2026-09-29T15:00:00+00:00", proposal_id: "p1" };
+const agreed = { agreement: "agreed", starts_at: "2026-09-29T14:00:00+00:00", timezone: "Europe/Madrid", decision: "pending" };
 
-describe("meetingProposalReviewSurface", () => {
-  it("shows pending while extraction runs or the proposal query is fetching", () => {
-    assert.equal(
-      meetingProposalReviewSurface({
-        extractionPending: true,
-        queryFetchStatus: "idle",
-        queryIsPending: true,
-        queryIsError: false,
-        proposal: null,
-      }).kind,
-      "pending",
-    );
-    assert.equal(
-      meetingProposalReviewSurface({
-        extractionPending: false,
-        queryFetchStatus: "fetching",
-        queryIsPending: true,
-        queryIsError: false,
-        proposal: null,
-      }).kind,
-      "pending",
-    );
+describe("detectedMeeting", () => {
+  it("shows an agreed meeting with its time and timezone", () => {
+    assert.deepEqual(detectedMeeting(agreed), { startsAt: agreed.starts_at, timezone: "Europe/Madrid" });
   });
 
-  it("does not treat a disabled idle query as loading", () => {
-    assert.equal(
-      meetingProposalReviewSurface({
-        extractionPending: true,
-        queryFetchStatus: "idle",
-        queryIsPending: true,
-        queryIsError: false,
-        proposal: null,
-      }).kind,
-      "pending",
-    );
+  it("shows it whatever was clicked on it before (accepted, written, skipped)", () => {
+    assert.ok(detectedMeeting({ ...agreed, decision: "accepted", crm_status: "succeeded" }));
+    assert.ok(detectedMeeting({ ...agreed, decision: "omitted" }));
   });
 
-  it("surfaces a read error without buttons when the GET fails empty", () => {
-    assert.equal(
-      meetingProposalReviewSurface({
-        extractionPending: false,
-        queryFetchStatus: "idle",
-        queryIsPending: false,
-        queryIsError: true,
-        proposal: null,
-      }).kind,
-      "read-error",
-    );
-    const phrases = { save: "Guardar", omit: "Omitir", reconcile: "Reconciliar" };
-    const view = meetingProposalReadErrorView(productCatalog.ES.meetingReadFailed, phrases);
-    assert.equal(view.title, productCatalog.ES.meetingReadFailed);
-    assert.deepEqual(view.phrases, phrases);
-    assert.equal(meetingProposalReadErrorView(productCatalog.EN.meetingReadFailed, phrases).title, productCatalog.EN.meetingReadFailed);
-    assert.equal(view.save, false);
-    assert.equal(view.omit, false);
-    assert.equal(view.startsAt, null);
-  });
-
-  it("keeps a successful empty proposal hidden and shows data when present", () => {
-    assert.equal(
-      meetingProposalReviewSurface({
-        extractionPending: false,
-        queryFetchStatus: "idle",
-        queryIsPending: false,
-        queryIsError: false,
-        proposal: null,
-      }).kind,
-      "hidden",
-    );
-    assert.equal(
-      meetingProposalReviewSurface({
-        extractionPending: false,
-        queryFetchStatus: "idle",
-        queryIsPending: false,
-        queryIsError: false,
-        proposal: agreed,
-      }).kind,
-      "proposal",
-    );
-  });
-
-  it("prefers cached proposal over a refetch error", () => {
-    assert.equal(
-      meetingProposalReviewSurface({
-        extractionPending: false,
-        queryFetchStatus: "idle",
-        queryIsPending: false,
-        queryIsError: true,
-        proposal: agreed,
-      }).kind,
-      "proposal",
-    );
+  it("shows nothing without an agreement or without a time", () => {
+    assert.equal(detectedMeeting(null), null);
+    assert.equal(detectedMeeting({ ...agreed, agreement: "mentioned" }), null);
+    assert.equal(detectedMeeting({ ...agreed, starts_at: null }), null);
   });
 });
 

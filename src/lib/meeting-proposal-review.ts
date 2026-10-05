@@ -1,43 +1,14 @@
-/** How memo review surfaces meeting proposals while the GET is in flight. */
+/** The meeting agreed on a call, shown on memo review as information only: Vocify writes nothing from it. */
 
-export type MeetingProposalReviewInput = {
-  extractionPending: boolean;
-  queryFetchStatus: "fetching" | "paused" | "idle";
-  queryIsPending: boolean;
-  queryIsError: boolean;
-  proposal: Record<string, unknown> | null;
-};
+export type DetectedMeeting = { startsAt: string; timezone: string | null };
 
-export type MeetingProposalReviewSurface =
-  | { kind: "pending" }
-  | { kind: "read-error" }
-  | { kind: "hidden" }
-  | { kind: "proposal" };
-
-export function meetingProposalReviewSurface(input: MeetingProposalReviewInput): MeetingProposalReviewSurface {
-  const queryLoading =
-    !input.extractionPending && input.queryIsPending && input.queryFetchStatus === "fetching";
-  if (input.extractionPending || queryLoading) return { kind: "pending" };
-  if (input.queryIsError && input.proposal === null) return { kind: "read-error" };
-  if (input.proposal === null) return { kind: "hidden" };
-  return { kind: "proposal" };
-}
-
-export type MeetingProposalPhrases = {
-  save: string;
-  omit: string;
-  reconcile: string;
-};
-
-export function meetingProposalReadErrorView(title: string, phrases?: MeetingProposalPhrases) {
-  return {
-    visible: true as const,
-    title,
-    startsAt: null,
-    save: false,
-    omit: false,
-    phrases,
-  };
+/** An agreed meeting with a time; nothing for a mention without agreement or without a time. */
+export function detectedMeeting(proposal: Record<string, unknown> | null | undefined): DetectedMeeting | null {
+  if (!proposal || proposal.agreement !== "agreed") return null;
+  const startsAt = typeof proposal.starts_at === "string" && proposal.starts_at ? proposal.starts_at : null;
+  if (!startsAt) return null;
+  const timezone = typeof proposal.timezone === "string" && proposal.timezone ? proposal.timezone : null;
+  return { startsAt, timezone };
 }
 
 /** "mar, 29 sept · 16:00 CEST": the meeting's own clock, never the raw ISO string. */
