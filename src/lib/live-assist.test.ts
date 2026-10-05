@@ -1,6 +1,16 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { addCard, assistContext, askAfterMs, objectionCard, streamedDraft } from "./live-assist.ts";
+import {
+  addCard,
+  answerCard,
+  assistContext,
+  draftCard,
+  nextStep,
+  objectionCard,
+  prospectSilent,
+  streamedDraft,
+  turnCheck,
+} from "./live-assist.ts";
 import type { MeetingDisplayTurn } from "./meeting-transcript.ts";
 
 const turn = (key: string, speaker: "rep" | "prospect", text: string, pending = ""): MeetingDisplayTurn => ({
@@ -139,13 +149,66 @@ describe("bridge while the answer is written", async () => {
   });
 });
 
-describe("askAfterMs", () => {
-  it("asks right after their sentence settles", () => {
-    assert.equal(askAfterMs({ settled: true }), 300);
+describe("turnCheck", () => {
+  it("checks the moment their audio goes quiet, and lets the classifier say if they are done", () => {
+    assert.deepEqual(turnCheck({ settled: false, paused: true }), { afterMs: 0, final: false });
   });
 
-  it("words still settling wait long enough to be a real pause, never a breath mid-sentence", () => {
-    assert.equal(askAfterMs({ settled: false }), 2500);
+  it("while they still talk, waits for a real pause in their words, then takes the turn as over", () => {
+    assert.deepEqual(turnCheck({ settled: true, paused: false }), { afterMs: 2500, final: true });
+  });
+
+  it("with no audio to read, a settled sentence is checked at once and words still settling after a pause", () => {
+    assert.deepEqual(turnCheck({ settled: true, paused: null }), { afterMs: 300, final: true });
+    assert.deepEqual(turnCheck({ settled: false, paused: null }), { afterMs: 2500, final: true });
+  });
+});
+
+describe("prospectSilent", () => {
+  it("their side is silent below speech level, never on a quiet word", () => {
+    assert.equal(prospectSilent(0), true);
+    assert.equal(prospectSilent(0.1), true);
+    assert.equal(prospectSilent(0.4), false);
+  });
+});
+
+describe("nextStep", () => {
+  it("a finished objection shows its card at once and has the answer written for it", () => {
+    assert.deepEqual(nextStep({ finished: true, objection: "price" }, false), { do: "answer", type: "price" });
+  });
+
+  it("a thought still going waits for more, unless they have been quiet long enough", () => {
+    assert.deepEqual(nextStep({ finished: false, objection: "none" }, false), { do: "wait" });
+    assert.deepEqual(nextStep({ finished: false, objection: "trust" }, true), { do: "answer", type: "trust" });
+  });
+
+  it("no objection asks no model at all", () => {
+    assert.deepEqual(nextStep({ finished: true, objection: "none" }, false), { do: "skip" });
+    assert.deepEqual(nextStep({ finished: true, objection: "weather" }, false), { do: "skip" });
+  });
+
+  it("no classifier falls back to asking the answer model directly", () => {
+    assert.deepEqual(nextStep(null, false), { do: "ask" });
+    assert.deepEqual(nextStep({ finished: null, objection: null }, true), { do: "ask" });
+  });
+});
+
+describe("answerCard", () => {
+  it("the answer lands in the card already on screen: same place, label, filler line and clock", () => {
+    const draft = draftCard("price", "me parece bastante caro", 100);
+    const answer = objectionCard(suggestion({ objection_type: "trust" }), 900, "me parece bastante caro")!;
+    const shown = answerCard(draft, answer);
+    assert.equal(shown.id, draft.id);
+    assert.equal(shown.at, 100);
+    assert.equal(shown.label, "Price");
+    assert.equal(shown.bridge, draft.bridge);
+    assert.equal(shown.stage, "ready");
+    assert.equal(shown.sayThis, "¿Comparado con qué os parece caro?");
+  });
+
+  it("with no card on screen yet, the answer shows as it came", () => {
+    const answer = objectionCard(suggestion(), 900)!;
+    assert.deepEqual(answerCard(null, answer), answer);
   });
 });
 

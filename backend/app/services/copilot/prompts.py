@@ -201,6 +201,17 @@ def format_company_knowledge(
     return f"{_KNOWLEDGE_HEADER}\n{body}"
 
 
+def _shown_block(objection_type: str | None) -> str:
+    """The rep already sees this objection's label and a filler line: the answer must follow it."""
+    if not objection_type or objection_type == "none":
+        return ""
+    return (
+        f"\nALREADY SHOWN TO THE REP: {objection_type}. The rep is already saying a filler line for it. "
+        f'Answer it: is_objection true, objection_type "{objection_type}", say_this never empty. '
+        "If the facts to answer are not in the context, say_this offers to confirm them; never invent.\n"
+    )
+
+
 def build_user_prompt(
     *,
     transcript_window: str,
@@ -212,6 +223,7 @@ def build_user_prompt(
     playbook_snapshot: Optional[dict[str, Any]] = None,
     company_knowledge: Optional[dict[str, Any]] = None,
     contact_history: str | None = None,
+    objection_type: str | None = None,
 ) -> str:
     context = (product_context or "").strip() or "(none provided — stay generic and ask discovery questions)"
     role = (speaker_role or "unknown").strip().lower()
@@ -244,7 +256,7 @@ ROLLING TRANSCRIPT (recent):
 
 LATEST TURN (trigger):
 {latest_turn.strip() or "(empty)"}
-
+{_shown_block(objection_type)}
 Coach the rep NOW. JSON only."""
 
     if playbook_snapshot:

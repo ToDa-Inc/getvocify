@@ -33,6 +33,8 @@ export interface SuggestRequest {
   contact_id?: string;
   /** The call's type, decided once for the call: help is grounded in that type's playbook. */
   sales_motion_key?: string;
+  /** The objection the turn check already put on screen: the answer is written for it. */
+  objection_type?: string;
 }
 
 export interface SuggestResultEvent {

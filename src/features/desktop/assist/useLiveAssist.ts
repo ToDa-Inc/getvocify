@@ -1,28 +1,50 @@
 import { useEffect, useRef, useState } from "react";
 import {
   addCard,
-  askAfterMs,
+  answerCard,
   assistContext,
+  BACKSTOP_MS,
   cooldownKey,
   coolingDown,
+  draftCard,
+  nextStep,
+  PAUSE_MS,
+  prospectSilent,
+  turnCheck,
   type AssistCard,
+  type AssistContext,
 } from "@/lib/live-assist";
 import type { MeetingDisplayTurn } from "@/lib/meeting-transcript";
 import { getDesktopBridge } from "@/lib/desktop-host";
-import { ASSIST_SOURCES } from "./sources";
+import { ASSIST_SOURCES, readTurn } from "./sources";
 
 /** One line in the Mac's live-help log (a test switch on the Mac turns it on). */
 function note(name: string, details: Record<string, unknown> = {}) {
   getDesktopBridge()?.shell.log?.(name, details);
 }
 
-/** Never ask more often than this, so help never chases every word. */
-const MIN_GAP_MS = 3000;
+/**
+ * Whether the prospect has paused: true once their side has been quiet for PAUSE_MS, false while
+ * they speak, null until their audio has been heard at all (then live help reads only the words).
+ */
+function useProspectPause(level: number | undefined): boolean | null {
+  const heardRef = useRef(false);
+  const [paused, setPaused] = useState(false);
+  const silent = level === undefined || prospectSilent(level);
+  if (!silent) heardRef.current = true;
+  useEffect(() => {
+    setPaused(false);
+    if (!silent) return;
+    const timer = window.setTimeout(() => setPaused(true), PAUSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [silent]);
+  return heardRef.current ? paused && silent : null;
+}
 
 /**
- * Asks the assist sources after the other side pauses. As soon as a source knows
- * help is coming, a draft with a bridge line shows; the answer replaces it in place.
- * Display rules live in lib/live-assist (8–25s, stays while the rep answers).
+ * Live help, with turn detection. When the prospect pauses, one fast check says whether they
+ * finished and which objection it is: the card (label and a filler line to say at once) shows
+ * right then, and its answer is written for that type and lands below the filler line, whole.
  */
 export type LiveAssistCall = {
   contactId?: string | null;
@@ -30,17 +52,24 @@ export type LiveAssistCall = {
   callMode?: "softphone" | "meeting";
   /** The call's type: help uses that playbook. */
   typeKey?: string | null;
+  /** Their side's audio level (0–1): when it goes quiet is when they may have finished. */
+  prospectLevel?: number;
 };
+
+type Found = NonNullable<ReturnType<typeof assistContext>>;
 
 export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, call: LiveAssistCall = {}) {
   const [active, setActive] = useState<AssistCard | null>(null);
   const [earlier, setEarlier] = useState<AssistCard[]>([]);
   const [thinking, setThinking] = useState(false);
+  const paused = useProspectPause(call.prospectLevel);
+  /** The words last checked: the same words are never checked twice. */
   const lastKeyRef = useRef("");
-  /** How much of their current turn the last ask covered: the next ask is about what came after. */
+  /** How much of their current turn help already handled: the next check is about what came after. */
   const askedRef = useRef<{ turnKey: string; length: number } | null>(null);
-  const lastAskRef = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
+  const checkRef = useRef<AbortController | null>(null);
+  const answerRef = useRef<AbortController | null>(null);
+  const backstopRef = useRef<number | undefined>(undefined);
   const lastShownRef = useRef<Record<string, number>>({});
 
   const found = enabled ? assistContext(turns, askedRef.current) : null;
@@ -62,71 +91,104 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     });
   };
 
-  useEffect(() => {
-    if (!context || key === lastKeyRef.current) return;
-    // A settled sentence is asked about at once; words still settling only after a real pause.
-    const wait = Math.max(askAfterMs({ settled: found!.settled }), lastAskRef.current + MIN_GAP_MS - Date.now());
-    const timer = window.setTimeout(() => {
-      lastKeyRef.current = key;
-      askedRef.current = { turnKey: found!.turnKey, length: found!.length };
-      lastAskRef.current = Date.now();
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setThinking(true);
-      const askedAt = Date.now();
-      note("ask", { latest: context.latestTurn, type: context.typeKey ?? null, mode: context.callMode ?? null });
-      let draft: AssistCard | null = null;
-      const onDraft = (card: AssistCard) => {
-        if (controller.signal.aborted) return;
-        if (draft) {
-          // The same card growing while the answer streams: update it in place.
-          if (card.id !== draft.id) return;
-          draft = card;
-          setActive((current) => (current?.id === card.id ? card : current));
-          return;
-        }
-        if (coolingDown(card, lastShownRef.current, Date.now())) {
-          note("draft-cooling", { label: card.label, ms: Date.now() - askedAt });
-          return;
-        }
-        note("draft", { label: card.label, bridge: card.bridge, ms: Date.now() - askedAt });
-        draft = card;
-        present(card);
-      };
-      void Promise.all(ASSIST_SOURCES.map((source) => source.request(context, controller.signal, onDraft))).then((results) => {
-        if (controller.signal.aborted) return;
+  /** Writes the answer. With a type, its card is already up; without one, the stream names it. */
+  const answer = (ctx: AssistContext, type: string | null, since: number) => {
+    const controller = new AbortController();
+    answerRef.current = controller;
+    setThinking(true);
+    let draft: AssistCard | null = null;
+    if (type) {
+      draft = draftCard(type, ctx.latestTurn, Date.now());
+      if (coolingDown(draft, lastShownRef.current, Date.now())) {
+        note("draft-cooling", { label: draft.label, ms: Date.now() - since });
         setThinking(false);
-        const now = Date.now();
-        const card = results.find((result) => result && (draft || !coolingDown(result, lastShownRef.current, now)));
-        if (!card) {
-          const cooling = results.find(Boolean);
-          note(cooling ? "answer-cooling" : "silent", { label: cooling?.label ?? null, ms: now - askedAt });
-          // The answer turned out not to be worth showing: withdraw the bridge quietly.
-          if (draft) setActive((current) => (current?.id === draft!.id ? null : current));
-          return;
-        }
-        // The answer takes the draft's place and keeps its clock, so timing counts from first sight.
-        // The filler line the rep may already be saying stays above the answer.
-        const shown = { ...card, id: draft?.id ?? card.id, at: draft?.at ?? now, bridge: draft?.bridge ?? card.bridge };
-        lastShownRef.current[cooldownKey(shown)] = shown.at;
-        note("answer", { label: shown.label, sayThis: shown.sayThis, thenAsk: shown.thenAsk, ms: now - askedAt });
-        present(shown);
-      });
-    }, wait);
+        return;
+      }
+      note("draft", { label: draft.label, bridge: draft.bridge, ms: Date.now() - since });
+      present(draft);
+    }
+    const onDraft = (card: AssistCard) => {
+      if (controller.signal.aborted || draft) return;
+      if (coolingDown(card, lastShownRef.current, Date.now())) {
+        note("draft-cooling", { label: card.label, ms: Date.now() - since });
+        return;
+      }
+      note("draft", { label: card.label, bridge: card.bridge, ms: Date.now() - since });
+      draft = card;
+      present(card);
+    };
+    const asked = { ...ctx, ...(type && { objectionType: type }) };
+    void Promise.all(ASSIST_SOURCES.map((source) => source.request(asked, controller.signal, onDraft))).then((results) => {
+      if (controller.signal.aborted) return;
+      setThinking(false);
+      const now = Date.now();
+      const card = results.find((result) => result && (draft || !coolingDown(result, lastShownRef.current, now)));
+      if (!card) {
+        const cooling = results.find(Boolean);
+        note(cooling ? "answer-cooling" : "silent", { label: cooling?.label ?? null, withdrawn: Boolean(draft), ms: now - since });
+        // The answer turned out not to be worth showing: withdraw the filler quietly.
+        if (draft) setActive((current) => (current?.id === draft!.id ? null : current));
+        return;
+      }
+      const shown = answerCard(draft, card);
+      lastShownRef.current[cooldownKey(shown)] = shown.at;
+      note("answer", { label: shown.label, sayThis: shown.sayThis, thenAsk: shown.thenAsk, ms: now - since });
+      present(shown);
+    });
+  };
+
+  /** One turn check on their words. final: they have been quiet long enough that "still going" means done. */
+  const check = (ctx: AssistContext & Found, final: boolean) => {
+    lastKeyRef.current = ctx.key;
+    checkRef.current?.abort();
+    const controller = new AbortController();
+    checkRef.current = controller;
+    const since = Date.now();
+    void readTurn(ctx, controller.signal).then((reading) => {
+      if (controller.signal.aborted) return;
+      const step = nextStep(reading, final);
+      note("turn", { latest: ctx.latestTurn, ...reading, final, step: step.do, ms: Date.now() - since });
+      if (step.do === "wait") {
+        backstopRef.current = window.setTimeout(() => check(ctx, true), BACKSTOP_MS);
+        return;
+      }
+      // These words are handled: the next check is about what they say after.
+      askedRef.current = { turnKey: ctx.turnKey, length: ctx.length };
+      if (step.do === "skip") return;
+      answer(ctx, step.do === "answer" ? step.type : null, since);
+    });
+  };
+
+  useEffect(() => {
+    // While an answer is written nothing new starts: its card is on screen and must not be replaced.
+    if (!context || thinking || key === lastKeyRef.current) return;
+    const plan = turnCheck({ settled: found!.settled, paused });
+    const timer = window.setTimeout(() => check(context, plan.final), plan.afterMs);
     return () => window.clearTimeout(timer);
     // The key captures every change in their words; context is derived from it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, paused, thinking]);
+
+  // New words replace a backstop set for older ones.
+  useEffect(() => () => window.clearTimeout(backstopRef.current), [key]);
 
   useEffect(() => {
     if (enabled) return;
-    abortRef.current?.abort();
+    checkRef.current?.abort();
+    answerRef.current?.abort();
+    window.clearTimeout(backstopRef.current);
     setThinking(false);
     setActive(null);
   }, [enabled]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(
+    () => () => {
+      checkRef.current?.abort();
+      answerRef.current?.abort();
+      window.clearTimeout(backstopRef.current);
+    },
+    [],
+  );
 
   return { active, earlier, thinking };
 }

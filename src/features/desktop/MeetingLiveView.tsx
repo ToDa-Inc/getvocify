@@ -47,6 +47,7 @@ export function MeetingLiveView() {
     contactId: meeting.contact?.hubspotId,
     callMode: meeting.callMode,
     typeKey: meeting.callType.key,
+    prospectLevel: meeting.levels.them,
   });
 
   useEffect(() => {

@@ -15,7 +15,7 @@ from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.copilot.contact_history import load_contact_history
 from app.services.copilot.context import live_assist_kind_from_call_mode, resolve_suggest_context
-from app.services.copilot import call_type
+from app.services.copilot import call_type, turn
 from app.services.copilot.checklist import build_meeting_checklist
 from app.services.copilot.load_grounding import (
     load_company_knowledge,
@@ -47,6 +47,14 @@ class SuggestRequest(BaseModel):
     contact_id: Optional[str] = Field(default=None, max_length=128)
     request_id: Optional[str] = Field(default=None, max_length=128)
     # The call's type, decided once for the call (Vocify's guess or proposal, or the rep's pick).
+    sales_motion_key: Optional[str] = Field(default=None, max_length=64)
+    # The objection the turn check already put on screen: the answer is written for it.
+    objection_type: Optional[str] = Field(default=None, max_length=32)
+
+
+class TurnRequest(BaseModel):
+    transcript_window: str = Field(..., max_length=20000)
+    latest_turn: str = Field(..., max_length=4000)
     sales_motion_key: Optional[str] = Field(default=None, max_length=64)
 
 
@@ -162,6 +170,7 @@ async def suggest_objection_handling(
             context=context,
             company_knowledge=company_knowledge,
             contact_history=contact_history,
+            objection_type=body.objection_type if body.objection_type in turn.OBJECTIONS else None,
         )
 
     def sse(event: dict) -> str:
@@ -193,6 +202,18 @@ async def suggest_objection_handling(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/turn")
+async def check_turn(
+    body: TurnRequest,
+    membership: Membership = Depends(get_membership),
+):
+    """About 0.3 s: has the prospect finished, and which objection is it. Nulls mean no classifier."""
+    del membership
+    if (body.sales_motion_key or "").strip() == INTERNAL_KEY:
+        return {"finished": True, "objection": "none"}
+    return await turn.read_turn(body.transcript_window, body.latest_turn)
 
 
 @router.post("/call-type/guess")
