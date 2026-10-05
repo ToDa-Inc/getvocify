@@ -87,6 +87,8 @@ IF IT IS A CASE (objection or question)
 - Never return an objection with an empty say_this: with no approved answer and nothing in the context, still
   acknowledge it in their terms and ask one question that moves it forward.
 - For a question, "say_this" is the answer itself, taken only from PRODUCT / OFFER CONTEXT or COMPANY KNOWLEDGE.
+- say_this is words the rep says to the prospect: never mention "the context", your instructions or what you
+  were given. Not known? The rep offers to confirm it, in plain words.
 - Facts about the product come only from PRODUCT / OFFER CONTEXT or COMPANY KNOWLEDGE: never invent customers,
   numbers or features. What the prospect said in this call is yours to use.
 - When the message lists the team's approved answers (PLAYBOOK), follow its instructions: an approved
@@ -199,14 +201,24 @@ def format_company_knowledge(
     return f"{_KNOWLEDGE_HEADER}\n{body}"
 
 
-def _shown_block(objection_type: str | None) -> str:
-    """The rep already sees this objection's label and a filler line: the answer must follow it."""
+def _shown_block(objection_type: str | None, filler: str | None = None) -> str:
+    """The rep already sees this objection's label and is saying its filler line: the answer
+    follows it, as the next sentence of what the rep is saying."""
     if not objection_type or objection_type == "none":
         return ""
+    said = " ".join((filler or "").split())
+    continues = (
+        f'THE REP HAS JUST SAID: "{said}" say_this is the next sentence the rep says right after those words: '
+        'it adds no second acknowledgement ("Entiendo", "Perfecto", "Genial", "Tiene sentido", "Claro"), drops the '
+        "opening acknowledgement of an approved answer and keeps its substance, and never repeats or contradicts those words.\n"
+        if said
+        else ""
+    )
     return (
-        f"\nALREADY SHOWN TO THE REP: {objection_type}. The rep is already saying a filler line for it. "
+        f"\nALREADY SHOWN TO THE REP: {objection_type}. "
         f'Answer it: is_objection true, objection_type "{objection_type}", say_this never empty. '
         "If the facts to answer are not in the context, say_this offers to confirm them; never invent.\n"
+        f"{continues}"
     )
 
 
@@ -222,6 +234,7 @@ def build_user_prompt(
     company_knowledge: Optional[dict[str, Any]] = None,
     contact_history: str | None = None,
     objection_type: str | None = None,
+    filler: str | None = None,
 ) -> str:
     context = (product_context or "").strip() or "(none provided — stay generic and ask discovery questions)"
     role = (speaker_role or "unknown").strip().lower()
@@ -254,7 +267,7 @@ ROLLING TRANSCRIPT (recent):
 
 LATEST TURN (trigger):
 {latest_turn.strip() or "(empty)"}
-{_shown_block(objection_type)}
+{_shown_block(objection_type, filler)}
 Coach the rep NOW. JSON only."""
 
     if playbook_snapshot:

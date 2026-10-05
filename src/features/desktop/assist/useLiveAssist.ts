@@ -120,7 +120,8 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       draft = card;
       present(card);
     };
-    const asked = { ...ctx, ...(type && { objectionType: type }) };
+    // The answer is written for the type on screen, as the next sentence after its filler line.
+    const asked = type && draft ? { ...ctx, objectionType: type, filler: draft.bridge } : ctx;
     let done = false;
     const finish = (results: (AssistCard | null)[], late = false) => {
       if (done || controller.signal.aborted) return;
@@ -155,6 +156,8 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     const controller = new AbortController();
     checkRef.current = controller;
     const since = Date.now();
+    // Every check, even one newer words replace: shows how long after they stop the check starts.
+    note("check", { latest: ctx.latestTurn, final });
     void readTurn(ctx, controller.signal).then((reading) => {
       if (controller.signal.aborted) return;
       const step = nextStep(reading, final);

@@ -50,6 +50,8 @@ class SuggestRequest(BaseModel):
     sales_motion_key: Optional[str] = Field(default=None, max_length=64)
     # The objection the turn check already put on screen: the answer is written for it.
     objection_type: Optional[str] = Field(default=None, max_length=32)
+    # The filler line the rep is already saying for it: the answer is the next sentence.
+    filler: Optional[str] = Field(default=None, max_length=200)
 
 
 class TurnRequest(BaseModel):
@@ -171,6 +173,7 @@ async def suggest_objection_handling(
             company_knowledge=company_knowledge,
             contact_history=contact_history,
             objection_type=body.objection_type if body.objection_type in turn.OBJECTIONS else None,
+            filler=body.filler,
         )
 
     def sse(event: dict) -> str:

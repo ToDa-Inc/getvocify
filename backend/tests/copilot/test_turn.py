@@ -129,6 +129,15 @@ def test_the_answer_is_written_for_the_type_already_on_screen():
     assert "ALREADY SHOWN" not in _prompt()
 
 
+def test_the_line_continues_from_the_filler_the_rep_just_said():
+    # 2026-10-05 live test: "Claro, que lo vea quien decide…" then "Perfecto, ¿me pasas su contacto?"
+    # acknowledged twice, and "Sí, te cuento…" then "No tengo confirmado…" contradicted itself.
+    prompt = _prompt(objection_type="authority", filler="Claro, que lo vea quien decide…")
+    assert "THE REP HAS JUST SAID: \"Claro, que lo vea quien decide…\"" in prompt
+    assert "next sentence" in prompt and "never repeats or contradicts" in prompt
+    assert "THE REP HAS JUST SAID" not in _prompt(objection_type="authority")
+
+
 def test_suggest_passes_the_type_on_screen_to_the_model(monkeypatch):
     seen = {}
 
@@ -145,5 +154,13 @@ def test_suggest_passes_the_type_on_screen_to_the_model(monkeypatch):
     _client().post("/api/v1/copilot/suggest", json={
         "transcript_window": "Them: me parece caro", "latest_turn": "me parece caro",
         "call_mode": "meeting", "speaker_role": "prospect", "objection_type": "price",
+        "filler": "Es normal mirarlo con lupa…",
     })
     assert seen["objection_type"] == "price"
+    assert seen["filler"] == "Es normal mirarlo con lupa…"
+
+
+def test_a_goodbye_or_an_agreed_next_step_is_no_objection():
+    # 2026-10-05 live test: "Vale, pues lo hablamos la semana que viene. Un saludo" showed a Timing card.
+    assert "goodbye" in turn.OBJECTIONS["none"] and "next step" in turn.OBJECTIONS["none"]
+    assert "pushback" in turn.OBJECTIONS["timing"].lower()

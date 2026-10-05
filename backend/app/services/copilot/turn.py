@@ -17,9 +17,9 @@ LATEST_CHARS = 1000
 CONVERSATION_CHARS = 6000
 
 OBJECTIONS: dict[str, str] = {
-    "none": "Small talk, agreement, describing their situation, or anything that is not pushback or a product question.",
+    "none": "Small talk, agreement, describing their situation, agreeing on a next step or a goodbye, or anything that is not pushback or a product question.",
     "price": "Too expensive, budget, cost.",
-    "timing": "Not now, later, bad moment.",
+    "timing": "Pushback on the moment: not now, too busy, call me in a few months.",
     "authority": "Someone else decides or must approve.",
     "competitor": "Already use or prefer another tool.",
     "status_quo": "Happy with how they work today, no need to change.",

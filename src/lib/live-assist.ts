@@ -15,6 +15,8 @@ export type AssistContext = {
   typeKey?: string;
   /** The objection already on screen (from the turn check): the answer is written for it. */
   objectionType?: string;
+  /** The filler line the rep is already saying: the answer is the next sentence after it. */
+  filler?: string;
 };
 
 /** One piece of live help, whatever produced it. */
@@ -76,7 +78,8 @@ const BRIDGES: Record<string, { es: string; en: string }> = {
   competitor: { es: "Bien que ya tengáis algo…", en: "Good that you already have something…" },
   status_quo: { es: "Si hoy os funciona, tiene sentido…", en: "If it works today, that makes sense…" },
   trust: { es: "Normal querer verlo antes…", en: "Fair to want proof first…" },
-  question: { es: "Sí, te cuento…", en: "Sure, here's how it works…" },
+  // Promises nothing: the answer may be "I'll confirm it".
+  question: { es: "Mira…", en: "Right, so…" },
   other: { es: "Te entiendo…", en: "I hear you…" },
 };
 
