@@ -254,7 +254,7 @@ class JevClient:
                 "type": "choice",
                 "instructions": spec.get("instructions")
                 or f"Choose one of {', '.join(allowed)} for {name}. If unsure, choose {on_missing}. Do not guess.",
-                "criteria": {choice: choice for choice in allowed},
+                "criteria": spec.get("criteria") or {choice: choice for choice in allowed},
             }
 
         def unknown_map() -> dict[str, str]:

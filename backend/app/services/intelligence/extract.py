@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -665,10 +666,20 @@ def build_messages(
                 for item in playbook_objections
                 if item.get("id")
             ]
+    system = prompt_path(prompt_version).read_text(encoding="utf-8")
+    addendum = prompt_path(f"{prompt_version}_no_reasoning")
+    if call is not None and addendum.exists() and _judge_without_reasoning():
+        system += addendum.read_text(encoding="utf-8")
     return [
-        {"role": "system", "content": prompt_path(prompt_version).read_text(encoding="utf-8")},
+        {"role": "system", "content": system},
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
     ]
+
+
+def _judge_without_reasoning() -> bool:
+    from app.services.llm.shared import answers_without_reasoning
+
+    return answers_without_reasoning(settings.INTELLIGENCE_MODEL, getattr(settings, "INTELLIGENCE_JUDGE_EFFORT", None))
 
 
 def is_current(memo: dict) -> bool:
@@ -1064,4 +1075,27 @@ async def extract_intelligence(
         shaped["playbook_observations"] = _apply_call_reading(
             _mark_outcome_steps(shaped["playbook_observations"], playbook_steps or []), call,
         )
+        if raw and getattr(settings, "JEV_DECISIONS_ENABLED", False):
+            await _apply_jev_decisions(shaped, transcript if transcript is not None else str(memo.get("transcript") or ""))
     return shaped, meta
+
+
+async def _apply_jev_decisions(shaped: dict, transcript: str) -> None:
+    """Jev answers follow-up email / callback / meeting yes-no; an "unknown" (low confidence or Jev
+    down) keeps the verdict the judge gave. Days, reasons and quotes stay the judge's."""
+    from app.services.llm import JevClient
+    from app.services.llm.jev_schemas import DECISION_QUESTIONS
+
+    try:
+        result = await JevClient().classify_questions({"transcript": transcript}, DECISION_QUESTIONS)
+    except Exception:
+        logging.getLogger(__name__).warning("jev decisions failed; keeping the judge's", exc_info=True)
+        return
+    answers = result.get("answers") or {}
+    nxt = shaped.get("next") if isinstance(shaped.get("next"), dict) else None
+    if nxt is not None:
+        for key, block in (("followup_email", "followup_email"), ("callback", "callback")):
+            if answers.get(key) in ("yes", "no") and isinstance(nxt.get(block), dict):
+                nxt[block] = {**nxt[block], "needed": answers[key] == "yes"}
+    if answers.get("meeting_agreed") in ("yes", "no") and isinstance(shaped.get("meeting"), dict):
+        shaped["meeting"] = {**shaped["meeting"], "agreed": True if answers["meeting_agreed"] == "yes" else None}

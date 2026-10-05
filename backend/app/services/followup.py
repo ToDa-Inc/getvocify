@@ -21,7 +21,7 @@ from typing import Any, Optional
 from app.services.usage import scoped
 from app.config import settings
 from app.services.feature_flags import is_enabled
-from app.services.text_guard import email_filler, strip_email_filler, word_count
+from app.services.text_guard import email_filler, spoken_language, strip_email_filler, word_count
 from app.services.followup_logic import (
     DEFAULT_TZ,
     PROMPT_VERSION,
@@ -145,42 +145,133 @@ def _facts(memo: dict) -> Optional[dict]:
 
 
 MIN_WORDS_AFTER_STRIP = 25
+MIN_BODY_WORDS, MAX_BODY_WORDS = 60, 120  # the prompt's range (followup_v2/v3 "never under 60 or over 120")
+LENGTH_RETRIES = 2
+
+
+def _effort() -> dict:
+    effort = getattr(settings, "FOLLOWUP_REASONING_EFFORT", None)
+    return {"reasoning_effort": effort} if effort else {}
 
 
 async def compose(llm: Any, messages: list[dict]) -> Optional[dict]:
     """The model call every draft makes, evals included.
 
-    Filler guard: a draft carrying a known filler phrase ("quedo a tu disposición", "gran
-    oportunidad"…) is asked for once more, naming the phrases. Whatever still slips
-    through is dropped sentence by sentence, as long as a real email remains."""
-    payload = await llm.chat_json(messages, model=settings.FOLLOWUP_MODEL, temperature=0.4, timeout=LLM_TIMEOUT_S)
+    Guards, in order: a draft in another language than the call is asked for again in the call's
+    language; a draft carrying a known filler phrase ("quedo a tu disposición", "gran oportunidad"…)
+    is asked for once more, naming the phrases, and whatever still slips through is dropped sentence
+    by sentence as long as a real email remains; a body under MIN_BODY_WORDS is asked for again
+    with its word count (a model that answers without reasoning does not count words)."""
+    want = _conversation_language(messages)
+    messages = _with_language(messages, want)
+    payload = await llm.chat_json(messages, model=settings.FOLLOWUP_MODEL, temperature=0.4, timeout=LLM_TIMEOUT_S, **_effort())
     draft = parse_draft(payload)
     if not draft:
         return draft
+    if want and spoken_language(draft["body"]) not in (None, want):
+        draft = await _in_language(llm, messages, payload, draft, want)
     found = email_filler(f"{draft['subject']}\n{draft['body']}")
-    if not found:
-        return draft
+    if found:
+        retry = [
+            *messages,
+            {"role": "assistant", "content": json.dumps(payload, ensure_ascii=False)},
+            {
+                "role": "user",
+                "content": "Rewrite it without these phrases, keeping every fact, the tone and the "
+                f"length: {'; '.join(found)}. Return the same JSON.",
+            },
+        ]
+        try:
+            second = parse_draft(
+                await llm.chat_json(retry, model=settings.FOLLOWUP_MODEL, temperature=0.4, timeout=LLM_TIMEOUT_S, **_effort())
+            )
+        except Exception:
+            logger.warning("followup: filler retry failed; stripping instead", exc_info=True)
+            second = None
+        draft = second or draft
+        if email_filler(draft["body"]):
+            stripped = strip_email_filler(draft["body"])
+            if word_count(stripped) >= MIN_WORDS_AFTER_STRIP:
+                draft = {**draft, "body": stripped}
+    for _ in range(LENGTH_RETRIES):
+        if word_count(draft["body"]) >= MIN_BODY_WORDS:
+            break
+        draft = await _lengthen(llm, messages, payload, draft)
+    if want and not draft.get("language"):
+        draft = {**draft, "language": want}
+    return draft
+
+
+_LANGUAGE_NAMES = {"es": "Spanish from Spain", "en": "English"}
+
+
+def _with_language(messages: list[dict], want: Optional[str]) -> list[dict]:
+    """The call's language as an explicit field: voice samples in another language pull a model
+    that does not reason towards theirs. Unchanged when the language is unclear."""
+    if not want:
+        return messages
+    try:
+        user = json.loads(messages[-1]["content"])
+    except (ValueError, KeyError, TypeError):
+        return messages
+    if not isinstance(user, dict):
+        return messages
+    user["email_language"] = _LANGUAGE_NAMES[want]
+    return [*messages[:-1], {**messages[-1], "content": json.dumps(user, ensure_ascii=False)}]
+
+
+def _conversation_language(messages: list[dict]) -> Optional[str]:
+    try:
+        transcript = json.loads(messages[-1]["content"]).get("transcript") or ""
+    except (ValueError, KeyError, TypeError, AttributeError, IndexError):
+        return None
+    return spoken_language(transcript)
+
+
+async def _in_language(llm: Any, messages: list[dict], payload: object, draft: dict, want: str) -> dict:
+    """A draft in another language than the call is asked for once more in the call's language."""
     retry = [
         *messages,
         {"role": "assistant", "content": json.dumps(payload, ensure_ascii=False)},
+        {"role": "user", "content": f"The conversation is in {_LANGUAGE_NAMES[want]}: rewrite subject and body "
+         f'in {_LANGUAGE_NAMES[want]}, keeping every fact. Return the same JSON with "language": "{want}".'},
+    ]
+    try:
+        second = parse_draft(
+            await llm.chat_json(retry, model=settings.FOLLOWUP_MODEL, temperature=0.4, timeout=LLM_TIMEOUT_S, **_effort())
+        )
+    except Exception:
+        logger.warning("followup: language retry failed; keeping the draft", exc_info=True)
+        return draft
+    if second and spoken_language(second["body"]) in (None, want):
+        return {**second, "language": second.get("language") or want}
+    return draft
+
+
+async def _lengthen(llm: Any, messages: list[dict], payload: object, draft: dict) -> dict:
+    """A model that answers without reasoning does not count words: a body under MIN_BODY_WORDS
+    is asked for once more with its count. The longer draft wins only if it is no longer short."""
+    words = word_count(draft["body"])
+    retry = [
+        *messages,
+        {"role": "assistant", "content": json.dumps(draft, ensure_ascii=False)},  # the draft as it stands now
         {
             "role": "user",
-            "content": "Rewrite it without these phrases, keeping every fact, the tone and the "
-            f"length: {'; '.join(found)}. Return the same JSON.",
+            "content": f"The body has {words} words; it must have at least 75 and at most "
+            f"{MAX_BODY_WORDS - 10}, greeting and sign-off included (aim for about 90). Add concrete content "
+            "from the call (what was agreed, the next step and its day, what will be sent), never "
+            'filler. Return the same JSON, with "language".',
         },
     ]
     try:
         second = parse_draft(
-            await llm.chat_json(retry, model=settings.FOLLOWUP_MODEL, temperature=0.4, timeout=LLM_TIMEOUT_S)
+            await llm.chat_json(retry, model=settings.FOLLOWUP_MODEL, temperature=0.4, timeout=LLM_TIMEOUT_S, **_effort())
         )
     except Exception:
-        logger.warning("followup: filler retry failed; stripping instead", exc_info=True)
-        second = None
-    draft = second or draft
-    if email_filler(draft["body"]):
-        stripped = strip_email_filler(draft["body"])
-        if word_count(stripped) >= MIN_WORDS_AFTER_STRIP:
-            draft = {**draft, "body": stripped}
+        logger.warning("followup: length retry failed; keeping the short draft", exc_info=True)
+        return draft
+    if second and MIN_BODY_WORDS <= word_count(second["body"]) <= MAX_BODY_WORDS and not email_filler(second["body"]):
+        return {**second, "language": second.get("language") or draft.get("language")}
     return draft
 
 

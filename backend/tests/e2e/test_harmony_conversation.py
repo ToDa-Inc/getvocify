@@ -130,12 +130,12 @@ class FakeLLM:
         self.calls: list[dict] = []
 
     async def chat_json(self, messages, **kwargs):
-        kind = "c04" if messages[0]["content"] == PROMPT_PATH.read_text(encoding="utf-8") else "followup"
+        kind = "c04" if messages[0]["content"].startswith(PROMPT_PATH.read_text(encoding="utf-8")) else "followup"
         self.calls.append({"kind": kind, "messages": copy.deepcopy(messages), **kwargs})
         return copy.deepcopy(C04_ANSWER if kind == "c04" else FOLLOWUP_ANSWER)
 
     def context(self, kind: str) -> dict:
-        [call] = [c for c in self.calls if c["kind"] == kind]
+        call = next(c for c in self.calls if c["kind"] == kind)  # the first ask; guards may re-ask
         return json.loads(call["messages"][1]["content"])
 
 

@@ -8,6 +8,7 @@ the model again (follow-up) or drop the sentence (chat openers/closers).
 from __future__ import annotations
 
 import re
+from typing import Optional
 import unicodedata
 
 # Email filler and clichés (es/en). Each is a phrase a rep would never write themselves.
@@ -182,3 +183,23 @@ def generic_criterion(text: str) -> bool:
 
 def word_count(text: str) -> int:
     return len((text or "").split())
+
+
+_STOP = {
+    "es": frozenset("que de el la los las y para con por una un es no se te tu nos lo al del como pero muy más ya".split()),
+    "en": frozenset("the and to you of is for with we your that this it on are be as at have will our".split()),
+}
+
+
+def spoken_language(text: str) -> Optional[str]:
+    """"es" or "en" when the text clearly leans to one by common words; None when unsure."""
+    words = re.findall(r"[a-záéíóúñü]+", (text or "").lower())
+    counts = {lang: sum(1 for w in words if w in stop) for lang, stop in _STOP.items()}
+    es, en = counts["es"], counts["en"]
+    if es + en < 8:
+        return None
+    if es >= 2 * en:
+        return "es"
+    if en >= 2 * es:
+        return "en"
+    return None

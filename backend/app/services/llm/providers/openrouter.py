@@ -25,6 +25,9 @@ from app.services.usage import record_llm_usage
 logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+TOGETHER_URL = "https://api.together.xyz/v1/chat/completions"
+TOGETHER_PREFIX = "together/"
+TOGETHER_PROVIDER = "together"
 DEFAULT_TIMEOUT = 45.0
 MAX_RETRIES = 2
 PROVIDER_NAME = "openrouter"
@@ -78,6 +81,17 @@ def openrouter_call_meta(data: dict, *, requested_model: str) -> dict:
     }
 
 
+def _priced(meta: dict, provider: str, model: str) -> dict:
+    """Together reports tokens but no cost: price them from settings.TOGETHER_PRICES."""
+    if provider != TOGETHER_PROVIDER or meta.get("cost_usd") is not None:
+        return meta
+    price = (getattr(settings, "TOGETHER_PRICES", None) or {}).get(model)
+    if not price:
+        return meta
+    cost = (meta.get("prompt_tokens") or 0) * price[0] / 1e6 + (meta.get("completion_tokens") or 0) * price[1] / 1e6
+    return {**meta, "cost_usd": round(cost, 8)}
+
+
 class EmptyModelResponse(ValueError):
     def __init__(self) -> None:
         super().__init__("Empty model response")
@@ -115,7 +129,48 @@ class OpenRouterProvider(BaseLLMProvider):
         extra: Optional[dict] = None,
         allow_empty_content: bool = False,
     ) -> dict:
-        api_key = self.api_key
+        """A "together/<id>" model goes to Together AI (no reasoning unless `extra` asks for it);
+        when Together fails after its retries, or has no key, the same model through OpenRouter
+        (settings.TOGETHER_FALLBACKS) answers instead. Everything else goes to OpenRouter."""
+        requested = str(model or self.model or "")
+        kwargs = dict(temperature=temperature, response_format=response_format, timeout=timeout,
+                      max_retries=max_retries, tools=tools, allow_empty_content=allow_empty_content)
+        if not requested.startswith(TOGETHER_PREFIX):
+            return await self._complete_on(messages, model=model, extra=extra, url=OPENROUTER_URL,
+                                           api_key=self.api_key, provider=PROVIDER_NAME, **kwargs)
+        model_id = requested[len(TOGETHER_PREFIX):]
+        together_extra = dict(extra or {})
+        together_extra.setdefault("reasoning", {"enabled": False})
+        fallback = (getattr(settings, "TOGETHER_FALLBACKS", None) or {}).get(model_id)
+        key = getattr(settings, "TOGETHER_API_KEY", None)
+        try:
+            if not key or not str(key).strip():
+                raise Exception("LLM request failed: TOGETHER_API_KEY is not set")
+            return await self._complete_on(messages, model=model_id, extra=together_extra, url=TOGETHER_URL,
+                                           api_key=key, provider=TOGETHER_PROVIDER, **kwargs)
+        except Exception as e:
+            if not fallback:
+                raise
+            logger.warning("Together failed for %s (%s); answering with %s via OpenRouter", model_id, e, fallback)
+            return await self._complete_on(messages, model=fallback, extra=together_extra, url=OPENROUTER_URL,
+                                           api_key=self.api_key, provider=PROVIDER_NAME, **kwargs)
+
+    async def _complete_on(
+        self,
+        messages: list[dict],
+        *,
+        model: Optional[str],
+        url: str,
+        api_key: Optional[str],
+        provider: str,
+        temperature: float = 0.0,
+        response_format: Optional[dict] = None,
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
+        tools: Optional[list] = None,
+        extra: Optional[dict] = None,
+        allow_empty_content: bool = False,
+    ) -> dict:
         if not api_key or not str(api_key).strip():
             raise Exception(
                 "LLM request failed: OPENROUTER_API_KEY is not set. "
@@ -151,7 +206,7 @@ class OpenRouterProvider(BaseLLMProvider):
                     extra=log_domain(
                         DOMAIN_LLM,
                         "chat_attempt",
-                        provider=PROVIDER_NAME,
+                        provider=provider,
                         model=model_used,
                         attempt=attempt + 1,
                         max_attempts=retries + 1,
@@ -166,7 +221,7 @@ class OpenRouterProvider(BaseLLMProvider):
                     extra=log_domain(
                         DOMAIN_LLM,
                         "request_preview",
-                        provider=PROVIDER_NAME,
+                        provider=provider,
                         model=model_used,
                         request_preview=request_preview,
                     ),
@@ -177,9 +232,9 @@ class OpenRouterProvider(BaseLLMProvider):
                     req_payload["response_format"] = use_response_format
                 async with httpx.AsyncClient(timeout=request_timeout) as client:
                     resp = await client.post(
-                        OPENROUTER_URL,
+                        url,
                         headers={
-                            "Authorization": f"Bearer {self.api_key}",
+                            "Authorization": f"Bearer {api_key}",
                             "Content-Type": "application/json",
                             "HTTP-Referer": settings.FRONTEND_URL,
                             "X-Title": "Vocify",
@@ -199,16 +254,16 @@ class OpenRouterProvider(BaseLLMProvider):
                     if content is None and not allow_empty_content:
                         raise EmptyModelResponse()
                     elapsed_ms = (time.perf_counter() - t0) * 1000
-                    self.last_call_meta = openrouter_call_meta(data, requested_model=model_used)
+                    self.last_call_meta = _priced(openrouter_call_meta(data, requested_model=model_used), provider, model_used)
                     usage = self.last_call_meta
-                    inc_llm_request("success", PROVIDER_NAME, usage.get("model") or model_used)
-                    record_llm_usage(PROVIDER_NAME, usage)
+                    inc_llm_request("success", provider, usage.get("model") or model_used)
+                    record_llm_usage(provider, usage)
                     logger.info(
                         "LLM chat success",
                         extra=log_domain(
                             DOMAIN_LLM,
                             "chat_success",
-                            provider=PROVIDER_NAME,
+                            provider=provider,
                             model=usage.get("model") or model_used,
                             duration_ms=round(elapsed_ms, 2),
                             prompt_tokens=usage.get("prompt_tokens"),
@@ -241,7 +296,7 @@ class OpenRouterProvider(BaseLLMProvider):
                             "Try: 1) Create new key at openrouter.ai/keys 2) Remove quotes/whitespace from .env"
                         )
                 if attempt >= retries:
-                    inc_llm_request("failure", PROVIDER_NAME, model_used or self.model)
+                    inc_llm_request("failure", provider, model_used or self.model)
                     inc_pipeline_error(DOMAIN_LLM, "chat")
                 if attempt < retries:
                     logger.warning(
@@ -337,6 +392,10 @@ class OpenRouterProvider(BaseLLMProvider):
         if not self.api_key or not str(self.api_key).strip():
             raise Exception("LLM request failed: OPENROUTER_API_KEY is not set.")
         model_used = model or self.model
+        if str(model_used).startswith(TOGETHER_PREFIX):
+            # Streams always go through OpenRouter: the same model there.
+            model_id = str(model_used)[len(TOGETHER_PREFIX):]
+            model_used = (getattr(settings, "TOGETHER_FALLBACKS", None) or {}).get(model_id, model_id)
         payload = {
             "model": model_used,
             "messages": messages,
@@ -436,7 +495,8 @@ class OpenRouterProvider(BaseLLMProvider):
                 messages, model=model, temperature=temperature,
                 response_format={"type": "json_object"}, timeout=timeout, max_retries=max_retries,
                 # "low"/"medium"/"high", or a token budget ("1200") that keeps reasoning but caps it.
-                extra={"reasoning": {"max_tokens": int(reasoning_effort)} if str(reasoning_effort).isdigit()
+                extra={"reasoning": {"enabled": False} if reasoning_effort == "none"
+                       else {"max_tokens": int(reasoning_effort)} if str(reasoning_effort).isdigit()
                        else {"effort": reasoning_effort}},
             )
             content = message.get("content")

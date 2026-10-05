@@ -273,11 +273,11 @@ async def test_the_answer_hint_reaches_the_model_on_the_last_user_turn_but_is_ne
     assert all("(Answer in English.)" not in str(m.get("content")) for m in artifacts["copilot"]["messages"])
 
 
-def test_web_ask_defaults_to_deepseek_v41_flash_with_gemini_as_the_fallback(monkeypatch):
+def test_web_ask_defaults_to_deepseek_v41_flash_and_retries_it_once(monkeypatch):
     from app.config import settings
     from app.services.crm_copilot import model_profile
 
-    assert settings.ASK_MODEL == "deepseek/deepseek-v4.1-flash" and settings.ASK_FALLBACK_MODEL == "google/gemini-3.8-flash"
+    assert settings.ASK_MODEL == "deepseek/deepseek-v4.1-flash" and settings.ASK_FALLBACK_MODEL == "deepseek/deepseek-v4.1-flash"
     monkeypatch.setattr(settings, "ASK_MODEL", "")
     assert model_profile.ask_model() == settings.CRM_COPILOT_MODEL
 
