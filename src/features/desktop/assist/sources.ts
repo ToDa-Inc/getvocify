@@ -1,6 +1,14 @@
 import { streamObjectionSuggestion } from "@/features/copilot";
+import { api } from "@/shared/lib/api-client";
 import type { ObjectionSuggestion } from "@/features/copilot/types";
-import { objectionCard, streamedDraft, type AssistCard, type AssistSource } from "@/lib/live-assist";
+import {
+  objectionCard,
+  streamedDraft,
+  type AssistCard,
+  type AssistContext,
+  type AssistSource,
+  type TurnReading,
+} from "@/lib/live-assist";
 
 /** Live objection handling from /copilot/suggest (the call's playbook and the rep's saved offer). */
 const objectionSource: AssistSource = {
@@ -18,14 +26,16 @@ const objectionSource: AssistSource = {
           speaker_role: "prospect",
           ...(context.contactId && { contact_id: context.contactId }),
           ...(context.typeKey && { sales_motion_key: context.typeKey }),
+          ...(context.objectionType && { objection_type: context.objectionType }),
         },
         (event) => {
           if (event.type === "restart") {
             // The server asks again without the playbook: what streamed so far was empty.
             streamed = "";
-          } else if (event.type === "token" && onDraft) {
+          } else if (event.type === "token" && onDraft && !context.objectionType) {
             streamed += event.text;
-            // Once: the label and a loading state. The answer itself arrives whole, with the result.
+            // No turn check: the stream names the type. Once: the label and a loading state.
+            // The answer itself arrives whole, with the result.
             if (!draft) {
               draft = streamedDraft(streamed, context.latestTurn, Date.now());
               if (draft) onDraft(draft);
@@ -40,6 +50,24 @@ const objectionSource: AssistSource = {
         .finally(() => resolve(signal.aborted ? null : objectionCard(result, Date.now(), context.latestTurn)));
     }),
 };
+
+/**
+ * The turn check (~0.3 s): has the prospect finished, and which objection is it. Null when it
+ * can't be reached, so live help falls back to asking the answer model directly.
+ */
+export function readTurn(context: AssistContext, signal: AbortSignal): Promise<TurnReading | null> {
+  return api
+    .post<TurnReading>(
+      "/copilot/turn",
+      {
+        transcript_window: context.transcriptWindow,
+        latest_turn: context.latestTurn,
+        ...(context.typeKey && { sales_motion_key: context.typeKey }),
+      },
+      { signal, timeoutMs: 2500 },
+    )
+    .catch(() => null);
+}
 
 /**
  * Every source asked after the other side speaks. Battle cards join this list as

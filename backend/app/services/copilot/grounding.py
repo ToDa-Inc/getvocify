@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from app.services.copilot.prompts import LIVE_MODES
 from app.services.playbooks.versions import published_snapshot
 
 
@@ -113,12 +114,12 @@ def finalize_suggest_result(
 ) -> dict[str, Any]:
     """
     Attach playbook_ready / evidence_refs to a suggest result.
-    Non-meeting modes never ship advice-looking card text for live assist.
+    Only the live modes (the Mac app's meetings and calls) ship card text.
     """
     mode = (call_mode or "speakerphone").strip().lower()
     cited = _cited_evidence_refs(suggestion)
 
-    if mode != "meeting":
+    if mode not in LIVE_MODES:
         return {
             "suggestion": _strip_advice(suggestion),
             "playbook_ready": False,
@@ -173,8 +174,9 @@ def finalize_suggest_result(
         if isinstance(entry, dict) and str(entry.get("guidance") or "").strip()
     }
     if not source_id or source_id not in answer_ids:
+        # Not the playbook's answer (none named, or a wrong id): still shown, as general help.
         return {
-            "suggestion": _strip_advice(suggestion),
+            "suggestion": out,
             "playbook_ready": False,
             "evidence_refs": [],
             "grounded": False,

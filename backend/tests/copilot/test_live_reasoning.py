@@ -1,7 +1,9 @@
-from app.services.copilot.suggest import LIVE_REASONING
+from app.config import settings
+from app.services.copilot.suggest import live_reasoning
 
 
-def test_live_help_never_switches_reasoning_off():
-    # Models with mandatory reasoning reject `enabled: false` on every request.
-    assert "enabled" not in LIVE_REASONING["reasoning"]
-    assert LIVE_REASONING == {"reasoning": {"effort": "minimal"}}
+def test_live_help_never_switches_reasoning_off(monkeypatch):
+    # Models with mandatory reasoning reject `enabled: false` on every request: only an effort is sent.
+    monkeypatch.setattr(settings, "COPILOT_REASONING_EFFORT", None, raising=False)
+    assert "enabled" not in live_reasoning()["reasoning"]
+    assert live_reasoning() == {"reasoning": {"effort": "minimal"}}

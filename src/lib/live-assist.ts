@@ -13,6 +13,8 @@ export type AssistContext = {
   callMode?: "softphone" | "meeting";
   /** The call's type: help uses that playbook. */
   typeKey?: string;
+  /** The objection already on screen (from the turn check): the answer is written for it. */
+  objectionType?: string;
 };
 
 /** One piece of live help, whatever produced it. */
@@ -28,10 +30,8 @@ export type AssistCard = {
   bridge: string;
   /** Short tag such as "Price" or a competitor name. */
   label: string;
+  /** The one line to say; empty when no answer came (the filler line stays). */
   sayThis: string;
-  thenAsk: string;
-  why: string;
-  avoid: string;
   at: number;
 };
 
@@ -124,22 +124,56 @@ export function draftCard(type: string, latestTurn: string, at: number): AssistC
     bridge: bridgeLine(type, latestTurn),
     label: OBJECTION_LABEL[type] ?? "Objection",
     sayThis: "",
-    thenAsk: "",
-    why: "",
-    avoid: "",
     at,
   };
 }
 
 /**
- * Ask only after the other side says something substantial; returns the key used
- * to avoid asking twice about the same words.
+ * Turn detection: has the prospect finished? Their audio going quiet says *when* to look, the
+ * classifier says *whether* the thought is complete (a breath mid-sentence is not a turn end).
+ * A real pause in their words is the backstop, and the only signal when no audio can be read.
  */
-/** How long after their last word changed live help asks. A settled sentence is asked about at
- * once; words still settling only after a real pause, never on a breath mid-sentence (asking
- * half a sentence finds nothing and holds back the ask about the whole one). */
-export function askAfterMs(input: { settled: boolean }): number {
-  return input.settled ? 300 : 2500;
+export const PAUSE_MS = 300;
+/** After the classifier says "still going": this much more quiet and the turn is over. */
+export const BACKSTOP_MS = 2000;
+
+/** Their side's level (0–1, as the meter shows it) below which they are not speaking. */
+export function prospectSilent(level: number): boolean {
+  return level < 0.15;
+}
+
+/**
+ * When to check their words, and whether that check is final (a "still going" verdict then counts
+ * as done). paused: their audio has been quiet for PAUSE_MS; false while they speak; null when no
+ * audio from their side has been read yet.
+ */
+export function turnCheck(input: { settled: boolean; paused: boolean | null }): { afterMs: number; final: boolean } {
+  if (input.paused) return { afterMs: 0, final: false };
+  if (input.paused === null && input.settled) return { afterMs: 300, final: true };
+  return { afterMs: 2500, final: true };
+}
+
+/** What the turn check found; nulls when the classifier could not be reached. */
+export type TurnReading = { finished: boolean | null; objection: string | null };
+
+export type TurnStep = { do: "answer"; type: string } | { do: "wait" } | { do: "skip" } | { do: "ask" };
+
+/** answer: show the card now and write its answer; ask: no classifier, let the answer model decide. */
+export function nextStep(reading: TurnReading | null, final: boolean): TurnStep {
+  if (!reading || reading.finished === null) return { do: "ask" };
+  if (!reading.finished && !final) return { do: "wait" };
+  const type = reading.objection;
+  return type && type !== "none" && type in OBJECTION_LABEL ? { do: "answer", type } : { do: "skip" };
+}
+
+/**
+ * The answer lands in the card already on screen and keeps its place, label, filler line and clock.
+ * No answer (failed, silent or too slow) never takes the card away: the filler stays, the dots stop.
+ */
+export function answerCard(draft: AssistCard | null, answer: AssistCard | null): AssistCard | null {
+  if (!draft) return answer;
+  if (!answer) return { ...draft, stage: "ready" };
+  return { ...answer, id: draft.id, at: draft.at, kind: draft.kind, label: draft.label, bridge: draft.bridge };
 }
 
 /** What a turn says on screen: its settled words, then the ones still settling. */
@@ -192,9 +226,6 @@ export function objectionCard(suggestion: ObjectionSuggestion | null, at: number
     bridge: bridgeLine(type, latestTurn),
     label: OBJECTION_LABEL[type] ?? "Objection",
     sayThis,
-    thenAsk: suggestion.next_question?.trim() ?? "",
-    why: suggestion.why_it_works?.trim() ?? "",
-    avoid: suggestion.dont_say?.trim() ?? "",
     at,
   };
 }

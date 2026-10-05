@@ -61,11 +61,11 @@ Return ONLY valid JSON with this exact shape:
 
 MEETING_LINE_MAX = 90
 
-MEETING_SYSTEM_PROMPT = f"""You are Vocify's live assist for a sales MEETING (Zoom, Meet, Teams). The rep reads your
+MEETING_SYSTEM_PROMPT = f"""You are Vocify's live assist for a live sales call or meeting. The rep reads your one
 line on screen while still talking, so every word must earn its place.
 
 WHO IS WHO
-- "Them:" lines are the prospect side (meeting audio). "You:" lines are the rep (microphone).
+- "Them:" lines are the prospect side (call or meeting audio). "You:" lines are the rep (microphone).
 - The LATEST TURN is the prospect's.
 
 YOUR ONLY JOB
@@ -79,24 +79,23 @@ Put "is_objection" and "objection_type" first in the JSON; they are read before 
 
 IF IT IS A CASE (objection or question)
 - "say_this": ONE line the rep can say out loud, max {MEETING_LINE_MAX} characters, every word in the language
-  of the latest turn. Acknowledge briefly or go straight to one sharp question.
+  of the latest turn. Acknowledge briefly or go straight to one sharp question. Never argue with or contradict
+  the prospect: a calm line the rep can say without thinking, not a debate.
 - Tie it to something specific this prospect said earlier in the call (their team, how they work, their tools,
   volumes, the problem they described), in their words. A line that would fit any call is wrong. Know where
   the call is: on a first conversation do not jump to proposals or closing.
 - Never return an objection with an empty say_this: with no approved answer and nothing in the context, still
   acknowledge it in their terms and ask one question that moves it forward.
-- "next_question": ONE follow-up question, max {MEETING_LINE_MAX} characters, or "". It asks something new: never repeat
-  the question already in say_this.
-- "why_it_works": one short sentence, or "". "dont_say": one short phrase, or "".
 - For a question, "say_this" is the answer itself, taken only from PRODUCT / OFFER CONTEXT or COMPANY KNOWLEDGE.
 - Facts about the product come only from PRODUCT / OFFER CONTEXT or COMPANY KNOWLEDGE: never invent customers,
   numbers or features. What the prospect said in this call is yours to use.
 - When the message lists the team's approved answers (PLAYBOOK), follow its instructions: an approved
-  answer for the objection's category gives the approach, said for this conversation.
-- Unless a published playbook was provided in the user message, set evidence_refs to [] and source_id to null.
+  answer for the objection's category gives the approach, said for this conversation. Keep its idea and its claims;
+  never swap it for a different tactic or a question of your own.
+- "source_id" is the approved answer's id when you followed one, else null.
 
 IF IT IS NOT
-Return is_objection=false, objection_type="none" and empty strings. Do not coach, do not suggest anything.
+Return is_objection=false, objection_type="none" and say_this "". Do not coach, do not suggest anything.
 
 BANNED
 "I understand your concern", "Great question", "Absolutely", exclamation marks, lists, more than one sentence in say_this.
@@ -106,19 +105,18 @@ Only valid JSON:
 {{
   "is_objection": boolean,
   "objection_type": "price"|"timing"|"authority"|"competitor"|"status_quo"|"trust"|"question"|"other"|"none",
-  "urgency": "low"|"medium"|"high",
-  "say_this": string (never empty when is_objection is true: with nothing to claim, acknowledge it in their terms and ask one question),
-  "why_it_works": string,
-  "next_question": string,
-  "dont_say": string,
-  "evidence_refs": array of strings,
-  "source_id": string or null
+  "source_id": string or null,
+  "say_this": string (never empty when is_objection is true: with nothing to claim, acknowledge it in their terms and ask one question)
 }}
+Only these four keys.
 """
+
+# The Mac app's live help: a meeting, or a call from a dialer ("softphone"). One line, never erased.
+LIVE_MODES = frozenset({"meeting", "softphone"})
 
 
 def system_prompt_for(call_mode: str) -> str:
-    return MEETING_SYSTEM_PROMPT if call_mode == "meeting" else SYSTEM_PROMPT
+    return MEETING_SYSTEM_PROMPT if call_mode in LIVE_MODES else SYSTEM_PROMPT
 
 
 def _approved_answers(snapshot: dict[str, Any]) -> list[str]:
@@ -201,6 +199,17 @@ def format_company_knowledge(
     return f"{_KNOWLEDGE_HEADER}\n{body}"
 
 
+def _shown_block(objection_type: str | None) -> str:
+    """The rep already sees this objection's label and a filler line: the answer must follow it."""
+    if not objection_type or objection_type == "none":
+        return ""
+    return (
+        f"\nALREADY SHOWN TO THE REP: {objection_type}. The rep is already saying a filler line for it. "
+        f'Answer it: is_objection true, objection_type "{objection_type}", say_this never empty. '
+        "If the facts to answer are not in the context, say_this offers to confirm them; never invent.\n"
+    )
+
+
 def build_user_prompt(
     *,
     transcript_window: str,
@@ -212,6 +221,7 @@ def build_user_prompt(
     playbook_snapshot: Optional[dict[str, Any]] = None,
     company_knowledge: Optional[dict[str, Any]] = None,
     contact_history: str | None = None,
+    objection_type: str | None = None,
 ) -> str:
     context = (product_context or "").strip() or "(none provided — stay generic and ask discovery questions)"
     role = (speaker_role or "unknown").strip().lower()
@@ -244,7 +254,7 @@ ROLLING TRANSCRIPT (recent):
 
 LATEST TURN (trigger):
 {latest_turn.strip() or "(empty)"}
-
+{_shown_block(objection_type)}
 Coach the rep NOW. JSON only."""
 
     if playbook_snapshot:

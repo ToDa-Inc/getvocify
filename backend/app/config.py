@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # Gemini Live (3.1 Flash Live) is Google Live API only (not OpenRouter) and needs AI Studio key.
     # DeepSeek V4.1 Flash thinks by default (~540 hidden tokens); suggest.py turns that off.
     COPILOT_MODEL: str = "deepseek/deepseek-v4.1-flash"
+    # Live help's reasoning effort. Empty means "minimal" (Gemini Flash-Lite refuses "none");
+    # "none" for models that think before their first word even at "minimal" (GPT-6 Luna).
+    COPILOT_REASONING_EFFORT: Optional[str] = None
     # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
     CRM_COPILOT_MODEL: str = "google/gemini-3.8-flash"
     CRM_COPILOT_MAX_ROUNDS: int = 8

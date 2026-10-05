@@ -11,7 +11,7 @@ import httpx
 from app.config import settings
 from app.services.copilot.context import SuggestContext
 from app.services.copilot.grounding import SuggestGrounding, finalize_suggest_result
-from app.services.copilot.prompts import MEETING_LINE_MAX, build_user_prompt, system_prompt_for
+from app.services.copilot.prompts import LIVE_MODES, MEETING_LINE_MAX, build_user_prompt, system_prompt_for
 from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,14 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Live help can't wait for long hidden reasoning, but some models (gemini-3.5-flash-lite) refuse
 # to switch it off and fail every request with "Reasoning is mandatory". Ask for the least instead;
 # models that don't reason ignore it.
-LIVE_REASONING = {"reasoning": {"effort": "minimal"}}
+def live_reasoning() -> dict[str, Any]:
+    effort = (settings.COPILOT_REASONING_EFFORT or "").strip() or "minimal"
+    return {"reasoning": {"effort": effort}}
+
+
+def temperature_for(call_mode: str) -> float:
+    """Live help is low: the same moment gets the same kind of line."""
+    return 0.1 if call_mode in LIVE_MODES else 0.35
 
 
 def _resolve_model(explicit: Optional[str] = None) -> str:
@@ -56,6 +63,7 @@ async def stream_objection_suggestion(
     context: Optional[SuggestContext] = None,
     company_knowledge: Optional[dict[str, Any]] = None,
     contact_history: Optional[str] = None,
+    objection_type: Optional[str] = None,
 ) -> AsyncIterator[dict[str, Any]]:
     del context  # threaded for grounding/session wiring; prompts unchanged without CRM load
     """
@@ -84,6 +92,7 @@ async def stream_objection_suggestion(
                 playbook_snapshot=grounding.playbook_snapshot if grounding else None,
                 company_knowledge=company_knowledge,
                 contact_history=contact_history,
+                objection_type=objection_type,
             ),
         },
     ]
@@ -91,10 +100,10 @@ async def stream_objection_suggestion(
     payload = {
         "model": model_used,
         "messages": messages,
-        "temperature": 0.35,
+        "temperature": temperature_for(call_mode),
         "stream": True,
         "response_format": {"type": "json_object"},
-        **LIVE_REASONING,
+        **live_reasoning(),
     }
 
     import time
@@ -197,8 +206,8 @@ async def _fallback_non_stream(
     payload = {
         "model": model_used,
         "messages": messages,
-        "temperature": 0.35,
-        **LIVE_REASONING,
+        "temperature": temperature_for(call_mode),
+        **live_reasoning(),
     }
     resp = await client.post(
         OPENROUTER_URL,
@@ -254,6 +263,10 @@ def _parse_suggestion(raw: str) -> dict[str, Any]:
     }
 
 
+# The model is asked for MEETING_LINE_MAX characters; a line tied to the call runs a little
+# longer, and silencing it withdrew a card the rep was already reading. Only rambling is dropped.
+MEETING_LINE_SHOW_MAX = 160
+
 MEETING_OBJECTION_TYPES = {"price", "timing", "authority", "competitor", "status_quo", "trust", "question", "other"}
 
 
@@ -282,25 +295,20 @@ def meeting_suggestion(raw: str) -> dict[str, Any]:
         return silent_suggestion()
     objection_type = str(parsed.get("objection_type") or "").strip()
     say_this = " ".join(str(parsed.get("say_this") or "").split())
-    if objection_type not in MEETING_OBJECTION_TYPES or not say_this or len(say_this) > MEETING_LINE_MAX:
+    if objection_type not in MEETING_OBJECTION_TYPES or not say_this or len(say_this) > MEETING_LINE_SHOW_MAX:
         return silent_suggestion()
-    next_question = " ".join(str(parsed.get("next_question") or "").split())
+    # One line, nothing else: a follow-up or advice pulls the rep's eyes off the call.
     return {
+        **silent_suggestion(),
         "is_objection": True,
         "objection_type": objection_type,
-        "urgency": str(parsed.get("urgency") or "low"),
         "say_this": say_this,
-        "why_it_works": str(parsed.get("why_it_works") or "").strip(),
-        "next_question": next_question if len(next_question) <= MEETING_LINE_MAX else "",
-        "dont_say": str(parsed.get("dont_say") or "").strip(),
-        # Read by finalize_suggest_result: a playbook answer needs both.
-        "evidence_refs": _parse_evidence_refs(parsed.get("evidence_refs")),
         "source_id": str(parsed.get("source_id") or "").strip() or None,
     }
 
 
 def _suggestion_for_mode(raw: str, call_mode: str) -> dict[str, Any]:
-    return meeting_suggestion(raw) if call_mode == "meeting" else _parse_suggestion(raw)
+    return meeting_suggestion(raw) if call_mode in LIVE_MODES else _parse_suggestion(raw)
 
 
 def _parse_evidence_refs(raw: Any) -> list[str]:

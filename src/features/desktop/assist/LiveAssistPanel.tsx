@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { AssistCard } from "@/lib/live-assist";
 import { cn } from "@/lib/utils";
@@ -75,17 +74,13 @@ function KindChip({ card }: { card: AssistCard }) {
 }
 
 function NewestCard({ card }: { card: AssistCard }) {
-  const [details, setDetails] = useState(false);
-  const hasDetails = Boolean(card.why || card.avoid);
   return (
     <div className="space-y-3 rounded-2xl border border-beige/20 bg-card p-4 shadow-[0_8px_24px_-16px_hsl(30_30%_12%/0.25)] animate-in fade-in slide-in-from-top-2 duration-300 motion-reduce:animate-none">
       <KindChip card={card} />
       {card.stage === "draft" ? (
         <div className="space-y-2">
-          {card.bridge ? (
-            // Something natural to say at once while the answer is written.
-            <p className="text-[15px] italic leading-snug text-foreground/80">“{card.bridge}”</p>
-          ) : null}
+          {/* Something natural to say at once; same place and look from loading to answer. */}
+          {card.bridge ? <p className="text-[14px] italic leading-snug text-muted-foreground">“{card.bridge}”</p> : null}
           <p className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
             <span className="flex gap-1" aria-hidden>
               {[0, 160, 320].map((delay) => (
@@ -101,43 +96,17 @@ function NewestCard({ card }: { card: AssistCard }) {
         </div>
       ) : (
         <div key="ready" className="animate-in fade-in duration-300 motion-reduce:animate-none">
-          {card.bridge ? <p className="mb-1 text-[13px] italic leading-snug text-muted-foreground">“{card.bridge}”</p> : null}
-          <p className="mb-1 text-[11px] font-medium text-muted-foreground">
-            {card.kind === "question" ? "Answer" : "Say this"}
-          </p>
-          <p className="text-[15px] font-medium leading-snug text-foreground">{card.sayThis}</p>
+          {card.bridge ? <p className="mb-1 text-[14px] italic leading-snug text-muted-foreground">“{card.bridge}”</p> : null}
+          {card.sayThis ? (
+            <>
+              <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+                {card.kind === "question" ? "Answer" : "Say this"}
+              </p>
+              <p className="text-[15px] font-medium leading-snug text-foreground">{card.sayThis}</p>
+            </>
+          ) : null}
         </div>
       )}
-      {card.thenAsk ? (
-        <div className="rounded-xl bg-cream/80 px-3 py-2">
-          <p className="mb-0.5 text-[11px] font-medium text-muted-foreground">Next question</p>
-          <p className="text-[13px] leading-snug text-foreground">{card.thenAsk}</p>
-        </div>
-      ) : null}
-      {hasDetails ? (
-        <>
-          <button
-            type="button"
-            onClick={() => setDetails((open) => !open)}
-            aria-expanded={details}
-            className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ChevronDown className={cn("h-3 w-3 transition-transform", details && "rotate-180")} />
-            Why it works
-          </button>
-          {details ? (
-            <div className="space-y-2 text-xs leading-relaxed text-muted-foreground animate-in fade-in duration-200">
-              {card.why ? <p>{card.why}</p> : null}
-              {card.avoid ? (
-                <p>
-                  <span className="font-medium text-destructive/80">Don&apos;t say: </span>
-                  {card.avoid}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-        </>
-      ) : null}
     </div>
   );
 }
@@ -155,7 +124,6 @@ function EarlierCard({ card }: { card: AssistCard }) {
         {card.label}
       </span>
       <p className={cn("text-[13px] leading-snug text-muted-foreground", !open && "line-clamp-2")}>{card.sayThis}</p>
-      {open && card.thenAsk ? <p className="mt-1 text-xs text-muted-foreground">→ {card.thenAsk}</p> : null}
     </button>
   );
 }
