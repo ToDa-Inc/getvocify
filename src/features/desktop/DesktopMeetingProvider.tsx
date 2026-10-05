@@ -44,7 +44,7 @@ import {
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
-import { getDesktopBridge, isDesktopHost, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
+import { getDesktopBridge, isDesktopHost, desktopPlatform, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
 import { islandCallContact, latestOnly, type CallPreview } from "@/lib/call-contact";
 import {
   POST_CALL_GIVE_UP_MS,
@@ -729,9 +729,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       setPhase("idle");
+      const isMac = desktopPlatform() === "darwin";
       fail(
         bridge?.drafts
-          ? "Couldn't send the meeting. It's saved on this Mac."
+          ? `Couldn't send the meeting. It's saved on this ${isMac ? "Mac" : "computer"}.`
           : "Couldn't send the meeting. Retry before closing Vocify.",
       );
     }
@@ -757,12 +758,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         throw new Error("Allow system audio in the panel above, then try again.");
       }
 
-      const systemAudioError = (reason?: string) =>
-        new Error(
-          reason === "needs_restart"
-            ? "System audio is on but Vocify needs a restart. Quit (⌘Q) and reopen, then record again."
-            : "Allow system audio in the panel above, then try again.",
-        );
+      const systemAudioError = (reason?: string) => {
+        const isMac = desktopPlatform() === "darwin";
+        if (reason === "needs_restart" && isMac) {
+          return new Error("System audio is on but Vocify needs a restart. Quit (⌘Q) and reopen, then record again.");
+        }
+        return new Error("Allow system audio in the panel above, then try again.");
+      };
 
       // The live service takes no session of its own: a ticket from the API, valid for the day.
       ticketRef.current = await api
@@ -979,7 +981,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           },
         );
       }
-      if (failed.length) setError("Couldn't send the meeting. It's saved on this Mac.");
+      if (failed.length) {
+        const isMac = desktopPlatform() === "darwin";
+        setError(`Couldn't send the meeting. It's saved on this ${isMac ? "Mac" : "computer"}.`);
+      }
     })();
   }, [navigate, sendAll, user?.id]);
 

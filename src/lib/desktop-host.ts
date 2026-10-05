@@ -1,11 +1,11 @@
-/** The Vocify Mac app's WKWebView bridge, injected by the native shell's bridge.js. */
+/** The Vocify desktop app's WKWebView (Mac) or Electron (Windows) bridge, injected by the native shell's bridge.js. */
 export type DesktopPermissionStatus = "authorized" | "denied" | "never_requested";
 
 /** `label` is null when the shortcut is off. */
 export type RecordShortcutState = { label: string | null; defaultLabel: string };
 
 export type VocifyDesktopBridge = {
-  platform: "darwin";
+  platform: "darwin" | "win32";
   systemAudio: {
     start(): Promise<{ ok: boolean; backend?: string; reason?: string }>;
     stop(): Promise<void>;
@@ -111,7 +111,17 @@ declare global {
 }
 
 export function isDesktopHost(): boolean {
-  return typeof window !== "undefined" && window.vocifyDesktop?.platform === "darwin";
+  return (
+    typeof window !== "undefined" &&
+    (window.vocifyDesktop?.platform === "darwin" || window.vocifyDesktop?.platform === "win32")
+  );
+}
+
+export function desktopPlatform(): "darwin" | "win32" | null {
+  if (typeof window === "undefined") return null;
+  const platform = window.vocifyDesktop?.platform;
+  if (platform === "darwin" || platform === "win32") return platform;
+  return null;
 }
 
 export function getDesktopBridge(): VocifyDesktopBridge | null {

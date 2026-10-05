@@ -6,6 +6,7 @@ import {
   permissionCopy,
   type DesktopPermissionType,
 } from "@/lib/desktop-permissions";
+import { desktopPlatform } from "@/lib/desktop-host";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { useDesktopPermissions } from "./useDesktopPermissions";
@@ -56,11 +57,18 @@ function PermissionRow({
   );
 }
 
-/** Shown on the Mac app until mic + system audio are ready. */
+/** Shown on the desktop app until permissions are ready. */
 export function DesktopPermissionsPanel({ className }: { className?: string }) {
   const { available, loading, snapshot, blocker, request } = useDesktopPermissions();
+  const platform = desktopPlatform();
 
   if (!available || blocker === "none") return null;
+
+  const isMac = platform === "darwin";
+  const title = isMac ? "Allow mic and meeting audio" : "Allow microphone";
+  const description = isMac
+    ? "Microphone uses the macOS prompt. For meeting audio, drag Vocify from the card into Screen & System Audio Recording. If it is already listed but off, turn it on, then quit (⌘Q) and reopen."
+    : "Vocify needs your microphone to record calls. Go to Settings > Privacy & security > Microphone to allow it.";
 
   return (
     <div
@@ -70,13 +78,8 @@ export function DesktopPermissionsPanel({ className }: { className?: string }) {
       )}
     >
       <p className={THEME_TOKENS.typography.capsLabel}>Before your first meeting</p>
-      <h2 className="text-xl font-semibold tracking-tight text-foreground mt-1 mb-1">
-        Allow mic and meeting audio
-      </h2>
-      <p className="text-sm text-muted-foreground mb-5 max-w-lg">
-        Microphone uses the macOS prompt. For meeting audio, drag <strong>Vocify</strong> from the card
-        into Screen &amp; System Audio Recording. If it is already listed but off, turn it on, then quit and reopen.
-      </p>
+      <h2 className="text-xl font-semibold tracking-tight text-foreground mt-1 mb-1">{title}</h2>
+      <p className="text-sm text-muted-foreground mb-5 max-w-lg">{description}</p>
 
       <div className="space-y-3 max-w-xl">
         <PermissionRow
@@ -84,11 +87,13 @@ export function DesktopPermissionsPanel({ className }: { className?: string }) {
           status={snapshot.microphone}
           onAction={() => void request(DESKTOP_PERMISSION.microphone)}
         />
-        <PermissionRow
-          type={DESKTOP_PERMISSION.systemAudio}
-          status={snapshot.systemAudio}
-          onAction={() => void request(DESKTOP_PERMISSION.systemAudio)}
-        />
+        {isMac ? (
+          <PermissionRow
+            type={DESKTOP_PERMISSION.systemAudio}
+            status={snapshot.systemAudio}
+            onAction={() => void request(DESKTOP_PERMISSION.systemAudio)}
+          />
+        ) : null}
       </div>
 
       {loading ? (
