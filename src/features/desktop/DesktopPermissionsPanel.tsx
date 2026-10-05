@@ -68,7 +68,7 @@ export function DesktopPermissionsPanel({ className }: { className?: string }) {
   const title = isMac ? "Allow mic and meeting audio" : "Allow microphone";
   const description = isMac
     ? "Microphone uses the macOS prompt. For meeting audio, drag Vocify from the card into Screen & System Audio Recording. If it is already listed but off, turn it on, then quit (⌘Q) and reopen."
-    : "Vocify needs your microphone to record calls. Go to Settings > Privacy & security > Microphone to allow it.";
+    : "Vocify needs your microphone to record calls. In Windows Settings, open Privacy & security > Microphone and turn on \"Let desktop apps access your microphone\".";
 
   return (
     <div
