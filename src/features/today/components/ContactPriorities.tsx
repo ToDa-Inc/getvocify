@@ -10,19 +10,22 @@ import { useContactPriorities } from "../hooks/useContactPriorities";
 import type { PrioritySurface } from "@/lib/contact-priorities";
 import type { ProductTranslations } from "@/lib/product-catalog";
 
-function PriorityCards({
-  items,
+function PriorityList({
+  surface,
   copy,
   card,
 }: {
-  items: Extract<PrioritySurface, { kind: "list" }>["items"];
+  surface: Extract<PrioritySurface, { kind: "list" }>;
   copy: ProductTranslations;
   card: string;
 }) {
   const dialer = useOptionalDialerFocus();
-  const shown = priorityCards(items);
+  const shown = priorityCards(surface.items);
+  const note = surface.note || shown.note;
   return (
     <ul className="space-y-3">
+      {note ? <p className={THEME_TOKENS.typography.body}>{productText(note, copy)}</p> : null}
+      {surface.stale ? <p className={THEME_TOKENS.typography.capsLabel}>{copy.contactPrioritiesStale}</p> : null}
       {shown.items.map((item) => (
         <li key={item.id} className={card}>
           <div className="flex items-start justify-between gap-3">
@@ -40,33 +43,6 @@ function PriorityCards({
         </li>
       ))}
     </ul>
-  );
-}
-
-function PriorityList({
-  surface,
-  copy,
-  card,
-}: {
-  surface: Extract<PrioritySurface, { kind: "list" }>;
-  copy: ProductTranslations;
-  card: string;
-}) {
-  const shown = priorityCards(surface.items);
-  const note = surface.note || shown.note;
-  const meetings = surface.meetings;
-  return (
-    <div className="space-y-3">
-      {note ? <p className={THEME_TOKENS.typography.body}>{productText(note, copy)}</p> : null}
-      {surface.stale ? <p className={THEME_TOKENS.typography.capsLabel}>{copy.contactPrioritiesStale}</p> : null}
-      {shown.items.length > 0 ? <PriorityCards items={surface.items} copy={copy} card={card} /> : null}
-      {meetings.length > 0 ? (
-        <div className="space-y-2">
-          <p className={THEME_TOKENS.typography.capsLabel}>{copy.todayLaneMeetings}</p>
-          <PriorityCards items={meetings} copy={copy} card={card} />
-        </div>
-      ) : null}
-    </div>
   );
 }
 

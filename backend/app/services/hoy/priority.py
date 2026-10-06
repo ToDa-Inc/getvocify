@@ -43,33 +43,16 @@ def empty_priority_copy(
     }
 
 
-def rank_candidates(
-    candidates: list[dict],
-    now: datetime,
-    recent_days: int = 14,
-    states=None,
-    *,
-    keep_booked: bool = False,
-) -> list[dict]:
-    """keep_booked=True leaves booked contacts for the meetings lane (SALES_ROLES). Ended always drops."""
+def rank_candidates(candidates: list[dict], now: datetime, recent_days: int = 14) -> list[dict]:
     window = timedelta(days=recent_days)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     ranked = []
     for raw in candidates:
-        if states is not None:
-            from app.services.hoy.crm_state import exit_reason
-
-            reason = exit_reason(raw.get("crm_state"), states)
-            if reason == "ended":
-                continue
-            if reason and not keep_booked:
-                continue
-        else:
-            if raw.get("meeting_agreed") is True:
-                continue
-            if raw.get("deal_status") == "closed":
-                continue
+        if raw.get("meeting_agreed") is True:
+            continue
+        if raw.get("deal_status") == "closed":
+            continue
         if raw.get("owner_ambiguous"):
             continue
         coverage = raw.get("coverage") or "partial"

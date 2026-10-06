@@ -2,10 +2,6 @@
  * Company workspace types
  */
 
-import type { SalesRole } from '@/lib/sales-role';
-
-export type { SalesRole };
-
 export interface CompanySummary {
   id: string;
   name: string;
@@ -18,8 +14,27 @@ export interface CompanySummary {
   planType?: 'starter' | 'pro' | null;
   paywalled?: boolean;
   canUseDialer?: boolean;
-  /** Present only when SALES_ROLES_ENABLED is on for the company. */
-  salesRole?: SalesRole;
+  repWorkspace?: boolean;
+  briefV2?: boolean;
+  /** The current user's own sales_role. Only set when SALES_ROLES_ENABLED. */
+  salesRole?: SalesRole | null;
+  /** T1/D3: the current user's own visibility ('own'/'team'). Only set when
+   * SALES_ROLES_ENABLED; a member with 'team' also reads /dashboard/insights. */
+  visibility?: MemberVisibility | null;
+  /** Company flags on for this company (Lista 3), e.g. 'SALES_ROLES_ENABLED'. */
+  features?: string[];
+  /** D10: the Head of Sales's sales strategy. Only set when FOLLOWUP_BY_FLOW_ENABLED. */
+  salesStrategy?: string | null;
+  /** T5: days after an unanswered call before Hoy suggests calling back. Only set when
+   * HOY_LEAD_TIERS_ENABLED. */
+  callbackAfterDays?: number | null;
+  /** Lista 4 (E8): the Head of Sales' follow-up waits per stopper, and the defaults they
+   * override. Only set when HOY_SDR_SECTIONS_ENABLED. */
+  followupCadence?: Record<string, number> | null;
+  followupCadenceDefaults?: Record<string, number> | null;
+  /** T9: owner/admin whose company hasn't finished the onboarding wizard yet.
+   * Only meaningful when ONBOARDING_WIZARD_ENABLED; false for members and off by default. */
+  needsOnboarding?: boolean;
 }
 
 export interface CompanyDetails extends CompanySummary {
@@ -41,8 +56,10 @@ export interface CompanyMember {
   role: string;
   status: string;
   createdAt?: string;
-  /** Present only when SALES_ROLES_ENABLED is on for the company. */
-  salesRole?: SalesRole;
+  /** Only present when SALES_ROLES_ENABLED for this company. */
+  salesRole?: SalesRole | null;
+  handoffAeUserId?: string | null;
+  visibility?: MemberVisibility;
 }
 
 export interface PendingInvite {
@@ -51,8 +68,8 @@ export interface PendingInvite {
   role: string;
   expiresAt: string;
   createdAt?: string;
-  /** Present only when SALES_ROLES_ENABLED is on for the company. */
-  salesRole?: SalesRole;
+  /** Commercial type chosen at invite time; absent/null when sales roles are off. */
+  salesRole?: SalesRole | null;
 }
 
 /** T9: the onboarding wizard's steps, in the order it walks the Head of Sales through. */

@@ -46,11 +46,6 @@ HUBSPOT_OAUTH_SCOPES = [
     # it there; Vocify never needs schema-write permission to do that.
 ]
 
-# Optional so installs without it keep connecting; each must also be in the app's optionalScopes.
-HUBSPOT_OPTIONAL_SCOPES = [
-    "sales-email-read",
-]
-
 _refresh_locks: dict[str, threading.Lock] = {}
 _refresh_locks_guard = threading.Lock()
 
@@ -98,7 +93,6 @@ def build_authorize_url(user_id: str) -> str:
         "client_id": settings.HUBSPOT_CLIENT_ID,
         "redirect_uri": settings.HUBSPOT_REDIRECT_URI,
         "scope": " ".join(HUBSPOT_OAUTH_SCOPES),
-        "optional_scope": " ".join(HUBSPOT_OPTIONAL_SCOPES),
         "state": state,
     }
     qs = "&".join(f"{k}={v}" for k, v in params.items())

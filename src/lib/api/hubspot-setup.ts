@@ -32,10 +32,6 @@ export const DEFAULT_HUBSPOT_CONFIG: CRMConfiguration = {
   lost_lead_status_value: null,
   on_hold_lead_status_value: null,
   auto_sync_hubspot_calls: false,
-  queue_state_source: "deal_stage",
-  queue_booked_states: [],
-  queue_ended_states: [],
-  queue_states_enabled: false,
 };
 
 function lineItemErrorLooksLikeScope(err: unknown): boolean {
@@ -106,10 +102,6 @@ export async function loadHubSpotSetup(refresh = false): Promise<HubSpotSetup> {
         lost_lead_status_value: currentConfig.lost_lead_status_value ?? null,
         on_hold_lead_status_value: currentConfig.on_hold_lead_status_value ?? null,
         auto_sync_hubspot_calls: currentConfig.auto_sync_hubspot_calls ?? false,
-        queue_state_source: currentConfig.queue_state_source ?? "deal_stage",
-        queue_booked_states: currentConfig.queue_booked_states ?? [],
-        queue_ended_states: currentConfig.queue_ended_states ?? [],
-        queue_states_enabled: currentConfig.queue_states_enabled ?? false,
       }
     : { ...DEFAULT_HUBSPOT_CONFIG };
 

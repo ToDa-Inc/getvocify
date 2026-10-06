@@ -140,9 +140,7 @@ class HubSpotPreviewService:
         skip_deal: bool = False,
         stage_confirm: bool = False,
         meeting_booked_stage: Optional[dict[str, str]] = None,
-        lead_status_confirm: bool = False,
-        queue_booked_states: Optional[list[str]] = None,
-        meeting_agreed_for_lead: bool = False,
+        commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview:
         """
         Build a preview from the same allowlist, stage-resolution, and validation
@@ -724,62 +722,12 @@ class HubSpotPreviewService:
                     object_type="line_items",
                 ))
 
-        if lead_status_confirm:
-            lead_spec = field_specs_map.get("contacts:hs_lead_status") or field_specs_map.get("hs_lead_status") or {}
-            lead_options = lead_spec.get("options") or []
-            proposed_updates = [
-                u for u in proposed_updates
-                if not (u.field_name == "hs_lead_status" and (u.object_type or "contacts") == "contacts")
-            ]
-            if lead_options:
-                option_values = {str(o.get("value")) for o in lead_options if o.get("value") is not None}
-                inferred_lead = None
-                raw = extraction.raw_extraction if isinstance(extraction.raw_extraction, dict) else {}
-                contact_raw = raw.get("contact_properties") if isinstance(raw.get("contact_properties"), dict) else {}
-                for candidate in (
-                    contact_raw.get("hs_lead_status"),
-                    raw.get("hs_lead_status"),
-                ):
-                    if candidate not in (None, "") and str(candidate) in option_values:
-                        inferred_lead = str(candidate)
-                        break
-                current_lead = current_contact_props.get("hs_lead_status")
-                current_lead = str(current_lead) if current_lead not in (None, "") else None
-                booked_first = None
-                for value in queue_booked_states or []:
-                    if str(value) in option_values:
-                        booked_first = str(value)
-                        break
-                if meeting_agreed_for_lead and booked_first:
-                    suggested_lead = booked_first
-                elif inferred_lead:
-                    suggested_lead = inferred_lead
-                else:
-                    suggested_lead = current_lead
-                if suggested_lead:
-                    proposed_updates.insert(0, ProposedUpdate(
-                        field_name="hs_lead_status",
-                        field_label=lead_spec.get("label", "Lead Status"),
-                        current_value=current_lead or "(empty)",
-                        new_value=suggested_lead,
-                        extraction_confidence=extraction.confidence.get("fields", {}).get("hs_lead_status", 0.7),
-                        field_type="enumeration",
-                        options=lead_options,
-                        object_type="contacts",
-                    ))
-
         # Available deal fields not yet proposed
         # Deal stage is inferred for every memo and should remain prominent in review.
-        if not lead_status_confirm:
-            for i, update in enumerate(proposed_updates):
-                if update.field_name == "dealstage":
-                    proposed_updates.insert(0, proposed_updates.pop(i))
-                    break
-        else:
-            for i, update in enumerate(proposed_updates):
-                if update.field_name == "hs_lead_status" and (update.object_type or "contacts") == "contacts":
-                    proposed_updates.insert(0, proposed_updates.pop(i))
-                    break
+        for i, update in enumerate(proposed_updates):
+            if update.field_name == "dealstage":
+                proposed_updates.insert(0, proposed_updates.pop(i))
+                break
 
         # Fields the user can still add manually (allowlisted but not yet proposed).
         # Include contacts/companies so dashboard review can edit those objects too —
@@ -821,8 +769,6 @@ class HubSpotPreviewService:
                     field_specs_map.get(name, {}) if object_type == "deals" else {}
                 )
                 if name == "hs_lead_status" and not spec.get("options"):
-                    continue
-                if lead_status_confirm and name == "hs_lead_status":
                     continue
                 lead_current = None
                 if name == "hs_lead_status":

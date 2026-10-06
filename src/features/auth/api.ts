@@ -57,16 +57,12 @@ export function mapRawUser(raw: Record<string, unknown>): User {
           paywalled: Boolean(companyRaw.paywalled),
           canUseDialer:
             companyRaw.can_use_dialer == null ? true : Boolean(companyRaw.can_use_dialer),
-          ...('sales_role' in companyRaw
-            ? {
-                salesRole:
-                  companyRaw.sales_role === 'sdr' ||
-                  companyRaw.sales_role === 'ae' ||
-                  companyRaw.sales_role === 'general'
-                    ? companyRaw.sales_role
-                    : ('general' as const),
-              }
-            : {}),
+          repWorkspace: Boolean(companyRaw.rep_workspace_enabled),
+          briefV2: Boolean(companyRaw.brief_v2_enabled),
+          salesRole: (companyRaw.sales_role as CompanySummary['salesRole']) ?? null,
+          visibility: (companyRaw.visibility as CompanySummary['visibility']) ?? null,
+          features: Array.isArray(companyRaw.features) ? (companyRaw.features as string[]) : [],
+          needsOnboarding: Boolean(companyRaw.needs_onboarding),
         }
       : null,
   };

@@ -76,10 +76,6 @@ class _Query:
         self.cap = count
         return self
 
-    def range(self, start, end):
-        self.slice = (start, end)
-        return self
-
     def execute(self):
         if self.name in self.store.broken:
             raise RuntimeError(f"{self.name} unavailable")
@@ -94,10 +90,7 @@ class _Query:
                 rows = [row for row in rows if str(row.get(column) or "") >= str(value)]
         if self.order_key:
             rows.sort(key=lambda row: str(row.get(self.order_key) or ""), reverse=self.desc)
-        if getattr(self, "slice", None):
-            start, end = self.slice
-            rows = rows[start : end + 1]
-        elif self.cap is not None:
+        if self.cap is not None:
             rows = rows[: self.cap]
         return _Result(rows)
 
@@ -336,21 +329,6 @@ async def test_the_last_conversation_with_a_contact(monkeypatch):
     result = await execute_tool("list_conversations", {"contact_id": "c-7", "limit": 1}, _ctx(_conversation_store(), "rep-a"))
     assert [item["memo_id"] for item in result["items"]] == ["own-1"]
     assert result["has_more"] is True
-    assert result["total"] == 2
-
-
-async def test_a_count_question_returns_the_period_total_not_the_page(monkeypatch):
-    _patch_viewer(monkeypatch)
-    memos = [_memo(f"c-{i}", "rep-a", days=i + 1) for i in range(15)]
-    result = await execute_tool(
-        "list_conversations",
-        {"since": (NOW - timedelta(days=20)).date().isoformat(), "limit": 10},
-        _ctx(_Store(memos=memos), "rep-a"),
-    )
-    assert result["total"] == 15
-    assert len(result["items"]) == 10
-    assert result["has_more"] is True
-    assert result["since"] == (NOW - timedelta(days=20)).date().isoformat()
 
 
 AE_MEMBERS = MEMBERS + [
@@ -486,14 +464,8 @@ async def test_a_member_sees_the_objections_of_their_own_calls(monkeypatch):
     assert result["coverage"] == "complete"
     assert result["scope"] == "me"
     assert result["conversations"] == 2
-    price = result["categories"][0]
-    assert price["name"] == "price"
-    assert price["count"] == 2
-    assert price["resolved"] == 1
-    assert price["open"] == 1
-    assert price["examples"] == ["es caro", "no hay presupuesto"]
-    assert price["by_rep"] == [
-        {"user_id": "rep-a", "name": "Ana", "count": 2, "resolved": 1, "open": 1, "unknown": 0},
+    assert result["categories"] == [
+        {"name": "price", "count": 2, "resolved": 1, "open": 1, "unknown": 0, "examples": ["es caro", "no hay presupuesto"]},
     ]
 
 
@@ -504,12 +476,6 @@ async def test_an_admin_sees_team_objections_ordered_by_frequency(monkeypatch):
     names = [(item["name"], item["count"]) for item in result["categories"]]
     assert names == [("price", 2), ("timing", 2)]
     assert "trust" not in str(result)
-    by_price = {row["name"]: row for row in result["categories"][0]["by_rep"]}
-    assert by_price["Ana"]["resolved"] == 1
-    assert by_price["Ana"]["open"] == 1
-    by_timing = {row["name"]: row for row in result["categories"][1]["by_rep"]}
-    assert by_timing["Bruno"]["count"] == 2
-    assert by_timing["Bruno"]["open"] == 2
 
 
 async def test_a_member_cannot_ask_for_a_teammates_objections(monkeypatch):

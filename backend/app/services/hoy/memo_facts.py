@@ -18,12 +18,7 @@ def _meeting(extraction: dict) -> dict:
     return (extraction.get("intelligence") or {}).get("meeting") or {}
 
 
-def memo_facts_by_contact(
-    memos: list[dict],
-    *,
-    now: datetime,
-    ignore_meeting_agreed: bool = False,
-) -> dict[str, dict]:
+def memo_facts_by_contact(memos: list[dict], *, now: datetime) -> dict[str, dict]:
     """The newest memo decides. A meeting whose start has passed has happened and no longer blocks a follow-up."""
     ordered = sorted(memos, key=lambda row: _as_dt(row["created_at"]), reverse=True)
     facts: dict[str, dict] = {}
@@ -43,8 +38,7 @@ def memo_facts_by_contact(
             continue
         starts_at = _as_dt(meeting.get("starts_at")) if meeting.get("starts_at") else None
         if starts_at is None:
-            if not ignore_meeting_agreed:
-                entry["meeting_agreed"] = True
+            entry["meeting_agreed"] = True
         elif starts_at > now:
             entry["scheduled_at"] = meeting["starts_at"]
     for entry in facts.values():
@@ -58,14 +52,7 @@ def apply_memo_facts(candidates: list[dict], facts: dict[str, dict]) -> list[dic
     return [{**row, **facts.get(str(row.get("contact_id")), {})} for row in candidates]
 
 
-def load_memo_facts(
-    supabase,
-    company_id: str,
-    contact_ids: list[str],
-    *,
-    now: datetime,
-    ignore_meeting_agreed: bool = False,
-) -> dict[str, dict]:
+def load_memo_facts(supabase, company_id: str, contact_ids: list[str], *, now: datetime) -> dict[str, dict]:
     ids = sorted({str(contact) for contact in contact_ids if contact})
     memos: list[dict] = []
     for start in range(0, len(ids), _IN_CHUNK):
@@ -79,4 +66,4 @@ def load_memo_facts(
             .execute()
         )
         memos.extend(result.data or [])
-    return memo_facts_by_contact(memos, now=now, ignore_meeting_agreed=ignore_meeting_agreed)
+    return memo_facts_by_contact(memos, now=now)

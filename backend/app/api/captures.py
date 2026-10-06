@@ -18,8 +18,7 @@ from app.services.captures import (
     store_capture_audio,
 )
 from app.services.company import Membership
-from app.services.feature_flags import is_enabled
-from app.services.hoy.lanes import default_motion
+from app.services.playbooks.live import live_version_id
 
 router = APIRouter(prefix="/api/v1/captures", tags=["captures"])
 
@@ -63,9 +62,6 @@ async def create_capture(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
-    sales_motion_key = body.sales_motion_key
-    if not sales_motion_key and is_enabled(supabase, membership.company_id, "SALES_ROLES_ENABLED"):
-        sales_motion_key = default_motion(membership.sales_role, membership.role)
     identity = reserve_capture(
         supabase,
         user_id=membership.user_id,
@@ -73,10 +69,10 @@ async def create_capture(
         client_capture_id=body.client_capture_id,
         started_at=body.started_at,
         interaction_kind=body.interaction_kind,
-        sales_motion_key=sales_motion_key,
+        sales_motion_key=body.sales_motion_key,
         playbook_version_id=body.playbook_version_id,
-        active_version_id=None if body.playbook_version_id else _active_playbook_version(
-            supabase, membership.company_id, sales_motion_key
+        resolved_version_id=None if body.playbook_version_id else live_version_id(
+            supabase, membership.company_id, body.sales_motion_key
         ),
         sales_role=membership.sales_role,
     )

@@ -8,8 +8,7 @@ import { authKeys } from "@/features/auth/api";
 import { companyApi, companyKeys } from "@/features/company/api";
 import type { SalesRole } from "@/features/company/types";
 import { useLanguage } from "@/lib/i18n";
-import { HUBSPOT_INVITE_EMAIL_HINT } from "@/lib/identity-hints";
-import { SALES_ROLE_OPTIONS, salesRoleLabel } from "@/lib/sales-role";
+import { commercialRoleLabel } from "@/lib/role-labels";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,11 +28,6 @@ import { AnimIcon } from "@/components/ui/anim-icon";
 
 const CHIP = "inline-flex h-7 items-center gap-1 rounded-full px-3 text-xs";
 const ROLES: SalesRole[] = ["sdr", "ae", "general"];
-
-const pillSelected =
-  "rounded-full px-4 h-8 text-xs font-medium transition-colors bg-beige text-cream";
-const pillIdle =
-  "rounded-full px-4 h-8 text-xs font-medium transition-colors text-muted-foreground hover:text-foreground";
 
 function apiErrorMessage(error: unknown, fallback: string) {
   if (error && typeof error === "object" && "data" in error) {
@@ -85,12 +79,13 @@ function RoleChip({
 
 const TeamPage = () => {
   const { user } = useAuth();
-  const { t } = useLanguage();
-  const catalog = t.product;
+  const { t, language } = useLanguage();
+  const p = t.product;
+  const copy = p.team;
   const queryClient = useQueryClient();
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
-  const [inviteSalesRole, setInviteSalesRole] = useState<SalesRole>("general");
+  // An invite from here is always a rep; SDR is the default commercial type.
+  const [inviteSalesRole, setInviteSalesRole] = useState<SalesRole>("sdr");
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [crmOwnerMatch, setCrmOwnerMatch] = useState<boolean | null>(null);
@@ -115,7 +110,6 @@ const TeamPage = () => {
     queryFn: () => companyApi.listMembers(),
   });
 
-  const salesRolesEnabled = roster?.salesRolesEnabled === true;
   const seatLimit = company?.seatLimit ?? user?.company?.seatLimit ?? 1;
   const seatsUsed = company?.seatsUsed ?? user?.company?.seatsUsed ?? 1;
   const seatsFull = (company?.seatsAvailable ?? Math.max(0, seatLimit - seatsUsed)) <= 0;
@@ -126,31 +120,16 @@ const TeamPage = () => {
   };
 
   const inviteMutation = useMutation({
-    mutationFn: () =>
-      companyApi.invite(
-        inviteEmail.trim(),
-        inviteRole,
-        salesRolesEnabled ? inviteSalesRole : undefined,
-      ),
+    mutationFn: () => companyApi.invite(inviteEmail.trim(), "member", salesRolesEnabled ? inviteSalesRole : undefined),
     onSuccess: (res) => {
       setInviteEmail("");
-      setInviteSalesRole("general");
-      setInviteUrl(res.inviteUrl ?? null);
+      setInviteSalesRole("sdr");
+      setInviteUrl(res.emailSent ? null : (res.inviteUrl ?? null));
+      setCrmOwnerMatch(res.crmOwnerMatch);
       refreshWorkspace();
       toast.success(res.emailSent ? copy.inviteSent : copy.inviteLinkReady);
     },
     onError: (error) => toast.error(apiErrorMessage(error, copy.inviteFailed)),
-  });
-
-  const salesRoleMutation = useMutation({
-    mutationFn: ({ memberId, salesRole }: { memberId: string; salesRole: SalesRole }) =>
-      companyApi.updateMemberSalesRole(memberId, salesRole),
-    onSuccess: () => {
-      refreshWorkspace();
-    },
-    onError: (error) => {
-      toast.error(apiErrorMessage(error, "Could not update sales role"));
-    },
   });
 
   const revokeMutation = useMutation({
@@ -225,108 +204,109 @@ const TeamPage = () => {
   const invites = roster?.pendingInvites ?? [];
 
   return (
-    <div className="space-y-6">
-      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
-        <div className="flex items-start justify-between gap-4 mb-8">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-beige" />
-            <h2 className={THEME_TOKENS.typography.sectionTitle}>Members</h2>
-          </div>
-          <p className={THEME_TOKENS.typography.capsLabel}>
-            {seatsUsed} of {seatLimit} seats
-          </p>
-        </div>
-        {!canManage && (
-          <p className="text-xs text-muted-foreground mb-6 leading-relaxed">
-            Your password and email are yours. Change the password from Profile. Memos and HubSpot recordings stay filtered to you unless an admin opens All.
-          </p>
-        )}
-        <div className="divide-y divide-border/40">
-          {(roster?.members ?? []).map((m) => {
-            const currentSalesRole = m.salesRole ?? "general";
-            return (
-              <div key={m.id} className="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">
-                    {m.fullName || m.email}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5 truncate">{m.email}</p>
-                </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] capitalize text-muted-foreground">
-                    {m.role}
-                  </span>
-                  {salesRolesEnabled &&
-                    (canManage ? (
-                      <div
-                        className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1"
-                        role="group"
-                        aria-label={catalog.salesRoleGroup}
-                      >
-                        {SALES_ROLE_OPTIONS.map((value) => {
-                          const selected = currentSalesRole === value;
-                          const pending =
-                            salesRoleMutation.isPending &&
-                            salesRoleMutation.variables?.memberId === m.id &&
-                            salesRoleMutation.variables?.salesRole === value;
-                          return (
-                            <button
-                              key={value}
-                              type="button"
-                              disabled={salesRoleMutation.isPending}
-                              onClick={() => {
-                                if (selected) return;
-                                salesRoleMutation.mutate({ memberId: m.id, salesRole: value });
-                              }}
-                              aria-pressed={selected}
-                              className={selected ? pillSelected : pillIdle}
-                            >
-                              {pending ? "…" : salesRoleLabel(value, catalog)}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <span className="rounded-full border border-border/40 bg-secondary/5 px-3 h-7 inline-flex items-center text-[11px] text-muted-foreground">
-                        {salesRoleLabel(currentSalesRole, catalog)}
-                      </span>
-                    ))}
-                  {canManage && m.userId !== user?.id && m.role !== "owner" && (
-                    <IconAction
-                      label={`Remove ${m.fullName || m.email}`}
-                      tone="danger"
-                      onClick={() =>
-                        setConfirm({ kind: "remove", id: m.id, name: m.fullName || m.email })
-                      }
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </IconAction>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+    <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 md:p-6`}>
+      <div className="mb-4 flex items-baseline justify-between gap-4">
+        <h2 className={THEME_TOKENS.typography.sectionTitle}>{copy.title}</h2>
+        <p className={THEME_TOKENS.typography.capsLabel}>
+          {copy.seats.replace("{used}", String(seatsUsed)).replace("{limit}", String(seatLimit))}
+        </p>
       </div>
 
-      {(roster?.pendingInvites?.length ?? 0) > 0 && (
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
-          <h2 className={`${THEME_TOKENS.typography.sectionTitle} mb-6`}>Pending invites</h2>
-          <div className="divide-y divide-border/40">
-            {roster!.pendingInvites.map((inv) => (
-              <div key={inv.id} className="py-4 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-sm text-foreground truncate">{inv.email}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5 capitalize">
-                    {inv.role}
-                    {salesRolesEnabled
-                      ? ` · ${salesRoleLabel(inv.salesRole, catalog)}`
-                      : ""}
-                    {" · "}expires {new Date(inv.expiresAt).toLocaleDateString()}
-                  </p>
-                </div>
-                {canManage && (
-                  <div className="flex items-center gap-1 shrink-0">
+      {canManage ? (
+        <form onSubmit={handleInvite} className="flex flex-wrap items-center gap-2 border-b border-border/40 pb-4">
+          <label htmlFor="invite-email" className="sr-only">
+            {copy.emailLabel}
+          </label>
+          <Input
+            id="invite-email"
+            type="email"
+            autoComplete="email"
+            placeholder={copy.emailPlaceholder}
+            value={inviteEmail}
+            disabled={seatsFull}
+            onChange={(event) => setInviteEmail(event.target.value)}
+            className="h-9 min-w-[12rem] flex-1 rounded-full px-4"
+          />
+          {salesRolesEnabled ? (
+            <RoleChip value={inviteSalesRole} label={p.inviteSalesRoleLabel} options={roleNames} disabled={seatsFull} onChange={setInviteSalesRole} />
+          ) : null}
+          <Button type="submit" size="sm" className="rounded-full px-5" disabled={inviteMutation.isPending || seatsFull}>
+            {inviteMutation.isPending ? (
+              <>
+                <VocifySpinner size={12} />
+                <span className="ml-1.5">{copy.sending}</span>
+              </>
+            ) : (
+              copy.invite
+            )}
+          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={0} aria-label={p.inviteEmailMatchHint} className="inline-flex text-muted-foreground">
+                <Info className="h-4 w-4" aria-hidden />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-xs">
+              {p.inviteEmailMatchHint}
+            </TooltipContent>
+          </Tooltip>
+          {seatsFull ? (
+            <p className="basis-full pt-1 text-xs text-muted-foreground">
+              {copy.noSeats} ·{" "}
+              <Link to="/dashboard/settings/billing" className="text-beige hover:underline">
+                {copy.addSeats}
+              </Link>
+            </p>
+          ) : null}
+          {crmOwnerMatch === false ? (
+            <p className="basis-full pt-1 text-xs text-warning">{p.inviteCrmMatchWarning}</p>
+          ) : null}
+          {inviteUrl ? (
+            <div className="flex basis-full flex-wrap items-center gap-2 pt-1 text-xs text-muted-foreground">
+              <span>{copy.linkFallback}</span>
+              <span className="min-w-0 truncate text-foreground">{inviteUrl}</span>
+              <Button type="button" variant="ghost" size="sm" className="h-7 rounded-full" onClick={() => void copyInviteLink()}>
+                <AnimIcon name="copy" size={14} state={linkCopied && "done"} />
+                {linkCopied ? copy.copied : copy.copyLink}
+              </Button>
+            </div>
+          ) : null}
+        </form>
+      ) : null}
+
+      {rosterFailed ? (
+        <div role="alert" className="flex items-center justify-between gap-3 py-4">
+          <p className={THEME_TOKENS.typography.body}>{copy.loadFailed}</p>
+          <Button variant="outline" size="sm" onClick={() => void refetchRoster()}>
+            {copy.retry}
+          </Button>
+        </div>
+      ) : null}
+      {/* A long team scrolls inside the card, not the page. */}
+      <ul className="app-scroll max-h-[60vh] divide-y divide-border/40 overflow-y-auto">
+        {members.map((member) => {
+          const name = member.fullName || member.email;
+          const editable = salesRolesEnabled && canManage && member.role === "member";
+          return (
+            <li key={member.id} className="flex items-center gap-3 py-3">
+              <div className="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-baseline sm:gap-3">
+                <span className="truncate text-sm text-foreground sm:w-48 sm:shrink-0">{name}</span>
+                <span className="truncate text-xs text-muted-foreground">{member.email}</span>
+              </div>
+              {editable ? (
+                <RoleChip
+                  value={member.salesRole ?? "general"}
+                  label={copy.changeType}
+                  options={roleNames}
+                  disabled={salesProfileMutation.isPending && salesProfileMutation.variables?.memberId === member.id}
+                  onChange={(salesRole) => salesProfileMutation.mutate({ memberId: member.id, salesRole })}
+                />
+              ) : (
+                <span className={cn(CHIP, "bg-secondary/60 text-muted-foreground")}>{commercialRoleLabel(member.role, p)}</span>
+              )}
+              {canManage ? (
+                <span className="inline-flex w-8 justify-center">
+                  {member.userId !== user?.id && member.role !== "owner" ? (
                     <IconAction
                       label={copy.remove.replace("{name}", name)}
                       tone="danger"
@@ -348,94 +328,17 @@ const TeamPage = () => {
                 {copy.pending.replace("{date}", dateFormat.format(new Date(invite.expiresAt)))}
               </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-1.5">
-              Each pending invite reserves a seat until it is accepted or revoked.
-            </p>
-          </div>
-
-          {seatsFull ? (
-            <div className="mb-5 rounded-2xl border border-border/70 bg-secondary/5 px-5 py-3.5">
-              <p className="text-sm text-foreground">All seats are in use.</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {seatsUsed} of {seatLimit} seats taken. Remove a member to free one,
-                or ask Vocify to raise the cap.
-              </p>
-            </div>
-          ) : (
-            <p className={`${THEME_TOKENS.typography.capsLabel} mb-5`}>
-              {seatsAvailable} seat{seatsAvailable === 1 ? "" : "s"} available
-            </p>
-          )}
-
-          <form onSubmit={handleInvite} className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="invite-email" className={THEME_TOKENS.typography.capsLabel}>
-                Email
-              </label>
-              <Input
-                id="invite-email"
-                type="email"
-                autoComplete="email"
-                placeholder="colleague@company.com"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                className="bg-secondary/5 border-border/40 rounded-full px-6 h-12 font-bold"
-              />
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {HUBSPOT_INVITE_EMAIL_HINT}
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <p className={THEME_TOKENS.typography.capsLabel}>Role</p>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-                  {ROLE_OPTIONS.map((option) => {
-                    const selected = inviteRole === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setInviteRole(option.value)}
-                        aria-pressed={selected}
-                        className={selected ? pillSelected : pillIdle}
-                      >
-                        {option.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                {salesRolesEnabled && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={THEME_TOKENS.typography.capsLabel}>
-                      {catalog.salesRoleGroup}
-                    </span>
-                    <div
-                      className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1"
-                      role="group"
-                      aria-label={catalog.salesRoleGroup}
-                    >
-                      {SALES_ROLE_OPTIONS.map((value) => {
-                        const selected = inviteSalesRole === value;
-                        return (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => setInviteSalesRole(value)}
-                            aria-pressed={selected}
-                            className={selected ? pillSelected : pillIdle}
-                          >
-                            {salesRoleLabel(value, catalog)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                <Button
-                  type="submit"
-                  disabled={inviteMutation.isPending || seatsFull}
-                  className="rounded-full bg-beige text-cream px-6 h-10"
+            {salesRolesEnabled && invite.salesRole ? (
+              <span className={cn(CHIP, "bg-secondary/60 text-muted-foreground")}>{roleNames[invite.salesRole]}</span>
+            ) : null}
+            {canManage ? (
+              <span className="inline-flex items-center">
+                <IconAction
+                  label={copy.resend}
+                  pendingLabel={copy.sending}
+                  pending={resendMutation.isPending && resendMutation.variables === invite.id}
+                  pendingIcon={<AnimIcon name="refresh" state="busy" />}
+                  onClick={() => resendMutation.mutate(invite.id)}
                 >
                   <AnimIcon name="refresh" />
                 </IconAction>

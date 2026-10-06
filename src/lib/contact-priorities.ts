@@ -14,7 +14,6 @@ export type PriorityCandidate = {
 
 export type PriorityView = {
   items: PriorityCandidate[];
-  meetings?: PriorityCandidate[];
   coverage: string;
   title: string | null;
   action: string | null;
@@ -27,14 +26,7 @@ export type PrioritySurface =
   | { kind: "loading" }
   | { kind: "error"; title: string }
   | { kind: "empty"; title: string; action: string | null; contactsUrl: string | null; observedAt: string | null }
-  | {
-      kind: "list";
-      items: PriorityCandidate[];
-      meetings: PriorityCandidate[];
-      note: string | null;
-      stale: boolean;
-      observedAt: string | null;
-    };
+  | { kind: "list"; items: PriorityCandidate[]; note: string | null; stale: boolean; observedAt: string | null };
 
 const GENERIC_PRIORITY = new Set(["history_partial", "title_history_partial"]);
 
@@ -53,8 +45,7 @@ export function prioritySurface(input: {
   isLoading: boolean;
 }): PrioritySurface {
   if (input.data) {
-    const meetings = input.data.meetings ?? [];
-    if (input.data.items.length === 0 && meetings.length === 0) {
+    if (input.data.items.length === 0) {
       return {
         kind: "empty",
         title: input.data.title ?? "",
@@ -66,7 +57,6 @@ export function prioritySurface(input: {
     return {
       kind: "list",
       items: input.data.items,
-      meetings,
       note: input.data.coverage === "complete" ? null : input.data.title,
       stale: Boolean(input.errorStatus),
       observedAt: input.data.observed_at ?? null,

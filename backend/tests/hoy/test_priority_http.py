@@ -137,7 +137,6 @@ STORE = _Supabase()
 def setup_function():
     STORE.tables = {"crm_connections": [], "contact_priority_context": []}
     api._CLOCK[0] = NOW
-    api._REFRESHING.clear()
     api.set_assigned_fetch_factory(None)
     api.set_fold_members(lambda _supabase, _company_id: [
         {"user_id": "user-a", "email": "ana@vocify.test", "name": "Ana"},

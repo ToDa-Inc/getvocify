@@ -67,18 +67,14 @@ def _hubspot(payload: dict, owners: dict[str, str], *, connection_id: str, obser
         # A contact with only an email is still somebody: name the card with it, not "Contacto".
         contact_name = " ".join(part for part in (first, last) if part).strip() or str(props.get("email") or "").strip() or None
         last_contacted = props.get("notes_last_contacted") or None
-        item = {
+        items.append({
             "contact_id": str(row["id"]),
             "deal_id": None,
             "contact_name": contact_name,
             "owner_email": owners.get(str(props.get("hubspot_owner_id") or "")),
             "last_call_at": last_contacted,
             "contacted": last_contacted is not None,
-        }
-        if "hs_lead_status" in props:
-            value = props.get("hs_lead_status")
-            item["crm_state"] = str(value) if value not in (None, "") else None
-        items.append(item)
+        })
     more = bool(((payload.get("paging") or {}).get("next") or {}).get("after"))
     cursor = items[-1]["contact_id"] if more and items else None
     envelope = read_envelope(
@@ -260,13 +256,7 @@ def owners_request(provider: str, cursor: str | None) -> dict:
     raise ValueError(f"proveedor no soportado: {provider}")
 
 
-def assigned_request(
-    provider: str,
-    cursor: str | None,
-    owner_ids: list[str],
-    *,
-    include_lead_status: bool = False,
-) -> dict:
+def assigned_request(provider: str, cursor: str | None, owner_ids: list[str]) -> dict:
     """HubSpot takes every owner in one search; Pipedrive filters persons by a single owner_id."""
     if provider == "hubspot":
         filters: list[dict[str, Any]] = [
@@ -274,12 +264,9 @@ def assigned_request(
         ]
         if cursor:
             filters.append({"propertyName": "hs_object_id", "operator": "GT", "value": cursor})
-        properties = ["firstname", "lastname", "hubspot_owner_id", "notes_last_contacted"]
-        if include_lead_status:
-            properties.append("hs_lead_status")
         body: dict[str, Any] = {
             "limit": _HUBSPOT_PAGE,
-            "properties": properties,
+            "properties": ["firstname", "lastname", "email", "hubspot_owner_id", "notes_last_contacted"],
             "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
             "filterGroups": [{"filters": filters}],
         }
@@ -327,141 +314,6 @@ def _owner_emails(provider: str, fetch, *, connection_id: str, observed_at: str,
     return owners
 
 
-def _hubspot_deals_request(cursor: str | None, owner_ids: list[str]) -> dict:
-    filters: list[dict[str, Any]] = [
-        {"propertyName": "hubspot_owner_id", "operator": "IN", "values": list(owner_ids)},
-    ]
-    if cursor:
-        filters.append({"propertyName": "hs_object_id", "operator": "GT", "value": cursor})
-    return {
-        "method": "POST",
-        "path": "/crm/v3/objects/deals/search",
-        "json": {
-            "limit": _HUBSPOT_PAGE,
-            "properties": ["dealstage", "hs_lastmodifieddate", "hubspot_owner_id"],
-            "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
-            "filterGroups": [{"filters": filters}],
-        },
-    }
-
-
-def _hubspot_associations_request(deal_ids: list[str]) -> dict:
-    return {
-        "method": "POST",
-        "path": "/crm/v4/associations/deals/contacts/batch/read",
-        "json": {"inputs": [{"id": deal_id} for deal_id in deal_ids]},
-    }
-
-
-def _pipedrive_deals_request(owner_id: str, cursor: str | None) -> dict:
-    params: dict[str, Any] = {"limit": _PIPEDRIVE_PAGE, "owner_id": owner_id}
-    if cursor:
-        params["cursor"] = cursor
-    return {"method": "GET", "path": "/deals", "version": "v2", "params": params}
-
-
-def _apply_hubspot_deal_states(
-    fetch,
-    items: list[dict],
-    owner_ids: list[str],
-    *,
-    connection_id: str,
-    observed_at: str,
-    max_pages: int,
-) -> None:
-    from app.services.hoy.crm_state import pick_deal_state
-
-    deals: list[dict] = []
-    cursor = None
-    for _ in range(max_pages):
-        payload = _call(
-            fetch,
-            _hubspot_deals_request(cursor, owner_ids),
-            connection_id=connection_id,
-            observed_at=observed_at,
-        )
-        for row in payload.get("results") or []:
-            props = row.get("properties") or {}
-            deals.append({
-                "id": str(row["id"]),
-                "dealstage": props.get("dealstage"),
-                "updated_at": props.get("hs_lastmodifieddate"),
-            })
-        more = bool(((payload.get("paging") or {}).get("next") or {}).get("after"))
-        cursor = deals[-1]["id"] if more and deals else None
-        if not cursor:
-            break
-
-    contact_deals: dict[str, list[dict]] = {}
-    for start in range(0, len(deals), 1000):
-        batch = deals[start:start + 1000]
-        if not batch:
-            continue
-        payload = _call(
-            fetch,
-            _hubspot_associations_request([d["id"] for d in batch]),
-            connection_id=connection_id,
-            observed_at=observed_at,
-        )
-        by_id = {d["id"]: d for d in batch}
-        for row in payload.get("results") or []:
-            deal_id = str((row.get("from") or {}).get("id") or row.get("fromObjectId") or "")
-            deal = by_id.get(deal_id)
-            if not deal:
-                continue
-            for to in row.get("to") or row.get("toObjects") or []:
-                contact_id = str(to.get("toObjectId") or to.get("id") or "")
-                if contact_id:
-                    contact_deals.setdefault(contact_id, []).append(deal)
-
-    for item in items:
-        item["crm_state"] = pick_deal_state(contact_deals.get(str(item["contact_id"]), []), provider="hubspot")
-
-
-def _apply_pipedrive_deal_states(
-    fetch,
-    items: list[dict],
-    owner_ids: list[str],
-    *,
-    connection_id: str,
-    observed_at: str,
-    max_pages: int,
-) -> None:
-    from app.services.hoy.crm_state import pick_deal_state
-
-    contact_deals: dict[str, list[dict]] = {}
-    for owner_id in owner_ids:
-        cursor = None
-        for _ in range(max_pages):
-            payload = _call(
-                fetch,
-                _pipedrive_deals_request(owner_id, cursor),
-                connection_id=connection_id,
-                observed_at=observed_at,
-            )
-            for row in payload.get("data") or []:
-                person = row.get("person_id")
-                if isinstance(person, dict):
-                    person_id = person.get("id")
-                else:
-                    person_id = person
-                if person_id is None:
-                    continue
-                contact_deals.setdefault(str(person_id), []).append({
-                    "id": str(row.get("id") or ""),
-                    "stage_id": row.get("stage_id"),
-                    "status": row.get("status"),
-                    "update_time": row.get("update_time"),
-                })
-            extra = payload.get("additional_data") or {}
-            cursor = str(extra["next_cursor"]) if extra.get("next_cursor") else None
-            if not cursor:
-                break
-
-    for item in items:
-        item["crm_state"] = pick_deal_state(contact_deals.get(str(item["contact_id"]), []), provider="pipedrive")
-
-
 def collect_assigned(
     provider: str,
     fetch,
@@ -470,14 +322,15 @@ def collect_assigned(
     observed_at: str,
     member_emails: set[str],
     max_pages: int | None = None,
-    queue_states=None,
+    owner_overrides: dict[str, str] | None = None,
 ) -> dict:
-    """Walk contacts owned by company members. A failed read returns no items, so the previous cache can stay."""
-    from app.services.hoy.crm_state import SOURCE_LEAD
+    """Walk contacts owned by company members. A failed read returns no items, so the previous cache can stay.
 
+    `owner_overrides` maps a CRM owner id to a member's email: the connection already knows
+    that owner is that member (the HubSpot owner cache), whatever email the CRM holds."""
     max_pages = max_pages or _MAX_PAGES
-    wanted_emails = {str(email).strip().lower() for email in member_emails if email}
-    include_lead = bool(queue_states and queue_states.source == SOURCE_LEAD and provider == "hubspot")
+    overrides = {str(oid): str(email).strip().lower() for oid, email in (owner_overrides or {}).items() if oid and email}
+    wanted_emails = {str(email).strip().lower() for email in member_emails if email} | set(overrides.values())
     try:
         owners = _owner_emails(provider, fetch, connection_id=connection_id, observed_at=observed_at, max_pages=max_pages)
         owners.update(overrides)
@@ -485,13 +338,12 @@ def collect_assigned(
         scopes = [owner_ids] if provider == "hubspot" else [[oid] for oid in owner_ids]
         items: list[dict] = []
         unfinished = None
-        state_partial = False
         for scope in scopes if owner_ids else []:
             cursor = None
             for _ in range(max_pages):
                 payload = _call(
                     fetch,
-                    assigned_request(provider, cursor, scope, include_lead_status=include_lead),
+                    assigned_request(provider, cursor, scope),
                     connection_id=connection_id,
                     observed_at=observed_at,
                 )
@@ -507,28 +359,11 @@ def collect_assigned(
                 if not cursor:
                     break
             unfinished = unfinished or cursor
-        if queue_states is not None and items and not include_lead:
-            try:
-                if provider == "hubspot" and owner_ids:
-                    _apply_hubspot_deal_states(
-                        fetch, items, owner_ids,
-                        connection_id=connection_id, observed_at=observed_at, max_pages=max_pages,
-                    )
-                elif provider == "pipedrive" and owner_ids:
-                    _apply_pipedrive_deal_states(
-                        fetch, items, owner_ids,
-                        connection_id=connection_id, observed_at=observed_at, max_pages=max_pages,
-                    )
-            except _ReadFailed:
-                state_partial = True
-                for item in items:
-                    item.pop("crm_state", None)
     except _ReadFailed as failed:
         return failed.envelope
-    coverage = "partial" if unfinished or state_partial else "complete"
     envelope = read_envelope(
         items=items,
-        coverage=coverage,
+        coverage="partial" if unfinished else "complete",
         observed_at=observed_at,
         connection_id=connection_id,
         object_type="contact",
