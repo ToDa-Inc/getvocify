@@ -32,6 +32,7 @@ import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopMeetingProvider } from "@/features/desktop/DesktopMeetingProvider";
 import { DesktopRecordingChip } from "@/features/desktop/DesktopRecordingChip";
+import { DesktopSetupDialog } from "@/features/desktop/DesktopSetupDialog";
 import { isDesktopHost } from "@/lib/desktop-host";
 import { isManagerRole, isNavActive, navItemsFor, topBarActions, usesRepHome, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
@@ -273,6 +274,7 @@ const DashboardLayout = () => {
           ) : null}
         </DockTabs>
       ) : null}
+      <DesktopSetupDialog />
     </div>
     </HomeColumnContext.Provider>
     </DialerFocusProvider>
