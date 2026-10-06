@@ -111,3 +111,20 @@ export function outgoingCallerId(callerIds: CallerIdRow[] | null | undefined): s
   const verified = (callerIds ?? []).filter((c) => c.status === "verified" && c.source !== "twilio" && !c.callBlocked);
   return (verified.find((c) => c.isDefault) ?? verified[0])?.phoneNumber || null;
 }
+
+const HUBSPOT_RECORD = /^https:\/\/app(?:-[a-z0-9]+)?\.hubspot\.com\/contacts\/(\d+)\/record\/(0-\d+)\/(\d+)/i;
+const HUBSPOT_LEGACY = /^https:\/\/app(?:-[a-z0-9]+)?\.hubspot\.com\/contacts\/(\d+)\/(contact|company|deal)\/(\d+)/i;
+const LEGACY_TYPES: Record<string, string> = { contact: "0-1", company: "0-2", deal: "0-3" };
+
+/**
+ * Which CRM record a page is, as a key: the same for every view of one record (tabs, query strings), so the island's
+ * offer stays put while the rep moves around inside it, and changes the moment the record does. Same URL shapes as
+ * backend/app/services/live_calls/crm_url.py; null for anything else (the backend still decides who to call).
+ */
+export function crmRecordKey(url: string): string | null {
+  const record = HUBSPOT_RECORD.exec(url);
+  if (record) return `hubspot:${record[1]}:${record[2]}:${record[3]}`;
+  const legacy = HUBSPOT_LEGACY.exec(url);
+  if (legacy) return `hubspot:${legacy[1]}:${LEGACY_TYPES[legacy[2].toLowerCase()]}:${legacy[3]}`;
+  return null;
+}

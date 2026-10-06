@@ -11,6 +11,7 @@ import { latestOnly, type CallPreview } from "@/lib/call-contact";
 import { isCallEnded, isCallUp, type CallEngineState } from "@/lib/call-engine-state";
 import {
   ENDED_HOLD_MS,
+  crmRecordKey,
   dialIsland,
   dialTargetFor,
   onScreenFromPreview,
@@ -52,17 +53,22 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
     const bridge = getDesktopBridge();
     if (!bridge?.crm?.onScreen) return;
     const lookups = latestOnly();
+    let shownKey: string | null = null;
     return bridge.crm.onScreen(({ urls }) => {
+      // Moving around inside the same record (its tabs, a query string) keeps the offer as it is.
+      const key = urls[0] ? crmRecordKey(urls[0]) : null;
+      if (key && key === shownKey) return;
       const ticket = lookups.next();
-      if (!urls.length || !api.getToken()) {
-        previewRef.current = null;
-        bridge.shell.setState({ onScreen: null });
-        return;
-      }
+      // Another record: the old offer goes at once, so a quick click can never call the previous contact.
+      shownKey = null;
+      previewRef.current = null;
+      bridge.shell.setState({ onScreen: null });
+      if (!urls.length || !api.getToken()) return;
       api
         .post<CallPreview>("/live-calls/preview", { page_urls: urls })
         .then((preview) => {
           if (!lookups.isLatest(ticket)) return;
+          shownKey = key;
           previewRef.current = preview;
           bridge.shell.setState({ onScreen: onScreenFromPreview(preview, accessRef.current) });
         })

@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { IDLE_CALL, reduceCall, type CallEngineState, type DialTarget } from "./call-engine-state.ts";
 import type { CallPreview } from "./call-contact.ts";
-import { dialIsland, dialTargetFor, onScreenFromPreview, outgoingCallerId, parseCallCommand } from "./desktop-call.ts";
+import { crmRecordKey, dialIsland, dialTargetFor, onScreenFromPreview, outgoingCallerId, parseCallCommand } from "./desktop-call.ts";
 
 const CONTACT_PAGE: CallPreview = {
   provider: "hubspot",
@@ -149,5 +149,26 @@ describe("outgoingCallerId", () => {
       null,
     );
     assert.equal(outgoingCallerId(undefined), null);
+  });
+});
+
+describe("crmRecordKey", () => {
+  it("is the same for every view of one record, so the offer does not flicker", () => {
+    const base = "https://app-eu1.hubspot.com/contacts/147506535/record/0-1/901";
+    assert.equal(crmRecordKey(base), "hubspot:147506535:0-1:901");
+    assert.equal(crmRecordKey(`${base}/view/2?eschref=x`), "hubspot:147506535:0-1:901");
+    assert.equal(crmRecordKey("https://app.hubspot.com/contacts/147506535/contact/901"), "hubspot:147506535:0-1:901");
+  });
+
+  it("tells records apart: another contact, a deal, another portal", () => {
+    assert.notEqual(crmRecordKey("https://app.hubspot.com/contacts/1/record/0-1/901"), crmRecordKey("https://app.hubspot.com/contacts/1/record/0-1/902"));
+    assert.notEqual(crmRecordKey("https://app.hubspot.com/contacts/1/record/0-1/901"), crmRecordKey("https://app.hubspot.com/contacts/1/record/0-3/901"));
+    assert.notEqual(crmRecordKey("https://app.hubspot.com/contacts/1/record/0-1/901"), crmRecordKey("https://app.hubspot.com/contacts/2/record/0-1/901"));
+  });
+
+  it("is null for anything that is not a record (lists, other sites)", () => {
+    assert.equal(crmRecordKey("https://app.hubspot.com/contacts/1/objects/0-1/views/all/list"), null);
+    assert.equal(crmRecordKey("https://mail.google.com/mail/u/0/"), null);
+    assert.equal(crmRecordKey(""), null);
   });
 });
