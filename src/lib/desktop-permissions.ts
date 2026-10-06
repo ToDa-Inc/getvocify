@@ -64,3 +64,18 @@ export function permissionCopy(type: DesktopPermissionType): {
     enabledBody: "Ready.",
   };
 }
+
+/**
+ * What to tell someone whose system audio is still off. macOS applies Screen & System Audio
+ * Recording only after a restart, so once they've been to Settings the next step is a relaunch.
+ * Still off after relaunching for it means the listed Vocify belongs to another build: re-add it.
+ */
+export function systemAudioHint(
+  status: DesktopPermissionStatus,
+  { asked, relaunched }: { asked: boolean; relaunched: boolean },
+): "none" | "relaunch" | "stuck" {
+  if (status === "authorized") return "none";
+  if (relaunched) return "stuck";
+  if (asked) return "relaunch";
+  return "none";
+}

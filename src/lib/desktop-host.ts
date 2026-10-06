@@ -33,6 +33,8 @@ export type VocifyDesktopBridge = {
     showOverlay(): Promise<unknown>;
     hideOverlay(): Promise<unknown>;
     openExternal(url: string): Promise<{ ok?: boolean }>;
+    /** Quits and reopens this copy of the app. Missing in older builds. */
+    relaunch?(): Promise<unknown>;
     command(name: string): void;
     onCommand(cb: (name: string) => void): () => void;
     /** Live help events for the Mac's log (written only while its test switch is on). */

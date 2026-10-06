@@ -5,6 +5,7 @@ import {
   desktopPermissionsReady,
   normalizePermissionStatus,
   permissionAction,
+  systemAudioHint,
 } from "./desktop-permissions.ts";
 
 describe("normalizePermissionStatus", () => {
@@ -47,5 +48,14 @@ describe("desktopPermissionsBlocker", () => {
       desktopPermissionsBlocker({ platform: "darwin", microphone: "authorized", systemAudio: "authorized" }),
       "none",
     );
+  });
+});
+
+describe("systemAudioHint", () => {
+  it("asks for a relaunch after Settings, then points at re-adding the app", () => {
+    assert.equal(systemAudioHint("never_requested", { asked: false, relaunched: false }), "none");
+    assert.equal(systemAudioHint("never_requested", { asked: true, relaunched: false }), "relaunch");
+    assert.equal(systemAudioHint("never_requested", { asked: false, relaunched: true }), "stuck");
+    assert.equal(systemAudioHint("authorized", { asked: true, relaunched: true }), "none");
   });
 });

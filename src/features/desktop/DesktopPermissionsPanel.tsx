@@ -10,21 +10,29 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { useDesktopPermissions } from "./useDesktopPermissions";
 
+type Permissions = ReturnType<typeof useDesktopPermissions>;
+
 function PermissionRow({
   type,
   status,
   onAction,
+  note,
+  onRelaunch,
 }: {
   type: DesktopPermissionType;
   status: "authorized" | "denied" | "never_requested";
   onAction: () => void;
+  /** Replaces the body while the permission is off (the next step after Settings). */
+  note?: string;
+  /** Shown beside the action once a restart is what's left. */
+  onRelaunch?: () => void;
 }) {
   const copy = permissionCopy(type);
   const on = status === "authorized";
   const Icon = type === DESKTOP_PERMISSION.microphone ? Mic : Volume2;
   const action = permissionAction(status);
   const label =
-    action === "open_settings" ? "Open Settings" : on ? null : "Allow";
+    action === "open_settings" || onRelaunch ? "Open Settings" : on ? null : "Allow";
 
   return (
     <div
@@ -44,21 +52,66 @@ function PermissionRow({
         </div>
         <div className="min-w-0 text-left">
           <p className="text-sm font-medium text-foreground">{on ? copy.enabledLabel : copy.enableLabel}</p>
-          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{on ? copy.enabledBody : copy.enableBody}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed" aria-live="polite">
+            {on ? copy.enabledBody : note ?? copy.enableBody}
+          </p>
         </div>
       </div>
       {label ? (
-        <Button type="button" size="sm" variant="outline" className="shrink-0 rounded-full" onClick={onAction}>
-          {label}
-        </Button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant={onRelaunch ? "ghost" : "outline"}
+            className="rounded-full"
+            onClick={onAction}
+          >
+            {label}
+          </Button>
+          {onRelaunch ? (
+            <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={onRelaunch}>
+              Relaunch
+            </Button>
+          ) : null}
+        </div>
       ) : null}
+    </div>
+  );
+}
+
+const SYSTEM_AUDIO_NOTE = {
+  relaunch: "Switched it on? Relaunch Vocify to apply it.",
+  stuck: "Still off. In Settings, remove Vocify with −, add it again with +, then relaunch.",
+  reopen: "Switched it on? Quit Vocify and open it again.",
+} as const;
+
+/** Microphone + system audio rows, with the relaunch step macOS needs for system audio. */
+export function DesktopPermissionRows({ permissions }: { permissions: Permissions }) {
+  const { snapshot, request, systemAudioHint, canRelaunch, relaunch } = permissions;
+  const hint = systemAudioHint === "none" ? null : canRelaunch ? systemAudioHint : "reopen";
+
+  return (
+    <div className="space-y-3">
+      <PermissionRow
+        type={DESKTOP_PERMISSION.microphone}
+        status={snapshot.microphone}
+        onAction={() => void request(DESKTOP_PERMISSION.microphone)}
+      />
+      <PermissionRow
+        type={DESKTOP_PERMISSION.systemAudio}
+        status={snapshot.systemAudio}
+        onAction={() => void request(DESKTOP_PERMISSION.systemAudio)}
+        note={hint ? SYSTEM_AUDIO_NOTE[hint] : undefined}
+        onRelaunch={hint && hint !== "reopen" ? () => void relaunch() : undefined}
+      />
     </div>
   );
 }
 
 /** Shown on the Mac app until mic + system audio are ready. */
 export function DesktopPermissionsPanel({ className }: { className?: string }) {
-  const { available, loading, snapshot, blocker, request } = useDesktopPermissions();
+  const permissions = useDesktopPermissions();
+  const { available, loading, blocker } = permissions;
 
   if (!available || blocker === "none") return null;
 
@@ -75,20 +128,11 @@ export function DesktopPermissionsPanel({ className }: { className?: string }) {
       </h2>
       <p className="text-sm text-muted-foreground mb-5 max-w-lg">
         Microphone uses the macOS prompt. For meeting audio, drag <strong>Vocify</strong> from the card
-        into Screen &amp; System Audio Recording. If it is already listed but off, turn it on, then quit and reopen.
+        into Screen &amp; System Audio Recording, or turn it on if it is already listed.
       </p>
 
-      <div className="space-y-3 max-w-xl">
-        <PermissionRow
-          type={DESKTOP_PERMISSION.microphone}
-          status={snapshot.microphone}
-          onAction={() => void request(DESKTOP_PERMISSION.microphone)}
-        />
-        <PermissionRow
-          type={DESKTOP_PERMISSION.systemAudio}
-          status={snapshot.systemAudio}
-          onAction={() => void request(DESKTOP_PERMISSION.systemAudio)}
-        />
+      <div className="max-w-xl">
+        <DesktopPermissionRows permissions={permissions} />
       </div>
 
       {loading ? (

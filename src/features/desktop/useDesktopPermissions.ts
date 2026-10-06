@@ -5,12 +5,32 @@ import {
   desktopPermissionsReady,
   normalizePermissionStatus,
   permissionAction,
+  systemAudioHint,
   type DesktopPermissionSnapshot,
   type DesktopPermissionType,
 } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost } from "@/lib/desktop-host";
 
 const POLL_MS = 2500;
+/** Set just before relaunching for system audio, so the reopened app knows a restart didn't fix it. */
+const RELAUNCHED_KEY = "vocify.desktop.relaunchedForSystemAudio";
+
+function readRelaunched(): boolean {
+  try {
+    return localStorage.getItem(RELAUNCHED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeRelaunched(on: boolean) {
+  try {
+    if (on) localStorage.setItem(RELAUNCHED_KEY, "1");
+    else localStorage.removeItem(RELAUNCHED_KEY);
+  } catch {
+    // Storage blocked: the hint falls back to "relaunch".
+  }
+}
 
 const EMPTY: DesktopPermissionSnapshot = {
   platform: "darwin",
@@ -34,6 +54,8 @@ export function useDesktopPermissions() {
   const [snapshot, setSnapshot] = useState<DesktopPermissionSnapshot>(EMPTY);
   const [appName, setAppName] = useState("Vocify");
   const [loading, setLoading] = useState(available);
+  const [systemAudioAsked, setSystemAudioAsked] = useState(false);
+  const [relaunched, setRelaunched] = useState(readRelaunched);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
 
@@ -46,6 +68,10 @@ export function useDesktopPermissions() {
     const raw = (await bridge.permissions.status()) as Record<string, unknown>;
     const next = parseSnapshot(raw);
     setSnapshot(next);
+    if (next.systemAudio === "authorized") {
+      writeRelaunched(false);
+      setRelaunched(false);
+    }
     setLoading(false);
     return next;
   }, []);
@@ -57,6 +83,7 @@ export function useDesktopPermissions() {
 
       const status = type === DESKTOP_PERMISSION.microphone ? snapshotRef.current.microphone : snapshotRef.current.systemAudio;
       const action = permissionAction(status);
+      if (type === DESKTOP_PERMISSION.systemAudio) setSystemAudioAsked(true);
 
       if (action === "open_settings") {
         await bridge.permissions.open(type);
@@ -67,6 +94,13 @@ export function useDesktopPermissions() {
     },
     [refresh],
   );
+
+  const relaunch = useCallback(async () => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.shell.relaunch) return;
+    writeRelaunched(true);
+    await bridge.shell.relaunch();
+  }, []);
 
   useEffect(() => {
     if (!available) return;
@@ -102,6 +136,10 @@ export function useDesktopPermissions() {
     appName,
     refresh,
     request,
+    systemAudioHint: systemAudioHint(snapshot.systemAudio, { asked: systemAudioAsked, relaunched }),
+    /** Older Mac builds can't relaunch themselves; they keep the "quit and reopen" copy. */
+    canRelaunch: Boolean(available && getDesktopBridge()?.shell.relaunch),
+    relaunch,
   };
 }
 
