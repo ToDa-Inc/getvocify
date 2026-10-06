@@ -86,17 +86,14 @@ def _commitments(intelligence: dict) -> list[dict]:
     return kept
 
 
-def _stored_followup_at(memo: dict) -> datetime | None:
-    """memos.followup_at (migration 062). Absent, empty or unreadable = no rep date."""
-    try:
-        return as_dt(memo.get("followup_at"))
-    except (TypeError, ValueError):
-        return None
-
-
-def contact_touches(memos: list[dict]) -> tuple[dict[str, list], dict[str, bool]]:
-    """Each contact's touches, read off the intelligence already on its memos, and whether
-    each memo confirmed pain (heat reads it)."""
+def fresh_signals(
+    memos: list[dict],
+    *,
+    now: datetime,
+    day_end: datetime,
+    ignore_deal_closed: bool = False,
+) -> list:
+    """One contact, one set of signals, from intelligence already on the memo."""
     groups: dict[str, list] = {}
     pain_by_memo: dict[str, bool] = {}
     for memo in memos:
@@ -211,23 +208,9 @@ def fresh_signals(
     groups, pain_by_memo = contact_touches(memos)
     signals = []
     for touches in groups.values():
-        contact_signals = signals_for_contact(
-            touches,
-            now=now,
-            day_end=day_end,
-            callback_after_days=callback_after_days if lead_tiers_enabled else None,
-            cadence=cadence,
+        signals.extend(
+            signals_for_contact(touches, now=now, day_end=day_end, ignore_deal_closed=ignore_deal_closed)
         )
-        if lead_tiers_enabled and contact_signals:
-            last = max(touches, key=lambda t: t.at)
-            heat = heat_score({
-                "interest": last.interest,
-                "pain_confirmed": pain_by_memo.get(last.memo_id, False),
-                "objection_open": bool(last.objections),
-                "days_silent": (now - last.at).days,
-            })
-            contact_signals = [replace(s, payload={**s.payload, "heat": heat}) for s in contact_signals]
-        signals.extend(contact_signals)
     return signals
 
 
@@ -514,36 +497,15 @@ def refresh_hoy_signals(
         )
     except Exception:
         return 0
+    from app.services.hoy.crm_state import queue_states_enabled
+
+    ignore_deal_closed = queue_states_enabled(supabase, company_id)
     signals = fresh_signals(
-        memos,
+        list(stored.data or []),
         now=now,
         day_end=day_end(now, tz_name),
-        lead_tiers_enabled=lead_tiers_enabled,
-        callback_after_days=callback_after_days,
-        cadence=cadence,
+        ignore_deal_closed=ignore_deal_closed,
     )
-    handoffs_known = cadence is not None and handoffs is not None and handoff_memos is not None
-    if handoffs_known:
-        own_contact_ids = {
-            str(memo.get("hubspot_contact_id") or memo.get("contact_id") or "") for memo in memos
-        } - {""}
-        signals = signals + handoff_followup_signals(
-            handoffs,
-            handoff_memos,
-            own_contact_ids=own_contact_ids,
-            now=now,
-            day_end=day_end(now, tz_name),
-            cadence=cadence,
-        )
-    calls: list[dict] = []
-    if lead_tiers_enabled:
-        calls = read_hoy_calls(supabase, user_id=user_id)
-        signals = signals + callback_no_answer_from_calls(
-            calls,
-            last_touch_at=contact_last_touch_at(memos),
-            now=now,
-            callback_after_days=callback_after_days,
-        )
     known = {str(row.get("dedupe_key") or "") for row in (existing.data or [])}
     fresh_keys = {signal.dedupe_key for signal in signals}
     # With the cadence on, objection_open is no longer produced: its pending rows are hidden

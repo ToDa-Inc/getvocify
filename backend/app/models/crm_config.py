@@ -86,13 +86,17 @@ class CRMConfigurationRequest(BaseModel):
             "None: no stage moves. Never a won/lost stage change."
         ),
     )
-    deal_creation_rule: Optional[DealCreationRule] = Field(
-        None,
-        description=(
-            "Lista 4 E11: when Vocify creates a deal for a contact without one (always, "
-            "meeting_booked, follow_up_or_meeting, never). None keeps the stored rule, so a "
-            "client that doesn't know the field (or a database before migration 063) is unaffected."
-        ),
+    queue_state_source: Optional[str] = Field(
+        "deal_stage",
+        description="Where the queue reads CRM state: deal_stage or lead_status (HubSpot only).",
+    )
+    queue_booked_states: list[str] = Field(
+        default_factory=list,
+        description="CRM states that remove a contact from the recall queue (meeting booked).",
+    )
+    queue_ended_states: list[str] = Field(
+        default_factory=list,
+        description="CRM states that remove a contact from the recall queue (ended).",
     )
 
 
@@ -121,8 +125,10 @@ class CRMConfigurationResponse(BaseModel):
     auto_sync_hubspot_calls: bool = False
     meeting_booked_pipeline_id: Optional[str] = None
     meeting_booked_stage_id: Optional[str] = None
-    # None only before migration 063; the column's own default is "always".
-    deal_creation_rule: Optional[str] = None
+    queue_state_source: str = "deal_stage"
+    queue_booked_states: list[str] = Field(default_factory=list)
+    queue_ended_states: list[str] = Field(default_factory=list)
+    queue_states_enabled: bool = False
     is_configured: bool = True
     created_at: str
     updated_at: str

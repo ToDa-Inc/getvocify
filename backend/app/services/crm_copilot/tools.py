@@ -176,24 +176,28 @@ DATA_TOOLS = [
     ),
     _fn(
         "list_conversations",
-        "Vocify's own recorded conversations (calls, meetings, voice notes), newest first: date, author, summary, "
-        "objections, commitments, pain, meeting. Use for 'qué me dijo X la última vez' (contact_id from "
-        "search_contacts), 'mis últimas llamadas', what was promised. Only what the caller may read.",
+        "Vocify's own recorded conversations (calls, meetings, voice notes). Returns total for the whole period "
+        "plus a short newest-first sample (items). Use for 'cuántas llamadas desde X' (answer with total, do not "
+        "list items), 'qué me dijo X la última vez' (contact_id from search_contacts), what was promised. "
+        "Pass since as YYYY-MM-DD when they name a date. Only what the caller may read.",
         {
             "contact_id": {"type": "string", "description": "CRM contact id"},
             "deal_id": {"type": "string", "description": "CRM deal id"},
             "query": {"type": "string", "description": "name or company when there is no CRM id"},
-            "days": {"type": "integer", "description": "only the last N days"},
-            "limit": {"type": "integer", "description": "1-10, default 5"},
+            "since": {"type": "string", "description": "ISO date YYYY-MM-DD, inclusive start"},
+            "days": {"type": "integer", "description": "only the last N days, if they did not name a date"},
+            "limit": {"type": "integer", "description": "sample size 1-10, default 5; total is never capped"},
             "user_id": {"type": "string", "description": "managers only: one teammate"},
         },
     ),
     _fn(
         "get_objections",
-        "Most frequent objections in the caller's Vocify conversations (managers: the whole team, or user_id), "
-        "by category with resolved/open counts and example phrasings. Use for 'qué objeción sale más'.",
+        "Objection counts over the whole period (not a sample): category totals, resolved/open, example phrasing, "
+        "and by_rep (name, resolved, open). Use for 'qué objeción sale más', 'quién resuelve mejor', "
+        "'quién pierde más ahí'. Managers see the team unless user_id is set.",
         {
-            "days": {"type": "integer", "description": "period, default 30, max 90"},
+            "since": {"type": "string", "description": "ISO date YYYY-MM-DD, inclusive start"},
+            "days": {"type": "integer", "description": "period if they did not name a date, default 30, max 365"},
             "user_id": {"type": "string", "description": "managers only: one teammate"},
         },
     ),
@@ -390,7 +394,7 @@ def _crm(ctx: CopilotContext) -> HubSpotBundle | PipedriveReader:
     if not conn:
         raise ValueError("No CRM connected")
     provider = str(conn.get("provider") or "").strip().lower()
-    if provider == "pipedrive" and data_tools_enabled(ctx):
+    if provider == "pipedrive":
         ctx.crm = PipedriveReader.from_provider(build_crm_provider(ctx.supabase, conn))
         return ctx.crm
     if provider_ready(provider) != "ready":

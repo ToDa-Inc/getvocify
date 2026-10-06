@@ -8,9 +8,9 @@ Users are created in Supabase Auth and then a profile is created in user_profile
 import logging
 import re
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_serializer
 from uuid import UUID
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 
 from app.config import settings
 from app.deps import get_supabase, get_supabase_auth, get_user_id
@@ -71,12 +71,14 @@ class CompanySummary(BaseModel):
     plan_type: Optional[str] = None
     paywalled: bool = False
     can_use_dialer: bool = True
-    rep_workspace_enabled: bool = False
-    brief_v2_enabled: bool = False
     sales_role: Optional[str] = None
-    visibility: Optional[str] = None
-    features: List[str] = Field(default_factory=list)
-    needs_onboarding: bool = False
+
+    @model_serializer(mode="wrap")
+    def _omit_null_sales_role(self, handler: Any) -> Dict[str, Any]:
+        data = handler(self)
+        if data.get("sales_role") is None:
+            data.pop("sales_role", None)
+        return data
 
 
 class UserResponse(BaseModel):
@@ -114,7 +116,7 @@ def _user_response(user_id: str, email: str, profile: dict, supabase: Client) ->
     product_context = profile.get("product_context") or ""
     auto_create = bool(profile.get("auto_create_contact_company", False))
     if company_summary:
-        company_payload = CompanySummary(
+        summary_kwargs = dict(
             id=company_summary["id"],
             name=company_summary["name"] or "",
             role=company_summary["role"],
@@ -133,6 +135,9 @@ def _user_response(user_id: str, email: str, profile: dict, supabase: Client) ->
             features=list(company_summary.get("features") or []),
             needs_onboarding=bool(company_summary.get("needs_onboarding")),
         )
+        if "sales_role" in company_summary:
+            summary_kwargs["sales_role"] = company_summary["sales_role"]
+        company_payload = CompanySummary(**summary_kwargs)
         company_row = company_svc.get_company(company_summary["id"])
         product_context = company_row.get("product_context") or ""
         auto_create = bool(company_row.get("auto_create_contact_company", False))

@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.deps import get_membership, get_supabase
 from app.services.company import CompanyService, Membership
+from app.services.feature_flags import is_enabled
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
 from app.services.hoy.context import (
     build_priority_page,
@@ -19,6 +20,7 @@ from app.services.hoy.context import (
     maybe_refresh_assigned_context,
     snapshot_from_rows,
 )
+from app.services.hoy.crm_state import load_queue_states
 from app.services.hoy.memo_facts import apply_memo_facts, load_memo_facts
 
 logger = logging.getLogger(__name__)
@@ -85,13 +87,22 @@ async def _refresh_behind(supabase, company_id: str, connection: dict, rows: lis
         _REFRESHING.discard(company_id)
 
 
-def _with_memo_facts(supabase, company_id: str, user_id: str, snapshot: dict, now: datetime) -> dict:
+def _with_memo_facts(
+    supabase,
+    company_id: str,
+    user_id: str,
+    snapshot: dict,
+    now: datetime,
+    ignore_meeting_agreed: bool = False,
+) -> dict:
     candidates = snapshot.get("candidates") or []
     mine = [str(row["contact_id"]) for row in candidates if row.get("owner_user_id") == user_id]
     if not mine:
         return snapshot
     try:
-        facts = load_memo_facts(supabase, company_id, mine, now=now)
+        facts = load_memo_facts(
+            supabase, company_id, mine, now=now, ignore_meeting_agreed=ignore_meeting_agreed,
+        )
     except Exception as exc:
         logger.warning("memo facts unavailable for company %s: %s", company_id, exc)
         return snapshot
@@ -121,6 +132,8 @@ async def list_contact_priorities(
             if company_id not in _REFRESHING:
                 _REFRESHING.add(company_id)
                 background.add_task(_refresh_behind, supabase, company_id, connection, list(rows), observed_at)
+    connection_id = str((connection or {}).get("id") or "") or None
+    states = load_queue_states(supabase, company_id, connection_id=connection_id)
     if not connected:
         snapshot = {"connected": False, "coverage": "unavailable", "candidates": []}
     elif fetch_hint is not None:
@@ -129,7 +142,16 @@ async def list_contact_priorities(
         snapshot = snapshot_from_rows(rows, connected=True)
         snapshot["provider"] = provider
         snapshot["portal_id"] = portal_id
-        snapshot = await run_in_threadpool(_with_memo_facts, supabase, company_id, membership.user_id, snapshot, now)
+        snapshot = await run_in_threadpool(
+            _with_memo_facts,
+            supabase,
+            company_id,
+            membership.user_id,
+            snapshot,
+            now,
+            states is not None,
+        )
+    sales_roles_enabled = is_enabled(supabase, company_id, "SALES_ROLES_ENABLED")
     page = build_priority_page(
         snapshot=snapshot,
         user_id=membership.user_id,
@@ -137,5 +159,8 @@ async def list_contact_priorities(
         now=now,
         limit=limit,
         cursor=cursor,
+        states=states,
+        sales_role=membership.sales_role if sales_roles_enabled else None,
+        sales_roles_enabled=sales_roles_enabled,
     )
     return {**page, "stale": refreshing}

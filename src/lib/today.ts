@@ -21,88 +21,9 @@ export type TodayItem = {
   status?: string | null;
   undo_deadline?: string | null;
   last_action_request_id?: string | null;
-  memo_id?: string | null;
-  due_at?: string | null;
-  precision?: string | null;
-  timezone?: string | null;
-  /** T5 (HOY_LEAD_TIERS_ENABLED): 0-100 second-order ranking signal, absent otherwise. */
-  heat?: number | null;
-  /** T5 review: only "Llamar ahora"'s tel: fallback reads this; absent until a source sends it. */
-  phone?: string | null;
-  /** Deal cards (HOY_AE_DEALS_ENABLED): the meeting the SDR booked, when the handoff carries it. */
-  meeting_starts_at?: string | null;
-  /** Deal cards: the handoff behind a handed-off deal (absent for the rep's own deals). */
-  handoff_id?: string | null;
-};
-
-/**
- * The AE's deal card line for the meeting an SDR booked: "Reunión: mar, 29 sept, 11:00".
- * Null without a (valid) time - the card then just says it was handed off.
- */
-export function dealMeetingLine(
-  item: Pick<TodayItem, "meeting_starts_at">,
-  { locale, template, timeZone }: { locale: string; template: string; timeZone?: string },
-): string | null {
-  const raw = item.meeting_starts_at;
-  if (!raw) return null;
-  const at = new Date(raw);
-  if (Number.isNaN(at.getTime())) return null;
-  const when = new Intl.DateTimeFormat(locale, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone,
-  }).format(at);
-  return template.replace("{when}", when);
-}
-
-export type FollowupRow = {
-  memo_id: string;
-  contact_id: string | null;
-  contact_name: string | null;
-  company_name: string | null;
-  subject: string | null;
-  status: "ready" | "generating" | "unavailable";
-  generated_at: string | null;
-};
-
-export type UpcomingRow = {
-  memo_id: string;
-  contact_id: string | null;
-  contact_name: string | null;
-  company_name: string | null;
-  text: string;
-  due_at: string;
-  precision: "date" | "time" | null;
-  crm_task_id: string | null;
-  /** Lista 4 T2 (HOY_SDR_SECTIONS_ENABLED): "followup" for a contact the cadence brings back
-   * on this date; absent for a commitment. */
-  kind?: "followup";
-};
-
-export type DoneRow = {
-  kind: string;
-  contact_name: string | null;
-  contact_id: string | null;
-  at: string;
-  memo_id: string | null;
-};
-
-/** T6 (HOY_AE_DEALS_ENABLED): the same items, split by role - "items" keeps working for
- * compatibility. A role's own keys are the only ones present (an SDR gets `calls` only,
- * an AE `meetings`+`deals`, General all three) - see build_today_view's sections_for_role. */
-export type TodaySections = {
-  calls?: TodayItem[];
-  meetings?: TodayItem[];
-  deals?: TodayItem[];
-  /** Lista 4 T2/T8 (HOY_SDR_SECTIONS_ENABLED): each capped on its own. SDR: tasks,
-   * followups, new (next to `calls`); AE: demos, tasks, followups; General: all four. */
-  tasks?: TodayItem[];
-  followups?: TodayItem[];
-  new?: TodayItem[];
-  demos?: TodayItem[];
+  lane?: "calls" | "meetings" | null;
+  rep_name?: string | null;
+  booking_memo_id?: string | null;
 };
 
 export type TodayView = {

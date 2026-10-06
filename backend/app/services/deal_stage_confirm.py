@@ -67,10 +67,23 @@ def preview_stage_kwargs(supabase: Any, *, memo: dict, connection: dict, config:
     company_id = memo.get("company_id") or connection.get("company_id")
     if not stage_confirm_enabled(supabase, company_id, provider):
         return {}
-    return {
+    kwargs: dict[str, Any] = {
         "stage_confirm": True,
         "meeting_booked_stage": meeting_booked_stage(supabase, memo_id=str(memo.get("id")), config=config),
     }
+    from app.services.hoy.crm_state import SOURCE_LEAD, load_queue_states, queue_states_enabled
+
+    if provider == "hubspot" and queue_states_enabled(supabase, company_id):
+        states = load_queue_states(
+            supabase,
+            company_id,
+            connection_id=str(connection.get("id") or "") or None,
+        )
+        if states and states.source == SOURCE_LEAD:
+            kwargs["lead_status_confirm"] = True
+            kwargs["queue_booked_states"] = list(states.booked)
+            kwargs["meeting_agreed_for_lead"] = kwargs["meeting_booked_stage"] is not None
+    return kwargs
 
 
 def stage_sync_kwargs(

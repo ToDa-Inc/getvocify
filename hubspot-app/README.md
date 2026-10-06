@@ -95,6 +95,13 @@ Required for Vocify:
 - `crm.objects.line_items.read/write`
 - `crm.schemas.contacts/companies/deals/line_items.read`
 
+Optional (`optionalScopes`, sent as `optional_scope`; a portal that does not grant it still connects):
+
+- `sales-email-read` — reads the rep's CRM emails for the Hoy card «no te ha respondido».
+
+Upload the app config before deploying a backend that requests a new scope: the OAuth URL may
+only ask for scopes the app declares (`tests/hubspot/test_oauth_scopes.py` checks both lists match).
+
 After changing scopes, run `hs project upload`, then existing installs must
 re-authorize so HubSpot re-issues a token with the new grants. New installs get them on
 first consent.

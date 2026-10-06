@@ -151,22 +151,13 @@ def signals_for_contact(
     *,
     now: datetime,
     day_end: datetime,
-    callback_after_days: Optional[int] = None,
-    cadence: Optional[dict[str, int]] = None,
+    ignore_deal_closed: bool = False,
 ) -> list[Signal]:
-    """All touches for ONE contact, any order. `day_end` is the end of the rep's local day.
-
-    `callback_after_days` is None unless HOY_LEAD_TIERS_ENABLED is on for a SDR/General rep
-    (T5): with it None, no callback_no_answer is ever produced, so the flag off behaves
-    exactly as before.
-
-    `cadence` is None unless HOY_SDR_SECTIONS_ENABLED is on for a SDR/General rep (Lista 4
-    T2); otherwise it is the company's overrides ({} = E8 defaults). With it, going_cold and
-    objection_open give way to one followup_due that only exists from its due day on."""
+    """All touches for ONE contact, any order. `day_end` is the end of the rep's local day."""
     if not touches:
         return []
     last = max(touches, key=lambda t: t.at)
-    if last.deal_closed:
+    if last.deal_closed and not ignore_deal_closed:
         return []
 
     base = {

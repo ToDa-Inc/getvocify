@@ -6,12 +6,13 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, model_serializer
 from supabase import Client
 
 from app.deps import get_supabase, get_supabase_auth, get_user_id
 from app.services.billing.entitlement import workspace_entitlements
 from app.services.company import CompanyService, INVITE_ROLES
+from app.services.feature_flags import is_enabled
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/company", tags=["company"])
@@ -85,7 +86,13 @@ class InviteResponse(BaseModel):
     email_sent: bool
     invite_url: Optional[str] = None
     sales_role: Optional[str] = None
-    crm_owner_match: Optional[bool] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_null_sales_role(self, handler: Any) -> Dict[str, Any]:
+        data = handler(self)
+        if data.get("sales_role") is None:
+            data.pop("sales_role", None)
+        return data
 
 
 class MemberResponse(BaseModel):
@@ -97,8 +104,13 @@ class MemberResponse(BaseModel):
     status: str
     created_at: Optional[str] = None
     sales_role: Optional[str] = None
-    handoff_ae_user_id: Optional[str] = None
-    visibility: Optional[str] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_null_sales_role(self, handler: Any) -> Dict[str, Any]:
+        data = handler(self)
+        if data.get("sales_role") is None:
+            data.pop("sales_role", None)
+        return data
 
 
 class PendingInviteResponse(BaseModel):
@@ -109,10 +121,18 @@ class PendingInviteResponse(BaseModel):
     created_at: Optional[str] = None
     sales_role: Optional[str] = None
 
+    @model_serializer(mode="wrap")
+    def _omit_null_sales_role(self, handler: Any) -> Dict[str, Any]:
+        data = handler(self)
+        if data.get("sales_role") is None:
+            data.pop("sales_role", None)
+        return data
+
 
 class MembersListResponse(BaseModel):
     members: List[MemberResponse]
     pending_invites: List[PendingInviteResponse]
+    sales_roles_enabled: bool = False
 
 
 class UpdateMemberRoleRequest(BaseModel):
@@ -120,6 +140,10 @@ class UpdateMemberRoleRequest(BaseModel):
     sales_role: Optional[str] = None
     handoff_ae_user_id: Optional[str] = None
     visibility: Optional[str] = None
+
+
+class UpdateSalesRoleRequest(BaseModel):
+    sales_role: str
 
 
 class AcceptInviteRequest(BaseModel):
@@ -251,9 +275,11 @@ async def list_members(
     members = svc.list_members(membership.company_id, include_sales_fields=sales_roles_on)
     invites = svc.list_pending_invites(membership.company_id)
     can_see_invites = membership.can_manage_team
+    roles_enabled = is_enabled(supabase, membership.company_id, "SALES_ROLES_ENABLED")
     return MembersListResponse(
         members=[MemberResponse(**m) for m in members],
         pending_invites=[PendingInviteResponse(**i) for i in invites] if can_see_invites else [],
+        sales_roles_enabled=roles_enabled,
     )
 
 
@@ -274,8 +300,9 @@ async def create_invite(
         role=body.role,
         invited_by=user_id,
         send_email=body.send_email,
-        sales_role=sales_role,
+        sales_role=body.sales_role,
     )
+    roles_enabled = is_enabled(supabase, membership.company_id, "SALES_ROLES_ENABLED")
     return InviteResponse(
         id=str(invite["id"]),
         email=str(invite["email"]),
@@ -283,8 +310,7 @@ async def create_invite(
         expires_at=invite["expires_at"],
         email_sent=email_sent,
         invite_url=invite_url,
-        sales_role=invite.get("sales_role"),
-        crm_owner_match=crm_owner_match,
+        sales_role=invite.get("sales_role") if roles_enabled else None,
     )
 
 
@@ -297,6 +323,7 @@ async def resend_invite(
     svc = CompanyService(supabase)
     membership = svc.require_manage_role(user_id)
     invite, invite_url, email_sent = await svc.resend_invite(invite_id, membership.company_id)
+    roles_enabled = is_enabled(supabase, membership.company_id, "SALES_ROLES_ENABLED")
     return InviteResponse(
         id=str(invite["id"]),
         email=str(invite["email"]),
@@ -304,7 +331,7 @@ async def resend_invite(
         expires_at=invite["expires_at"],
         email_sent=email_sent,
         invite_url=invite_url,
-        sales_role=invite.get("sales_role"),
+        sales_role=invite.get("sales_role") if roles_enabled else None,
     )
 
 
@@ -363,6 +390,27 @@ async def update_member_role(
         "sales_role": updated.get("sales_role"),
         "handoff_ae_user_id": (str(updated["handoff_ae_user_id"]) if updated.get("handoff_ae_user_id") else None),
         "visibility": updated.get("visibility"),
+    }
+
+
+@router.patch("/members/{member_id}/sales-role")
+async def update_member_sales_role(
+    member_id: str,
+    body: UpdateSalesRoleRequest,
+    user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
+):
+    svc = CompanyService(supabase)
+    membership = svc.require_manage_role(user_id)
+    updated = svc.update_member_sales_role(
+        company_id=membership.company_id,
+        member_id=member_id,
+        sales_role=body.sales_role,
+    )
+    return {
+        "success": True,
+        "sales_role": updated.get("sales_role"),
+        "role": updated.get("role"),
     }
 
 

@@ -1,13 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
-import { Phone } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { itemKey, meetingEntry } from "@shared/ui/home.js";
-import { meetingCardLine } from "@/lib/contact-panel";
-import { IconAction } from "@/components/ui/icon-action";
-import { api } from "@/shared/lib/api-client";
+import { Link } from "react-router-dom";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { useLanguage } from "@/lib/i18n";
 import { productText } from "@/lib/product-catalog";
@@ -349,7 +340,31 @@ function CallCard({
   return (
     <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.cards.hover} ${THEME_TOKENS.radius.card} ${compact ? "p-3" : "p-5"}`}>
       <div className="flex items-start gap-3">
-        <CardBody item={item} compact={compact} />
+        <div className="min-w-0 flex-1">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
+            <p className="truncate text-[15px] text-foreground">
+              {item.booking_memo_id ? (
+                <Link to={`/dashboard/memos/${item.booking_memo_id}`} className="hover:text-beige">
+                  {name}
+                </Link>
+              ) : (
+                name
+              )}
+            </p>
+            <span className={`max-w-[9rem] truncate text-right ${THEME_TOKENS.typography.capsLabel}`}>{label}</span>
+            {item.company_name ? (
+              <p className={`col-span-2 truncate ${THEME_TOKENS.typography.capsLabel}`}>{item.company_name}</p>
+            ) : null}
+            {item.rep_name ? (
+              <p className="col-span-2 truncate text-[11px] text-muted-foreground">{item.rep_name}</p>
+            ) : null}
+          </div>
+          <p className={compact ? "mt-2 text-[13px] leading-snug text-foreground" : "mt-3 text-[15px] leading-relaxed text-foreground"}>{item.reason}</p>
+          {item.detail ? <p className={`mt-1 ${THEME_TOKENS.typography.body}`}>“{item.detail}”</p> : null}
+          {extras.length > 0 ? (
+            <p className={`mt-2 ${THEME_TOKENS.typography.capsLabel}`}>{extras.map((key) => productText(key, t.product)).join(" · ")}</p>
+          ) : null}
+        </div>
         <TodayCardActions
           onCall={item.contact_id ? () => onCall(item) : undefined}
           callLabel={callLabel}

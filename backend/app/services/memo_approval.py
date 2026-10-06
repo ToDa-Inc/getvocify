@@ -369,7 +369,62 @@ async def approve_memo_core(
         **crm_links_update(memo_data, sync_result),
     }).eq("id", memo_id).execute()
 
+    if reviewed_extraction:
+        _write_confirmed_queue_state(
+            supabase,
+            company_id=str(memo_data.get("company_id") or crm_connection.get("company_id") or ""),
+            connection_id=str(crm_connection["id"]),
+            provider=provider_name,
+            contact_id=sync_result.contact_id,
+            extraction=extraction_data,
+            skip_deal=skip_deal,
+        )
+
     return sync_result
+
+
+def _write_confirmed_queue_state(
+    supabase: Client,
+    *,
+    company_id: str,
+    connection_id: str,
+    provider: str,
+    contact_id: Optional[str],
+    extraction: dict,
+    skip_deal: bool,
+) -> None:
+    """E4/E5/E12/E13: reviewed sync writes crm_state into the priority cache immediately."""
+    if not company_id or not contact_id:
+        return
+    from app.services.hoy.crm_state import (
+        SOURCE_DEAL,
+        apply_confirmed_crm_state,
+        confirmed_state_from_extraction,
+        load_queue_states,
+    )
+
+    states = load_queue_states(supabase, company_id, connection_id=connection_id)
+    if not states:
+        return
+    if states.source == SOURCE_DEAL and skip_deal:
+        return
+    state = confirmed_state_from_extraction(extraction, states.source, provider)
+    if not state:
+        return
+    try:
+        apply_confirmed_crm_state(
+            supabase,
+            company_id=company_id,
+            connection_id=connection_id,
+            contact_id=str(contact_id),
+            state=state,
+        )
+    except Exception:
+        logger.warning(
+            "confirmed crm_state cache write failed",
+            extra=log_domain(DOMAIN_MEMO, "queue_state_cache", memo_id=None),
+            exc_info=True,
+        )
 
 
 def crm_links_update(memo: dict, sync_result) -> dict:

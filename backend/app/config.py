@@ -250,8 +250,10 @@ class Settings(BaseSettings):
     REPORTING_DAILY_EMAIL_ENABLED: bool = False
     # Deal stage chosen by the rep on memo review; accepting a meeting no longer moves it. Per company.
     DEAL_STAGE_CONFIRM_ENABLED: bool = False
-    # CRM tasks from C04 commitments, with Hoy's text and due date. Per company.
-    COMMITMENT_TASKS_ENABLED: bool = False
+    # Queue/Hoy exit by CRM state the admin marked (booked/ended). Needs DEAL_STAGE_CONFIRM_ENABLED too.
+    CRM_STATE_EXIT_ENABLED: bool = False
+    # SDR / AE / general sales roles on members and invites (F17). Per company.
+    SALES_ROLES_ENABLED: bool = False
     # Reports (F13.04 / F15.05), per company. Weekly personal report, Friday 18:00 local.
     REPORTING_WEEKLY_ENABLED: bool = False
     # Weekly team report by email for owner/admin, from the same aggregate as the team panel.

@@ -15,11 +15,7 @@ import { classifyFillPolicy, FILL_POLICY_LABELS, type FillPolicy } from "@/lib/f
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
 import { DealCreationRuleField } from "@/components/dashboard/crm/DealCreationRuleField";
 import { useLanguage } from "@/lib/i18n";
-import { AnimIcon } from "@/components/ui/anim-icon";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-// Sentinel for empty stage selection (no default stage)
-const NONE = "__none__";
+import { prepareQueueStatesForSave } from "@/lib/queue-states";
 
 interface HubSpotConfigurationProps {
   onSaved?: () => void;
@@ -99,9 +95,19 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await crmApi.saveConfiguration(config);
+      const stored = data?.config;
+      const queueStates = prepareQueueStatesForSave({
+        provider: "hubspot",
+        source: stored?.queue_state_source,
+        booked: stored?.queue_booked_states ?? [],
+        ended: stored?.queue_ended_states ?? [],
+        pipelines,
+        contactSchema: schemas.contacts,
+      });
+      const payload = { ...config, ...queueStates };
+      await crmApi.saveConfiguration(payload);
       queryClient.setQueryData(crmKeys.hubspotSetup(), (prev) =>
-        prev ? { ...prev, config } : prev,
+        prev ? { ...prev, config: payload } : prev,
       );
       setDraft(null);
       toast.success("Configuration saved!");
@@ -243,6 +249,7 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
             </Select>
           </label>
 
+          {config.queue_states_enabled ? null : (
           <label className="space-y-1.5 min-w-0">
             <span className="block text-[13px] text-foreground">{t.product.meetingBookedStage}</span>
             <Select
@@ -284,6 +291,7 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
               </SelectContent>
             </Select>
           </label>
+          )}
         </div>
       </div>
 

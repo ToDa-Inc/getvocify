@@ -18,11 +18,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
 import { DealCreationRuleField } from "@/components/dashboard/crm/DealCreationRuleField";
 import { useLanguage } from "@/lib/i18n";
-import { AnimIcon } from "@/components/ui/anim-icon";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-// Sentinel for empty stage selection (no default stage)
-const NONE = "__none__";
+import { prepareQueueStatesForSave } from "@/lib/queue-states";
 
 interface PipedriveConfigurationProps {
   onSaved?: () => void;
@@ -91,9 +87,22 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await crmApi.savePipedriveConfiguration(config);
+      const stored = data?.config;
+      const queueStates = prepareQueueStatesForSave({
+        provider: "pipedrive",
+        source: stored?.queue_state_source,
+        booked: stored?.queue_booked_states ?? [],
+        ended: stored?.queue_ended_states ?? [],
+        pipelines,
+        pipedriveStatusLabels: {
+          won: t.product.queueStateWon,
+          lost: t.product.queueStateLost,
+        },
+      });
+      const payload = { ...config, ...queueStates };
+      await crmApi.savePipedriveConfiguration(payload);
       queryClient.setQueryData(crmKeys.pipedriveSetup(), (prev) =>
-        prev ? { ...prev, config } : prev,
+        prev ? { ...prev, config: payload } : prev,
       );
       setDraft(null);
       toast.success("Configuration saved!");
@@ -204,6 +213,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
               </SelectContent>
             </Select>
           </div>
+          {config.queue_states_enabled ? null : (
           <div className="space-y-2">
             <label className={THEME_TOKENS.typography.capsLabel}>{t.product.meetingBookedStage}</label>
             <Select
@@ -231,6 +241,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
               </SelectContent>
             </Select>
           </div>
+          )}
         </div>
       </div>
 

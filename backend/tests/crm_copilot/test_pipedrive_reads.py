@@ -173,3 +173,30 @@ async def test_a_pipedrive_write_is_refused_before_asking_to_confirm():
 async def test_a_hubspot_write_still_pauses_for_confirmation():
     ctx = CopilotContext(supabase=None, user_id="rep-a", artifacts={}, hs=object())
     assert await write_blocked("create_note", ctx) is None
+
+
+async def test_pipedrive_crm_reads_work_when_vocify_data_flag_is_off(monkeypatch):
+    """CRM reads are not the Vocify-data tools. Pipedrive must answer without that flag."""
+    monkeypatch.setattr(settings, "ASK_VOCIFY_DATA_TOOLS_ENABLED", False)
+
+    class FakeProvider:
+        def __init__(self):
+            self._connection = CONNECTION
+
+        def _search(self):
+            return FakeSearch()
+
+    monkeypatch.setattr(
+        "app.services.crm_providers.resolve_sync_connection_prefer_hubspot",
+        lambda *_a, **_k: CONNECTION,
+    )
+    monkeypatch.setattr(
+        "app.services.crm_providers.build_crm_provider",
+        lambda *_a, **_k: FakeProvider(),
+    )
+
+    ctx = CopilotContext(supabase=object(), user_id="rep-a", artifacts={})
+    result = await execute_tool("search_contacts", {"query": "Marina"}, ctx)
+    assert result.get("error") != "crm_unavailable"
+    assert [row["name"] for row in result["contacts"]] == ["Marina Ruiz", "Marina Gil"]
+    assert result["provider"] == "pipedrive"

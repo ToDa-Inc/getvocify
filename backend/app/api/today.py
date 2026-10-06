@@ -24,17 +24,8 @@ from app.services.hoy.confirmations import (
 )
 from app.services.handoffs import active_handoffs_for_ae, active_handoffs_for_sdr, close_handoff
 from app.services.hoy.assigned import connection_assigned_fetch, fresh_connection
-from app.services.hoy.context import load_context, snapshot_from_rows
-from app.services.hoy.deals import (
-    DEAL_TYPE,
-    deal_reason,
-    deal_stages_by_provider,
-    merge_deal_candidates,
-    newest_first,
-    own_deal_candidates,
-    stage_known_ended,
-)
-from app.services.hoy.done import done_today
+from app.services.hoy.crm_state import contact_exit_states, exit_reason, load_queue_states
+from app.services.hoy.lanes import partition_by_lane
 from app.services.hoy.no_reply import NO_REPLY_FLAG, refresh_no_reply
 from app.services.hoy.priority import rank_candidates
 from app.services.hoy.scheduler import attempt_daily_run_claim, build_today_view, collect_open_tasks, contact_record_url
@@ -589,51 +580,19 @@ async def get_today(
             )
         except Exception:
             pass
-    try:
-        refresh_meeting_today(
-            supabase,
-            company_id=membership.company_id,
-            user_id=membership.user_id,
-            now=now,
-            tz_name=tz_name,
-            handoffs=received_handoffs,
-        )
-    except Exception:
-        pass
-    stored = (
+    sales_roles = is_enabled(supabase, membership.company_id, "SALES_ROLES_ENABLED")
+    team_view = sales_roles and membership.role in ("owner", "admin")
+    signals_query = (
         supabase.table("action_signals")
         .select("*")
         .eq("company_id", membership.company_id)
-        .eq("user_id", membership.user_id)
-        .execute()
     )
+    if not team_view:
+        signals_query = signals_query.eq("user_id", membership.user_id)
+    stored = signals_query.execute()
     now = _now()
     confirm_enabled = is_enabled(supabase, membership.company_id, CONFIRM_FLAG)
     visible = [row for row in (stored.data or []) if is_today_visible(row, now)]
-    confirm_rows = [
-        row for row in visible
-        if row.get("type") == CONFIRM_TYPE and confirm_enabled
-    ]
-    visible = [
-        row for row in visible
-        if row.get("type") != CONFIRM_TYPE or confirm_enabled
-    ]
-    if not is_enabled(supabase, membership.company_id, MEETINGS_FLAG):
-        visible = [row for row in visible if row.get("type") != MEETING_TYPE]
-    hidden_types = CADENCE_REPLACED_TYPES if sections_enabled else {FOLLOWUP_TYPE}
-    visible = [row for row in visible if row.get("type") not in hidden_types]
-    # T5/D6: a contact under an active SDR->AE handoff leaves the SDR's/General's Hoy - it
-    # is the AE's now. The AE side is unaffected (it gains, it does not lose, contacts).
-    handed_off: set[str] = set()
-    if _prospects(membership) and is_enabled(supabase, membership.company_id, "HANDOFF_ENABLED"):
-        try:
-            handed_off = {
-                str(row.get("contact_id"))
-                for row in active_handoffs_for_sdr(supabase, company_id=membership.company_id, sdr_user_id=membership.user_id)
-            }
-        except Exception:
-            handed_off = set()
-    attempt_daily_run_claim(supabase, membership.company_id, now, rep_timezone(membership.user_id))
     connection = None
     if _TASKS is not None:
         manual_tasks, task_coverage = _TASKS(membership.company_id)
@@ -642,46 +601,57 @@ async def get_today(
         if connection is None:
             manual_tasks, task_coverage = [], "unavailable"
         else:
-            manual_tasks, task_coverage = _read_tasks(connection, membership.user_id)
+            manual_tasks, task_coverage = _read_tasks(connection)
+    states = load_queue_states(
+        supabase,
+        membership.company_id,
+        connection_id=str(connection["id"]) if connection else None,
+    )
+    reason_by_contact: dict[str, Optional[str]] = {}
+    if states is not None:
+        try:
+            context_rows = (
+                supabase.table("contact_priority_context")
+                .select("contact_id,payload")
+                .eq("company_id", membership.company_id)
+                .execute()
+            )
+            rows = list(context_rows.data or [])
+            if sales_roles:
+                for row in rows:
+                    contact_id = str(row.get("contact_id") or "")
+                    if not contact_id:
+                        continue
+                    payload = row.get("payload") or {}
+                    reason_by_contact[contact_id] = exit_reason(payload.get("crm_state"), states)
+            else:
+                exited = contact_exit_states(rows, states)
+                if exited:
+                    visible = [
+                        row for row in visible
+                        if str(row.get("contact_id") or "") not in exited
+                    ]
+        except Exception:
+            logger.exception("today queue-state filter failed for company %s", membership.company_id)
+    calls_rows = visible
+    meetings_rows: list[dict] = []
+    if sales_roles:
+        calls_rows, meetings_rows = partition_by_lane(
+            visible,
+            reason_by_contact,
+            membership.sales_role,
+            membership.role,
+            limit=7,
+        )
+    attempt_daily_run_claim(supabase, membership.company_id, now, _daily_run_timezone(membership.user_id))
     meta = (connection or {}).get("metadata") or {}
     portal = meta.get("portal_id") or meta.get("hub_id") or meta.get("portalId")
     domain = str(meta.get("company_domain") or "").strip() or None
-    coverage = {"intelligence": _intelligence(visible), "crm_tasks": task_coverage}
+    coverage_rows = calls_rows + meetings_rows if sales_roles else visible
+    coverage = {"intelligence": _intelligence(coverage_rows), "crm_tasks": task_coverage}
     if email_coverage is not None:
         coverage["crm_emails"] = email_coverage
-    memos = _user_memos(supabase, membership.user_id)
-    signal_keys = {row.get("dedupe_key") for row in stored.data or []}
-    task_links = {key: ids for key, ids in commitment_task_links(memos).items() if key in signal_keys}
-    never_contacted: list[Signal] = []
-    if lead_tiers_enabled:
-        touched = {
-            str(memo.get("hubspot_contact_id") or memo.get("contact_id") or "")
-            for memo in memos
-        }
-        touched.discard("")
-        # A lead the rep already acted on (persisted row, any status) is never rebuilt
-        # as a fresh ephemeral card - a snoozed or disqualified lead stays that way.
-        persisted = {
-            str(row.get("contact_id") or "")
-            for row in (stored.data or [])
-            if row.get("type") == NEVER_CONTACTED_TYPE
-        }
-        never_contacted = _never_contacted_for_rep(
-            supabase,
-            company_id=membership.company_id,
-            user_id=membership.user_id,
-            now=now,
-            touched_contact_ids=touched | persisted,
-            limit=SDR_NEW_CAP if sections_enabled else DEFAULT_LIMIT,
-        )
-        visible = _drop_touched_never_contacted(visible, touched)
-    today_signals = exclude_handoff_contacts(
-        [_signal(row) for row in visible if row.get("type") != CONFIRM_TYPE] + never_contacted,
-        handed_off,
-    )
-    view = build_today_view(
-        signals=today_signals,
-        manual_tasks=manual_tasks,
+    view_kwargs = dict(
         now=now,
         coverage=coverage,
         generated_at=now.isoformat(),
@@ -695,51 +665,27 @@ async def get_today(
         lead_tiers=lead_tiers_enabled,
         limit=SDR_SOURCE_LIMIT if sections_enabled else DEFAULT_LIMIT,
     )
-    directory = memo_directory(memos + (handoff_memos or []))
-    _stamp_contact_names(view, visible, directory, _dialled_numbers(supabase, view))
-    sections_view: dict | None = None
-    if sections_enabled:
-        # Every card was ranked (SDR_SOURCE_LIMIT); each section takes its own cap, and
-        # `items` goes back to the old global cap for anything still reading it.
-        all_items = view["items"]
-        sections, sections_folded = hoy_sections(all_items, membership.sales_role)
-        sections_view = {"sections": sections, "folded": sections_folded}
-        view["items"] = all_items[:DEFAULT_LIMIT]
-        view["folded_count"] += len(all_items) - len(view["items"])
-    if is_enabled(supabase, membership.company_id, AE_DEALS_FLAG):
-        calls_items, meeting_items = split_items_by_type(view.get("items") or [])
-        deals_items: list[dict] = []
-        if membership.sales_role in (None, "ae", "general"):
-            try:
-                deals_items = await _deal_items(
-                    supabase,
-                    membership=membership,
-                    connection=connection,
-                    provider=(connection or {}).get("provider"),
-                    portal_id=str(portal) if portal else None,
-                    domain=domain,
-                    now=now,
-                    lang=lang,
-                    handoffs=received_handoffs,
-                )
-            except Exception:
-                deals_items = []
-            _stamp_names_by_contact(deals_items, directory)
-        view["sections"] = sections_for_role(
-            membership.sales_role, calls=calls_items, meetings=meeting_items, deals=deals_items,
+    view = build_today_view(
+        signals=[_signal(row) for row in calls_rows],
+        manual_tasks=manual_tasks,
+        **view_kwargs,
+    )
+    if sales_roles:
+        for item in view.get("items") or []:
+            item["lane"] = "calls"
+        meetings_view = build_today_view(
+            signals=[_signal(row) for row in meetings_rows],
+            manual_tasks=[],
+            **view_kwargs,
         )
-    if sections_view is not None:
-        if membership.sales_role == "sdr":
-            # T2: added next to the SDR's own T6 section (calls) when both flags are on; the
-            # client reads tasks/followups/new instead of calls.
-            view["sections"] = {**(view.get("sections") or {}), **sections_view["sections"]}
-        else:
-            # T8 (E13): the AE's/General's blocks are the whole sectioned view - «Deals en
-            # curso» no longer lists every deal (a deal comes back when it is due), and
-            # calls/meetings live in tasks/followups/demos. The deal read above still runs
-            # when HOY_AE_DEALS_ENABLED is on: it is what closes a handoff whose deal ended.
-            view["sections"] = sections_view["sections"]
-        view["sections_folded"] = sections_view["folded"]
+        for item in meetings_view.get("items") or []:
+            item["lane"] = "meetings"
+        view["items"] = list(view.get("items") or []) + list(meetings_view.get("items") or [])
+        _stamp_booking_memo_ids(view, supabase, membership.company_id)
+        if team_view:
+            _stamp_rep_names(view, calls_rows + meetings_rows, _member_display_names(supabase, membership.company_id))
+    stamp_rows = calls_rows + meetings_rows if sales_roles else visible
+    _stamp_contact_names(view, stamp_rows, _memo_directory(supabase, membership.user_id))
     return view
 
 
@@ -798,6 +744,69 @@ def _stamp_contact_names(view: dict, signals: list[dict], directory: tuple[dict,
             item["contact_name"] = name
         if company:
             item["company_name"] = company
+
+
+def _member_display_names(supabase, company_id: str) -> dict[str, str]:
+    try:
+        members = CompanyService(supabase).list_members(company_id)
+    except Exception:
+        logger.exception("today rep names failed for company %s", company_id)
+        return {}
+    names: dict[str, str] = {}
+    for member in members:
+        user_id = str(member.get("user_id") or "")
+        if not user_id:
+            continue
+        label = _clean_name(member.get("full_name")) or _clean_name(member.get("email"))
+        if label:
+            names[user_id] = label
+    return names
+
+
+def _stamp_rep_names(view: dict, signals: list[dict], names: dict[str, str]) -> None:
+    if not names:
+        return
+    row_by_key = {row.get("dedupe_key"): row for row in signals if row.get("dedupe_key")}
+    for item in view.get("items") or []:
+        row = row_by_key.get(item.get("dedupe_key")) or {}
+        user_id = str(row.get("user_id") or "")
+        label = names.get(user_id)
+        if label:
+            item["rep_name"] = label
+
+
+def _stamp_booking_memo_ids(view: dict, supabase, company_id: str) -> None:
+    contact_ids = sorted({
+        str(item.get("contact_id") or "")
+        for item in (view.get("items") or [])
+        if item.get("lane") == "meetings" and item.get("contact_id")
+    })
+    if not contact_ids:
+        return
+    try:
+        stored = (
+            supabase.table("memos")
+            .select("id,hubspot_contact_id,created_at")
+            .eq("company_id", company_id)
+            .in_("hubspot_contact_id", contact_ids)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception:
+        logger.exception("today booking memo lookup failed for company %s", company_id)
+        return
+    latest: dict[str, str] = {}
+    for memo in stored.data or []:
+        contact_id = str(memo.get("hubspot_contact_id") or "")
+        memo_id = memo.get("id")
+        if contact_id and memo_id and contact_id not in latest:
+            latest[contact_id] = str(memo_id)
+    for item in view.get("items") or []:
+        if item.get("lane") != "meetings":
+            continue
+        memo_id = latest.get(str(item.get("contact_id") or ""))
+        if memo_id:
+            item["booking_memo_id"] = memo_id
 
 
 _CLOCK_DEFAULT = datetime.now(timezone.utc)

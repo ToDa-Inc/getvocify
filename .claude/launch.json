@@ -11,13 +11,22 @@
       "port": 8080
     },
     {
-      "name": "vocify-api",
+      "name": "intelligence-api",
       "runtimeExecutable": "bash",
       "runtimeArgs": [
         "-c",
-        "cd backend && exec ~/.venvs/vocify-backend/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8888"
+        "cd /Users/tonimora/getvocify/.worktrees/intelligence && set -a && . /Users/tonimora/getvocify/backend/.env && set +a && export FRONTEND_URL=http://localhost:8082 && cd backend && exec /Users/tonimora/getvocify/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8889"
       ],
-      "port": 8888
+      "port": 8889
+    },
+    {
+      "name": "intelligence-web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/tonimora/getvocify/.worktrees/intelligence && set -a && . /Users/tonimora/getvocify/.env && set +a && export VITE_API_URL=http://localhost:8889/api/v1 && exec npx vite --port 8082 --strictPort"
+      ],
+      "port": 8082
     }
   ]
 }

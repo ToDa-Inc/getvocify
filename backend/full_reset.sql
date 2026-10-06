@@ -147,6 +147,7 @@ CREATE TABLE company_members (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
+  sales_role TEXT NOT NULL DEFAULT 'general' CHECK (sales_role IN ('sdr', 'ae', 'general')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id),
@@ -162,6 +163,7 @@ CREATE TABLE company_invitations (
   company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   email CITEXT NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
+  sales_role TEXT NOT NULL DEFAULT 'general' CHECK (sales_role IN ('sdr', 'ae', 'general')),
   token_hash TEXT NOT NULL,
   invited_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   expires_at TIMESTAMPTZ NOT NULL,
@@ -263,6 +265,12 @@ CREATE TABLE crm_configurations (
   meeting_booked_stage_id TEXT,
   CONSTRAINT crm_configurations_meeting_booked_stage_check
     CHECK (meeting_booked_stage_id IS NULL OR meeting_booked_pipeline_id IS NOT NULL),
+
+  -- F16 (migration 054): queue exit by CRM state. Empty lists = nobody exits by state.
+  queue_state_source TEXT NOT NULL DEFAULT 'deal_stage'
+    CHECK (queue_state_source IN ('deal_stage', 'lead_status')),
+  queue_booked_states TEXT[] NOT NULL DEFAULT '{}',
+  queue_ended_states TEXT[] NOT NULL DEFAULT '{}',
 
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
