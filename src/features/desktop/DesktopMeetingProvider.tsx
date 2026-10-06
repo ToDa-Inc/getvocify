@@ -120,6 +120,8 @@ type DesktopMeeting = {
   start: () => Promise<void>;
   /** Live transcript and help for a Vocify call; its memo comes from the call recording, not from here. */
   startCall: (session: VocifyCallSession) => Promise<void>;
+  /** A Vocify call ended without a live session (its audio never reached the page): still follow its memo. */
+  followCall: (callSid: string, contactName: string | null) => void;
   stop: () => Promise<void>;
   retryPending: () => Promise<void>;
 };
@@ -1234,6 +1236,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   // Separate entry points, so a click handler's event is never taken for a call session.
   const startMeeting = useCallback(() => start(), [start]);
   const startCall = useCallback((session: VocifyCallSession) => start(session), [start]);
+  const followCall = useCallback(
+    (callSid: string, contactName: string | null) => {
+      getDesktopBridge()?.shell.setState({ finish: { step: "uploading" } });
+      void followCallMemo(callSid, contactName);
+    },
+    [followCallMemo],
+  );
 
   const value = useMemo<DesktopMeeting>(
     () => ({
@@ -1257,13 +1266,20 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       liveHelpOverride,
       start: startMeeting,
       startCall,
+      followCall,
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startCall, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startCall, followCall, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;
+}
+
+/** A recording is on (desktop app only): a Vocify call must not start on top of it. Safe outside the provider. */
+export function useRecordingBusy(): boolean {
+  const ctx = useContext(DesktopMeetingContext);
+  return Boolean(ctx && ctx.phase !== "idle");
 }
 
 export function useDesktopMeeting(): DesktopMeeting {

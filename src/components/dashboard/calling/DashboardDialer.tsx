@@ -24,6 +24,7 @@ import {
 } from "@/lib/dial-target";
 import type { CallEndedPayload, DialerFocus } from "@/features/calling/DialerFocusProvider";
 import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
+import { useRecordingBusy } from "@/features/desktop/DesktopMeetingProvider";
 import { useAuth } from "@/features/auth";
 
 type ContactHit = {
@@ -83,6 +84,8 @@ export const DashboardDialer = ({
   const call = useSyncExternalStore(callEngine.subscribe, callEngine.getState);
   const state: CallState = call.phase;
   const { muted, answeredAt, error, outcome } = call;
+  // Desktop app: a meeting being recorded holds the mic and the island; a call waits for it to end.
+  const recordingBusy = useRecordingBusy();
 
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<ContactHit[]>([]);
@@ -215,6 +218,10 @@ export const DashboardDialer = ({
   const startCall = async (target: SelectedTarget) => {
     if (!from) {
       toast.error(callCopy.dialVerifyBeforeCall);
+      return;
+    }
+    if (recordingBusy) {
+      toast.error("Stop the recording before calling.");
       return;
     }
     setPicked(target);

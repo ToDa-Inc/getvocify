@@ -88,6 +88,8 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
       const command = parseCallCommand(name);
       if (!command) return;
       if (command.kind === "dial") {
+        // Never on top of a meeting being recorded (the island only offers it at rest, but say so anyway).
+        if (meetingRef.current.phase !== "idle") return;
         const target = dialTargetFor(previewRef.current, accessRef.current);
         if (target) void callEngine.dial(target, copyRef.current);
       } else if (command.kind === "hangup") {
@@ -125,7 +127,8 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
       }
       if (isCallUp(previous) && isCallEnded(state)) {
         if (state.answered) {
-          void meetingRef.current.stop();
+          if (meetingRef.current.phase === "live") void meetingRef.current.stop();
+          else if (state.callSid) meetingRef.current.followCall(state.callSid, target?.name ?? null);
           callEngine.reset();
         } else {
           window.clearTimeout(holdTimer);
