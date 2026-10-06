@@ -1,10 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  crmTabsToAsk,
   desktopPermissionsBlocker,
   desktopPermissionsReady,
+  normalizeCrmTabsStatus,
   normalizePermissionStatus,
   permissionAction,
+  permissionCopy,
   systemAudioHint,
 } from "./desktop-permissions.ts";
 
@@ -57,5 +60,33 @@ describe("systemAudioHint", () => {
     assert.equal(systemAudioHint("never_requested", { asked: true, relaunched: false }), "relaunch");
     assert.equal(systemAudioHint("never_requested", { asked: false, relaunched: true }), "stuck");
     assert.equal(systemAudioHint("authorized", { asked: true, relaunched: true }), "none");
+  });
+});
+
+describe("CRM tab permission", () => {
+  const base = { platform: "darwin", microphone: "authorized", systemAudio: "authorized" } as const;
+
+  it("never blocks recording", () => {
+    assert.equal(desktopPermissionsReady({ ...base, crmTabs: "denied" }), true);
+  });
+
+  it("is still to ask only when the Mac reports it and the rep has not answered", () => {
+    assert.equal(crmTabsToAsk({ ...base, crmTabs: "never_requested" }), true);
+    assert.equal(crmTabsToAsk({ ...base, crmTabs: "unavailable" }), true);
+    assert.equal(crmTabsToAsk({ ...base, crmTabs: "authorized" }), false);
+    assert.equal(crmTabsToAsk({ ...base, crmTabs: "denied" }), false);
+    assert.equal(crmTabsToAsk(base), false);
+  });
+
+  it("reads the Mac's answer, keeping 'no browser open' apart", () => {
+    assert.equal(normalizeCrmTabsStatus("authorized"), "authorized");
+    assert.equal(normalizeCrmTabsStatus("not_asked"), "never_requested");
+    assert.equal(normalizeCrmTabsStatus("unavailable"), "unavailable");
+    assert.equal(normalizeCrmTabsStatus(undefined), undefined);
+  });
+
+  it("says what it is for", () => {
+    assert.equal(permissionCopy("crmTabs").enableLabel, "Read your CRM tab");
+    assert.equal(permissionCopy("crmTabs").enableBody, "So Vocify can call the contact you have open.");
   });
 });
