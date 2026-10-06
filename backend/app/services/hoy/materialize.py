@@ -126,6 +126,41 @@ def fresh_signals(
     return groups, pain_by_memo
 
 
+def contact_touches(memos: list[dict]) -> tuple[dict[str, list], dict[str, bool]]:
+    """Each contact's touches, read off the intelligence already on its memos, and whether
+    each memo confirmed pain (heat reads it)."""
+    groups: dict[str, list] = {}
+    pain_by_memo: dict[str, bool] = {}
+    for memo in memos:
+        extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+        intelligence = _intelligence(memo)
+        shaped = {
+            **intelligence,
+            "objections": _objections(extraction, intelligence, current=bool(intelligence) and extract.is_current(memo)),
+            "commitments": _commitments(intelligence),
+        }
+        at = as_dt(memo.get("capture_started_at") or memo.get("created_at"))
+        contact = memo.get("hubspot_contact_id") or memo.get("contact_id")
+        memo_id = str(memo.get("id") or "")
+        pain_by_memo[memo_id] = _pain(extraction) or intelligence.get("pain_confirmed") is True
+        touch = touch_from_intelligence(
+            memo_id=memo_id,
+            contact_id=str(contact) if contact else None,
+            deal_id=str(memo.get("hubspot_deal_id")) if memo.get("hubspot_deal_id") else None,
+            at=at,
+            connection_id=memo.get("connection_id"),
+            intelligence=shaped if shaped.get("objections") or shaped.get("commitments") or shaped.get("interest") else None,
+            history_complete=True,
+            screening_outcome=screening_from_call(memo.get("screening_outcome"), intelligence),
+            followup_at=_stored_followup_at(memo),
+            rep_outcome=memo.get("rep_outcome"),
+        )
+        if touch is None:
+            continue
+        groups.setdefault(touch.contact_id or touch.memo_id, []).append(touch)
+    return groups, pain_by_memo
+
+
 HANDOFF_FOLLOWUP_KEY_PREFIX = "followup:handoff:"
 
 
