@@ -693,7 +693,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     setPaused(false);
     const bridge = getDesktopBridge();
     // The pill goes away on the click; finishing the transcript happens behind it.
-    bridge?.shell.setState({ listening: false, liveType: null });
+    // The island keeps a spinner for the ended call until its memo is being written: say where it is.
+    bridge?.shell.setState({ listening: false, liveType: null, finish: { step: "stopping" } });
     void bridge?.shell.hideOverlay();
     await releaseAudio();
     if (nativeRef.current) {
@@ -717,29 +718,33 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       if (draft) void bridge?.drafts?.remove(draft.id);
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       setPhase("idle");
-      fail("Nothing was transcribed. Check the meeting isn't muted.");
+      const nothing = "Nothing was transcribed. Check the meeting isn't muted.";
+      bridge?.shell.setState({ finish: { step: "failed", message: nothing } });
+      fail(nothing);
       return;
     }
     await bridge?.drafts?.save(draft);
 
     setPhase("uploading");
+    bridge?.shell.setState({ finish: { step: "uploading" } });
     try {
       const memoId = await sendDraft(draft);
       clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       setPhase("idle");
       navigate(ROUTES.MEMO_DETAIL(memoId));
+      bridge?.shell.setState({ finish: null });
       void followPostCall(memoId, draft.contact?.name ?? null);
     } catch {
       setPending((list) => [...list, draft]);
       clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       setPhase("idle");
-      fail(
-        bridge?.drafts
-          ? "Couldn't send the meeting. It's saved on this Mac."
-          : "Couldn't send the meeting. Retry before closing Vocify.",
-      );
+      const unsent = bridge?.drafts
+        ? "Couldn't send the meeting. It's saved on this Mac."
+        : "Couldn't send the meeting. Retry before closing Vocify.";
+      bridge?.shell.setState({ finish: { step: "failed", message: unsent } });
+      fail(unsent);
     }
   }, [clearNotes, currentDraft, drainSocket, fail, followPostCall, navigate, releaseAudio, sendDraft, setPhase, updateTranscript]);
 
@@ -1046,6 +1051,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               ? { hubspotId: preview.contact_id, name: preview.contact_name?.trim() || null }
               : null;
           bridge.shell.setState({ callContact: islandCallContact(preview) });
+          // The rep may have pressed Record before the page was read: the recording takes it too.
+          const draft = draftRef.current;
+          if (draft && !draft.contact && callContactRef.current) {
+            draft.contact = callContactRef.current;
+            setContact(callContactRef.current);
+          }
         })
         .catch(() => {
           // No name: the island keeps showing the app.
