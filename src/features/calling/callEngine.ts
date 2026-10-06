@@ -52,6 +52,8 @@ type TelnyxNotification = { type?: string; call?: TelnyxCall & { state?: string 
 /** After an unanswered hang-up, the carrier's busy / no-answer can still arrive for this long. */
 const MISSED_OUTCOME_WAIT_MS = 20_000;
 const DISPOSITION_POLL_MS = 1500;
+/** Twilio answers a connect with a CallSid within seconds; past this the call never left this page. */
+const CONNECT_TIMEOUT_MS = 20_000;
 const DIGITS = /^[0-9*#]+$/;
 
 let state: CallEngineState = IDLE_CALL;
@@ -66,6 +68,7 @@ let telnyxCall: TelnyxCall | null = null;
 let stopRingbackFn: (() => void) | null = null;
 let stopRemoteWatch: (() => void) | null = null;
 let ringTimer: ReturnType<typeof setTimeout> | 0 = 0;
+let connectTimer: ReturnType<typeof setTimeout> | 0 = 0;
 let pollToken = 0;
 
 function dispatch(event: CallEngineEvent) {
@@ -74,6 +77,8 @@ function dispatch(event: CallEngineEvent) {
   const wasUp = isCallUp(state);
   state = next;
   if (!wasUp && isCallUp(next)) pollDisposition();
+  // The carrier has the call (or it is over): no more waiting for it to leave the page.
+  if (next.callSid || !isCallUp(next)) clearTimeout(connectTimer);
   listeners.forEach((listener) => listener(state));
 }
 
@@ -305,6 +310,12 @@ export const callEngine = {
     if (isCallUp(state)) return { error: null };
     copy = callCopy;
     dispatch({ type: "dial", target });
+    // The SDK can wait forever (no microphone, blocked WebRTC): never leave the rep on "Calling…".
+    connectTimer = setTimeout(() => {
+      if (!isCallUp(state) || state.callSid) return;
+      dispatch({ type: "failed", message: callCopy.callStartFailed });
+      hangup();
+    }, CONNECT_TIMEOUT_MS);
     try {
       const { token: session, stop } = await fetchVoiceTokenAfterRingback(startLocalRingback, () =>
         callsApi.createToken(),
