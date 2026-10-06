@@ -270,7 +270,7 @@ async def live_ask_loop(text: str, confirm: bool | None = None):
     from app.services.crm_copilot.call_actions import public_call_targets
     from app.services.crm_copilot.loop import run_copilot_turn
     from app.services.crm_copilot.prompts import build_system_prompt
-    from app.services.crm_copilot.tools import OPENAI_TOOLS, CopilotContext, execute_tool
+    from app.services.crm_copilot.tools import OPENAI_TOOLS, CopilotContext, data_tools_enabled, execute_tool, tools_for
     from app.services.llm.client import LLMClient
 
     user_id = _actor.get("user_id") or ""
@@ -282,7 +282,7 @@ async def live_ask_loop(text: str, confirm: bool | None = None):
             artifacts=artifacts,
             llm=LLMClient(),
             execute=execute_tool,
-            tools=OPENAI_TOOLS,
+            tools=tools_for(OPENAI_TOOLS, data_tools=data_tools_enabled(ctx)),
             system=build_system_prompt(artifacts),
             confirm=confirm,
             ctx=ctx,

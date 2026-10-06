@@ -30,6 +30,7 @@ VOCIFY_READS = frozenset({"get_team_metrics", "list_conversations", "get_objecti
 
 _MEMO_COLUMNS = "id,user_id,company_id,created_at,capture_started_at,hubspot_contact_id,hubspot_deal_id,extraction"
 _IN_CHUNK = 200
+_PAGE = 200
 
 
 def _forbidden() -> dict:
@@ -156,37 +157,6 @@ def _matches(row: dict, needle: str) -> bool:
     return needle in haystack
 
 
-def list_conversations(args: dict, viewer: Viewer, supabase, *, now: datetime) -> dict:
-    user_ids, scope = _scoped_user_ids(args, viewer)
-    if user_ids is None:
-        return _forbidden()
-    limit = _bounded(args.get("limit"), default=5, low=1, high=10)
-    days = _bounded(args.get("days"), default=None, low=1, high=365)
-    needle = str(args.get("query") or "").strip().lower()
-    query = supabase.table("memos").select(_MEMO_COLUMNS).in_("user_id", user_ids)
-    if args.get("contact_id"):
-        query = query.eq("hubspot_contact_id", str(args["contact_id"]))
-    if args.get("deal_id"):
-        query = query.eq("hubspot_deal_id", str(args["deal_id"]))
-    if days:
-        query = query.gte("created_at", _iso(now - timedelta(days=days)))
-    fetch = 200 if needle else max(50, limit + 1)
-    try:
-        rows = list(query.order("created_at", desc=True).limit(fetch).execute().data or [])
-    except Exception:
-        return _unavailable(scope=scope, items=[])
-    rows = [row for row in rows if _in_company(row, viewer)]
-    if needle:
-        rows = [row for row in rows if _matches(row, needle)]
-    return {
-        "ok": True,
-        "coverage": "complete",
-        "scope": scope,
-        "items": [_conversation(row, viewer) for row in rows[:limit]],
-        "has_more": len(rows) > limit,
-    }
-
-
 def _instant(raw: Any) -> Optional[datetime]:
     if not raw:
         return None
@@ -197,6 +167,78 @@ def _instant(raw: Any) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+def _parse_since(raw: Any) -> Optional[datetime]:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    if len(text) == 10 and text[4] == "-":
+        text = f"{text}T00:00:00+00:00"
+    return _instant(text)
+
+
+def _period_start(args: dict, now: datetime, *, default_days: Optional[int] = None, max_days: int = 365) -> Optional[datetime]:
+    since = _parse_since(args.get("since"))
+    if since is not None:
+        return since
+    days = _bounded(args.get("days"), default=default_days, low=1, high=max_days)
+    if days:
+        return now - timedelta(days=days)
+    return None
+
+
+def _all_rows(make_query, *, order: Optional[str] = None, desc: bool = False) -> list[dict]:
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        query = make_query()
+        if order:
+            query = query.order(order, desc=desc)
+        page = list(query.range(offset, offset + _PAGE - 1).execute().data or [])
+        rows.extend(page)
+        if len(page) < _PAGE:
+            return rows
+        offset += _PAGE
+
+
+def list_conversations(args: dict, viewer: Viewer, supabase, *, now: datetime) -> dict:
+    user_ids, scope = _scoped_user_ids(args, viewer)
+    if user_ids is None:
+        return _forbidden()
+    limit = _bounded(args.get("limit"), default=5, low=1, high=10)
+    start = _period_start(args, now)
+    since = str(args.get("since") or "").strip() or None
+    needle = str(args.get("query") or "").strip().lower()
+
+    def make_query():
+        query = supabase.table("memos").select(_MEMO_COLUMNS).in_("user_id", user_ids)
+        if args.get("contact_id"):
+            query = query.eq("hubspot_contact_id", str(args["contact_id"]))
+        if args.get("deal_id"):
+            query = query.eq("hubspot_deal_id", str(args["deal_id"]))
+        if start:
+            query = query.gte("created_at", _iso(start))
+        return query
+
+    try:
+        rows = _all_rows(make_query, order="created_at", desc=True)
+    except Exception:
+        return _unavailable(scope=scope, items=[], total=0)
+    rows = [row for row in rows if _in_company(row, viewer)]
+    if needle:
+        rows = [row for row in rows if _matches(row, needle)]
+    body = {
+        "ok": True,
+        "coverage": "complete",
+        "scope": scope,
+        "total": len(rows),
+        "items": [_conversation(row, viewer) for row in rows[:limit]],
+        "has_more": len(rows) > limit,
+    }
+    if since:
+        body["since"] = since
+    return body
+
+
 def _pattern_text(row: dict) -> Optional[str]:
     pattern_id = str(row.get("pattern_id") or "")
     if not pattern_id.startswith("objection:"):
@@ -204,22 +246,72 @@ def _pattern_text(row: dict) -> Optional[str]:
     return pattern_id[len("objection:"):].strip() or None
 
 
+def _rep_breakdown(
+    patterns: list[dict],
+    owners: dict[str, str],
+    viewer: Viewer,
+    *,
+    start: datetime,
+    end: datetime,
+) -> dict[str, list[dict]]:
+    tallies: dict[str, dict[str, dict[str, int]]] = {}
+    for row in patterns:
+        if row.get("superseded") or row.get("kind") != "objection":
+            continue
+        created = _instant(row.get("created_at"))
+        if created is None or created < start or created >= end:
+            continue
+        name = str(row.get("category") or "").strip().lower()
+        owner = owners.get(str(row.get("memo_id") or ""))
+        if not name or not owner:
+            continue
+        bucket = tallies.setdefault(name, {}).setdefault(owner, {"resolved": 0, "open": 0, "unknown": 0})
+        resolution = row.get("resolution")
+        if resolution == "resolved":
+            bucket["resolved"] += 1
+        elif resolution == "open":
+            bucket["open"] += 1
+        else:
+            bucket["unknown"] += 1
+    out: dict[str, list[dict]] = {}
+    for name, by_user in tallies.items():
+        rows = []
+        for user_id, parts in by_user.items():
+            count = parts["resolved"] + parts["open"] + parts["unknown"]
+            rows.append({
+                "user_id": user_id,
+                "name": viewer.author_name(user_id),
+                "count": count,
+                **parts,
+            })
+        rows.sort(key=lambda item: (-item["resolved"], -item["count"], str(item.get("name") or "")))
+        out[name] = rows
+    return out
+
+
 def objections(args: dict, viewer: Viewer, supabase, *, now: datetime) -> dict:
     user_ids, scope = _scoped_user_ids(args, viewer)
     if user_ids is None:
         return _forbidden()
-    days = _bounded(args.get("days"), default=30, low=1, high=90)
-    start = now - timedelta(days=days)
+    days = _bounded(args.get("days"), default=None if args.get("since") else 30, low=1, high=365)
+    start = _period_start(args, now, default_days=30, max_days=365)
+    if start is None:
+        start = now - timedelta(days=30)
     end = now + timedelta(seconds=1)
-    try:
-        memos = (
+    period_days = days if days is not None else max(1, (now - start).days)
+
+    def make_memos():
+        return (
             supabase.table("memos")
             .select("id,user_id,company_id,created_at")
             .in_("user_id", user_ids)
             .gte("created_at", _iso(start))
-            .execute()
         )
-        memo_ids = [str(row["id"]) for row in memos.data or [] if row.get("id") and _in_company(row, viewer)]
+
+    try:
+        memos = [row for row in _all_rows(make_memos) if row.get("id") and _in_company(row, viewer)]
+        memo_ids = [str(row["id"]) for row in memos]
+        owners = {str(row["id"]): str(row.get("user_id") or "") for row in memos if row.get("user_id")}
         patterns: list[dict] = []
         for offset in range(0, len(memo_ids), _IN_CHUNK):
             result = (
@@ -230,7 +322,7 @@ def objections(args: dict, viewer: Viewer, supabase, *, now: datetime) -> dict:
             )
             patterns.extend(result.data or [])
     except Exception:
-        return _unavailable(scope=scope, period_days=days, categories=[])
+        return _unavailable(scope=scope, period_days=period_days, categories=[])
     categories = objection_counts(patterns, start=start, end=end)
     examples: dict[str, list[str]] = {}
     for row in patterns:
@@ -244,14 +336,22 @@ def objections(args: dict, viewer: Viewer, supabase, *, now: datetime) -> dict:
         bucket = examples.setdefault(name, [])
         if text and text not in bucket and len(bucket) < 3:
             bucket.append(text)
-    return {
+    by_rep = _rep_breakdown(patterns, owners, viewer, start=start, end=end)
+    body = {
         "ok": True,
         "coverage": "complete",
         "scope": scope,
-        "period_days": days,
+        "period_days": period_days,
         "conversations": len(memo_ids),
-        "categories": [{**item, "examples": examples.get(item["name"], [])} for item in categories],
+        "categories": [
+            {**item, "examples": examples.get(item["name"], []), "by_rep": by_rep.get(item["name"], [])}
+            for item in categories
+        ],
     }
+    since = str(args.get("since") or "").strip()
+    if since:
+        body["since"] = since
+    return body
 
 
 def _fold_members(viewer: Viewer) -> list[dict]:
