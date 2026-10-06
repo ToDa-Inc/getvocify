@@ -1,31 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Link } from "react-router-dom";
-import { Device, Call } from "@twilio/voice-sdk";
 import { Mic, MicOff, PhoneOff, Search } from "lucide-react";
 import { AnimIcon } from "@/components/ui/anim-icon";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { toast } from "sonner";
-import { callsApi } from "@/features/calls/api";
 import type { CallerId } from "@/features/calls/types";
+import { callEngine } from "@/features/calling/callEngine";
 import { crmApi } from "@/lib/api/crm";
-import {
-  dispositionMessage,
-  isCarrierHangupError,
-  isVoiceAccessTokenError,
-  isVoiceSdkGeneralError,
-  userFacingCallError,
-  mapTelnyxCallState,
-  fetchVoiceTokenAfterRingback,
-  startLocalRingback,
-  TELNYX_RING_TIMEOUT_MS,
-  telnyxHangupMessage,
-  telnyxNewCallOptions,
-  telnyxRtcClientOptions,
-  watchRemoteAudio,
-  voiceClientFromToken,
-  type VoiceClient,
-} from "@/lib/dial-session";
 import { useLanguage } from "@/lib/i18n";
 import { ROUTES } from "@/shared/lib/constants";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
@@ -43,21 +25,6 @@ import {
 import type { CallEndedPayload, DialerFocus } from "@/features/calling/DialerFocusProvider";
 import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { useAuth } from "@/features/auth";
-
-type TelnyxCall = {
-  id?: string;
-  hangup?: () => void;
-  muteAudio?: () => void;
-  unmuteAudio?: () => void;
-  sipCode?: number;
-  causeCode?: number;
-  cause?: string;
-};
-
-type TelnyxNotification = {
-  type?: string;
-  call?: TelnyxCall & { state?: string };
-};
 
 type ContactHit = {
   contact_id: string;
@@ -93,19 +60,6 @@ type Props = {
   onCallEnded?: (payload: CallEndedPayload) => void;
 };
 
-async function fetchCarrierDisposition(callSid: string | null): Promise<string | null> {
-  if (callSid) {
-    try {
-      const call = await callsApi.getCall(callSid);
-      return call.callDisposition || null;
-    } catch {
-      return null;
-    }
-  }
-  const latest = await callsApi.getLatestDisposition();
-  return latest.disposition || null;
-}
-
 export const DashboardDialer = ({
   callerIds,
   onLiveChange,
@@ -125,41 +79,38 @@ export const DashboardDialer = ({
   const defaultFrom =
     verified.find((c) => c.isDefault)?.phoneNumber || verified[0]?.phoneNumber || "";
 
+  // The call lives in callEngine, so one dialled from the desktop island shows here too.
+  const call = useSyncExternalStore(callEngine.subscribe, callEngine.getState);
+  const state: CallState = call.phase;
+  const { muted, answeredAt, error, outcome } = call;
+
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<ContactHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<SelectedTarget | null>(null);
+  const [picked, setPicked] = useState<SelectedTarget | null>(null);
   const [from, setFrom] = useState(defaultFrom);
-  const [state, setState] = useState<CallState>(CALL_STATES.IDLE);
-  const [muted, setMuted] = useState(false);
-  const [answeredAt, setAnsweredAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState("0:00");
-  const [error, setError] = useState<string | null>(null);
-  const [outcome, setOutcome] = useState<string | null>(null);
 
-  const deviceRef = useRef<Device | null>(null);
-  const callRef = useRef<Call | null>(null);
-  const telnyxClientRef = useRef<{ disconnect?: () => void } | null>(null);
-  const telnyxCallRef = useRef<TelnyxCall | null>(null);
-  const stopRingbackRef = useRef<(() => void) | null>(null);
-  const stopRemoteWatchRef = useRef<(() => void) | null>(null);
-  const voiceClientRef = useRef<VoiceClient>("twilio");
-  const hangupRef = useRef<() => void>(() => {});
-  const callSidRef = useRef<string | null>(null);
-  const wasAnsweredRef = useRef(false);
-  const pendingMissRef = useRef(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const queryRef = useRef(query);
   const onLiveChangeRef = useRef(onLiveChange);
   const onCallEndedRef = useRef(onCallEnded);
   const wasInCallRef = useRef(false);
-  const callFailedRef = useRef(false);
-  const remoteAudioRef = useRef(false);
   const endedReportedRef = useRef(false);
   onLiveChangeRef.current = onLiveChange;
   onCallEndedRef.current = onCallEnded;
   queryRef.current = query;
+
+  const selected: SelectedTarget | null =
+    picked ??
+    (call.target
+      ? {
+          contactId: call.target.contactId,
+          name: call.target.name || formatCallerIdDisplay(call.target.to),
+          phone: call.target.to,
+        }
+      : null);
 
   useEffect(() => {
     if (!from && defaultFrom) setFrom(defaultFrom);
@@ -182,7 +133,7 @@ export const DashboardDialer = ({
         const dest = dialTargetFromContact(hit);
         if (!dest) return;
         const name = hit.name || focusContact.name || hit.contact_id;
-        setSelected({ contactId: hit.contact_id, name, phone: dest });
+        setPicked({ contactId: hit.contact_id, name, phone: dest });
         setQuery(name);
         setHits(results);
       } finally {
@@ -203,58 +154,11 @@ export const DashboardDialer = ({
   }, [answeredAt, state]);
 
   useEffect(() => {
-    if (state !== CALL_STATES.RINGING || voiceClientRef.current !== "telnyx") {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setOutcome(callCopy.callNoAnswer);
-      pendingMissRef.current = false;
-      hangupRef.current();
-    }, TELNYX_RING_TIMEOUT_MS);
-    return () => window.clearTimeout(timer);
-  }, [state]);
-
-  useEffect(() => {
-    const inFlight = state === CALL_STATES.RINGING || state === CALL_STATES.CONNECTING;
-    const waiting = state === CALL_STATES.IDLE && pendingMissRef.current && !wasAnsweredRef.current;
-    if (!inFlight && !waiting) return;
-    let stopped = false;
-    const started = Date.now();
-    const poll = async () => {
-      if (stopped) return;
-      if (waiting && Date.now() - started > 20_000) {
-        pendingMissRef.current = false;
-        return;
-      }
-      try {
-        const message = dispositionMessage(
-          await fetchCarrierDisposition(callSidRef.current),
-          callCopy,
-        );
-        if (message) {
-          setOutcome(message);
-          setError(null);
-          pendingMissRef.current = false;
-          if (inFlight) hangupRef.current();
-          return;
-        }
-      } catch {
-        /* WebRTC hangup or timeout will still end the call */
-      }
-      if (!stopped) window.setTimeout(poll, 1500);
-    };
-    void poll();
-    return () => {
-      stopped = true;
-    };
-  }, [state, callCopy]);
-
-  useEffect(() => {
     const contact =
       selected?.contactId != null
         ? { contactId: selected.contactId, name: selected.name }
         : focusContact;
-    onLiveChangeRef.current?.({ state, elapsed, contact, callSid: callSidRef.current });
+    onLiveChangeRef.current?.({ state, elapsed, contact, callSid: call.callSid });
     if (state !== CALL_STATES.IDLE) {
       wasInCallRef.current = true;
       endedReportedRef.current = false;
@@ -264,38 +168,17 @@ export const DashboardDialer = ({
     wasInCallRef.current = false;
     endedReportedRef.current = true;
     // Memo and screening only exist once the recording is processed; the home polls for them.
-    const answered = wasAnsweredRef.current || remoteAudioRef.current;
-    const failed = callFailedRef.current || !answered;
-    callFailedRef.current = false;
+    const failed = call.failed || !call.answered;
     onCallEndedRef.current?.({
-      callSid: callSidRef.current,
-      answered,
+      callSid: call.callSid,
+      answered: call.answered,
       callStatus: failed ? "failed" : undefined,
     });
-  }, [state, elapsed, selected, focusContact]);
+  }, [state, elapsed, selected?.contactId, selected?.name, focusContact, call.callSid, call.failed, call.answered]);
 
   useEffect(() => {
     return () => {
       onLiveChangeRef.current?.({ state: CALL_STATES.IDLE, elapsed: "0:00" });
-      try {
-        if (voiceClientRef.current === "telnyx") {
-          telnyxCallRef.current?.hangup?.();
-        } else {
-          callRef.current?.disconnect();
-        }
-      } catch {
-        /* already gone */
-      }
-      try {
-        telnyxClientRef.current?.disconnect?.();
-      } catch {
-        /* already gone */
-      }
-      try {
-        deviceRef.current?.destroy();
-      } catch {
-        /* already gone */
-      }
     };
   }, []);
 
@@ -327,242 +210,19 @@ export const DashboardDialer = ({
     return () => window.clearTimeout(timer);
   }, [query, state, callCopy]);
 
-  const destroyDevice = () => {
-    const device = deviceRef.current;
-    deviceRef.current = null;
-    try {
-      device?.destroy();
-    } catch {
-      /* already gone */
-    }
-  };
-
-  const ensureDevice = async (token: string, { forceNew = false } = {}) => {
-    if (forceNew) destroyDevice();
-    if (deviceRef.current) {
-      deviceRef.current.updateToken(token);
-      return deviceRef.current;
-    }
-    const device = new Device(token, {
-      codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
-    });
-    device.on("error", (err) => {
-      if (
-        isCarrierHangupError(err) ||
-        isCarrierHangupError(err?.message) ||
-        isVoiceSdkGeneralError(err) ||
-        isVoiceSdkGeneralError(err?.message)
-      ) {
-        return;
-      }
-      if (isVoiceAccessTokenError(err)) destroyDevice();
-      setError(userFacingCallError(err, callCopy));
-      setState(CALL_STATES.IDLE);
-    });
-    deviceRef.current = device;
-    return device;
-  };
-
-  const stopRingback = () => {
-    stopRingbackRef.current?.();
-    stopRingbackRef.current = null;
-    stopRemoteWatchRef.current?.();
-    stopRemoteWatchRef.current = null;
-  };
-
-  const hangup = () => {
-    stopRingback();
-    const twilioCall = callRef.current;
-    const telnyxCall = telnyxCallRef.current;
-    callRef.current = null;
-    telnyxCallRef.current = null;
-    setAnsweredAt(null);
-    setMuted(false);
-    setState(CALL_STATES.IDLE);
-    try {
-      if (voiceClientRef.current === "telnyx") {
-        // Hang up the call only — disconnecting the client drops SIP BYE
-        // before Telnyx can tear down the parked PSTN legs.
-        telnyxCall?.hangup?.();
-      } else {
-        twilioCall?.disconnect();
-      }
-    } catch {
-      /* already gone */
-    }
-  };
-  hangupRef.current = hangup;
-
-  const ensureTelnyxRemote = () => {
-    const existing = document.getElementById("vocify-telnyx-remote");
-    if (existing instanceof HTMLAudioElement) return existing;
-    const audio = document.createElement("audio");
-    audio.id = "vocify-telnyx-remote";
-    audio.autoplay = true;
-    document.body.appendChild(audio);
-    return audio;
-  };
-
-  const startTelnyxCall = async (token: string, target: SelectedTarget) => {
-    const { TelnyxRTC } = await import("@telnyx/webrtc");
-    try {
-      telnyxClientRef.current?.disconnect?.();
-    } catch {
-      /* already gone */
-    }
-
-    const client = new TelnyxRTC(telnyxRtcClientOptions(token));
-    telnyxClientRef.current = client;
-    voiceClientRef.current = "telnyx";
-
-    await new Promise<void>((resolve, reject) => {
-      let settled = false;
-      client.on("telnyx.ready", () => {
-        if (settled) return;
-        settled = true;
-        resolve();
-      });
-      client.on("telnyx.error", (err: { message?: string }) => {
-        if (settled) return;
-        settled = true;
-        reject(new Error(err?.message || callCopy.dialTelnyxError));
-      });
-      client.connect();
-    });
-
-    const remote = ensureTelnyxRemote();
-    const call = client.newCall({
-      ...telnyxNewCallOptions({
-        to: target.phone,
-        callerId: from,
-        contactId: target.contactId,
-      }),
-      remoteElement: remote,
-    });
-    telnyxCallRef.current = call;
-    stopRemoteWatchRef.current = watchRemoteAudio(remote, () => {
-      remoteAudioRef.current = true;
-      stopRingback();
-    });
-
-    client.on("telnyx.notification", (notification: TelnyxNotification) => {
-      if (notification?.type !== "callUpdate" || !notification.call) return;
-      if (call.id && notification.call.id && notification.call.id !== call.id) {
-        return;
-      }
-      const next = mapTelnyxCallState(notification.call.state);
-      if (next === CALL_STATES.ACTIVE) {
-        // Park answers the WebRTC leg immediately; PSTN is still ringing.
-        setState(CALL_STATES.RINGING);
-        return;
-      }
-      if (next === CALL_STATES.IDLE) {
-        const ended = telnyxHangupMessage(notification.call, callCopy);
-        if (ended) {
-          setOutcome(ended);
-          setError(null);
-          pendingMissRef.current = false;
-        }
-        hangup();
-        return;
-      }
-      setState(next);
-    });
-  };
-
-  const startTwilioCall = async (token: string, target: SelectedTarget) => {
-    voiceClientRef.current = "twilio";
-    const connect = async (forceNew = false) => {
-      const device = await ensureDevice(token, { forceNew });
-      return device.connect({
-        params: {
-          To: target.phone,
-          CallerId: from,
-          ContactId: target.contactId || "",
-        },
-      });
-    };
-    let call;
-    try {
-      call = await connect();
-    } catch (err) {
-      if (!isVoiceAccessTokenError(err)) throw err;
-      call = await connect(true);
-    }
-    callRef.current = call;
-    const rememberSid = () => {
-      const sid = call.parameters?.CallSid;
-      if (sid) callSidRef.current = sid;
-    };
-    rememberSid();
-    call.on("ringing", () => {
-      rememberSid();
-      setState(CALL_STATES.RINGING);
-    });
-    call.on("accept", () => {
-      rememberSid();
-      wasAnsweredRef.current = true;
-      pendingMissRef.current = false;
-      setAnsweredAt(Date.now());
-      setState(CALL_STATES.ACTIVE);
-    });
-    call.on("disconnect", hangup);
-    call.on("cancel", hangup);
-    call.on("error", (err) => {
-      if (isCarrierHangupError(err) || isCarrierHangupError(err?.message)) {
-        if (!wasAnsweredRef.current) {
-          setOutcome((prev) => prev || callCopy.callNoAnswer);
-        }
-        hangup();
-        return;
-      }
-      if (isVoiceSdkGeneralError(err) || isVoiceSdkGeneralError(err?.message)) {
-        hangup();
-        return;
-      }
-      if (isVoiceAccessTokenError(err)) destroyDevice();
-      callFailedRef.current = true;
-      setError(userFacingCallError(err, callCopy));
-      pendingMissRef.current = false;
-      hangup();
-    });
-  };
+  const hangup = () => callEngine.hangup();
 
   const startCall = async (target: SelectedTarget) => {
-    setError(null);
-    setOutcome(null);
     if (!from) {
       toast.error(callCopy.dialVerifyBeforeCall);
       return;
     }
-    callSidRef.current = null;
-    wasAnsweredRef.current = false;
-    remoteAudioRef.current = false;
-    callFailedRef.current = false;
-    pendingMissRef.current = true;
-    try {
-      setSelected(target);
-      setState(CALL_STATES.CONNECTING);
-      const { token: session, stop } = await fetchVoiceTokenAfterRingback(
-        startLocalRingback,
-        () => callsApi.createToken(),
-      );
-      stopRingbackRef.current = stop;
-      const { token, provider } = session;
-      if (voiceClientFromToken(provider) !== "telnyx") {
-        stopRingback();
-        await startTwilioCall(token, target);
-        return;
-      }
-      await startTelnyxCall(token, target);
-    } catch (err) {
-      stopRingback();
-      setState(CALL_STATES.IDLE);
-      pendingMissRef.current = false;
-      const message = userFacingCallError(err, callCopy);
-      setError(message);
-      if (message) toast.error(message);
-    }
+    setPicked(target);
+    const { error: failed } = await callEngine.dial(
+      { to: target.phone, name: target.name, contactId: target.contactId ?? null, dealId: null, callerId: from },
+      callCopy,
+    );
+    if (failed) toast.error(failed);
   };
 
   const callContact = (hit: ContactHit) => {
@@ -595,17 +255,7 @@ export const DashboardDialer = ({
 
   const toggleMute = () => {
     if (!canMute(state)) return;
-    const next = !muted;
-    if (voiceClientRef.current === "telnyx") {
-      if (!telnyxCallRef.current) return;
-      if (next) telnyxCallRef.current.muteAudio?.();
-      else telnyxCallRef.current.unmuteAudio?.();
-      setMuted(next);
-      return;
-    }
-    if (!callRef.current) return;
-    callRef.current.mute(next);
-    setMuted(next);
+    callEngine.setMuted(!muted);
   };
 
   if (inCall || selected) {
@@ -720,9 +370,8 @@ export const DashboardDialer = ({
             variant="quiet"
             size="text"
             onClick={() => {
-              setSelected(null);
-              setError(null);
-              setOutcome(null);
+              setPicked(null);
+              callEngine.reset();
               window.setTimeout(() => searchRef.current?.focus(), 0);
             }}
             className="mt-3 w-full"
