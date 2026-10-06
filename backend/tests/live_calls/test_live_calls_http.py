@@ -51,7 +51,26 @@ def names(monkeypatch):
 
 
 @pytest.fixture
-def client(hub, connections, names):
+def contexts(monkeypatch):
+    """HubSpot record context, at the boundary that reads HubSpot (app.api.crm)."""
+    from app.api import crm as crm_api
+
+    rows = {"contacts": {}, "deals": {}, "companies": {}}
+
+    def loader(kind):
+        async def load(record_id, *, supabase, user_id):
+            return rows[kind].get(record_id) or {}
+
+        return load
+
+    monkeypatch.setattr(crm_api, "get_contact_context_for_extension", loader("contacts"))
+    monkeypatch.setattr(crm_api, "get_deal_context_for_prefill", loader("deals"))
+    monkeypatch.setattr(crm_api, "get_company_context_for_extension", loader("companies"))
+    return rows
+
+
+@pytest.fixture
+def client(hub, connections, names, contexts):
     app = FastAPI()
     app.include_router(api.router)
     app.dependency_overrides[get_membership] = lambda: MEMBERSHIP
@@ -78,6 +97,8 @@ def test_preview_names_the_contact_and_starts_nothing(client, hub, names):
         "contact_name": "zadarma test",
         "record": {"provider": "hubspot", "object_type": "contact", "record_id": "901", "account_id": "147506535"},
         "needs_contact": False,
+        "callee": None,
+        "contacts_count": 0,
     }
     assert names == [("hubspot", "901", "rep-1")]
     assert hub.current("rep-1") is None
@@ -167,3 +188,65 @@ async def test_stream_heartbeat_when_idle(hub):
     await stream.__anext__()
     assert await asyncio.wait_for(stream.__anext__(), timeout=1) == ": keepalive\n\n"
     await stream.aclose()
+
+
+def test_preview_offers_the_contact_on_screen_to_call(client, contexts):
+    contexts["contacts"]["901"] = {"contactId": "901", "contactName": "zadarma test", "contactPhone": "600 111 222"}
+    preview = _preview(client, CONTACT)
+    assert preview["callee"] == {"contact_id": "901", "name": "zadarma test", "phone": "+34600111222"}
+    assert preview["contacts_count"] == 1
+
+
+def test_preview_contact_without_a_phone_is_named_but_not_dialable(client, contexts):
+    contexts["contacts"]["901"] = {"contactId": "901", "contactName": "zadarma test", "contactPhone": None}
+    assert _preview(client, CONTACT)["callee"] == {"contact_id": "901", "name": "zadarma test", "phone": None}
+
+
+def test_preview_deal_with_one_contact_offers_that_contact(client, contexts):
+    contexts["deals"]["55"] = {
+        "contactId": "77",
+        "contactName": "Ana Ruiz",
+        "contactPhone": "+34 600 111 222",
+        "contacts": [{"contact_id": "77", "name": "Ana Ruiz", "phone": "+34 600 111 222"}],
+    }
+    preview = _preview(client, f"{HS}/record/0-3/55")
+    assert preview["callee"] == {"contact_id": "77", "name": "Ana Ruiz", "phone": "+34600111222"}
+    assert preview["contacts_count"] == 1
+    # The meeting contact still waits for the rep to pick one on a deal page.
+    assert preview["needs_contact"] is True and preview["contact_id"] is None
+
+
+def test_preview_deal_with_several_contacts_offers_nobody(client, contexts):
+    contexts["deals"]["55"] = {
+        "contactId": None,
+        "contacts": [{"contact_id": "77", "name": "Ana"}, {"contact_id": "78", "name": "Luis"}],
+    }
+    preview = _preview(client, f"{HS}/record/0-3/55")
+    assert (preview["callee"], preview["contacts_count"]) == (None, 2)
+
+
+def test_preview_company_uses_its_one_contact(client, contexts):
+    contexts["companies"]["12"] = {
+        "contactId": "80",
+        "contactName": "Eva",
+        "contactPhone": "+447700900123",
+        "contacts": [{"contact_id": "80", "name": "Eva", "phone": "+447700900123"}],
+    }
+    assert _preview(client, f"{HS}/record/0-2/12")["callee"] == {"contact_id": "80", "name": "Eva", "phone": "+447700900123"}
+
+
+def test_preview_other_portal_offers_nobody(client, contexts):
+    contexts["contacts"]["901"] = {"contactId": "901", "contactName": "x", "contactPhone": "+34600111222"}
+    preview = _preview(client, "https://app.hubspot.com/contacts/999/record/0-1/901")
+    assert (preview["callee"], preview["contacts_count"]) == (None, 0)
+
+
+def test_preview_pipedrive_is_not_dialable_yet(client, connections):
+    connections["pipedrive"] = {"metadata": {"company_domain": "acme"}}
+    preview = _preview(client, "https://acme.pipedrive.com/person/42")
+    assert preview["contact_name"] == "Ana Pérez" and preview["callee"] is None
+
+
+def test_preview_unreadable_phone_is_dropped(client, contexts):
+    contexts["contacts"]["901"] = {"contactId": "901", "contactName": "x", "contactPhone": "call me"}
+    assert _preview(client, CONTACT)["callee"]["phone"] is None

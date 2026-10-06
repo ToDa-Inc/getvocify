@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DESKTOP_PERMISSION,
+  crmTabsToAsk,
   desktopPermissionsBlocker,
   desktopPermissionsReady,
+  normalizeCrmTabsStatus,
   normalizePermissionStatus,
   permissionAction,
   systemAudioHint,
@@ -43,6 +45,7 @@ function parseSnapshot(raw: Record<string, unknown>): DesktopPermissionSnapshot 
     platform: String(raw.platform ?? "darwin"),
     microphone: normalizePermissionStatus(raw.microphone),
     systemAudio: normalizePermissionStatus(raw.systemAudio),
+    crmTabs: normalizeCrmTabsStatus(raw.crmTabs),
     signing: raw.signing === "signed" ? "signed" : raw.signing === "adhoc" ? "adhoc" : undefined,
     signingAuthority: typeof raw.signingAuthority === "string" ? raw.signingAuthority : undefined,
     systemAudioError: typeof raw.systemAudioError === "string" ? raw.systemAudioError : undefined,
@@ -81,6 +84,12 @@ export function useDesktopPermissions() {
       const bridge = getDesktopBridge();
       if (!bridge) return refresh();
 
+      if (type === DESKTOP_PERMISSION.crmTabs) {
+        // Denied once, macOS never asks again: only System Settings › Automation can turn it back on.
+        if (snapshotRef.current.crmTabs === "denied") await bridge.crm?.openAutomationSettings();
+        else await bridge.permissions.request("crmTabs");
+        return refresh();
+      }
       const status = type === DESKTOP_PERMISSION.microphone ? snapshotRef.current.microphone : snapshotRef.current.systemAudio;
       const action = permissionAction(status);
       if (type === DESKTOP_PERMISSION.systemAudio) setSystemAudioAsked(true);
@@ -118,7 +127,8 @@ export function useDesktopPermissions() {
     const offChanged = bridge?.permissions.onChanged?.(() => void refresh());
 
     const id = window.setInterval(() => {
-      if (desktopPermissionsBlocker(snapshotRef.current) !== "none") void refresh();
+      // The CRM tab row waits for a browser to open, so it keeps checking too.
+      if (desktopPermissionsBlocker(snapshotRef.current) !== "none" || crmTabsToAsk(snapshotRef.current)) void refresh();
     }, POLL_MS);
 
     return () => {

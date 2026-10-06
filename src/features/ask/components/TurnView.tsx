@@ -3,7 +3,6 @@ import { useAuth } from "@/features/auth";
 import { useOptionalDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { TodayCardActions } from "@/features/today/components/TodayCardActions";
 import { dialerAvailable } from "@/lib/ask-calls";
-import { isDesktopHost } from "@/lib/desktop-host";
 import { productText } from "@/lib/product-catalog";
 import { AnimIcon } from "@/components/ui/anim-icon";
 import { Button } from "@/components/ui/button";
@@ -31,7 +30,7 @@ export default function TurnView({ message, isLast, onRetry, onChoose, onConfirm
   const { t } = useLanguage();
   const { user } = useAuth();
   const dialer = useOptionalDialerFocus();
-  const canCall = Boolean(dialer) && dialerAvailable({ desktop: isDesktopHost(), company: user?.company });
+  const canCall = Boolean(dialer) && dialerAvailable({ company: user?.company });
   const [copied, setCopied] = useState(false);
 
   if (message.role === "user") {

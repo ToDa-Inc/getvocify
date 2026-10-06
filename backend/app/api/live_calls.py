@@ -13,6 +13,7 @@ import asyncio
 import json
 import time
 import uuid
+from dataclasses import asdict
 from typing import AsyncIterator, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -25,7 +26,9 @@ from app.api.crm import get_contact_context_for_extension
 from app.api.crm_pipedrive import get_pipedrive_person_context
 from app.services.company import Membership
 from app.services.company_scope import get_crm_connection
-from app.services.live_calls.crm_url import record_on_screen
+from app.services.crm_providers.calling import NO_CONTEXT, RecordContext
+from app.services.crm_providers.calling_registry import calling_adapter
+from app.services.live_calls.crm_url import CrmRecord, record_on_screen
 from app.services.live_calls.hub import LiveCallHub, live_call_hub
 from app.services.live_calls.state import InteractionKind, LiveCall, end_call, pick_contact, start_call
 
@@ -71,6 +74,14 @@ async def _contact_name(supabase: Client, user_id: str, provider: str, contact_i
     return (context or {}).get("contactName") or None
 
 
+async def _record_context(supabase: Client, user_id: str, record: Optional[CrmRecord]) -> RecordContext:
+    """Who the record on screen can be called at, for the CRMs Vocify can call."""
+    adapter = calling_adapter(record.provider) if record else None
+    if not adapter:
+        return NO_CONTEXT
+    return await adapter.record_context(record, supabase=supabase, user_id=user_id)
+
+
 def _state(call: Optional[LiveCall]) -> dict:
     return {"call": call.to_dict() if call else None}
 
@@ -92,12 +103,16 @@ async def preview_live_call(
     account = _connected_account_id(supabase, user_id, record.provider) if record else None
     call = start_call("preview", record, time.time(), connected_account_id=account)
     name = await _contact_name(supabase, user_id, call.provider, call.contact_id) if call.contact_id else None
+    # call.record is None for another account's page, so that page is never read.
+    context = await _record_context(supabase, user_id, call.record)
     return {
         "provider": call.provider,
         "contact_id": call.contact_id,
         "contact_name": name,
         "record": call.to_dict()["record"],
         "needs_contact": call.contact_id is None,
+        "callee": asdict(context.callee) if context.callee else None,
+        "contacts_count": context.contacts_count,
     }
 
 

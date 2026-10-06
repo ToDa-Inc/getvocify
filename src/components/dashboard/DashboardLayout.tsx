@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Outlet, Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { getUserDisplayName } from "@/features/auth/types";
@@ -31,6 +31,7 @@ import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
 import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopMeetingProvider } from "@/features/desktop/DesktopMeetingProvider";
+import { DesktopCallProvider } from "@/features/desktop/DesktopCallProvider";
 import { DesktopRecordingChip } from "@/features/desktop/DesktopRecordingChip";
 import { DesktopSetupDialog } from "@/features/desktop/DesktopSetupDialog";
 import { isDesktopHost } from "@/lib/desktop-host";
@@ -96,7 +97,7 @@ const DashboardLayout = () => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [paywalled]);
-  const showDialer = !isDesktopHost() && !paywalled && companyCanUseDialer(user?.company);
+  const showDialer = !paywalled && companyCanUseDialer(user?.company);
   // The full Hoy (/dashboard/today) keeps its contact column whoever opens it, so its ContactPanel
   // always has somewhere to go on xl (its sheet is xl:hidden). Inicio (/dashboard) has its own rail.
   const homeColumn = location.pathname === "/dashboard/today";
@@ -112,6 +113,7 @@ const DashboardLayout = () => {
 
   return (
     <DesktopMeetingProvider>
+    <DesktopCalling>
     <DialerFocusProvider onOpenDialer={() => setDialerOpen(true)}>
     <HomeColumnContext.Provider value={column}>
     <div className="dashboard-shell h-dvh bg-background flex w-full overflow-hidden">
@@ -278,9 +280,15 @@ const DashboardLayout = () => {
     </div>
     </HomeColumnContext.Provider>
     </DialerFocusProvider>
+    </DesktopCalling>
     </DesktopMeetingProvider>
   );
 };
+
+/** Calling the contact on screen from the island: only inside the desktop app. */
+function DesktopCalling({ children }: { children: ReactNode }) {
+  return isDesktopHost() ? <DesktopCallProvider>{children}</DesktopCallProvider> : <>{children}</>;
+}
 
 /** The call dock lives inside the focus provider so a contact's own "Llamar" can open it. */
 function DialerDockMount({

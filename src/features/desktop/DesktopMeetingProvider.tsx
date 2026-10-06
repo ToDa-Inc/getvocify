@@ -76,8 +76,19 @@ import {
   type CallTypeState,
 } from "@/lib/live-call-type";
 import { buildApproveExtraction, proposedFieldKey, type ProposedUpdate } from "@/lib/extraction-omit";
+import { afterCallPoll, afterCallResolution, type CallSummary } from "@/lib/after-call";
+import { callsApi } from "@/features/calls/api";
+import { callEngine } from "@/features/calling/callEngine";
+import { isCallUp } from "@/lib/call-engine-state";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
+
+/** A Vocify call (dialled from the island or the dock) the page transcribes live from its own two sides. */
+export type VocifyCallSession = {
+  callSid: string;
+  streams: { local: MediaStream; remote: MediaStream };
+  contact: MeetingDraft["contact"] | null;
+};
 
 type DesktopMeeting = {
   available: boolean;
@@ -107,6 +118,10 @@ type DesktopMeeting = {
   /** The rep switched live help on or off for this call only; null follows the remembered setting. */
   liveHelpOverride: boolean | null;
   start: () => Promise<void>;
+  /** Live transcript and help for a Vocify call; its memo comes from the call recording, not from here. */
+  startCall: (session: VocifyCallSession) => Promise<void>;
+  /** A Vocify call ended without a live session (its audio never reached the page): still follow its memo. */
+  followCall: (callSid: string, contactName: string | null) => void;
   stop: () => Promise<void>;
   retryPending: () => Promise<void>;
 };
@@ -145,6 +160,9 @@ function newDraftId(): string {
   return crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+
+/** The Vocify call's source on its memo draft: always a phone call. */
+const VOCIFY_CALL_SOURCE: CallSourceInfo = { name: "Vocify", kind: "call" };
 
 /** Only a change the meter can show re-renders: silence settles at 0 and stays put. */
 function levelStep(value: number): number {
@@ -232,7 +250,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const releaseAudioRef = useRef<Array<() => void>>([]);
   const timerRef = useRef<number | null>(null);
   const reconnectsRef = useRef(0);
-  const startRef = useRef<() => Promise<void>>(async () => {});
+  /** Set while the recording is a Vocify call: the server records it, so nothing is uploaded or kept on disk. */
+  const vocifyCallRef = useRef<VocifyCallSession | null>(null);
+  const startRef = useRef<(call?: VocifyCallSession) => Promise<void>>(async () => {});
   const stopRef = useRef<() => Promise<void>>(async () => {});
   const pauseRef = useRef<() => void>(() => {});
   const resumeRef = useRef<() => void>(() => {});
@@ -265,6 +285,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       saveTimerRef.current = null;
     }
     const draft = currentDraft();
+    // A Vocify call is recorded by the carrier: a draft on disk would be uploaded later as a second memo.
+    if (vocifyCallRef.current) return;
     if (draft && (meetingHasSpeech(draft.transcript) || draft.notes?.trim())) {
       void getDesktopBridge()?.drafts?.save(draft);
     }
@@ -686,6 +708,42 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const onPostCallActionRef = useRef(onPostCallAction);
   onPostCallActionRef.current = onPostCallAction;
 
+  /**
+   * After a Vocify call: the carrier's recording becomes the memo on the server. Wait for that
+   * memo (GET /calls/{sid}), then follow it in the island like a recorded meeting.
+   */
+  const followCallMemo = useCallback(
+    async (callSid: string, contactName: string | null) => {
+      const bridge = getDesktopBridge();
+      let since: number | null = null;
+      for (;;) {
+        const summary = (await callsApi.getCall(callSid).catch(() => null)) as CallSummary | null;
+        if (summary?.memoId) {
+          bridge?.shell.setState({ finish: null });
+          navigate(ROUTES.MEMO_DETAIL(summary.memoId));
+          void followPostCall(summary.memoId, contactName);
+          return;
+        }
+        const resolution = afterCallResolution(summary);
+        if (resolution) {
+          const message = resolution === "no_answer" ? "No conversation on this call." : "The call failed.";
+          bridge?.shell.setState({ finish: { step: "failed", message } });
+          return;
+        }
+        const next = afterCallPoll(summary, since, Date.now());
+        if (!next.interval) {
+          bridge?.shell.setState({
+            finish: { step: "failed", message: "Still processing the call. It will show up in Vocify." },
+          });
+          return;
+        }
+        since = next.since;
+        await new Promise((resolve) => window.setTimeout(resolve, next.interval as number));
+      }
+    },
+    [followPostCall, navigate],
+  );
+
   const stop = useCallback(async () => {
     if (phaseRef.current !== "live") return;
     setPhase("stopping");
@@ -713,6 +771,17 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
+    }
+    const call = vocifyCallRef.current;
+    if (call) {
+      // Nothing to upload: Twilio recorded both sides and the server writes the memo from that.
+      vocifyCallRef.current = null;
+      clearNotes();
+      updateTranscript(EMPTY_MEETING_TRANSCRIPT);
+      setPhase("idle");
+      bridge?.shell.setState({ finish: { step: "uploading" } });
+      void followCallMemo(call.callSid, draft?.contact?.name ?? null);
+      return;
     }
     if (!draft || !meetingHasSpeech(draft.transcript)) {
       if (draft) void bridge?.drafts?.remove(draft.id);
@@ -746,9 +815,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       bridge?.shell.setState({ finish: { step: "failed", message: unsent } });
       fail(unsent);
     }
-  }, [clearNotes, currentDraft, drainSocket, fail, followPostCall, navigate, releaseAudio, sendDraft, setPhase, updateTranscript]);
+  }, [clearNotes, currentDraft, drainSocket, fail, followCallMemo, followPostCall, navigate, releaseAudio, sendDraft, setPhase, updateTranscript]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (call?: VocifyCallSession) => {
     const bridge = getDesktopBridge();
     if (!bridge || phaseRef.current !== "idle") return;
     if (!user?.id || !api.getToken()) {
@@ -760,12 +829,15 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     setWarning(null);
     setPhase("starting");
     try {
-      const perm = await bridge.permissions.status();
-      if (normalizePermissionStatus(perm.microphone) !== "authorized") {
-        throw new Error("Allow Microphone in the panel above, then try again.");
-      }
-      if (normalizePermissionStatus(perm.systemAudio) !== "authorized") {
-        throw new Error("Allow system audio in the panel above, then try again.");
+      // A Vocify call already holds the mic and has the prospect's side: no system audio needed.
+      if (!call) {
+        const perm = await bridge.permissions.status();
+        if (normalizePermissionStatus(perm.microphone) !== "authorized") {
+          throw new Error("Allow Microphone in the panel above, then try again.");
+        }
+        if (normalizePermissionStatus(perm.systemAudio) !== "authorized") {
+          throw new Error("Allow system audio in the panel above, then try again.");
+        }
       }
 
       const systemAudioError = (reason?: string) =>
@@ -782,7 +854,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         .catch(() => null);
 
       // The Mac app records natively when it can: no web audio, so nothing waits on this page.
-      const recorder = bridge.recorder;
+      const recorder = call ? undefined : bridge.recorder;
       let ctx: AudioContext | null = null;
       let micStream: MediaStream | null = null;
       if (recorder) {
@@ -793,17 +865,19 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         }
         nativeRef.current = true;
       } else {
-        micStream = await navigator.mediaDevices
-          .getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          })
-          .catch(() => {
-            throw new Error("Could not open the microphone.");
-          });
-        micRef.current = micStream;
+        if (!call) {
+          micStream = await navigator.mediaDevices
+            .getUserMedia({
+              audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            })
+            .catch(() => {
+              throw new Error("Could not open the microphone.");
+            });
+          micRef.current = micStream;
 
-        const native = await bridge.systemAudio.start();
-        if (!native.ok) throw systemAudioError(native.reason);
+          const native = await bridge.systemAudio.start();
+          if (!native.ok) throw systemAudioError(native.reason);
+        }
 
         ctx = new AudioContext({ sampleRate: LIVE_STT_SAMPLE_RATE });
         ctxRef.current = ctx;
@@ -811,12 +885,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       }
 
       const startedAt = Date.now();
-      const callContact = callContactRef.current;
+      const callContact = call ? call.contact : callContactRef.current;
+      const callSource = call ? VOCIFY_CALL_SOURCE : callSourceRef.current;
+      vocifyCallRef.current = call ?? null;
       draftRef.current = {
         id: newDraftId(),
         startedAt,
         ...(callContact ? { contact: callContact } : {}),
-        ...(callSourceRef.current ? { source: callSourceRef.current } : {}),
+        ...(callSource ? { source: callSource } : {}),
       };
       setContact(callContact);
       typeOptionsRef.current = [];
@@ -852,7 +928,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           recorder.onWarning(({ text }) => setWarning(text)),
           bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
         ];
-      } else if (ctx && micStream) {
+      } else if (ctx && (micStream || call)) {
         openSocket();
         let levelsSentAt = 0;
         const send = (channel: MeetingSpeaker) => (pcm: ArrayBuffer) => {
@@ -871,11 +947,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           const ws = wsRef.current;
           if (ws?.readyState === WebSocket.OPEN) ws.send(encodeChannelAudio(channel, audio));
         };
-        releaseAudioRef.current = [
-          hookMicPcm(ctx, micStream, send("rep")),
-          bridge.systemAudio.onPcm(send("prospect")),
-          bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
-        ];
+        releaseAudioRef.current = call
+          ? // The call's own two sides: nothing else on the Mac reaches the prospect's channel.
+            [hookMicPcm(ctx, call.streams.local, send("rep")), hookMicPcm(ctx, call.streams.remote, send("prospect"))]
+          : [
+              hookMicPcm(ctx, micStream as MediaStream, send("rep")),
+              bridge.systemAudio.onPcm(send("prospect")),
+              bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
+            ];
       }
 
       setElapsed("00:00");
@@ -928,6 +1007,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         .catch(() => {});
     } catch (e) {
       draftRef.current = null;
+      vocifyCallRef.current = null;
       if (nativeRef.current) {
         nativeRef.current = false;
         await bridge.recorder?.stop();
@@ -1011,6 +1091,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (!bridge) return;
     return bridge.shell.onCommand((name) => {
       const current = phaseRef.current;
+      if (isCallUp(callEngine.getState())) {
+        // During a Vocify call the island's Stop hangs up; nothing else may start a second recording.
+        if (name === "stop") callEngine.hangup();
+        return;
+      }
       if (name === "stop" || (name === "toggle" && current === "live")) {
         void stopRef.current();
       } else if (name === "listen" || (name === "toggle" && current === "idle")) {
@@ -1148,6 +1233,16 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   }, [phase, turns, applyCallType]);
 
   const shownCallType = useMemo(() => callTypeShown(callType), [callType]);
+  // Separate entry points, so a click handler's event is never taken for a call session.
+  const startMeeting = useCallback(() => start(), [start]);
+  const startCall = useCallback((session: VocifyCallSession) => start(session), [start]);
+  const followCall = useCallback(
+    (callSid: string, contactName: string | null) => {
+      getDesktopBridge()?.shell.setState({ finish: { step: "uploading" } });
+      void followCallMemo(callSid, contactName);
+    },
+    [followCallMemo],
+  );
 
   const value = useMemo<DesktopMeeting>(
     () => ({
@@ -1169,14 +1264,22 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       callType: shownCallType,
       callMode,
       liveHelpOverride,
-      start,
+      start: startMeeting,
+      startCall,
+      followCall,
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, start, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startCall, followCall, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;
+}
+
+/** A recording is on (desktop app only): a Vocify call must not start on top of it. Safe outside the provider. */
+export function useRecordingBusy(): boolean {
+  const ctx = useContext(DesktopMeetingContext);
+  return Boolean(ctx && ctx.phase !== "idle");
 }
 
 export function useDesktopMeeting(): DesktopMeeting {

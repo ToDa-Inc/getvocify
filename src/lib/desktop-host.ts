@@ -17,11 +17,13 @@ export type VocifyDesktopBridge = {
       platform: string;
       microphone: DesktopPermissionStatus;
       systemAudio: DesktopPermissionStatus;
+      /** Reading the CRM tab in the rep's browsers (Mac Automation). Missing in builds without calling. */
+      crmTabs?: DesktopPermissionStatus | "unavailable";
       signing?: "adhoc" | "signed";
       signingAuthority?: string;
       systemAudioError?: string;
     }>;
-    request(type: "microphone" | "systemAudio"): Promise<unknown>;
+    request(type: "microphone" | "systemAudio" | "crmTabs"): Promise<unknown>;
     open(type: "microphone" | "systemAudio"): Promise<void>;
     guide?(type: "microphone" | "systemAudio"): Promise<unknown>;
     appInfo?(): Promise<{ name?: string; bundleId?: string } | null>;
@@ -64,6 +66,11 @@ export type VocifyDesktopBridge = {
     onCallPages(cb: (payload: { urls: string[] }) => void): () => void;
     /** The detected call ended (the call app let go of the mic). */
     onCallEnded?(cb: () => void): () => void;
+    /**
+     * The CRM pages in the frontmost browser changed (the island's phone offer follows them).
+     * `[]`: no CRM record any more. Missing in builds without calling.
+     */
+    onScreen?(cb: (payload: { urls: string[] }) => void): () => void;
     /** Where the detected call happens; null when it can't be told. */
     onCallSource?(cb: (source: { name: string; kind: "call" | "meeting" | null } | null) => void): () => void;
   };

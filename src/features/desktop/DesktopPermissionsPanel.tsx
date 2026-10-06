@@ -1,4 +1,4 @@
-import { Check, Mic, Volume2 } from "lucide-react";
+import { AppWindow, Check, Mic, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DESKTOP_PERMISSION,
@@ -29,7 +29,8 @@ function PermissionRow({
 }) {
   const copy = permissionCopy(type);
   const on = status === "authorized";
-  const Icon = type === DESKTOP_PERMISSION.microphone ? Mic : Volume2;
+  const Icon =
+    type === DESKTOP_PERMISSION.microphone ? Mic : type === DESKTOP_PERMISSION.crmTabs ? AppWindow : Volume2;
   const action = permissionAction(status);
   const label =
     action === "open_settings" || onRelaunch ? "Open Settings" : on ? null : "Allow";
@@ -85,6 +86,8 @@ const SYSTEM_AUDIO_NOTE = {
   reopen: "Switched it on? Quit Vocify and open it again.",
 } as const;
 
+const CRM_TABS_NOTE = "Open Chrome, Safari, Arc, Edge or Brave, then Allow.";
+
 /** Microphone + system audio rows, with the relaunch step macOS needs for system audio. */
 export function DesktopPermissionRows({ permissions }: { permissions: Permissions }) {
   const { snapshot, request, systemAudioHint, canRelaunch, relaunch } = permissions;
@@ -104,6 +107,14 @@ export function DesktopPermissionRows({ permissions }: { permissions: Permission
         note={hint ? SYSTEM_AUDIO_NOTE[hint] : undefined}
         onRelaunch={hint && hint !== "reopen" ? () => void relaunch() : undefined}
       />
+      {snapshot.crmTabs ? (
+        <PermissionRow
+          type={DESKTOP_PERMISSION.crmTabs}
+          status={snapshot.crmTabs === "unavailable" ? "never_requested" : snapshot.crmTabs}
+          onAction={() => void request(DESKTOP_PERMISSION.crmTabs)}
+          note={snapshot.crmTabs === "unavailable" ? CRM_TABS_NOTE : undefined}
+        />
+      ) : null}
     </div>
   );
 }
