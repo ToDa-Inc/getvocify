@@ -33,6 +33,17 @@ import {
   type VoiceClient,
 } from "@/lib/dial-session";
 import { CALL_STATES } from "@/lib/dial-target";
+import { getDesktopBridge } from "@/lib/desktop-host";
+
+/** Each step of a call, for the Mac app's log (read with `log stream`, category live-help, when its test switch is on). */
+function report(step: string, details: Record<string, unknown> = {}) {
+  getDesktopBridge()?.shell.log?.(`call:${step}`, details);
+}
+
+function errorDetails(err: unknown): Record<string, unknown> {
+  const e = err as { code?: unknown; message?: unknown; name?: unknown } | null;
+  return { code: e?.code ?? null, name: e?.name ?? null, message: String(e?.message ?? err ?? "") };
+}
 
 type TelnyxCall = {
   id?: string;
@@ -159,11 +170,16 @@ async function ensureDevice(token: string, forceNew: boolean): Promise<Device> {
   }
   const next = new Device(token, { codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU] });
   next.on("error", (err) => {
-    if (isCarrierHangupError(err) || isCarrierHangupError(err?.message)) return;
-    if (isVoiceSdkGeneralError(err) || isVoiceSdkGeneralError(err?.message)) return;
+    report("device-error", errorDetails(err));
+    // Before Twilio has the call, a 31005/31000 is not a hang-up: the page could not reach Twilio.
+    const reachingTwilio = isCallUp(state) && !state.callSid;
+    const hangupNoise =
+      isCarrierHangupError(err) || isCarrierHangupError(err?.message) || isVoiceSdkGeneralError(err) || isVoiceSdkGeneralError(err?.message);
+    if (hangupNoise && !reachingTwilio) return;
     sdkError(err);
     if (isCallUp(state)) hangup();
   });
+  next.on("registered", () => report("device-registered"));
   next.on("tokenWillExpire", () => {
     void applyVoiceTokenRefresh({
       remint: async () => (await callsApi.createToken()).token,
@@ -189,6 +205,7 @@ async function startTwilio(token: string, target: DialTarget) {
       },
     });
   let call: Call;
+  report("connect", { client: "twilio" });
   try {
     call = await connect(false);
   } catch (err) {
@@ -196,22 +213,27 @@ async function startTwilio(token: string, target: DialTarget) {
     call = await connect(true);
   }
   twilioCall = call;
+  report("connected", { callSid: call.parameters?.CallSid ?? null });
+  call.on("warning", (name: string) => report("warning", { name }));
   const rememberSid = () => {
     const sid = call.parameters?.CallSid;
     if (sid && sid !== state.callSid) dispatch({ type: "callSid", callSid: sid });
   };
   rememberSid();
   call.on("ringing", () => {
+    report("ringing");
     rememberSid();
     dispatch({ type: "ringing" });
   });
   call.on("accept", () => {
+    report("accept");
     rememberSid();
     dispatch({ type: "accepted", at: Date.now() });
   });
   call.on("disconnect", hangup);
   call.on("cancel", hangup);
   call.on("error", (err) => {
+    report("call-error", errorDetails(err));
     if (isCarrierHangupError(err) || isCarrierHangupError(err?.message)) {
       if (!state.answered && copy) dispatch({ type: "outcome", message: state.outcome || copy.callNoAnswer });
       hangup();
@@ -313,13 +335,16 @@ export const callEngine = {
     // The SDK can wait forever (no microphone, blocked WebRTC): never leave the rep on "Calling…".
     connectTimer = setTimeout(() => {
       if (!isCallUp(state) || state.callSid) return;
+      report("connect-timeout");
       dispatch({ type: "failed", message: callCopy.callStartFailed });
       hangup();
     }, CONNECT_TIMEOUT_MS);
     try {
+      report("dial", { contactId: target.contactId });
       const { token: session, stop } = await fetchVoiceTokenAfterRingback(startLocalRingback, () =>
         callsApi.createToken(),
       );
+      report("token", { provider: session.provider });
       stopRingbackFn = stop;
       if (voiceClientFromToken(session.provider) === "telnyx") {
         await startTelnyx(session.token, target);
@@ -330,6 +355,7 @@ export const callEngine = {
       }
       return { error: null };
     } catch (err) {
+      report("dial-failed", errorDetails(err));
       const message = userFacingCallError(err, callCopy);
       dispatch({ type: "failed", message });
       hangup();
