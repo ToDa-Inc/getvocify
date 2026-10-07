@@ -113,7 +113,7 @@ Cada fila tiene su test en la tarea indicada (`design.md` §14).
 | Falta tu OK | Más de 3 filas | 3 visibles + «N más», que despliega en el sitio | T3 |
 | Falta tu OK | Autoaprobación apagada | «Conversación con {nombre} sin guardar en el CRM» + «Revisar» → `MemoDetail` | T3 |
 | Panel | Contacto sin teléfono | La acción principal pasa a «Abrir en el CRM» (F06) | T5 |
-| Panel | Dialer no disponible (plan, sin número verificado) | Sin «Llamar»; acción principal «Abrir en el CRM» | T5 |
+| Panel | Dialer no disponible (plan, app desktop: se llama desde la isla, sin número verificado) | Sin «Llamar»; acción principal «Abrir en el CRM» | T5 |
 | Panel | Brief cargando | Una sola línea «Leyendo…» (`BRIEF_LOADING`) | T4 |
 | Panel | CRM caído / 401 al pedir el brief | «No se pudo cargar todo.» + las líneas verificadas | T4 |
 | Panel | Contacto sin conversación | «Sin conversación todavía.» (F03), o preparación en frío con E4 | T4 |

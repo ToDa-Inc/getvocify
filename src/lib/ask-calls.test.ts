@@ -37,15 +37,15 @@ describe("ask call targets", () => {
 
 describe("dialer availability", () => {
   it("is available on the web dashboard of a company that can dial", () => {
-    assert.equal(dialerAvailable({ company: { canUseDialer: true } }), true);
+    assert.equal(dialerAvailable({ desktop: false, company: { canUseDialer: true } }), true);
   });
 
-  it("is available in the desktop app too", () => {
-    assert.equal(dialerAvailable({ company: { canUseDialer: true } }), true);
+  it("is not available in the desktop app, which calls from its island", () => {
+    assert.equal(dialerAvailable({ desktop: true, company: { canUseDialer: true } }), false);
   });
 
   it("is not available behind the paywall or without the dialer plan", () => {
-    assert.equal(dialerAvailable({ company: { paywalled: true, canUseDialer: true } }), false);
-    assert.equal(dialerAvailable({ company: { canUseDialer: false } }), false);
+    assert.equal(dialerAvailable({ desktop: false, company: { paywalled: true, canUseDialer: true } }), false);
+    assert.equal(dialerAvailable({ desktop: false, company: { canUseDialer: false } }), false);
   });
 });
