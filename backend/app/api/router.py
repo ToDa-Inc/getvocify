@@ -4,6 +4,7 @@ Main API router combining all route modules
 
 from fastapi import APIRouter
 from app.api import (
+    contact_activity,
     health,
     memos,
     captures,
@@ -70,6 +71,7 @@ api_router.include_router(contact_priorities.router)
 api_router.include_router(today.router)
 api_router.include_router(annotations.router)
 api_router.include_router(briefs.router)
+api_router.include_router(contact_activity.router)
 api_router.include_router(meetings.router)
 api_router.include_router(calendar.router)
 api_router.include_router(coaching.router)
