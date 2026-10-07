@@ -215,3 +215,16 @@ def test_citations_given_as_one_string_still_count(client, world):
         {"text": "Demo yesterday; proposal to send.", "sources": ["hubspot:meeting:m1", "hubspot:task:t1"]},
         {"text": "Wants pricing for 12 seats.", "sources": ["hubspot:note:n1"]},
     ]
+
+
+def test_a_bare_id_counts_when_it_ends_exactly_one_item_read(client, world):
+    # Seen on staging: the model cites a memo by its uuid alone, dropping the "vocify:memo:" prefix.
+    world["llm"] = {"lines": [
+        {"text": "Budget confirmed for Q4.", "sources": ["memo-1"]},
+        {"text": "Pricing for 12 seats.", "sources": ["n1", "m1"]},
+        {"text": "Made up.", "sources": ["memo-999"]},
+    ]}
+    assert get(client)["summary"]["lines"] == [
+        {"text": "Budget confirmed for Q4.", "sources": ["vocify:memo:memo-1"]},
+        {"text": "Pricing for 12 seats.", "sources": ["hubspot:note:n1", "hubspot:meeting:m1"]},
+    ]
