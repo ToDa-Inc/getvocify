@@ -217,7 +217,7 @@ def started(monkeypatch):
     return calls
 
 
-@pytest.mark.parametrize("value, processed", [(True, True), (None, True), (False, False)])
+@pytest.mark.parametrize("value, processed", [(True, True), (None, False), (False, False)])
 def test_the_reps_switch_decides_after_the_company_switch(started, value, processed):
     done, skipped = asyncio.run(auto_sync.handle_hubspot_recording_events(_Profiles(value), [RECORDING_EVENT]))
     assert (done, skipped) == ((1, 0) if processed else (0, 1))
