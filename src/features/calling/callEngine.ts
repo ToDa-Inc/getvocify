@@ -36,6 +36,10 @@ import { CALL_STATES } from "@/lib/dial-target";
 import { getDesktopBridge } from "@/lib/desktop-host";
 
 /** Each step of a call, for the Mac app's log (read with `log stream`, category live-help, when its test switch is on). */
+export function reportCallStep(step: string, details: Record<string, unknown> = {}) {
+  report(step, details);
+}
+
 function report(step: string, details: Record<string, unknown> = {}) {
   getDesktopBridge()?.shell.log?.(`call:${step}`, details);
 }
@@ -227,6 +231,7 @@ async function startTwilio(token: string, target: DialTarget) {
   });
   call.on("accept", () => {
     report("accept");
+    stopRingback();
     rememberSid();
     dispatch({ type: "accepted", at: Date.now() });
   });
@@ -349,8 +354,9 @@ export const callEngine = {
       if (voiceClientFromToken(session.provider) === "telnyx") {
         await startTelnyx(session.token, target);
       } else {
-        // Twilio plays the carrier's ringback (answer_on_bridge).
-        stopRingback();
+        // On the web, Twilio plays the carrier's ringback (answer_on_bridge). The desktop app's web view gets no
+        // early media (nothing plays until the answer), so it keeps ringing locally until the call is answered.
+        if (!getDesktopBridge()) stopRingback();
         await startTwilio(session.token, target);
       }
       return { error: null };
@@ -392,6 +398,22 @@ export const callEngine = {
     const local = client === "telnyx" ? telnyxCall?.localStream : twilioCall?.getLocalStream();
     const remote = client === "telnyx" ? telnyxCall?.remoteStream : twilioCall?.getRemoteStream();
     return local && remote ? { local, remote } : null;
+  },
+
+  /**
+   * The call's two sides once Twilio has attached them: right at the answer they can still be missing for a few
+   * dozen milliseconds. Null if the call is no longer active or they never come.
+   */
+  async streamsWhenReady(timeoutMs = 5000): Promise<{ local: MediaStream; remote: MediaStream } | null> {
+    const started = Date.now();
+    for (;;) {
+      const ready = callEngine.streams();
+      if (ready || state.phase !== "active" || Date.now() - started > timeoutMs) {
+        report("streams", { ready: Boolean(ready), ms: Date.now() - started });
+        return ready;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   },
 
   /** Forgets an ended call (the island's outcome has been shown). */

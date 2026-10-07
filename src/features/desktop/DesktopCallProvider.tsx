@@ -120,16 +120,19 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
     const onCall = (state: CallEngineState) => {
       bridge.shell.setState({ dial: dialIsland(state) });
       const target = state.target;
-      if (previous.phase !== "active" && state.phase === "active" && target) {
-        const streams = callEngine.streams();
-        if (streams && state.callSid) {
+      if (previous.phase !== "active" && state.phase === "active" && target && state.callSid) {
+        const callSid = state.callSid;
+        // Twilio attaches the call's audio a moment after the answer: wait for it, then go live.
+        void callEngine.streamsWhenReady().then((streams) => {
+          const now = callEngine.getState();
+          if (!streams || now.phase !== "active" || now.callSid !== callSid) return;
           navigate(ROUTES.RECORD);
           void meetingRef.current.startCall({
-            callSid: state.callSid,
+            callSid,
             streams,
             contact: target.contactId ? { hubspotId: target.contactId, name: target.name } : null,
           });
-        }
+        });
       }
       if (isCallUp(previous) && isCallEnded(state)) {
         if (state.answered) {
