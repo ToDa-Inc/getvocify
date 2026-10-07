@@ -156,6 +156,7 @@ export function InteractionRow({
             memoId={memo.id}
             chip={chip ?? { key: "", label: copy.noType }}
             options={options}
+            channel={memo.interactionKind}
             untyped={!chip}
           />
         </span>

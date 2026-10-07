@@ -64,7 +64,8 @@ import {
 import { playbooksApi } from "@/features/playbooks/api";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
-import { retagOptions, typeOptions } from "@/lib/interactions";
+import { retagOptions, typeOptions, type TypeOption } from "@/lib/interactions";
+import { LIVE_CHANNELS, byChannel, channelTypeOptions, type LiveChannel } from "@/lib/type-channels";
 import {
   NO_CALL_TYPE,
   assistCallMode,
@@ -72,6 +73,7 @@ import {
   callTypeShown,
   proposalDue,
   typeForMemo,
+  withChannelTypes,
   withPick,
   withProposal,
   type CallTypeState,
@@ -224,8 +226,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const callTypeRef = useRef<CallTypeState>(NO_CALL_TYPE);
   /** The company's types the island offers, once loaded. */
   const typeOptionsRef = useRef<{ key: string; label: string }[]>([]);
+  // Every type of the company (GET /playbooks) for this recording: the island's options are the
+  // channel's ones, recomputed when the rep switches the channel.
+  const allTypesRef = useRef<{ options: TypeOption[]; payload: unknown } | null>(null);
+  const channelLabelsRef = useRef<Record<LiveChannel, string>>(t.product.pb2.ruleChannels);
+  channelLabelsRef.current = t.product.pb2.ruleChannels;
   /** The model proposals asked this call (at most two). */
-  const proposalRef = useRef({ attempts: 0, lastConfident: false, busy: false });
+  // `attempts` per channel (a switch starts them again), `total` for the whole call.
+  const proposalRef = useRef({ attempts: 0, total: 0, lastConfident: false, busy: false });
   const [callMode, setCallMode] = useState<"softphone" | "meeting">("meeting");
   const [liveHelpOverride, setLiveHelpOverride] = useState<boolean | null>(null);
 
@@ -236,6 +244,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     startedAt: number;
     contact?: MeetingDraft["contact"];
     source?: CallSourceInfo;
+    channel?: MeetingDraft["channel"];
     type?: string;
     typeSource?: MeetingDraft["typeSource"];
   } | null>(null);
@@ -317,12 +326,47 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         delete draftRef.current.typeSource;
       }
     }
-    if (typeOptionsRef.current.length) {
+    const all = allTypesRef.current;
+    const draft = draftRef.current;
+    // Types by channel: the island also shows the channel, switchable unless the call is Vocify's own.
+    const channel =
+      all && draft && byChannel(all.payload)
+        ? {
+            selected: callKind(draft),
+            fixed: Boolean(vocifyCallRef.current),
+            options: LIVE_CHANNELS.map((key) => ({ key, label: channelLabelsRef.current[key] })),
+          }
+        : null;
+    if (typeOptionsRef.current.length || channel) {
       getDesktopBridge()?.shell.setState({
-        liveType: { selected: shown.key, proposed: shown.proposed, options: typeOptionsRef.current },
+        liveType: { selected: shown.key, proposed: shown.proposed, options: typeOptionsRef.current, ...(channel && { channel }) },
       });
     }
   }, []);
+
+  /** The island's type options: the channel's types with types by channel, else the published ones. */
+  const optionsForCall = useCallback((): { key: string; label: string }[] => {
+    const all = allTypesRef.current;
+    if (!all) return [];
+    const offered = byChannel(all.payload)
+      ? channelTypeOptions(all.options, all.payload, callKind(draftRef.current ?? {}))
+      : retagOptions(all.options);
+    return offered.map(({ key, label }) => ({ key, label }));
+  }, []);
+
+  /** Vocify's free guess for the call as it is now (channel and contact). */
+  const guessCallType = useCallback(async () => {
+    const draft = draftRef.current;
+    const guess = await api
+      .post<{ type: string | null }>("/copilot/call-type/guess", {
+        interaction_kind: draft ? callKind(draft) : "meeting",
+        ...(draft?.contact?.hubspotId && { contact_id: draft.contact.hubspotId }),
+      })
+      .catch(() => null);
+    if (phaseRef.current !== "live" || draftRef.current !== draft || !guess?.type) return;
+    if (!typeOptionsRef.current.some((option) => option.key === guess.type)) return;
+    applyCallType(withProposal(callTypeRef.current, guess.type));
+  }, [applyCallType]);
 
   const updateTranscript = useCallback(
     (next: MeetingTranscript) => {
@@ -936,7 +980,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       };
       setContact(callContact);
       typeOptionsRef.current = [];
-      proposalRef.current = { attempts: 0, lastConfident: false, busy: false };
+      proposalRef.current = { attempts: 0, total: 0, lastConfident: false, busy: false };
+      allTypesRef.current = null;
       applyCallType(NO_CALL_TYPE);
       setCallMode(assistCallMode(callKind(draftRef.current ?? {})));
       setLiveHelpOverride(null);
@@ -1030,19 +1075,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         .list()
         .then(async (list) => {
           if (phaseRef.current !== "live") return;
-          typeOptionsRef.current = retagOptions(typeOptions(list, t.product.interactions.internal, (key) => typeName(key))).map(
-            ({ key, label }) => ({ key, label }),
-          );
+          allTypesRef.current = { options: typeOptions(list, t.product.interactions.internal, (key) => typeName(key)), payload: list };
+          typeOptionsRef.current = optionsForCall();
           applyCallType(callTypeRef.current);
-          const draft = draftRef.current;
-          const guess = await api
-            .post<{ type: string | null }>("/copilot/call-type/guess", {
-              interaction_kind: draft ? callKind(draft) : "meeting",
-              ...(draft?.contact?.hubspotId && { contact_id: draft.contact.hubspotId }),
-            })
-            .catch(() => null);
-          if (phaseRef.current !== "live" || draftRef.current !== draft || !guess?.type) return;
-          applyCallType(withProposal(callTypeRef.current, guess.type));
+          await guessCallType();
         })
         .catch(() => {});
     } catch (e) {
@@ -1211,6 +1247,28 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     });
   }, [applyCallType]);
 
+  // The channel the rep switched to in the island (types by channel): the types, the proposals and
+  // live help follow it. A Vocify call is a call by construction and never switches.
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.shell.onCallChannel) return;
+    return bridge.shell.onCallChannel(({ kind }) => {
+      const draft = draftRef.current;
+      const all = allTypesRef.current;
+      if (!draft || !all || !byChannel(all.payload) || vocifyCallRef.current) return;
+      if (!LIVE_CHANNELS.includes(kind) || callKind(draft) === kind) return;
+      draft.channel = kind;
+      typeOptionsRef.current = optionsForCall();
+      proposalRef.current.attempts = 0;
+      proposalRef.current.lastConfident = false;
+      setCallMode(assistCallMode(kind));
+      const next = withChannelTypes(callTypeRef.current, typeOptionsRef.current.map((option) => option.key));
+      applyCallType(next);
+      scheduleSave();
+      if (!next.rep && !next.vocify) void guessCallType();
+    });
+  }, [applyCallType, guessCallType, optionsForCall, scheduleSave]);
+
   // Where the call happens; a recording that already started without it picks it up.
   useEffect(() => {
     const bridge = getDesktopBridge();
@@ -1253,17 +1311,21 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const words = lines.reduce((sum, line) => sum + line.split(/\s+/).length, 0);
     const state = proposalRef.current;
     const picked = Boolean(callTypeRef.current.rep);
-    if (state.busy || !proposalDue({ words, attempts: state.attempts, picked, lastConfident: state.lastConfident })) return;
+    if (state.busy || !proposalDue({ words, attempts: state.attempts, picked, lastConfident: state.lastConfident, total: state.total })) return;
     state.busy = true;
     state.attempts += 1;
+    state.total += 1;
     const draft = draftRef.current;
+    const kind = callKind(draft ?? {});
     void api
       .post<{ type: string | null; confident: boolean }>("/copilot/call-type/propose", {
         transcript_window: lines.join("\n").slice(-6000),
         options: typeOptionsRef.current,
+        interaction_kind: kind,
       })
       .then((proposal) => {
-        if (phaseRef.current !== "live" || draftRef.current !== draft) return;
+        // A proposal for the channel the call had before a switch is dropped.
+        if (phaseRef.current !== "live" || draftRef.current !== draft || callKind(draftRef.current ?? {}) !== kind) return;
         state.lastConfident = proposal.confident;
         if (proposal.type) applyCallType(withProposal(callTypeRef.current, proposal.type));
       })

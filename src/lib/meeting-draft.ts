@@ -13,6 +13,8 @@ export type MeetingDraft = {
   contact?: { hubspotId: string; name: string | null };
   /** Where the call happened, as the Mac saw it: the app or page, and whether that makes it a call or a meeting. */
   source?: CallSourceInfo;
+  /** The channel the rep switched to on the island (types by channel); absent, `source` decides. */
+  channel?: "call" | "meeting";
   /** The call type the island showed when the call ended; absent, Vocify reads it after. */
   type?: string;
   /** Who chose `type`: the rep's pick is final, Vocify's suggestion can still be corrected after the

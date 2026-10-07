@@ -570,6 +570,8 @@ export const productCatalog = {
       untitledWith: "{channel} · {duration}",
       filters: "Filters",
       noType: "No type",
+      channelLabel: "Channel",
+      typeLabel: "Type",
       status: {
         synced: "Synced",
         review: "To review",
@@ -1949,6 +1951,8 @@ export const productCatalog = {
       untitledWith: "{channel} · {duration}",
       filters: "Filtros",
       noType: "Sin tipo",
+      channelLabel: "Canal",
+      typeLabel: "Tipo",
       status: {
         synced: "Sincronizada",
         review: "Por revisar",

@@ -74,6 +74,13 @@ export const memosApi = {
   },
 
   /**
+   * Types by channel: move a memo to the other channel. A type that does not belong to it is cleared.
+   */
+  setChannel: (id: string, kind: 'call' | 'meeting'): Promise<{ sales_motion_key: string | null; interaction_kind: string; status: string }> => {
+    return api.post(`/memos/${encodeURIComponent(id)}/playbook`, { interaction_kind: kind });
+  },
+
+  /**
    * Get usage analytics (real stats from memos)
    */
   getUsage: (): Promise<UsageResponse> => {

@@ -8,6 +8,8 @@ import {
   liveHelpActive,
   proposalDue,
   typeForMemo,
+  withChannelTypes,
+  MAX_PROPOSALS_PER_CALL,
   withPick,
   withProposal,
 } from "./live-call-type.ts";
@@ -85,6 +87,11 @@ describe("callKind", () => {
     assert.equal(callKind({ source: { kind: null }, contact: { hubspotId: "c-1" } }), "call");
     assert.equal(callKind({}), "meeting");
   });
+
+  it("the channel the rep switched to wins over the platform", () => {
+    assert.equal(callKind({ channel: "call", source: { kind: "meeting" } }), "call");
+    assert.equal(callKind({ channel: "meeting", contact: { hubspotId: "c-1" } }), "meeting");
+  });
 });
 
 describe("the type the memo is sent with", () => {
@@ -98,5 +105,22 @@ describe("the type the memo is sent with", () => {
 
   it("sends nothing when there is no type", () => {
     assert.equal(typeForMemo(NO_CALL_TYPE), null);
+  });
+});
+
+describe("switching the channel live", () => {
+  it("drops a type that is not one of the new channel's, whoever chose it", () => {
+    const picked = withPick(withProposal(NO_CALL_TYPE, "cold"), "cold");
+    assert.deepEqual(withChannelTypes(picked, ["demo", "internal"]), NO_CALL_TYPE);
+  });
+
+  it("keeps a type that belongs to both channels", () => {
+    const state = withProposal(NO_CALL_TYPE, "follow_up");
+    assert.deepEqual(withChannelTypes(state, ["follow_up", "demo"]), state);
+  });
+
+  it("never asks the model more than the cap in one call", () => {
+    assert.equal(proposalDue({ words: 500, attempts: 0, picked: false, lastConfident: false, total: MAX_PROPOSALS_PER_CALL - 1 }), true);
+    assert.equal(proposalDue({ words: 500, attempts: 0, picked: false, lastConfident: false, total: MAX_PROPOSALS_PER_CALL }), false);
   });
 });
