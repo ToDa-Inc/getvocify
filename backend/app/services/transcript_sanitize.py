@@ -690,14 +690,12 @@ def start_transcript_patch(
     extra_names: Optional[list[str]],
     *,
     two_party: bool = False,
-    speakers_verified: bool = False,
     spoken_language: Optional[str] = None,
 ) -> Optional["asyncio.Task"]:
     """Start the LLM repair of misheard words (transcript_patch.py) and return at once, so it can
-    run while the call is read and extracted. None when it does not apply: two-channel desktop
-    calls already know who said what, and their live transcript was fixed as it arrived."""
-    if speakers_verified:
-        return None
+    run while the call is read and extracted. Two-channel desktop calls are repaired too: live
+    transcripts mishear brands ("PayDrive"), and a patch only replaces words inside a turn, so
+    the speakers the channels gave stay exactly as they were."""
     from app.services.transcript_patch import patch_transcript
 
     if not spoken_language:
@@ -725,7 +723,7 @@ async def finish_transcript_patch(task: Optional["asyncio.Task"], *, rules_ms: O
     from app.services.pipeline_meta import record_stage
 
     if task is None:
-        record_stage("sanitize", time.perf_counter(), skipped="speakers_verified")
+        record_stage("sanitize", time.perf_counter(), skipped="not_started")
         return None
     waiting = time.perf_counter()
     try:
@@ -772,7 +770,7 @@ async def prepare_transcript_for_extraction_async(
     rules_ms = round((time.perf_counter() - started) * 1000)
     task = start_transcript_patch(
         text, glossary, existing_values, extra_names,
-        two_party=two_party, speakers_verified=speakers_verified, spoken_language=spoken_language,
+        two_party=two_party, spoken_language=spoken_language,
     )
     patched = await finish_transcript_patch(task, rules_ms=rules_ms)
     return (patched.text if patched else text), glossary_text

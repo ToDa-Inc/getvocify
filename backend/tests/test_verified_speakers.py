@@ -54,14 +54,16 @@ def test_rep_notes_reach_the_prompt_only_when_written():
     assert "REP'S OWN NOTES" not in build_extraction_prompt("SPEAKER: S1\nhola", user_notes="  ")
 
 
-def test_two_channel_calls_skip_the_llm_rewrite(monkeypatch):
+def test_two_channel_calls_get_their_words_repaired_and_keep_their_speakers(monkeypatch):
     import asyncio
 
+    from app.services import transcript_patch as tp
     from app.services import transcript_sanitize as ts
 
-    async def boom(*_a, **_k):
-        raise AssertionError("LLM called for a two-channel call")
+    async def fix(text, *_a, **_k):
+        return tp.PatchResult(text=text.replace("la demo", "la demostración"), edits=[("la demo", "la demostración")])
 
-    monkeypatch.setattr("app.services.transcript_patch.patch_transcript", boom)
+    monkeypatch.setattr("app.services.transcript_patch.patch_transcript", fix)
     text, _ = asyncio.run(ts.prepare_transcript_for_extraction_async(MEETING, speakers_verified=True, spoken_language="es"))
-    assert "SPEAKER: S1" in text and "SPEAKER: S2" in text
+    assert "la demostración" in text
+    assert _speakers(text) == ["S1", "S2", "S3", "S1"]

@@ -298,7 +298,7 @@ def test_an_edit_proposed_for_a_turn_outside_its_window_is_dropped(llm):
 
 # --- where it plugs in ------------------------------------------------------------------------
 
-def test_the_stage_records_the_patch_and_two_channel_calls_skip_the_model(monkeypatch):
+def test_the_stage_records_the_patch_and_two_channel_calls_are_repaired_too(monkeypatch):
     from app.services import transcript_sanitize as ts
     from app.services import pipeline_meta
 
@@ -314,12 +314,9 @@ def test_the_stage_records_the_patch_and_two_channel_calls_skip_the_model(monkey
     assert "Vocify" in text and "Voicify" not in text
     assert seen[-1][0] == "sanitize" and seen[-1][1]["edits_applied"] == 1
 
-    async def boom(*_a, **_k):
-        raise AssertionError("model called for a two-channel call")
+    text, _ = asyncio.run(ts.prepare_transcript_for_extraction_async(TRANSCRIPT, two_party=True, speakers_verified=True, spoken_language="es"))
+    assert "Vocify" in text and seen[-1][1]["edits_applied"] == 1  # two-channel calls are repaired too
 
-    monkeypatch.setattr(tp, "patch_transcript", boom)
-    asyncio.run(ts.prepare_transcript_for_extraction_async(TRANSCRIPT, speakers_verified=True, spoken_language="es"))
-    assert seen[-1][1] == {"skipped": "speakers_verified"}
 
 
 # --- text written while the patch was running ---------------------------------------------------
@@ -344,10 +341,18 @@ def test_a_misheard_name_inside_a_longer_word_is_left_alone():
     assert tp.fix_outputs(None, [("Voicify", "Vocify")]) is None
 
 
-def test_two_channel_calls_start_no_patch():
+def test_two_channel_calls_are_repaired_too(monkeypatch):
     from app.services import transcript_sanitize as ts
 
-    assert ts.start_transcript_patch(TRANSCRIPT, None, None, None, speakers_verified=True) is None
+    async def fixed(text, terms, roles, **kw):
+        return tp.PatchResult(text=text.replace("Voicify", "Vocify"), edits=[("Voicify", "Vocify")])
+
+    monkeypatch.setattr(tp, "patch_transcript", fixed)
+
+    async def scenario():
+        return await ts.finish_transcript_patch(ts.start_transcript_patch(TRANSCRIPT, None, None, None, spoken_language="es"))
+
+    assert asyncio.run(scenario()).edits == [("Voicify", "Vocify")]
 
 
 def test_the_sanitize_stage_says_how_long_the_call_took_and_how_long_extraction_waited(monkeypatch):

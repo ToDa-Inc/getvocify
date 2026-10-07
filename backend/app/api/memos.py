@@ -290,6 +290,7 @@ async def _read_call_first(
     *,
     profile: Optional[dict],
     call_date: Optional[str],
+    speakers_verified: bool = False,
 ) -> tuple[Optional[dict], str]:
     """C04 v8 pipeline (INTELLIGENCE_CALL_READING_ENABLED): read the call before the CRM pass,
     so the note and the fields know who said what and what kind of call it was. Off, or on any
@@ -320,6 +321,13 @@ async def _read_call_first(
             playbooks=reading_playbooks(memo.get("company_id")),
             **context,
         )
+        if reading is not None and speakers_verified:
+            from app.services.intelligence.call_reading import keep_channel_roles, relabel, split_turns
+
+            turns = split_turns(transcript)
+            kept = keep_channel_roles(turns, reading)
+            if kept is not reading:
+                reading, relabeled = kept, relabel(turns, kept)
         if reading is not None and context.get("company_name"):
             reading = {**reading, "rep_company": context["company_name"]}
         return reading, relabeled
@@ -435,13 +443,13 @@ async def extract_memo_async(
             # (~3s): extraction reads the rule-cleaned text, the repair is applied to the stored
             # transcript and to what extraction wrote, and the memo is ready when all are done.
             patch_task = start_transcript_patch(
-                clean, glossary, existing_values, extra_names,
-                two_party=two_party, speakers_verified=verified,
+                clean, glossary, existing_values, extra_names, two_party=two_party,
             )
             try:
                 t_reading = time.perf_counter()
                 call_reading, for_extraction = await _read_call_first(
                     supabase, memo_id, clean, profile=profile, call_date=call_date,
+                    speakers_verified=verified,
                 )
                 record_stage("reading", t_reading, applied=call_reading is not None)
                 extraction = await extraction_service.extract(
