@@ -47,6 +47,8 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
   const previewRef = useRef<CallPreview | null>(null);
   /** The on-screen contact's recent activity, for the island's offer; it belongs to `previewRef`'s contact. */
   const briefRef = useRef<IslandBrief | null>(null);
+  /** The brief of the contact being called, for the whole call. */
+  const callBriefRef = useRef<string[] | null>(null);
   const copyRef = useRef(t.product);
   copyRef.current = t.product;
   const meetingRef = useRef(meeting);
@@ -120,7 +122,11 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
         // Never on top of a meeting being recorded (the island only offers it at rest, but say so anyway).
         if (meetingRef.current.phase !== "idle") return;
         const target = dialTargetFor(previewRef.current, accessRef.current);
-        if (target) void callEngine.dial(target, copyRef.current);
+        if (!target) return;
+        // The brief stays with this call, whatever tab the rep moves to while on it.
+        const brief = briefRef.current;
+        callBriefRef.current = brief?.state === "ready" ? brief.lines : null;
+        void callEngine.dial(target, copyRef.current);
       } else if (command.kind === "hangup") {
         callEngine.hangup();
       } else if (command.kind === "mute") {
@@ -141,7 +147,9 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
     let previous: CallEngineState = callEngine.getState();
     let holdTimer = 0;
     const onCall = (state: CallEngineState) => {
-      bridge.shell.setState({ dial: dialIsland(state) });
+      bridge.shell.setState({ dial: dialIsland(state, callBriefRef.current) });
+      // A call that is over never lends its brief to the next one.
+      if (isCallEnded(state)) callBriefRef.current = null;
       const target = state.target;
       if (previous.phase !== "active" && state.phase === "active" && target && state.callSid) {
         const callSid = state.callSid;
