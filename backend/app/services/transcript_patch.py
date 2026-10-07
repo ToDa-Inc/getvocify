@@ -169,7 +169,7 @@ def validate_patch(turns: list[dict], payload: Any, ctx: PatchContext,
         return accepted, [("", "", "malformed")]
     scope = set(indexes) if indexes is not None else set(range(len(turns)))
     changes = [c for c in payload["changes"] if isinstance(c, dict)]
-    if len(changes) > max(8, int(len(scope) * 0.4)):
+    if len(changes) > len(scope) + 5:  # more entries than turns: not a patch (the diff budget bounds the rest)
         return accepted, [("", "", f"too_many_changed_turns({len(changes)})")]
     full_text = " ".join(turns[i]["text"] for i in scope).lower()
     seen_pairs: set[tuple[int, str, str]] = set()
