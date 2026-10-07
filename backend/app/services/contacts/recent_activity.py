@@ -181,11 +181,30 @@ def grounded_lines(answer: Any, interactions: list[dict], company: Optional[dict
     lines = []
     for line in (answer or {}).get("lines", []) if isinstance(answer, dict) else []:
         text = " ".join(str((line or {}).get("text") or "").split())
-        # Cited the way the prompt shows them ("[hubspot:note:1]") is still a citation.
-        cited = [str(s).strip().strip("[]").strip() for s in (line or {}).get("sources") or []]
+        cited = _citations(line)
         if text and cited and all(source in known for source in cited):
             lines.append({"text": text, "sources": cited})
+        elif text:
+            logger.info("Recent activity summary: dropped a line citing %s", [c for c in cited if c not in known][:5] or "nothing")
     return lines[:SUMMARY_LINES]
+
+
+_CITED_ID = re.compile(r"(?:hubspot|vocify):[a-z_]+:[A-Za-z0-9-]+")
+
+
+def _citations(line: Any) -> list[str]:
+    """The ids a line cites, however the model wrote them: a list or one string, with or without the prompt's brackets."""
+    raw = (line or {}).get("sources") if isinstance(line, dict) else None
+    if raw is None and isinstance(line, dict):
+        raw = line.get("source")
+    parts = raw if isinstance(raw, list) else [raw] if raw else []
+    cited: list[str] = []
+    for part in parts:
+        found = _CITED_ID.findall(str(part))
+        for item in found or [str(part).strip().strip("[]").strip()]:
+            if item and item not in cited:
+                cited.append(item)
+    return cited
 
 
 async def summarize(

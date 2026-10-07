@@ -204,3 +204,14 @@ def body_model():
     from app.config import settings
 
     return settings.EXTRACTION_MODEL
+
+
+def test_citations_given_as_one_string_still_count(client, world):
+    world["llm"] = {"lines": [
+        {"text": "Demo yesterday; proposal to send.", "sources": "hubspot:meeting:m1, hubspot:task:t1"},
+        {"text": "Wants pricing for 12 seats.", "source": "[hubspot:note:n1]"},
+    ]}
+    assert get(client)["summary"]["lines"] == [
+        {"text": "Demo yesterday; proposal to send.", "sources": ["hubspot:meeting:m1", "hubspot:task:t1"]},
+        {"text": "Wants pricing for 12 seats.", "sources": ["hubspot:note:n1"]},
+    ]
