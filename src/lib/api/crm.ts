@@ -120,6 +120,11 @@ export const fieldPermissionsApi = {
 };
 
 export const crmApi = {
+  /** Whether the rep's own dialer recordings in the CRM (HubSpot calling, Aircall...) become memos. */
+  callRecordingsPreference: (): Promise<{ process: boolean }> =>
+    api.get<{ process: boolean }>("/crm/call-recordings-preference"),
+  setCallRecordingsPreference: (process: boolean): Promise<{ process: boolean }> =>
+    api.put<{ process: boolean }>("/crm/call-recordings-preference", { process }),
   async listConnections(): Promise<{
     connections: { id: string; provider: string; status: string; created_at?: string }[];
   }> {
