@@ -72,6 +72,8 @@ class CallTypeOption(BaseModel):
 
 class CallTypeProposeRequest(BaseModel):
     transcript_window: str = Field(..., max_length=20000)
+    # The call's channel: with types by channel only its types are proposed.
+    interaction_kind: Optional[Literal["call", "meeting"]] = None
     options: list[CallTypeOption] = Field(default_factory=list, max_length=50)
 
 
@@ -227,10 +229,8 @@ async def guess_call_type(
     supabase: Client = Depends(get_supabase),
 ):
     """The type to start a live call with, at no model cost."""
-    key, source = call_type.provisional_type(
-        call_type.last_contact_type(supabase, membership.company_id, body.contact_id),
-        call_type.rule_type(supabase, membership.company_id, membership.user_id, body.interaction_kind, body.contact_id),
-        call_type.published_keys(supabase, membership.company_id),
+    key, source = call_type.guess(
+        supabase, membership.company_id, membership.user_id, body.interaction_kind, body.contact_id,
     )
     return {"type": key, "source": source}
 
@@ -243,7 +243,9 @@ async def propose_call_type(
 ):
     """One model call: the published type the conversation so far points to."""
     labels = {option.key: option.label for option in body.options}
-    proposal = await call_type.propose(supabase, membership.company_id, body.transcript_window, labels)
+    proposal = await call_type.propose(
+        supabase, membership.company_id, body.transcript_window, labels, body.interaction_kind,
+    )
     return {"type": proposal[0], "confident": proposal[1]} if proposal else {"type": None, "confident": False}
 
 

@@ -43,6 +43,24 @@ def provisional_type(
     return None, None
 
 
+def guess(supabase: Any, company_id: str, user_id: str, kind: str, contact_id: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """(type, why) to start the call with, at no model cost. With types by channel: only a type of
+    this channel (with or without a playbook), starting from the last conversation with the contact,
+    else what the capture would start with (the channel's only type or a saved CRM condition)."""
+    from app.services.playbooks import channel_types
+
+    last = last_contact_type(supabase, company_id, contact_id)
+    if channel_types.enabled(supabase, company_id):
+        try:
+            keys = set(channel_types.candidates(channel_types._types(company_id), kind))
+        except Exception:
+            logger.warning("call type: channel types lookup failed", exc_info=True)
+            return None, None
+        start, _ = channel_types.resolve_at_capture(supabase, company_id, kind=kind, contact_id=contact_id)
+        return provisional_type(last, start, keys)
+    return provisional_type(last, rule_type(supabase, company_id, user_id, kind, contact_id), published_keys(supabase, company_id))
+
+
 def last_contact_type(supabase: Any, company_id: str, contact_id: Optional[str]) -> Optional[str]:
     """The type of the newest conversation the company had with this contact."""
     if not contact_id:
@@ -109,9 +127,22 @@ def published_types(supabase: Any, company_id: str, labels: dict[str, str]) -> l
     return sorted(types, key=lambda item: item["key"])
 
 
+def channel_types_offered(supabase: Any, company_id: str, kind: str, labels: dict[str, str]) -> list[dict]:
+    """Types by channel: the channel's types the rep can be offered ({key, label, about}), with or
+    without a playbook, each described the way the call reading is told about it."""
+    from app.services.playbooks import channel_types
+
+    types = channel_types._types(company_id)
+    keys = [key for key in channel_types.candidates(types, kind) if key in labels]
+    about = channel_types.describe(supabase, company_id, types, keys)
+    return [{"key": key, "label": labels[key], "about": about[key]} for key in keys]
+
+
 def proposal_messages(transcript_window: str, types: list[dict]) -> list[dict]:
     listed = "\n".join(
-        f'- key "{item["key"]}": {item["label"]}. Steps: {", ".join(item["steps"]) or "none"}' for item in types
+        f'- key "{item["key"]}": {item["about"]}' if item.get("about")
+        else f'- key "{item["key"]}": {item["label"]}. Steps: {", ".join(item["steps"]) or "none"}'
+        for item in types
     )
     return [
         {"role": "system", "content": _PROPOSAL_SYSTEM},
@@ -143,10 +174,18 @@ async def ask_model(messages: list[dict]) -> Any:
     )
 
 
-async def propose(supabase: Any, company_id: str, transcript_window: str, labels: dict[str, str]) -> Optional[tuple[str, bool]]:
-    """One model call: the published type the conversation so far points to."""
+async def propose(
+    supabase: Any, company_id: str, transcript_window: str, labels: dict[str, str], kind: Optional[str] = None,
+) -> Optional[tuple[str, bool]]:
+    """One model call: the type the conversation so far points to. A published one; with types by
+    channel, one of the call's channel."""
+    from app.services.playbooks import channel_types
+
     try:
-        types = published_types(supabase, company_id, labels)
+        if kind and channel_types.enabled(supabase, company_id):
+            types = channel_types_offered(supabase, company_id, kind, labels)
+        else:
+            types = published_types(supabase, company_id, labels)
     except Exception:
         logger.warning("call type: published playbooks lookup failed", exc_info=True)
         return None
