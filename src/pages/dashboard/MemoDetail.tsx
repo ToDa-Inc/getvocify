@@ -598,7 +598,7 @@ const MemoDetail = () => {
                 noteExtra={
                   <>
                     {memo?.hubspotContactId || memo?.hubspot_contact_id ? (
-                      <ContactBrief contactId={String(memo.hubspotContactId || memo.hubspot_contact_id)} />
+                      <ContactBrief contactId={String(memo.hubspotContactId || memo.hubspot_contact_id)} afterCall />
                     ) : null}
                   </>
                 }
