@@ -14,10 +14,12 @@ import {
   crmRecordKey,
   dialIsland,
   dialTargetFor,
+  islandBrief,
   onScreenFromPreview,
   outgoingCallerId,
   parseCallCommand,
   type CallingAccess,
+  type IslandBrief,
 } from "@/lib/desktop-call";
 import { getDesktopBridge } from "@/lib/desktop-host";
 import { useLanguage } from "@/lib/i18n";
@@ -43,6 +45,8 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
   const accessRef = useRef(access);
   accessRef.current = access;
   const previewRef = useRef<CallPreview | null>(null);
+  /** The on-screen contact's recent activity, for the island's offer; it belongs to `previewRef`'s contact. */
+  const briefRef = useRef<IslandBrief | null>(null);
   const copyRef = useRef(t.product);
   copyRef.current = t.product;
   const meetingRef = useRef(meeting);
@@ -62,15 +66,33 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
       // Another record: the old offer goes at once, so a quick click can never call the previous contact.
       shownKey = null;
       previewRef.current = null;
+      briefRef.current = null;
       bridge.shell.setState({ onScreen: null });
       if (!urls.length || !api.getToken()) return;
+      const show = () => {
+        const onScreen = onScreenFromPreview(previewRef.current, accessRef.current);
+        bridge.shell.setState({ onScreen: onScreen && briefRef.current ? { ...onScreen, brief: briefRef.current } : onScreen });
+      };
       api
         .post<CallPreview>("/live-calls/preview", { page_urls: urls })
         .then((preview) => {
           if (!lookups.isLatest(ticket)) return;
           shownKey = key;
           previewRef.current = preview;
-          bridge.shell.setState({ onScreen: onScreenFromPreview(preview, accessRef.current) });
+          const contactId = preview.callee?.contact_id;
+          briefRef.current = contactId ? { state: "loading" } : null;
+          show();
+          if (!contactId) return;
+          // What happened with them lately; a slow answer for a contact the rep has left is dropped.
+          api
+            .get<Parameters<typeof islandBrief>[0]>(`/contacts/${encodeURIComponent(contactId)}/recent-activity?connection_id=hubspot`)
+            .then((activity) => islandBrief(activity))
+            .catch(() => null)
+            .then((brief) => {
+              if (!lookups.isLatest(ticket)) return;
+              briefRef.current = brief;
+              show();
+            });
         })
         .catch(() => {
           // Unknown contact: no phone offer rather than a wrong one.
@@ -83,7 +105,8 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
   const { canDial, callerId } = access;
   useEffect(() => {
     if (!previewRef.current) return;
-    getDesktopBridge()?.shell.setState({ onScreen: onScreenFromPreview(previewRef.current, { canDial, callerId }) });
+    const onScreen = onScreenFromPreview(previewRef.current, { canDial, callerId });
+    getDesktopBridge()?.shell.setState({ onScreen: onScreen && briefRef.current ? { ...onScreen, brief: briefRef.current } : onScreen });
   }, [canDial, callerId]);
 
   // The island's call commands.

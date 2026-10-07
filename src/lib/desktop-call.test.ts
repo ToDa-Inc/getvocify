@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { IDLE_CALL, reduceCall, type CallEngineState, type DialTarget } from "./call-engine-state.ts";
 import type { CallPreview } from "./call-contact.ts";
-import { crmRecordKey, dialIsland, dialTargetFor, onScreenFromPreview, outgoingCallerId, parseCallCommand } from "./desktop-call.ts";
+import { crmRecordKey, dialIsland, dialTargetFor, islandBrief, onScreenFromPreview, outgoingCallerId, parseCallCommand } from "./desktop-call.ts";
 
 const CONTACT_PAGE: CallPreview = {
   provider: "hubspot",
@@ -170,5 +170,27 @@ describe("crmRecordKey", () => {
     assert.equal(crmRecordKey("https://app.hubspot.com/contacts/1/objects/0-1/views/all/list"), null);
     assert.equal(crmRecordKey("https://mail.google.com/mail/u/0/"), null);
     assert.equal(crmRecordKey(""), null);
+  });
+});
+
+describe("islandBrief", () => {
+  it("is the summary's first two lines, as the island shows them", () => {
+    const activity = {
+      summary: {
+        lines: [
+          { text: "Demo with the ops team yesterday.", sources: ["hubspot:meeting:m1"] },
+          { text: "Proposal still to send.", sources: ["hubspot:task:t1"] },
+          { text: "Budget confirmed for Q4.", sources: ["vocify:memo:1"] },
+        ],
+      },
+    };
+    assert.deepEqual(islandBrief(activity), { state: "ready", lines: ["Demo with the ops team yesterday.", "Proposal still to send."] });
+  });
+
+  it("is nothing when there is no summary or it has no lines, so the island does not grow", () => {
+    assert.equal(islandBrief({ summary: null }), null);
+    assert.equal(islandBrief({ summary: { lines: [] } }), null);
+    assert.equal(islandBrief({ summary: { lines: [{ text: "  ", sources: ["x"] }] } }), null);
+    assert.equal(islandBrief(null), null);
   });
 });

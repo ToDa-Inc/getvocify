@@ -21,7 +21,23 @@ export type OnScreen = {
   /** The verified number the call goes out from. */
   callerId: string | null;
   state: OnScreenState;
+  /** What happened with this contact lately (GET /contacts/{id}/recent-activity), while it loads or once it has lines. */
+  brief?: IslandBrief;
 };
+
+export type IslandBrief = { state: "loading" } | { state: "ready"; lines: string[] };
+
+/** At most two lines: the island is a glance, the full summary lives in Vocify. */
+const ISLAND_BRIEF_LINES = 2;
+
+/** The recent-activity summary as the island shows it; null when it has nothing to say (the island does not grow). */
+export function islandBrief(activity: { summary?: { lines?: { text?: string }[] } | null } | null | undefined): IslandBrief | null {
+  const lines = (activity?.summary?.lines ?? [])
+    .map((line) => (line.text ?? "").trim())
+    .filter(Boolean)
+    .slice(0, ISLAND_BRIEF_LINES);
+  return lines.length ? { state: "ready", lines } : null;
+}
 
 export type CallingAccess = {
   /** The company's plan includes the dialer. */
