@@ -386,7 +386,7 @@ async def extract_memo_async(
         from app.services.transcript_sanitize import (
             extraction_complete_update,
             is_two_party_source,
-            prepare_transcript_for_extraction,
+            prepare_transcript_for_extraction_async,
             speakers_are_verified,
         )
 
@@ -417,7 +417,8 @@ async def extract_memo_async(
                 glossary_terms=len(glossary or []),
                 has_product_context=bool((product_context or "").strip()),
             )
-            transcript, glossary_text = prepare_transcript_for_extraction(
+            stored_transcript = transcript
+            transcript, glossary_text = await prepare_transcript_for_extraction_async(
                 transcript,
                 glossary,
                 existing_values,
@@ -425,6 +426,9 @@ async def extract_memo_async(
                 two_party=is_two_party_source(source_type),
                 speakers_verified=speakers_are_verified((memo_row or {}).get("transcript_stt_meta")),
             )
+            if transcript != stored_transcript:
+                # What the reviewer reads is what extraction read.
+                update_memo_row(supabase, memo_id, {"transcript": transcript})
             call_reading, transcript = await _read_call_first(
                 supabase, memo_id, transcript, profile=profile, call_date=call_date,
             )
@@ -543,10 +547,6 @@ async def start_extraction_from_transcript(
         update_payload["transcript_confidence"] = transcript_confidence
 
     update_memo_row(supabase, memo_id, update_payload)
-
-    from app.services.transcript_sanitize import schedule_transcript_polish
-
-    schedule_transcript_polish(str(memo_id), user_id, transcript, supabase)
 
     extraction_service = ExtractionService()
     extract_coro = extract_memo_async(
@@ -2402,8 +2402,7 @@ async def reextract_memo_row(supabase: Client, memo_data: dict, *, trigger: str 
     from app.services.transcript_sanitize import (
         extraction_complete_update,
         is_two_party_source,
-        prepare_transcript_for_extraction,
-        schedule_transcript_polish,
+        prepare_transcript_for_extraction_async,
         speakers_are_verified,
     )
 
@@ -2418,7 +2417,8 @@ async def reextract_memo_row(supabase: Client, memo_data: dict, *, trigger: str 
         )
         profile = load_stt_profile(supabase, user_id)
         with pipeline_run(run_id=run_id, trigger=trigger) as stages:
-            transcript, glossary_text = prepare_transcript_for_extraction(
+            stored_transcript = transcript
+            transcript, glossary_text = await prepare_transcript_for_extraction_async(
                 transcript,
                 glossary,
                 existing_values,
@@ -2426,6 +2426,8 @@ async def reextract_memo_row(supabase: Client, memo_data: dict, *, trigger: str 
                 two_party=is_two_party_source(source_type),
                 speakers_verified=speakers_are_verified(memo_data.get("transcript_stt_meta")),
             )
+            if transcript != stored_transcript:
+                update_memo_row(supabase, str(memo_id), {"transcript": transcript})
             extraction_service = ExtractionService()
             extraction = await extraction_service.extract(
                 transcript, field_specs,
@@ -2469,7 +2471,6 @@ async def reextract_memo_row(supabase: Client, memo_data: dict, *, trigger: str 
         stages,
         run=run_record(run_id, trigger, started_at, t0, "ok"),
     )
-    schedule_transcript_polish(str(memo_id), user_id, transcript, supabase, memo_data=memo_data)
     schedule_followup(supabase, str(memo_id), company_id=memo_data.get("company_id"))
     from app.services.memo_extraction_hooks import run_post_extraction_hooks
 

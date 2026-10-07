@@ -83,3 +83,34 @@ async def test_other_models_still_go_to_openrouter_untouched():
     sent = json.loads(route.calls[0].request.content)
     assert sent["model"] == "google/gemini-3.8-flash"
     assert "reasoning" not in sent
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_by_default_a_failed_together_call_does_not_go_to_openrouter(monkeypatch):
+    monkeypatch.setattr(settings, "TOGETHER_FALLBACKS", {})
+    respx.post(TOGETHER_URL).mock(return_value=httpx.Response(503, json={"error": {"message": "busy"}}))
+    other = respx.post(OPENROUTER_URL).mock(return_value=_reply('{"ok": true}', "deepseek/deepseek-v4.1-flash"))
+    provider = OpenRouterProvider(api_key="or-key")
+    with pytest.raises(Exception):
+        await provider.chat_json([{"role": "user", "content": "hola"}], model=f"together/{MODEL}", max_retries=0)
+    assert other.call_count == 0
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_max_tokens_caps_the_answer_and_keeps_reasoning_off():
+    route = respx.post(TOGETHER_URL).mock(return_value=_reply('{"ok": true}'))
+    provider = OpenRouterProvider(api_key="or-key")
+    await provider.chat_json([{"role": "user", "content": "hola"}], model=f"together/{MODEL}", max_tokens=1500)
+    sent = json.loads(route.calls[0].request.content)
+    assert sent["max_tokens"] == 1500 and sent["reasoning"] == {"enabled": False}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_without_max_tokens_the_default_cap_applies():
+    route = respx.post(TOGETHER_URL).mock(return_value=_reply('{"ok": true}'))
+    provider = OpenRouterProvider(api_key="or-key")
+    await provider.chat_json([{"role": "user", "content": "hola"}], model=f"together/{MODEL}")
+    assert json.loads(route.calls[0].request.content)["max_tokens"] == settings.LLM_MAX_OUTPUT_TOKENS

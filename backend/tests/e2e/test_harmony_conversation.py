@@ -281,7 +281,6 @@ def _install_io_fakes(monkeypatch, crm: FakeHubSpot, llm: FakeLLM, confirm_write
     monkeypatch.setattr(memos_api, "_curated_field_specs_for_primary_crm", _no_specs)
     monkeypatch.setattr(whatsapp_processor, "get_field_specs", _no_specs)
     monkeypatch.setattr("app.services.extraction_context.load_existing_crm_values", _nothing)
-    monkeypatch.setattr("app.services.transcript_sanitize.schedule_transcript_polish", lambda *_a, **_k: None)
     monkeypatch.setattr(memo_approval, "ensure_hubspot_connection_tokens_fresh", _fresh)
     monkeypatch.setattr(memo_approval, "build_crm_provider", lambda *_a, **_k: crm)
     monkeypatch.setattr(confirmations, "fetch_deal_snapshot", crm.deal_snapshot)

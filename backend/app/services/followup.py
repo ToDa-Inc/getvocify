@@ -371,8 +371,7 @@ def _memo_company(supabase: Any, memo_id: str) -> Optional[str]:
 
 
 def schedule_followup(supabase: Any, memo_id: str, *, llm: Any = None, company_id: Optional[str] = None) -> bool:
-    """Fire-and-forget from any path that just completed an extraction. Same pattern as
-    schedule_transcript_polish.
+    """Fire-and-forget from any path that just completed an extraction.
 
     Returns whether a run was started: never with the switch off for the memo's company,
     and never outside an event loop (GET /memos/{id}/followup is then the safety net).

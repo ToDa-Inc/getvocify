@@ -90,7 +90,6 @@ def calls(monkeypatch):
         "app.services.transcript_sanitize.prepare_transcript_for_extraction",
         lambda transcript, *_a, **_k: (transcript, ""),
     )
-    monkeypatch.setattr("app.services.transcript_sanitize.schedule_transcript_polish", lambda *_a, **_k: None)
     monkeypatch.setattr("app.services.followup.schedule_followup", lambda *_a, **_k: False)
     monkeypatch.setattr("app.services.pipeline_lease.update_memo_row", lambda *_a, **_k: None)
     monkeypatch.setattr("app.services.intelligence.worker.record_enqueue", lambda *_a, **_k: None)
@@ -133,7 +132,6 @@ async def test_memo_creation_returns_before_the_hooks_run(calls):
     "target",
     [
         "app.services.pipeline_lease.update_memo_row",
-        "app.services.transcript_sanitize.schedule_transcript_polish",
         "app.services.followup.schedule_followup",
     ],
 )

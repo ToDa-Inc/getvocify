@@ -158,6 +158,7 @@ class VertexAIProvider(BaseLLMProvider):
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> dict:
         content = await self.chat(
             messages,

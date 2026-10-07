@@ -101,7 +101,10 @@ class Settings(BaseSettings):
     ASK_MODEL: Optional[str] = "deepseek/deepseek-v4.1-flash"
     ASK_FALLBACK_MODEL: Optional[str] = "google/gemini-3.8-flash"
     # Cheap second pass after deterministic name repair. Not the CRM extractor.
+    # The LLM repair of a transcript lists only the misheard words (app/services/transcript_patch.py).
     TRANSCRIPT_SANITIZE_LLM: bool = True
+    # Real names it must never "correct", on top of the built-in tools (HubSpot, Pipedrive...).
+    TRANSCRIPT_SANITIZE_PROTECTED_TERMS: list[str] = []
     TRANSCRIPT_SANITIZE_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
     # After file STT, pick one of the user's selected languages. Lite is enough.
     STT_LANGUAGE_DETECT_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
@@ -362,8 +365,9 @@ class Settings(BaseSettings):
     # here (USD per million tokens, in/out) so memos.cost_breakdown stays complete.
     TOGETHER_API_KEY: Optional[str] = None
     TOGETHER_PRICES: dict[str, tuple[float, float]] = {"deepseek-ai/DeepSeek-V4.1-Flash": (0.30, 1.20)}
-    # When Together fails after its retries, the same model through OpenRouter answers instead.
-    TOGETHER_FALLBACKS: dict[str, str] = {"deepseek-ai/DeepSeek-V4.1-Flash": "deepseek/deepseek-v4.1-flash"}
+    # Together answers or the call fails: no other provider stands in by default. A model id mapped
+    # here ({"deepseek-ai/...": "deepseek/..."}) is retried through OpenRouter after Together fails.
+    TOGETHER_FALLBACKS: dict[str, str] = {}
     # Jev (OpenRouter System One) decides follow-up email / callback / meeting on top of the C04
     # verdict: 36 calls with a wrong next action vs 38 for the DeepSeek verdict alone (151 calls).
     JEV_DECISIONS_ENABLED: bool = False
