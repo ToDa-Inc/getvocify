@@ -70,6 +70,12 @@ def test_text_that_is_not_in_the_turn_is_dropped():
     assert _reasons(_patch(("Buenos días", "Hola"))) == ["not_in_turn"]
 
 
+def test_many_changed_turns_in_a_call_with_few_long_turns_are_fine():
+    turns = [{"speaker": "S1", "text": f"Hablamos de Voicify en el punto {n}."} for n in "abcdefghij"]
+    payload = {"changes": [{"i": n, "replace": [["Voicify", "Vocify"]]} for n in range(9)]}
+    assert len(_accepted(payload, turns=turns)) == 9
+
+
 def test_a_flood_of_changed_turns_is_refused_whole():
     flood = {"changes": [{"i": 0, "replace": [["Voicify", "Vocify"]]}] * 40}
     assert _accepted(flood) == []
