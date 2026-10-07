@@ -322,7 +322,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       setTranscript(next);
       // A native recording draws the island itself.
       if (!nativeRef.current) {
-        getDesktopBridge()?.shell.setState({ lastLine: meetingLastLine(next), overlay: meetingOverlay(next) });
+        const prospect = vocifyCallRef.current?.contact?.name ?? null;
+        getDesktopBridge()?.shell.setState({ lastLine: meetingLastLine(next), overlay: meetingOverlay(next, { prospect }) });
       }
       if (draftRef.current) scheduleSave();
     },

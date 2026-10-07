@@ -54,6 +54,9 @@ export function BriefLines({
   );
 }
 
+/** A status sentence, not a fact: under the call it describes, «Última vez: hoy. No quedó nada pendiente.» says nothing. */
+const STATUS_ONLY = new Set(["nothing_pending", "no_conversation"]);
+
 /** Only BRIEF_V2_ENABLED answers carry `label` (null when there is none). */
 function isV2(payload: BriefPayload): boolean {
   return Object.prototype.hasOwnProperty.call(payload, "label");
@@ -63,10 +66,13 @@ export function ContactBrief({
   contactId,
   compact = false,
   meetingPrep = false,
+  afterCall = false,
 }: {
   contactId: string;
   compact?: boolean;
   meetingPrep?: boolean;
+  /** On the memo of a conversation: only what is still open, never the "nothing pending" status. */
+  afterCall?: boolean;
 }) {
   const query = useQuery({
     queryKey: ["brief", contactId],
@@ -89,6 +95,8 @@ export function ContactBrief({
       </section>
     );
   }
+
+  if (afterCall && STATUS_ONLY.has(query.data.status ?? "")) return null;
 
   if (!compact && !isV2(query.data)) {
     const lines = visibleBrief(query.data);

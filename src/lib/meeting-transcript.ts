@@ -524,13 +524,17 @@ export type MeetingOverlayTurn = {
   pending: string;
 };
 
-/** What the notch island shows when opened: the whole conversation, untrimmed. */
-export function meetingOverlay(state: MeetingTranscript): { turns: MeetingOverlayTurn[] } {
+/**
+ * What the notch island shows when opened: the whole conversation, untrimmed. On a call to a
+ * known contact (`prospect`), the other side is called by that name instead of "Them".
+ */
+export function meetingOverlay(state: MeetingTranscript, { prospect }: { prospect?: string | null } = {}): { turns: MeetingOverlayTurn[] } {
+  const name = prospect?.trim() || null;
   return {
     turns: meetingDisplayTurns(state).map((row) => ({
       key: row.key,
       you: row.speaker === "rep",
-      label: row.label,
+      label: name && row.speaker === "prospect" && !row.name ? name : row.label,
       text: row.text,
       pending: row.pending,
     })),
