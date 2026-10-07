@@ -320,3 +320,71 @@ def test_the_stage_records_the_patch_and_two_channel_calls_skip_the_model(monkey
     monkeypatch.setattr(tp, "patch_transcript", boom)
     asyncio.run(ts.prepare_transcript_for_extraction_async(TRANSCRIPT, speakers_verified=True, spoken_language="es"))
     assert seen[-1][1] == {"skipped": "speakers_verified"}
+
+
+# --- text written while the patch was running ---------------------------------------------------
+
+def test_names_fixed_in_the_transcript_are_fixed_in_what_extraction_wrote():
+    data = {"summary": "Hablan de Voicify y Voicify's precio.", "next_steps": ["Enviar info de Voicify"],
+            "fields": {"company": "Voicify", "n": 3, "ok": True, "none": None}}
+    fixed = tp.fix_outputs(data, [("Voicify", "Vocify")])
+    assert fixed == {"summary": "Hablan de Vocify y Vocify's precio.", "next_steps": ["Enviar info de Vocify"],
+                     "fields": {"company": "Vocify", "n": 3, "ok": True, "none": None}}
+    assert data["summary"].startswith("Hablan de Voicify")  # the input is not mutated
+
+
+def test_phrase_fixes_and_short_words_are_not_applied_to_prose():
+    data = {"summary": "Vamos to the list de cosas, al fundador no."}
+    edits = [("to the list", "to-do list"), ("al fundador", "el fundador"), ("ha", "he"), ("Voy", "Voi")]
+    assert tp.fix_outputs(data, edits) == data
+
+
+def test_a_misheard_name_inside_a_longer_word_is_left_alone():
+    assert tp.fix_outputs("Voicifyers", [("Voicify", "Vocify")]) == "Voicifyers"
+    assert tp.fix_outputs(None, [("Voicify", "Vocify")]) is None
+
+
+def test_two_channel_calls_start_no_patch():
+    from app.services import transcript_sanitize as ts
+
+    assert ts.start_transcript_patch(TRANSCRIPT, None, None, None, speakers_verified=True) is None
+
+
+def test_the_sanitize_stage_says_how_long_the_call_took_and_how_long_extraction_waited(monkeypatch):
+    from app.services import pipeline_meta
+    from app.services import transcript_sanitize as ts
+
+    seen = []
+    monkeypatch.setattr(pipeline_meta, "record_stage", lambda name, started, **info: seen.append((name, info)))
+
+    async def slow(text, terms, roles, **kw):
+        await asyncio.sleep(0.05)
+        return tp.PatchResult(text=text, model="m", provider="together")
+
+    monkeypatch.setattr(tp, "patch_transcript", slow)
+
+    async def scenario():
+        task = ts.start_transcript_patch(TRANSCRIPT, None, None, None, two_party=True, spoken_language="es")
+        await asyncio.sleep(0.15)  # the rest of the pipeline takes longer than the patch
+        return await ts.finish_transcript_patch(task, rules_ms=12)
+
+    result = asyncio.run(scenario())
+    assert result.provider == "together"
+    name, info = seen[-1]
+    assert name == "sanitize" and info["waited_ms"] <= 5 and info["rules_ms"] == 12
+
+
+def test_a_cancelled_patch_does_not_break_finishing(monkeypatch):
+    from app.services import transcript_sanitize as ts
+
+    async def never(text, terms, roles, **kw):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(tp, "patch_transcript", never)
+
+    async def scenario():
+        task = ts.start_transcript_patch(TRANSCRIPT, None, None, None, spoken_language="es")
+        ts.cancel_transcript_patch(task)
+        return await ts.finish_transcript_patch(task)
+
+    assert asyncio.run(scenario()) is None

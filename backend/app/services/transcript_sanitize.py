@@ -7,6 +7,7 @@ It must not summarize, invent, or replace a spoken name with the CRM name
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -682,6 +683,75 @@ def prepare_transcript_for_extraction(
     return text, format_terms_for_llm(terms)
 
 
+def start_transcript_patch(
+    transcript: str,
+    glossary: Optional[list[dict[str, Any]]],
+    existing_values: Optional[dict[str, Any]],
+    extra_names: Optional[list[str]],
+    *,
+    two_party: bool = False,
+    speakers_verified: bool = False,
+    spoken_language: Optional[str] = None,
+) -> Optional["asyncio.Task"]:
+    """Start the LLM repair of misheard words (transcript_patch.py) and return at once, so it can
+    run while the call is read and extracted. None when it does not apply: two-channel desktop
+    calls already know who said what, and their live transcript was fixed as it arrived."""
+    if speakers_verified:
+        return None
+    from app.services.transcript_patch import patch_transcript
+
+    if not spoken_language:
+        try:
+            from app.services.session_entities import get_batch_stt_language
+
+            spoken_language = get_batch_stt_language()
+        except Exception:
+            spoken_language = None
+    terms = collect_sanitize_terms(glossary, existing_values, extra_names)
+    roles = role_hints_from_context(existing_values, extra_names)
+
+    async def run() -> tuple[Any, float]:
+        started = time.perf_counter()
+        result = await patch_transcript(transcript, terms, roles, spoken_language=spoken_language, two_party=two_party)
+        return result, time.perf_counter() - started
+
+    return asyncio.ensure_future(run())
+
+
+async def finish_transcript_patch(task: Optional["asyncio.Task"], *, rules_ms: Optional[int] = None) -> Optional[Any]:
+    """Wait for the repair (normally already done) and record the "sanitize" stage: how long the
+    call itself took, how long extraction then waited for it (0 = fully hidden), and every edit
+    it applied or refused. Never raises."""
+    from app.services.pipeline_meta import record_stage
+
+    if task is None:
+        record_stage("sanitize", time.perf_counter(), skipped="speakers_verified")
+        return None
+    waiting = time.perf_counter()
+    try:
+        result, took = await task
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if task.cancelled() and not (current and current.cancelling()):
+            record_stage("sanitize", time.perf_counter(), skipped="cancelled")
+            return None
+        raise  # this coroutine itself is being cancelled
+    except Exception as exc:  # patch_transcript does not raise; a cancelled or broken task is not the memo's problem
+        logger.warning("Transcript patch task failed: %s", exc)
+        record_stage("sanitize", time.perf_counter(), skipped=f"error:{type(exc).__name__}")
+        return None
+    record_stage(
+        "sanitize", time.perf_counter() - took,
+        waited_ms=round((time.perf_counter() - waiting) * 1000), rules_ms=rules_ms, **result.stage_info(),
+    )
+    return result
+
+
+def cancel_transcript_patch(task: Optional["asyncio.Task"]) -> None:
+    if task is not None and not task.done():
+        task.cancel()
+
+
 async def prepare_transcript_for_extraction_async(
     transcript: str,
     glossary: Optional[list[dict[str, Any]]] = None,
@@ -691,45 +761,21 @@ async def prepare_transcript_for_extraction_async(
     two_party: bool = False,
     speakers_verified: bool = False,
 ) -> tuple[str, str]:
-    """`prepare_transcript_for_extraction` plus the LLM patch for what rules cannot know
-    (a misheard "Voicify" that is not in the glossary). Same return value; the patch is
-    ~1s and never fails the call: the rule-cleaned text is returned when it does not apply.
-    Records the "sanitize" pipeline stage, with every edit it made or refused."""
-    from app.services.pipeline_meta import record_stage
-    from app.services.transcript_patch import patch_transcript
-
-    t0 = time.perf_counter()
-    if not spoken_language:
-        try:
-            from app.services.session_entities import get_batch_stt_language
-
-            spoken_language = get_batch_stt_language()
-        except Exception:
-            spoken_language = None
+    """`prepare_transcript_for_extraction` plus the LLM patch, one after the other, for paths
+    that have nothing to overlap it with (re-extract, WhatsApp). Same return value; the rule-
+    cleaned text comes back whenever the patch does not apply."""
+    started = time.perf_counter()
     text, glossary_text = prepare_transcript_for_extraction(
-        transcript,
-        glossary,
-        existing_values,
-        extra_names,
-        spoken_language=spoken_language,
-        two_party=two_party,
-        speakers_verified=speakers_verified,
+        transcript, glossary, existing_values, extra_names,
+        spoken_language=spoken_language, two_party=two_party, speakers_verified=speakers_verified,
     )
-    if speakers_verified:
-        # Two channels (desktop) already know who said what, and the live transcript was fixed
-        # against the glossary as it arrived: a repair pass found nothing to fix there.
-        record_stage("sanitize", t0, skipped="speakers_verified")
-        return text, glossary_text
-    patched = await patch_transcript(
-        text,
-        collect_sanitize_terms(glossary, existing_values, extra_names),
-        role_hints_from_context(existing_values, extra_names),
-        spoken_language=spoken_language,
-        two_party=two_party,
+    rules_ms = round((time.perf_counter() - started) * 1000)
+    task = start_transcript_patch(
+        text, glossary, existing_values, extra_names,
+        two_party=two_party, speakers_verified=speakers_verified, spoken_language=spoken_language,
     )
-    record_stage("sanitize", t0, **patched.stage_info())
-    return patched.text, glossary_text
-
+    patched = await finish_transcript_patch(task, rules_ms=rules_ms)
+    return (patched.text if patched else text), glossary_text
 
 
 async def sanitize_user_transcript(
