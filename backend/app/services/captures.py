@@ -207,6 +207,16 @@ def playbook_fields_for_capture(
     pinned_id = (playbook_version_id or "").strip() or None
     pin_source: Optional[str] = None
     pin_provisional = False
+    if not motion and not pinned_id:
+        from app.services.playbooks import channel_types
+
+        if channel_types.enabled(supabase, company_id):
+            # Types by channel: the channel's only type, or a CRM condition the company saved; else
+            # nothing, and the call reading decides. Never the role, never "the one published playbook".
+            key, source = channel_types.resolve_at_capture(
+                supabase, company_id, kind=interaction_kind, contact_id=hubspot_contact_id, deal_id=hubspot_deal_id,
+            )
+            return channel_types.pin_fields(supabase, company_id, key, source) if key and source else {}
     if not motion and not pinned_id and interaction_kind:
         # D5: the rep's role picks the flow, but only behind the flag, and only when that
         # flow actually has something published. Otherwise the rule below (single published

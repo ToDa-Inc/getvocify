@@ -181,6 +181,43 @@ def pin_fields(supabase: Any, company_id: str, key: str, source: str, existing_m
     }
 
 
+def recheck_crm(supabase: Any, memo: dict) -> dict:
+    """Right before C04: a CRM condition the company saved, matched with what is known by now (the
+    contact or deal may only be known after the capture). It beats the call reading and a live
+    suggestion; a person's pick or an earlier CRM decision stays. Returns the memo as it is now.
+    Never raises."""
+    try:
+        from app.services.captures import interaction_kind_of
+
+        company_id = str(memo.get("company_id") or "")
+        meta = memo.get("pipeline_meta")
+        if not company_id or not memo.get("id") or pin_source(meta) in FINAL_SOURCES:
+            return memo
+        kind = interaction_kind_of(memo)
+        types = _types(company_id)
+        rules = crm_rules(types, candidates(types, kind))
+        if not rules:
+            return memo
+        context = build_context(
+            supabase, company_id, _needs(rules),
+            contact_id=memo.get("hubspot_contact_id"),
+            deal_id=memo.get("hubspot_deal_id") or memo.get("matched_deal_id"),
+            exclude_memo_id=str(memo["id"]),
+        )
+        key = crm_choice(rules, kind, context)
+        current = memo.get("sales_motion_key")
+        if not key or key == current:
+            return memo
+        update = pin_fields(supabase, company_id, key, CRM_SOURCE, meta, **({"repinned_from": current} if current else {}))
+        from app.services.playbooks.type_classifier import NOT_MANUAL_FILTER
+
+        supabase.table("memos").update(update).eq("id", str(memo["id"])).or_(NOT_MANUAL_FILTER).execute()
+        return {**memo, **update}
+    except Exception:
+        logger.warning("type by channel: CRM re-check failed", exc_info=True)
+        return memo
+
+
 def type_name(key: str, row: Optional[dict], lang: str = "es") -> str:
     return (row or {}).get("label") or catalog_label(key, lang) or key
 

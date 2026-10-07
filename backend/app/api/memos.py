@@ -302,7 +302,7 @@ async def _read_call_first(
 
     try:
         rows = supabase.table("memos").select(
-            "id,company_id,user_id,hubspot_contact_id,created_at"
+            "id,company_id,user_id,hubspot_contact_id,created_at,interaction_kind,source,source_type"
         ).eq("id", str(memo_id)).limit(1).execute().data or []
         memo = rows[0] if rows else {}
         if not memo or not is_enabled(supabase, memo.get("company_id"), CALL_READING_FLAG):
@@ -318,7 +318,7 @@ async def _read_call_first(
             transcript, LLMClient(), model=settings.INTELLIGENCE_MODEL,
             captured_at=str(call_date or memo.get("created_at") or ""),
             # The same read names the playbook the call was, from the company's own types.
-            playbooks=reading_playbooks(memo.get("company_id")),
+            playbooks=reading_playbooks(memo.get("company_id"), kind=interaction_kind_of(memo), supabase=supabase),
             **context,
         )
         if reading is not None and speakers_verified:

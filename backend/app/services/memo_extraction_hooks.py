@@ -336,6 +336,11 @@ def _tag_internal(supabase, memo: dict, extraction: dict) -> dict:
         return memo
     if not is_enabled(supabase, memo.get("company_id"), "INTERNAL_DETECTION_ENABLED"):
         return memo
+    from app.services.playbooks import channel_types
+
+    if channel_types.enabled(supabase, memo.get("company_id")) and _was_read(memo, extraction):
+        # Types by channel: the call reading already decided whether it was internal; one detector.
+        return memo
     # `memo` may have been read before the model call (re-extract): decide on the pin as it is
     # stored now, so a manual retag made in that window is never overwritten.
     current = _load_memo(supabase, str(memo["id"]))
@@ -348,6 +353,11 @@ def _tag_internal(supabase, memo: dict, extraction: dict) -> dict:
         logger.exception("internal tag failed", extra={"memo_id": memo.get("id")})
         return memo
     return {**memo, **update}
+
+
+def _was_read(memo: dict, extraction: dict) -> bool:
+    stored = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+    return bool(extraction.get("call_reading") or stored.get("call_reading"))
 
 
 def _load_memo(supabase, memo_id: str) -> dict | None:

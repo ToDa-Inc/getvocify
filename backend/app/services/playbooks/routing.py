@@ -328,6 +328,11 @@ def repin_before_c04(supabase: Any, memo: dict) -> dict:
     try:
         company_id = memo.get("company_id")
         memo_id = memo.get("id")
+        from app.services.playbooks import channel_types
+
+        if company_id and channel_types.enabled(supabase, str(company_id)):
+            # Types by channel: no role routing; only a CRM condition the company saved may re-pin.
+            return channel_types.recheck_crm(supabase, memo)
         if not company_id or not memo_id or not routing_enabled(supabase, company_id):
             return memo
         if not is_repinnable(memo.get("pipeline_meta")):
