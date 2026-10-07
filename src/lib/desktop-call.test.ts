@@ -98,12 +98,24 @@ describe("dialIsland", () => {
       answeredAt: null,
       muted: false,
       message: null,
+      brief: null,
     });
   });
 
   it("an unanswered call ends with the carrier's reason", () => {
     const s = step(IDLE_CALL, { type: "dial", target: ANA }, { type: "outcome", message: "Busy" }, { type: "ended", at: 2 });
     assert.deepEqual([dialIsland(s)?.phase, dialIsland(s)?.message], ["ended", "Busy"]);
+  });
+
+  it("carries the contact's brief for as long as the call is up, and not after a missed call", () => {
+    const brief = ["Demo yesterday.", "Proposal to send."];
+    const ringing = step(IDLE_CALL, { type: "dial", target: ANA }, { type: "ringing" });
+    assert.deepEqual(dialIsland(ringing, brief)?.brief, brief);
+    const active = step(ringing, { type: "accepted", at: 1 });
+    assert.deepEqual(dialIsland(active, brief)?.brief, brief);
+    assert.equal(dialIsland(ringing)?.brief, null);
+    const missed = step(IDLE_CALL, { type: "dial", target: ANA }, { type: "outcome", message: "Busy" }, { type: "ended", at: 2 });
+    assert.equal(dialIsland(missed, brief)?.brief, null);
   });
 
   it("an answered call hands over to the post-call card when it ends", () => {

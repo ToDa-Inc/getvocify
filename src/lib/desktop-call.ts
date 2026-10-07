@@ -53,6 +53,8 @@ export type DialIsland = {
   muted: boolean;
   /** Why an unanswered call ended, in the rep's language; null shows the island's own "Call ended". */
   message: string | null;
+  /** What happened with the contact lately, kept for the whole call (the offer's brief when Call was pressed). */
+  brief: string[] | null;
 };
 
 export type CallCommand =
@@ -93,14 +95,14 @@ export function dialTargetFor(preview: CallPreview | null | undefined, access: C
   };
 }
 
-export function dialIsland(state: CallEngineState): DialIsland | null {
+export function dialIsland(state: CallEngineState, brief: string[] | null = null): DialIsland | null {
   const target = state.target;
   if (!target) return null;
   const shown = { name: target.name, phone: target.to, answeredAt: state.answeredAt, muted: state.muted };
-  if (isCallUp(state)) return { ...shown, phase: state.phase as DialIsland["phase"], message: null };
+  if (isCallUp(state)) return { ...shown, phase: state.phase as DialIsland["phase"], message: null, brief: brief?.length ? brief : null };
   // An answered call carries on as the recording → post-call card; only a missed one stays here.
   if (isCallEnded(state) && !state.answered) {
-    return { ...shown, phase: "ended", message: state.outcome ?? state.error };
+    return { ...shown, phase: "ended", message: state.outcome ?? state.error, brief: null };
   }
   return null;
 }
