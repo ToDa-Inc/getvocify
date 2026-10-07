@@ -103,11 +103,15 @@ def test_the_upload_keeps_the_app_the_call_happened_in():
     assert "pipeline_meta" not in _upload()
 
 
-def _picked(key: str, live):
+def _picked(key: str, live, source=None, by_channel=False, types=None, kind="meeting"):
     supabase = MagicMock()
     update = supabase.table.return_value.update
-    with patch("app.services.playbooks.live.live_version_id", return_value=live):
-        memos._pin_picked_type(supabase, {"id": "memo-1", "company_id": "co-1", "pipeline_meta": {"call_source": "Zoom"}}, key)
+    memo = {"id": "memo-1", "company_id": "co-1", "interaction_kind": kind, "pipeline_meta": {"call_source": "Zoom"}}
+    with patch("app.services.playbooks.live.live_version_id", return_value=live), \
+            patch("app.services.playbooks.channel_types.live_version_id", return_value=live), \
+            patch("app.services.playbooks.channel_types.enabled", return_value=by_channel), \
+            patch("app.services.playbooks.channel_types._types", return_value=types or {}):
+        memos._pin_picked_type(supabase, memo, key, *([source] if source else []))
     return update.call_args.args[0] if update.called else None
 
 
@@ -121,3 +125,32 @@ def test_a_type_picked_during_the_call_is_pinned_as_the_reps_own():
 def test_internal_needs_no_playbook_and_an_unpublished_pick_is_ignored():
     assert _picked("internal", None)["playbook_version_id"] is None
     assert _picked("negotiation", None) is None
+
+
+def test_a_type_vocify_suggested_is_pinned_as_live_so_the_call_reading_can_still_correct_it():
+    row = _picked("discovery", "v-1", source="vocify")
+    assert row["pipeline_meta"]["playbook_pin"]["source"] == "live"
+    assert row["playbook_version_id"] == "v-1"
+
+
+def test_the_upload_says_who_chose_the_type_and_absent_means_the_rep():
+    assert UploadTranscriptRequest(transcript="x").type_source == "rep"
+    assert UploadTranscriptRequest(transcript="x", type_source="vocify").type_source == "vocify"
+    with pytest.raises(ValidationError):
+        UploadTranscriptRequest(transcript="x", type_source="ai")
+
+
+MEETING_TYPES = {
+    "demo": {"status": "missing", "applies_to": {"role": "any", "channels": ["meeting"], "contact": "any", "deal_stages": []}},
+    "cold": {"status": "published", "applies_to": {"role": "any", "channels": ["call"], "contact": "any", "deal_stages": []}},
+}
+
+
+def test_by_channel_a_type_without_a_playbook_is_pinned_as_a_label():
+    row = _picked("demo", None, source="rep", by_channel=True, types=MEETING_TYPES)
+    assert row["sales_motion_key"] == "demo" and row["playbook_version_id"] is None
+    assert row["pipeline_meta"]["playbook_pin"]["source"] == "manual"
+
+
+def test_by_channel_a_type_of_another_channel_is_ignored():
+    assert _picked("cold", "v-1", source="rep", by_channel=True, types=MEETING_TYPES) is None

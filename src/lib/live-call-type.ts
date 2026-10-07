@@ -38,6 +38,15 @@ export function callTypeShown(state: CallTypeState): { key: string | null; propo
   return { key: state.vocify, proposed: Boolean(state.vocify) };
 }
 
+/** Who chose the type the memo is sent with: the rep's pick is theirs; Vocify's suggestion stays one,
+ * so the call reading after the call can still correct it. */
+export type TypeSource = "rep" | "vocify";
+
+export function typeForMemo(state: CallTypeState): { key: string; source: TypeSource } | null {
+  if (state.rep) return { key: state.rep, source: "rep" };
+  return state.vocify ? { key: state.vocify, source: "vocify" } : null;
+}
+
 /** At most two proposals a call, none once the rep picked: the type never costs more model calls. */
 export function proposalDue(input: { words: number; attempts: number; picked: boolean; lastConfident: boolean }): boolean {
   if (input.picked) return false;

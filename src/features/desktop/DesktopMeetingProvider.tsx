@@ -71,6 +71,7 @@ import {
   callKind,
   callTypeShown,
   proposalDue,
+  typeForMemo,
   withPick,
   withProposal,
   type CallTypeState,
@@ -236,6 +237,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     contact?: MeetingDraft["contact"];
     source?: CallSourceInfo;
     type?: string;
+    typeSource?: MeetingDraft["typeSource"];
   } | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const recoveredForRef = useRef<string | null>(null);
@@ -306,8 +308,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     setCallTypeState(next);
     const shown = callTypeShown(next);
     if (draftRef.current) {
-      if (shown.key) draftRef.current.type = shown.key;
-      else delete draftRef.current.type;
+      const forMemo = typeForMemo(next);
+      if (forMemo) {
+        draftRef.current.type = forMemo.key;
+        draftRef.current.typeSource = forMemo.source;
+      } else {
+        delete draftRef.current.type;
+        delete draftRef.current.typeSource;
+      }
     }
     if (typeOptionsRef.current.length) {
       getDesktopBridge()?.shell.setState({
@@ -351,6 +359,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         interactionKind: callKind(draft),
         callSource: draft.source?.name,
         salesMotionKey: draft.type,
+        typeSource: draft.typeSource ?? "vocify",
         sourceType: "meeting_transcript",
         speakersVerified: true,
         notes: draft.notes,
@@ -794,6 +803,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             hubspotContactId: draft.contact?.hubspotId,
             callSource: VOCIFY_CALL_SOURCE.name,
             salesMotionKey: draft.type,
+            typeSource: draft.typeSource ?? "vocify",
             participants: meetingParticipants(draft.transcript),
             callSid: call.callSid,
             callDurationSeconds: Math.round((Date.now() - draft.startedAt) / 1000),

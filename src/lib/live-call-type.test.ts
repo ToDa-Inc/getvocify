@@ -7,6 +7,7 @@ import {
   callTypeShown,
   liveHelpActive,
   proposalDue,
+  typeForMemo,
   withPick,
   withProposal,
 } from "./live-call-type.ts";
@@ -83,5 +84,19 @@ describe("callKind", () => {
     assert.equal(callKind({ source: { kind: "call" } }), "call");
     assert.equal(callKind({ source: { kind: null }, contact: { hubspotId: "c-1" } }), "call");
     assert.equal(callKind({}), "meeting");
+  });
+});
+
+describe("the type the memo is sent with", () => {
+  it("says the rep chose it only when the rep picked it", () => {
+    assert.deepEqual(typeForMemo(withPick(withProposal(NO_CALL_TYPE, "discovery"), "closing")), { key: "closing", source: "rep" });
+  });
+
+  it("sends Vocify's suggestion as Vocify's, so the reading after the call can still correct it", () => {
+    assert.deepEqual(typeForMemo(withProposal(NO_CALL_TYPE, "discovery")), { key: "discovery", source: "vocify" });
+  });
+
+  it("sends nothing when there is no type", () => {
+    assert.equal(typeForMemo(NO_CALL_TYPE), null);
   });
 });

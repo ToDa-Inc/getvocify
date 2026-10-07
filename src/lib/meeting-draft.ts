@@ -13,8 +13,11 @@ export type MeetingDraft = {
   contact?: { hubspotId: string; name: string | null };
   /** Where the call happened, as the Mac saw it: the app or page, and whether that makes it a call or a meeting. */
   source?: CallSourceInfo;
-  /** The call type the rep picked in the island while recording; absent, Vocify reads it after. */
+  /** The call type the island showed when the call ended; absent, Vocify reads it after. */
   type?: string;
+  /** Who chose `type`: the rep's pick is final, Vocify's suggestion can still be corrected after the
+   * call. Drafts saved before this field existed are sent as Vocify's. */
+  typeSource?: "rep" | "vocify";
 };
 
 export type CallSourceInfo = { name: string; kind: "call" | "meeting" | null };
