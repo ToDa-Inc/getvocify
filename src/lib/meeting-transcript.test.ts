@@ -200,6 +200,16 @@ describe("meetingOverlay", () => {
     ]);
   });
 
+  it("on a call to a known contact, the other side is that contact rather than Them", async () => {
+    const { meetingOverlay } = await import("./meeting-transcript.ts");
+    const state = feed([
+      ["Hola.", true, "rep"],
+      ["Sí, le escucho bien.", true, "prospect"],
+    ]);
+    assert.deepEqual(meetingOverlay(state, { prospect: "Ana Ruiz" }).turns.map((t) => t.label), ["You", "Ana Ruiz"]);
+    assert.deepEqual(meetingOverlay(state, { prospect: "  " }).turns.map((t) => t.label), ["You", "Them"]);
+  });
+
   it("is empty before anyone speaks", async () => {
     const { meetingOverlay } = await import("./meeting-transcript.ts");
     assert.deepEqual(meetingOverlay(EMPTY_MEETING_TRANSCRIPT), { turns: [] });
