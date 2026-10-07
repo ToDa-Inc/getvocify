@@ -22,7 +22,7 @@ export function askCallTargets(turn: { call_targets?: AskCallTarget[] | null }):
     .map((row) => ({ ...row, crm_url: row.crm_url?.startsWith("https://") ? row.crm_url : null }));
 }
 
-/** Same rule the dashboard uses to mount the dialer (web and desktop app alike). */
-export function dialerAvailable(input: { company?: BillingCompany | null }): boolean {
-  return !companyIsPaywalled(input.company) && companyCanUseDialer(input.company);
+/** Same rule the dashboard uses to mount the dialer (the desktop app calls from its island instead). */
+export function dialerAvailable(input: { desktop: boolean; company?: BillingCompany | null }): boolean {
+  return !input.desktop && !companyIsPaywalled(input.company) && companyCanUseDialer(input.company);
 }

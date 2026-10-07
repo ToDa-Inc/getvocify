@@ -860,6 +860,10 @@ class UploadTranscriptRequest(BaseModel):
     sales_motion_key: Optional[str] = Field(default=None, max_length=64)
     # Who the meeting app showed speaking on the other side (desktop reads Zoom's screen).
     participants: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list, max_length=20)
+    # A Vocify call placed from the desktop: its live transcript becomes the call's memo at hang-up,
+    # instead of waiting for Twilio's recording (which is still attached to the same memo later).
+    call_sid: Optional[str] = Field(default=None, pattern=r"^CA[0-9a-f]{32}$")
+    call_duration_seconds: Optional[float] = Field(default=None, ge=0, le=6 * 3600)
 
 
 @router.post("/upload-transcript", response_model=UploadResponse)
@@ -923,6 +927,11 @@ async def upload_transcript_only(
     )
 
 
+from app.services.telephony.call_memo_claim import claim_call_memo, find_user_call  # noqa: E402
+from app.services.telephony.call_processor import finalize_screened_out_memo  # noqa: E402
+from app.services.telephony.call_screening import classify_call_outcome  # noqa: E402
+
+
 @router.post("/upload-and-extract", response_model=UploadResponse)
 async def upload_transcript_and_extract(
     body: UploadTranscriptRequest,
@@ -933,6 +942,8 @@ async def upload_transcript_and_extract(
     Create memo from transcript and start AI extraction in one call.
     Use when the user has already reviewed the transcript (e.g. RecordPage "Accept & Continue").
     Returns immediately with status "extracting"; extraction runs in background.
+    With `call_sid` (a Vocify call from the desktop) the memo is that call's memo, unless
+    Twilio's recording already made it; either way the call ends up with one memo.
     """
     transcript = (body.transcript or "").strip()
     if not transcript:
@@ -940,6 +951,15 @@ async def upload_transcript_and_extract(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Transcript is required",
         )
+    call_row = None
+    if body.call_sid:
+        call_row = find_user_call(supabase, user_id, body.call_sid)
+        if not call_row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
+        if call_row.get("memo_id"):
+            # Twilio's recording got there first: that memo is the call's.
+            existing = str(call_row["memo_id"])
+            return UploadResponse(id=existing, status="extracting", statusUrl=f"/api/v1/memos/{existing}")
     stored_kind = _stored_interaction_kind(body.interaction_kind)
     from app.services.transcript_sanitize import raw_speaker_count, sanitize_user_transcript
 
@@ -984,9 +1004,34 @@ async def upload_transcript_and_extract(
     participants = [name.strip() for name in body.participants if name.strip()]
     if participants:
         payload["attendees"] = [{"name": name, "email": None} for name in participants]
+    if call_row:
+        # The same memo a Vocify call gets from its recording, born from the live transcript.
+        payload["source"] = "vocify_call"
+        payload["audio_duration"] = float(body.call_duration_seconds or estimated_duration)
+        if call_row.get("hubspot_contact_id"):
+            payload["hubspot_contact_id"] = call_row["hubspot_contact_id"]
+        if call_row.get("hubspot_deal_id"):
+            payload["hubspot_deal_id"] = call_row["hubspot_deal_id"]
+        if call_row.get("recording_path"):
+            payload["recording_path"] = call_row["recording_path"]
     created = insert_memo_row(supabase, pin_playbook=True, payload=payload)
 
     memo_id = created["id"]
+    if call_row:
+        winner = claim_call_memo(supabase, body.call_sid, str(memo_id))
+        if winner and winner != str(memo_id):
+            return UploadResponse(id=winner, status="extracting", statusUrl=f"/api/v1/memos/{winner}")
+        duration = float(body.call_duration_seconds or estimated_duration)
+        outcome = classify_call_outcome(transcript, duration)
+        supabase.table("outbound_calls").update({"call_disposition": outcome}).eq(
+            "carrier_call_id", body.call_sid
+        ).execute()
+        if outcome != "connected":
+            # Voicemail or nobody there: kept with its transcript, nothing to extract (as from the recording).
+            await finalize_screened_out_memo(supabase, str(memo_id), transcript, duration, outcome, body.call_sid)
+            return UploadResponse(id=str(memo_id), status="pending_review", statusUrl=f"/api/v1/memos/{memo_id}")
+        source_type = "vocify_call"
+        stt_meta["screening_outcome"] = outcome
     if body.sales_motion_key:
         _pin_picked_type(supabase, created, body.sales_motion_key.strip())
 

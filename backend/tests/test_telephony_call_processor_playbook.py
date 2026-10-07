@@ -56,9 +56,22 @@ class _Query:
     def limit(self, *_a, **_k):
         return self
 
+    def is_(self, column: str, value):
+        assert value == "null"
+        self._filters.append((column, None))
+        return self
+
+    def delete(self):
+        self._op = ("delete", None)
+        return self
+
     def _matches(self, row: dict) -> bool:
         return all(
-            str(row.get(column)) in value if isinstance(value, set) else str(row.get(column)) == str(value)
+            row.get(column) is None
+            if value is None
+            else str(row.get(column)) in value
+            if isinstance(value, set)
+            else str(row.get(column)) == str(value)
             for column, value in self._filters
         )
 
@@ -76,6 +89,9 @@ class _Query:
             for row in matched:
                 row.update(payload)
             return type("R", (), {"data": matched})()
+        if kind == "delete":
+            self._rows[:] = [row for row in self._rows if not self._matches(row)]
+            return type("R", (), {"data": []})()
         raise AssertionError(kind)
 
 

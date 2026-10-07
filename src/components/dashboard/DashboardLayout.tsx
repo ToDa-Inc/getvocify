@@ -97,7 +97,8 @@ const DashboardLayout = () => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [paywalled]);
-  const showDialer = !paywalled && companyCanUseDialer(user?.company);
+  // The desktop app calls from the notch island; its dashboard has no dialer of its own.
+  const showDialer = !isDesktopHost() && !paywalled && companyCanUseDialer(user?.company);
   // The full Hoy (/dashboard/today) keeps its contact column whoever opens it, so its ContactPanel
   // always has somewhere to go on xl (its sheet is xl:hidden). Inicio (/dashboard) has its own rail.
   const homeColumn = location.pathname === "/dashboard/today";

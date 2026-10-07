@@ -28,6 +28,7 @@ from app.services.captures import interaction_kind_for, playbook_fields_for_capt
 from app.services.company import sales_role_for_user
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run, record_stage
 from app.services.stt_batch import transcribe_audio
+from app.services.telephony.call_memo_claim import claim_call_memo
 from app.services.telephony.call_screening import classify_call_outcome
 from app.services.telephony.telnyx_client import telnyx_rest
 from app.services.transcript_sanitize import raw_speaker_count, sanitize_user_transcript
@@ -128,9 +129,13 @@ async def initiate_vocify_call_memo(
         return None, False
 
     memo_id = str(ins.data[0]["id"])
-    supabase.table("outbound_calls").update(
-        {"memo_id": memo_id, "status": "recorded"}
-    ).eq("carrier_call_id", call_row["carrier_call_id"]).execute()
+    # The desktop's live transcript may have made the call's memo meanwhile: one memo per call.
+    winner = claim_call_memo(supabase, call_row["carrier_call_id"], memo_id)
+    supabase.table("outbound_calls").update({"status": "recorded"}).eq(
+        "carrier_call_id", call_row["carrier_call_id"]
+    ).execute()
+    if winner and winner != memo_id:
+        return winner, False
     return memo_id, True
 
 

@@ -593,3 +593,59 @@ class TestMissedCallDisposition:
         ):
             asyncio.run(log_missed_call_activity(supabase, "CA-busy", "busy"))
         assert stores["outbound_calls"][0]["call_disposition"] == "busy"
+
+
+class TestRecordingAfterLiveTranscriptMemo:
+    """A desktop call's memo is made from its live transcript at hang-up; the recording comes later."""
+
+    def _post(self, call_row, memos):
+        supabase, stores = _fake_supabase({"outbound_calls": [call_row], "memos": memos})
+        storage = MagicMock()
+        storage.return_value.upload_call_recording = AsyncMock(return_value="calls/rep-1/CA1.wav")
+        with (
+            patch("app.api.webhooks.get_supabase", return_value=supabase),
+            patch.object(webhooks.settings, "ENVIRONMENT", "development"),
+            patch.dict("os.environ", {"TWILIO_SKIP_SIG_CHECK": "1"}),
+            patch("app.api.webhooks.download_twilio_recording", AsyncMock(return_value=b"RIFF")) as download,
+            patch("app.api.webhooks.StorageService", storage),
+            patch("app.api.webhooks.attach_hubspot_contact_by_phone", AsyncMock(side_effect=lambda _sb, row: row)),
+            # As the real one: a call that already has a memo keeps it (the live transcript's).
+            patch(
+                "app.api.webhooks.initiate_vocify_call_memo",
+                AsyncMock(side_effect=lambda _sb, row: (row["memo_id"], False) if row.get("memo_id") else ("rec-memo", True)),
+            ) as initiate,
+            patch("app.api.webhooks.process_vocify_call_background", AsyncMock()) as process,
+            patch("app.api.webhooks.log_call_engagement", AsyncMock()) as log_call,
+        ):
+            resp = _test_client().post(
+                "/webhooks/twilio/recording",
+                data={"CallSid": "CA1", "RecordingUrl": "https://api.twilio.com/rec/RE1", "RecordingSid": "RE1", "RecordingDuration": "65"},
+            )
+        assert resp.status_code == 204
+        return stores, download, initiate, process, log_call
+
+    def test_the_live_memo_gets_the_recording_and_the_call_is_logged(self):
+        stores, download, initiate, process, log_call = self._post(
+            {"carrier_call_id": "CA1", "user_id": "rep-1", "memo_id": "live-memo", "call_disposition": "connected"},
+            [{"id": "live-memo", "screening_outcome": "connected"}],
+        )
+        download.assert_awaited_once()
+        assert stores["memos"][0]["recording_path"] == "calls/rep-1/CA1.wav"
+        process.assert_not_called()
+        log_call.assert_called_once()
+        assert log_call.call_args.kwargs["screening_outcome"] == "connected"
+
+    def test_a_redelivered_recording_is_ignored(self):
+        _, download, initiate, _, log_call = self._post(
+            {"carrier_call_id": "CA1", "user_id": "rep-1", "memo_id": "live-memo", "recording_path": "calls/x.wav"},
+            [{"id": "live-memo"}],
+        )
+        download.assert_not_called()
+        initiate.assert_not_called()
+        log_call.assert_not_called()
+
+    def test_without_a_live_memo_the_recording_makes_it_as_before(self):
+        _, _, initiate, process, log_call = self._post({"carrier_call_id": "CA1", "user_id": "rep-1"}, [])
+        initiate.assert_awaited_once()
+        process.assert_called_once()
+        log_call.assert_not_called()

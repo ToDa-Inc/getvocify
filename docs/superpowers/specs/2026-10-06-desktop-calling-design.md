@@ -117,7 +117,7 @@ While `dial` is non-null and not `ended`, the shell must: suppress mic-activity 
 |---|---|
 | Idle glyph help, callable | `Call {name}` |
 | Idle glyph help, greyed | `No phone in {crmLabel}` · `Add a caller ID to call` · `Open the contact to call` |
-| Confirm row, callable | title `{name}`, line `{phone} · from {callerId}`, button `Call` |
+| Confirm row, callable | title `{name}`, line `{phone}`, button `Call` (Dani 2026-10-07: no caller ID, no `·`) |
 | Confirm row, no_phone | title `{name}`, line `No phone in {crmLabel}`, no button |
 | Confirm row, no_caller_id | title `{name}`, line `Add a caller ID to call`, button `Add caller ID` (`open-calling`) |
 | Confirm row, needs_contact | title `{crmLabel} record with several contacts`, line `Open the contact to call`, no button |
