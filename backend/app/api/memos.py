@@ -384,11 +384,15 @@ async def extract_memo_async(
         from app.services.extraction_context import load_extraction_llm_context, load_product_context
         from app.services.session_entities import load_stt_profile
         from app.services.transcript_sanitize import (
+            cancel_transcript_patch,
             extraction_complete_update,
+            finish_transcript_patch,
             is_two_party_source,
-            prepare_transcript_for_extraction_async,
+            prepare_transcript_for_extraction,
             speakers_are_verified,
+            start_transcript_patch,
         )
+        from app.services.transcript_patch import fix_outputs
 
         fetched = (
             supabase.table("memos")
@@ -418,33 +422,53 @@ async def extract_memo_async(
                 has_product_context=bool((product_context or "").strip()),
             )
             stored_transcript = transcript
-            transcript, glossary_text = await prepare_transcript_for_extraction_async(
-                transcript,
-                glossary,
-                existing_values,
-                extra_names=[profile.get("full_name"), profile.get("company_name")],
-                two_party=is_two_party_source(source_type),
-                speakers_verified=speakers_are_verified((memo_row or {}).get("transcript_stt_meta")),
+            extra_names = [profile.get("full_name"), profile.get("company_name")]
+            two_party = is_two_party_source(source_type)
+            verified = speakers_are_verified((memo_row or {}).get("transcript_stt_meta"))
+            t_rules = time.perf_counter()
+            clean, glossary_text = prepare_transcript_for_extraction(
+                transcript, glossary, existing_values,
+                extra_names=extra_names, two_party=two_party, speakers_verified=verified,
             )
+            rules_ms = round((time.perf_counter() - t_rules) * 1000)
+            # The LLM repair of misheard words (~1s) runs while the call is read and extracted
+            # (~3s): extraction reads the rule-cleaned text, the repair is applied to the stored
+            # transcript and to what extraction wrote, and the memo is ready when all are done.
+            patch_task = start_transcript_patch(
+                clean, glossary, existing_values, extra_names,
+                two_party=two_party, speakers_verified=verified,
+            )
+            try:
+                t_reading = time.perf_counter()
+                call_reading, for_extraction = await _read_call_first(
+                    supabase, memo_id, clean, profile=profile, call_date=call_date,
+                )
+                record_stage("reading", t_reading, applied=call_reading is not None)
+                extraction = await extraction_service.extract(
+                    for_extraction,
+                    field_specs,
+                    glossary_text=glossary_text,
+                    source_context=source_type,
+                    product_context=product_context,
+                    existing_values=existing_values,
+                    call_date=call_date,
+                    call_reading=call_reading,
+                    user_notes=user_notes,
+                )
+            except BaseException:
+                cancel_transcript_patch(patch_task)
+                raise
+            patched = await finish_transcript_patch(patch_task, rules_ms=rules_ms)
+            edits = patched.edits if patched else []
+            transcript = patched.text if patched else clean
             if transcript != stored_transcript:
-                # What the reviewer reads is what extraction read.
+                # What the reviewer reads is what extraction read, with the misheard words fixed.
                 update_memo_row(supabase, memo_id, {"transcript": transcript})
-            call_reading, transcript = await _read_call_first(
-                supabase, memo_id, transcript, profile=profile, call_date=call_date,
-            )
-            extraction = await extraction_service.extract(
-                transcript,
-                field_specs,
-                glossary_text=glossary_text,
-                source_context=source_type,
-                product_context=product_context,
-                existing_values=existing_values,
-                call_date=call_date,
-                call_reading=call_reading,
-                user_notes=user_notes,
-            )
+            extraction_data = fix_outputs(extraction.model_dump(), edits)
+            call_reading = fix_outputs(call_reading, edits)
 
-        stored_extraction = extraction.model_dump()
+        t_finish = time.perf_counter()
+        stored_extraction = dict(extraction_data)
         if call_reading:
             # C04 reuses it instead of reading the same call a second time.
             stored_extraction["call_reading"] = call_reading
@@ -467,13 +491,15 @@ async def extract_memo_async(
         run_post_extraction_hooks(
             supabase,
             memo_id=memo_id,
-            extraction=extraction.model_dump(),
+            extraction=extraction_data,
         )
         from app.services.intelligence.worker import record_enqueue
         record_enqueue(
             supabase,
-            {"id": memo_id, "user_id": user_id, "extraction": extraction.model_dump()},
+            {"id": memo_id, "user_id": user_id, "extraction": extraction_data},
         )
+        # Saving the memo, its hooks and the follow-up: the time between extraction and "ready".
+        stages.append(record_stage("finish", t_finish))
         persist_pipeline_meta(
             supabase,
             memo_id,

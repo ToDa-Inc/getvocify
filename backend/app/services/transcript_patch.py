@@ -242,6 +242,29 @@ def within_budget(accepted: list[tuple[int, str, str]], total_words: int) -> boo
     return changed <= max(MIN_BUDGET_WORDS, int(total_words * BUDGET_RATIO))
 
 
+def fix_outputs(data: Any, edits: list[tuple[str, str]]) -> Any:
+    """The same corrections for text written while the patch was still running (the note, the
+    reading). Only names and brands, as whole words: a phrase fix such as "to the list" -> "to-do
+    list" would also rewrite ordinary sentences that happen to contain those words."""
+    pairs = [(re.compile(rf"(?<!\w){re.escape(old)}(?!\w)"), new)
+             for old, new in edits if old[:1].isupper() and len(old) >= 4]
+    if not pairs:
+        return data
+
+    def walk(value: Any) -> Any:
+        if isinstance(value, str):
+            for pattern, new in pairs:
+                value = pattern.sub(new, value)
+            return value
+        if isinstance(value, list):
+            return [walk(v) for v in value]
+        if isinstance(value, dict):
+            return {k: walk(v) for k, v in value.items()}
+        return value
+
+    return walk(data)
+
+
 def apply_edits(turns: list[dict], accepted: list[tuple[int, str, str]]) -> list[dict]:
     out = [dict(t) for t in turns]
     for i, old, new in accepted:
