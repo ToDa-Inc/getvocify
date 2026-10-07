@@ -143,6 +143,24 @@ def auto_sync_enabled_for_connection(supabase: Client, connection_id: str) -> bo
     return should_start_auto_sync(rows[0].get("auto_sync_hubspot_calls"))
 
 
+def read_crm_call_recordings_preference(supabase: Client, user_id: str) -> bool:
+    """Whether this rep's dialer recordings in the CRM are processed. A rep who records with
+    Vocify's island turns it off, so a call is never processed twice. A missing row or column
+    (before migration 075) means yes."""
+    try:
+        rows = (
+            supabase.table("user_profiles").select("process_crm_call_recordings").eq("id", user_id).limit(1).execute().data
+            or []
+        )
+    except Exception:
+        return True
+    return (rows[0] if rows else {}).get("process_crm_call_recordings") is not False
+
+
+def write_crm_call_recordings_preference(supabase: Client, user_id: str, process: bool) -> None:
+    supabase.table("user_profiles").update({"process_crm_call_recordings": bool(process)}).eq("id", user_id).execute()
+
+
 async def resolve_user_for_hubspot_call(
     supabase: Client,
     connection: dict[str, Any],
@@ -204,6 +222,10 @@ async def handle_hubspot_recording_events(
             supabase, conn, access_token, call_id
         )
         if not user_id:
+            skipped += 1
+            continue
+        if not read_crm_call_recordings_preference(supabase, user_id):
+            # This rep records calls with the island: the call is already a memo, live.
             skipped += 1
             continue
         try:

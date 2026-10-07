@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from uuid import UUID
 from typing import Any, Literal, Optional
 
@@ -73,6 +74,10 @@ from app.services.hubspot.calls import (
     recording_display_title,
 )
 from app.services.hubspot.call_processor import enqueue_hubspot_call_process
+from app.services.hubspot.auto_sync import (
+    read_crm_call_recordings_preference,
+    write_crm_call_recordings_preference,
+)
 from app.services.request_coalesce import CoalesceCache
 from supabase import Client
 
@@ -81,6 +86,30 @@ _CONTEXT_CACHE = CoalesceCache(ttl_seconds=30)
 
 
 router = APIRouter(prefix="/api/v1/crm", tags=["crm"])
+
+
+class CallRecordingsPreference(BaseModel):
+    """Whether the rep's own dialer recordings in the CRM are processed into memos."""
+
+    process: bool
+
+
+@router.get("/call-recordings-preference", response_model=CallRecordingsPreference)
+async def get_call_recordings_preference(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+) -> CallRecordingsPreference:
+    return CallRecordingsPreference(process=read_crm_call_recordings_preference(supabase, user_id))
+
+
+@router.put("/call-recordings-preference", response_model=CallRecordingsPreference)
+async def put_call_recordings_preference(
+    payload: CallRecordingsPreference,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+) -> CallRecordingsPreference:
+    write_crm_call_recordings_preference(supabase, user_id, payload.process)
+    return payload
 
 
 def _company_hubspot_connection_id(supabase: Client, user_id: str) -> str:

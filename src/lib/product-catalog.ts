@@ -220,6 +220,10 @@ export const productCatalog = {
     followupSuggestHeading: "Follow-up emails",
     followupSuggestHelper: "Draft an email after each call for you to review and send.",
     followupSuggestSaveFailed: "Couldn't save. Try again.",
+    callRecordingsHeading: "Calls from other dialers",
+    callRecordingsHelper:
+      "Turn this off if you record your calls with the Vocify app on your Mac: calls your dialer (HubSpot, Aircall…) saves in the CRM won't be processed a second time. You can still process one by hand.",
+    callRecordingsSaveFailed: "Couldn't save. Try again.",
     recordShortcutTitle: "Record shortcut",
     recordShortcutHelper: "Starts and stops recording from any app.",
     recordShortcutPress: "Press keys…",
@@ -1595,6 +1599,10 @@ export const productCatalog = {
     followupSuggestHeading: "Emails de seguimiento",
     followupSuggestHelper: "Prepara un email tras cada llamada para que lo revises y envíes.",
     followupSuggestSaveFailed: "No se pudo guardar. Inténtalo de nuevo.",
+    callRecordingsHeading: "Llamadas de otros marcadores",
+    callRecordingsHelper:
+      "Desactívalo si grabas tus llamadas con la app de Vocify en tu Mac: las llamadas que tu marcador (HubSpot, Aircall…) guarda en el CRM no se procesarán dos veces. Puedes procesar una a mano.",
+    callRecordingsSaveFailed: "No se pudo guardar. Inténtalo de nuevo.",
     recordShortcutTitle: "Atajo para grabar",
     recordShortcutHelper: "Empieza y para la grabación desde cualquier app.",
     recordShortcutPress: "Pulsa las teclas…",

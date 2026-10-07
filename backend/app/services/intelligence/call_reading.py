@@ -142,6 +142,19 @@ def shape_reading(raw: Any, turns: list[dict], playbooks: dict[str, str] | None 
     }
 
 
+def keep_channel_roles(turns: list[dict], reading: dict, rep_label: str = "S1") -> dict:
+    """A desktop recording knows who spoke from its audio channels (mic = the rep = S1). The
+    reading keeps those roles instead of guessing them from what was said, which flips them
+    when the prospect opens the call or does most of the talking. Unchanged when the labels
+    can't tell the two sides apart."""
+    rep = [n for n, t in enumerate(turns, 1) if (t.get("speaker") or "") == rep_label]
+    if not rep or len(rep) == len(turns):
+        return reading
+    taken = set(rep)
+    other = [n for n in range(1, len(turns) + 1) if n not in taken]
+    return {**reading, "rep_turns": rep, "other_turns": other, "roles_from": "channels"}
+
+
 def relabel(turns: list[dict], reading: dict) -> str:
     """The transcript with You: (rep) / Them: (prospect, or anyone else) on every turn."""
     rep = set(reading.get("rep_turns") or [])
