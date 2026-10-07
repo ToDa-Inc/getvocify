@@ -487,17 +487,25 @@ class OpenRouterProvider(BaseLLMProvider):
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> dict:
+        extra: dict = {}
         if reasoning_effort:
             # How much the model thinks before answering: most of a Gemini call's cost is these
             # tokens, and a classification needs few of them.
+            # "low"/"medium"/"high", or a token budget ("1200") that keeps reasoning but caps it.
+            extra["reasoning"] = ({"enabled": False} if reasoning_effort == "none"
+                                  else {"max_tokens": int(reasoning_effort)} if str(reasoning_effort).isdigit()
+                                  else {"effort": reasoning_effort})
+        if max_tokens:
+            # A cap on the answer itself, so a runaway generation ends in a short invalid reply
+            # instead of the default 16k tokens.
+            extra["max_tokens"] = int(max_tokens)
+        if extra:
             message = await self._complete(
                 messages, model=model, temperature=temperature,
                 response_format={"type": "json_object"}, timeout=timeout, max_retries=max_retries,
-                # "low"/"medium"/"high", or a token budget ("1200") that keeps reasoning but caps it.
-                extra={"reasoning": {"enabled": False} if reasoning_effort == "none"
-                       else {"max_tokens": int(reasoning_effort)} if str(reasoning_effort).isdigit()
-                       else {"effort": reasoning_effort}},
+                extra=extra,
             )
             content = message.get("content")
             if content is None:

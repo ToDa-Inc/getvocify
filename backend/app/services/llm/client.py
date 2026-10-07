@@ -58,6 +58,7 @@ class LLMClient:
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> dict:
         return await self.router.chat_json(
             messages,
@@ -67,6 +68,7 @@ class LLMClient:
             timeout=timeout,
             max_retries=max_retries,
             reasoning_effort=reasoning_effort,
+            max_tokens=max_tokens,
         )
 
     async def chat_tools(

@@ -111,9 +111,12 @@ class LLMRouter:
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> dict:
         active = self._active_provider(provider)
         kwargs = {"reasoning_effort": reasoning_effort} if reasoning_effort else {}
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
         return await active.chat_json(
             messages,
             model=model or self._default_model,

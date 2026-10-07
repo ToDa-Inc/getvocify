@@ -62,6 +62,6 @@ def test_two_channel_calls_skip_the_llm_rewrite(monkeypatch):
     async def boom(*_a, **_k):
         raise AssertionError("LLM called for a two-channel call")
 
-    monkeypatch.setattr(ts, "llm_sanitize_transcript", boom)
+    monkeypatch.setattr("app.services.transcript_patch.patch_transcript", boom)
     text, _ = asyncio.run(ts.prepare_transcript_for_extraction_async(MEETING, speakers_verified=True, spoken_language="es"))
     assert "SPEAKER: S1" in text and "SPEAKER: S2" in text

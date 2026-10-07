@@ -2190,16 +2190,13 @@ async def _extract_and_create_memo(
 
         from app.services.extraction_context import load_product_context
         from app.services.session_entities import load_stt_profile
-        from app.services.transcript_sanitize import (
-            prepare_transcript_for_extraction,
-            schedule_transcript_polish,
-        )
+        from app.services.transcript_sanitize import prepare_transcript_for_extraction_async
         from app.services.followup import schedule_followup
 
         product_context = load_product_context(supabase, user_id)
         profile = load_stt_profile(supabase, user_id)
         transcript_raw = transcript
-        transcript, glossary_text = prepare_transcript_for_extraction(
+        transcript, glossary_text = await prepare_transcript_for_extraction_async(
             transcript_raw,
             glossary,
             extra_names=[profile.get("full_name"), profile.get("company_name")],
@@ -2268,7 +2265,6 @@ async def _extract_and_create_memo(
         from app.services.pipeline_lease import update_memo_row
 
         update_memo_row(supabase, str(memo_id), {"transcript_raw": transcript_raw})
-        schedule_transcript_polish(str(memo_id), user_id, transcript, supabase)
         schedule_followup(supabase, str(memo_id), company_id=r.data[0].get("company_id"))
         from app.services.intelligence.worker import record_enqueue
         record_enqueue(
