@@ -72,8 +72,8 @@ async def _cached_summary(key: str, interactions: list[dict], company: dict | No
     if hit and now - hit[0] < _CACHE_TTL_S:
         return hit[1]
     summary = await summarize(interactions, company, summarize_json)
-    # A failed answer is not kept: the next look asks again.
-    if summary is not None:
+    # A failed answer, or one left with no grounded line, is not kept: the next look asks again.
+    if summary is not None and summary.get("lines"):
         if len(_cache) >= _CACHE_MAX:
             _cache.pop(next(iter(_cache)))
         _cache[key] = (now, summary)

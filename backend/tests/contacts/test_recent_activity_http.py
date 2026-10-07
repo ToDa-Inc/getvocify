@@ -183,3 +183,24 @@ def test_hubspot_unreachable_still_answers_with_vocify(client, world):
     body = get(client, summary="false")
     assert [i["id"] for i in body["interactions"]] == ["vocify:memo:memo-1"]
     assert body["sources"]["hubspot"]["notes"] == "failed"
+
+
+def test_ids_cited_the_way_the_prompt_shows_them_still_count(client, world):
+    # The prompt lists items as "[hubspot:meeting:m1] ..."; a model citing them with the brackets is citing them.
+    world["llm"] = {"lines": [{"text": "Demo yesterday.", "sources": ["[hubspot:meeting:m1]", " hubspot:task:t1 "]}]}
+    body = get(client)
+    assert body["summary"]["lines"] == [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1", "hubspot:task:t1"]}]
+
+
+def test_a_summary_left_with_no_lines_is_asked_again_next_time(client, world):
+    world["llm"] = {"lines": [{"text": "Their CFO approved it.", "sources": ["hubspot:email:e999"]}]}
+    assert get(client)["summary"] == {"lines": [], "model": body_model()}
+    world["llm"] = {"lines": [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1"]}]}
+    assert get(client)["summary"]["lines"] == [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1"]}]
+    assert world["llm_calls"] == 2
+
+
+def body_model():
+    from app.config import settings
+
+    return settings.EXTRACTION_MODEL
