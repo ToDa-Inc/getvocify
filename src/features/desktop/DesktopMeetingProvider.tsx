@@ -78,7 +78,7 @@ import {
 import { buildApproveExtraction, proposedFieldKey, type ProposedUpdate } from "@/lib/extraction-omit";
 import { afterCallPoll, afterCallResolution, type CallSummary } from "@/lib/after-call";
 import { callsApi } from "@/features/calls/api";
-import { callEngine } from "@/features/calling/callEngine";
+import { callEngine, reportCallStep } from "@/features/calling/callEngine";
 import { isCallUp } from "@/lib/call-engine-state";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
@@ -383,6 +383,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current));
     wsRef.current = ws;
     ws.onopen = () => {
+      if (vocifyCallRef.current) reportCallStep("session-socket-open");
       if (ticketRef.current) ws.send(liveAuthMessage(ticketRef.current));
       reconnectsRef.current = 0;
       setWarning(null);
@@ -774,13 +775,39 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     }
     const call = vocifyCallRef.current;
     if (call) {
-      // Nothing to upload: Twilio recorded both sides and the server writes the memo from that.
       vocifyCallRef.current = null;
       clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       setPhase("idle");
       bridge?.shell.setState({ finish: { step: "uploading" } });
-      void followCallMemo(call.callSid, draft?.contact?.name ?? null);
+      const contactName = draft?.contact?.name ?? null;
+      // The live transcript is the memo, seconds after hang-up. Twilio's recording joins the same memo
+      // later (playback, CRM call log); if this upload fails, the recording makes the memo as before.
+      if (draft && meetingHasSpeech(draft.transcript)) {
+        try {
+          const memo = await memosApi.uploadTranscriptAndExtract(meetingUploadText(draft.transcript), {
+            interactionKind: "call",
+            sourceType: "meeting_transcript",
+            speakersVerified: true,
+            notes: draft.notes,
+            hubspotContactId: draft.contact?.hubspotId,
+            callSource: VOCIFY_CALL_SOURCE.name,
+            salesMotionKey: draft.type,
+            participants: meetingParticipants(draft.transcript),
+            callSid: call.callSid,
+            callDurationSeconds: Math.round((Date.now() - draft.startedAt) / 1000),
+          });
+          reportCallStep("live-memo", { memoId: memo.id });
+          queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
+          bridge?.shell.setState({ finish: null });
+          navigate(ROUTES.MEMO_DETAIL(memo.id));
+          void followPostCall(memo.id, contactName);
+          return;
+        } catch (e) {
+          reportCallStep("live-memo-failed", { message: e instanceof Error ? e.message : String(e) });
+        }
+      }
+      void followCallMemo(call.callSid, contactName);
       return;
     }
     if (!draft || !meetingHasSpeech(draft.transcript)) {
@@ -815,7 +842,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       bridge?.shell.setState({ finish: { step: "failed", message: unsent } });
       fail(unsent);
     }
-  }, [clearNotes, currentDraft, drainSocket, fail, followCallMemo, followPostCall, navigate, releaseAudio, sendDraft, setPhase, updateTranscript]);
+  }, [clearNotes, currentDraft, drainSocket, fail, followCallMemo, followPostCall, navigate, queryClient, releaseAudio, sendDraft, setPhase, updateTranscript]);
 
   const start = useCallback(async (call?: VocifyCallSession) => {
     const bridge = getDesktopBridge();
@@ -881,7 +908,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
         ctx = new AudioContext({ sampleRate: LIVE_STT_SAMPLE_RATE });
         ctxRef.current = ctx;
+        if (call) reportCallStep("session-audio", { state: ctx.state });
         if (ctx.state === "suspended") await ctx.resume();
+        if (call) reportCallStep("session-audio-ready", { state: ctx.state });
       }
 
       const startedAt = Date.now();
@@ -1006,6 +1035,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         })
         .catch(() => {});
     } catch (e) {
+      if (call) reportCallStep("session-failed", { message: e instanceof Error ? e.message : String(e) });
       draftRef.current = null;
       vocifyCallRef.current = null;
       if (nativeRef.current) {

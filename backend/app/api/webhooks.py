@@ -57,6 +57,7 @@ from app.services.telephony.call_processor import (
     download_telnyx_recording,
     download_twilio_recording,
     initiate_vocify_call_memo,
+    log_call_engagement,
     log_missed_call_activity,
     process_vocify_call_background,
 )
@@ -796,7 +797,7 @@ async def twilio_recording(request: Request):
     if not call_row:
         logger.warning("Twilio recording for unknown call_sid=%s", call_sid)
         return Response(status_code=204)
-    if call_row.get("memo_id"):
+    if call_row.get("recording_path"):
         return Response(status_code=204)  # redelivery
 
     pipeline_started_at = time.perf_counter()
@@ -843,6 +844,15 @@ async def twilio_recording(request: Request):
                 pipeline_started_at=pipeline_started_at,
             )
         )
+    elif memo_id:
+        # The desktop's live transcript already made this call's memo: it gets the recording (playback),
+        # and the call is logged in the CRM with it, as a recording-made memo would be.
+        supabase.table("memos").update(
+            {"recording_path": path, "audio_duration": duration}
+        ).eq("id", memo_id).execute()
+        memo = supabase.table("memos").select("screening_outcome").eq("id", memo_id).limit(1).execute()
+        outcome = ((memo.data or [None])[0] or {}).get("screening_outcome") or call_row.get("call_disposition") or "connected"
+        asyncio.create_task(log_call_engagement(supabase, call_sid, duration, screening_outcome=outcome))
     return Response(status_code=204)
 
 

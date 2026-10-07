@@ -70,6 +70,12 @@ class _Insert:
     def eq(self, *_a, **_k):
         return self
 
+    def is_(self, *_a, **_k):
+        return self
+
+    def delete(self):
+        return self
+
     def limit(self, *_a, **_k):
         return self
 

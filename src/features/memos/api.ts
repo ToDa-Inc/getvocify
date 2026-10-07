@@ -117,6 +117,9 @@ export const memosApi = {
       salesMotionKey?: string;
       /** Names the meeting app showed speaking on the other side (desktop, Zoom). */
       participants?: string[];
+      /** A Vocify call (desktop): the memo is that call's, from its live transcript. */
+      callSid?: string;
+      callDurationSeconds?: number;
     } = {},
   ): Promise<UploadMemoResponse> => {
     return api.post<UploadMemoResponse>('/memos/upload-and-extract', {
@@ -129,6 +132,8 @@ export const memosApi = {
       call_source: options.callSource || undefined,
       sales_motion_key: options.salesMotionKey || undefined,
       participants: options.participants?.length ? options.participants : undefined,
+      call_sid: options.callSid || undefined,
+      call_duration_seconds: options.callDurationSeconds,
     });
   },
 
