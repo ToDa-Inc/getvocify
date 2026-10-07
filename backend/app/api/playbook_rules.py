@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from supabase import Client
 
+from app.services.captures import interaction_kind_of
+from app.services.playbooks import channel_types
 from app.services.playbooks.api_support import MANAGE_ROLES
 from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
@@ -138,7 +140,16 @@ async def get_deal_stages(
 
 
 class MemoPlaybookRequest(BaseModel):
-    sales_motion_key: str
+    """A new type, a new channel (types by channel only), or both. At least one."""
+    sales_motion_key: Optional[str] = Field(default=None, max_length=64)
+    interaction_kind: Optional[Literal["call", "meeting"]] = None
+
+    @model_validator(mode="after")
+    def _one_change(self) -> "MemoPlaybookRequest":
+        # A blank key is still a request (answered 409 not_published, as before); no field at all is not.
+        if self.sales_motion_key is None and not self.interaction_kind:
+            raise ValueError("sales_motion_key or interaction_kind is required")
+        return self
 
 
 def _load_memo(supabase: Client, memo_id: str) -> Optional[dict]:
@@ -178,7 +189,7 @@ async def get_memo_playbook(
         from app.api.memos import _require_viewable_memo
 
         _require_viewable_memo(supabase, str(memo_id), user_id)
-    return {
+    view = {
         "sales_motion_key": memo.get("sales_motion_key") or None,
         "playbook_version_id": memo.get("playbook_version_id") or None,
         # The author or a manager can always correct what the call was.
@@ -188,6 +199,17 @@ async def get_memo_playbook(
         # Interna last, as on the list chip: it has no playbook, so it needs no published one.
         "options": [*_published_options(membership), {"key": INTERNAL_KEY, "label": None}],
     }
+    if channel_types.enabled(supabase, str(memo.get("company_id") or membership.company_id)):
+        kind = interaction_kind_of(memo)
+        view["options"] = [*_channel_options(str(membership.company_id), kind), {"key": INTERNAL_KEY, "label": None}]
+        view["interaction_kind"] = kind
+        view["can_change_channel"] = bool(can_edit) and kind in channel_types.CHANNELS
+    return view
+
+
+def _channel_options(company_id: str, kind: str) -> list[dict]:
+    types = get_playbook_repository().list_types(company_id, include_draft=False)
+    return [{"key": key, "label": (types.get(key) or {}).get("label") or None} for key in channel_types.candidates(types, kind)]
 
 
 def _pin_source(memo: dict) -> Optional[str]:
@@ -230,8 +252,12 @@ async def change_memo_playbook(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo not found")
     if not (_is_author(memo, membership) or _is_manager_of(memo, membership)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo el autor o un manager pueden cambiar el playbook")
-    key = body.sales_motion_key.strip()
     company_id = str(memo.get("company_id") or membership.company_id)
+    if channel_types.enabled(supabase, company_id):
+        return _change_by_channel(supabase, memo, body, company_id, membership)
+    if body.interaction_kind:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "channel_change_unavailable"})
+    key = (body.sales_motion_key or "").strip()
     # `internal` has no playbook: it is never scored, so it needs no live version.
     version: Optional[str] = None
     if key != INTERNAL_KEY:
@@ -249,3 +275,51 @@ async def change_memo_playbook(
     supabase.table("memos").update(update).eq("id", str(memo["id"])).execute()
     _requeue(supabase, {**memo, **update})
     return {"sales_motion_key": key, "playbook_version_id": version, "status": "requeued"}
+
+
+def _change_by_channel(supabase: Client, memo: dict, body: MemoPlaybookRequest, company_id: str, membership: Membership) -> dict:
+    """Types by channel: a type of the memo's channel (new channel when it changes too), with or
+    without a playbook, or Interna. A channel change alone keeps a type that belongs to the new
+    channel, else clears it (the person picks one next). C04 and the score run again only when a
+    playbook was or is involved."""
+    kind = body.interaction_kind or interaction_kind_of(memo)
+    before_version = memo.get("playbook_version_id") or None
+    candidates = channel_types.candidates(get_playbook_repository().list_types(company_id, include_draft=False), kind)
+    current = memo.get("sales_motion_key") or None
+    key = (body.sales_motion_key or "").strip() or None
+    if key is None and not body.interaction_kind:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "not_a_type_of_channel"})
+    if key and key != INTERNAL_KEY and key not in candidates:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "not_a_type_of_channel"})
+    if key is None and current and current != INTERNAL_KEY and current not in candidates:
+        update: dict[str, Any] = {
+            "sales_motion_key": None,
+            "playbook_version_id": None,
+            "pipeline_meta": merge_pin_meta(
+                memo.get("pipeline_meta"), "manual", changed_from=current, changed_by=str(membership.user_id),
+            ),
+        }
+    elif key:
+        update = channel_types.pin_fields(
+            supabase, company_id, key, "manual", memo.get("pipeline_meta"),
+            changed_from=current, changed_by=str(membership.user_id),
+        )
+    else:
+        update = {}
+    if body.interaction_kind:
+        update["interaction_kind"] = body.interaction_kind
+    if update:
+        supabase.table("memos").update(update).eq("id", str(memo["id"])).execute()
+    after = {**memo, **update}
+    after_version = after.get("playbook_version_id") or None
+    requeue = bool(before_version or after_version) and (
+        after.get("sales_motion_key") != current or after_version != before_version
+    )
+    if requeue:
+        _requeue(supabase, after)
+    return {
+        "sales_motion_key": after.get("sales_motion_key") or None,
+        "playbook_version_id": after.get("playbook_version_id") or None,
+        "interaction_kind": interaction_kind_of(after),
+        "status": "requeued" if requeue else "saved",
+    }
