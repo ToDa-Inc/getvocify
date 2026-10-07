@@ -405,6 +405,57 @@ class TestLogCallEngagement:
 
         assert any(u.get("hubspot_engagement_id") == "519000" for u in updates)
 
+    def test_a_write_up_approved_before_the_call_was_logged_becomes_its_body(self):
+        import asyncio
+        from types import SimpleNamespace
+
+        from app.services.telephony.call_processor import log_call_engagement
+
+        row = {
+            "user_id": "u1",
+            "memo_id": "memo-1",
+            "to_number": "+34600000000",
+            "from_number": "+34900000000",
+            "hubspot_contact_id": "755",
+            "hubspot_deal_id": None,
+            "hubspot_engagement_id": None,
+        }
+        supabase = MagicMock()
+        table = MagicMock()
+        supabase.table.return_value = table
+        for name in ("select", "update", "eq", "is_", "limit", "order"):
+            getattr(table, name).return_value = table
+        table.execute.return_value = SimpleNamespace(data=[row])
+        log_call = AsyncMock(return_value="519000")
+        written = []
+
+        with patch(
+            "app.services.telephony.call_processor._company_hubspot_connection",
+            return_value={"metadata": {"portal_id": "147506535"}},
+        ), patch(
+            "app.api.crm.get_hubspot_client_from_connection", return_value=MagicMock()
+        ), patch(
+            "app.services.telephony.call_processor._hubspot_owner_id_for_caller",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "app.services.telephony.call_processor.settings"
+        ) as settings, patch(
+            "app.services.hubspot.call_log.log_call_to_hubspot", new=log_call,
+        ), patch(
+            "app.services.hubspot.call_log.mark_recording_ready", new=AsyncMock(return_value=None),
+        ), patch(
+            "app.services.hubspot.call_entry.pending_call_body",
+            return_value=("upd-1", "<p>Resumen de la llamada</p>"),
+        ), patch(
+            "app.services.hubspot.call_entry.mark_call_body_written",
+            side_effect=lambda _db, update_id, engagement_id: written.append((update_id, engagement_id)),
+        ):
+            settings.HUBSPOT_APP_ID = "app-1"
+            asyncio.run(log_call_engagement(supabase, "CAxxx", 12.0))
+
+        assert log_call.call_args.kwargs["properties"]["hs_call_body"] == "<p>Resumen de la llamada</p>"
+        assert written == [("upd-1", "519000")]
+
     def test_resolves_and_caches_missing_portal_id(self):
         import asyncio
         from types import SimpleNamespace
