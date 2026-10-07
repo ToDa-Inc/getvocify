@@ -13,7 +13,6 @@ import asyncio
 import difflib
 import logging
 import re
-import time
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
