@@ -144,9 +144,9 @@ def auto_sync_enabled_for_connection(supabase: Client, connection_id: str) -> bo
 
 
 def read_crm_call_recordings_preference(supabase: Client, user_id: str) -> bool:
-    """Whether this rep's dialer recordings in the CRM are processed. A rep who records with
-    Vocify's island turns it off, so a call is never processed twice. A missing row or column
-    (before migration 075) means yes."""
+    """Whether this rep's dialer recordings in the CRM are processed. Off by default: a rep
+    records with the Vocify app, so a call is never processed twice. Before migration 075
+    (no column) nothing changes and the company switch alone decides."""
     try:
         rows = (
             supabase.table("user_profiles").select("process_crm_call_recordings").eq("id", user_id).limit(1).execute().data
@@ -154,7 +154,7 @@ def read_crm_call_recordings_preference(supabase: Client, user_id: str) -> bool:
         )
     except Exception:
         return True
-    return (rows[0] if rows else {}).get("process_crm_call_recordings") is not False
+    return (rows[0] if rows else {}).get("process_crm_call_recordings") is True
 
 
 def write_crm_call_recordings_preference(supabase: Client, user_id: str, process: bool) -> None:

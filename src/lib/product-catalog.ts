@@ -222,7 +222,7 @@ export const productCatalog = {
     followupSuggestSaveFailed: "Couldn't save. Try again.",
     callRecordingsHeading: "Calls from other dialers",
     callRecordingsHelper:
-      "Turn this off if you record your calls with the Vocify app on your Mac: calls your dialer (HubSpot, Aircall…) saves in the CRM won't be processed a second time. You can still process one by hand.",
+      "Off by default: Vocify works on the calls you record with the Vocify desktop app, so no call is processed twice. Turn it on only if you also call from HubSpot, Aircall or another dialer without the Vocify app and want those recordings turned into memos. You can always process one by hand.",
     callRecordingsSaveFailed: "Couldn't save. Try again.",
     recordShortcutTitle: "Record shortcut",
     recordShortcutHelper: "Starts and stops recording from any app.",
@@ -1601,7 +1601,7 @@ export const productCatalog = {
     followupSuggestSaveFailed: "No se pudo guardar. Inténtalo de nuevo.",
     callRecordingsHeading: "Llamadas de otros marcadores",
     callRecordingsHelper:
-      "Desactívalo si grabas tus llamadas con la app de Vocify en tu Mac: las llamadas que tu marcador (HubSpot, Aircall…) guarda en el CRM no se procesarán dos veces. Puedes procesar una a mano.",
+      "Desactivado por defecto: Vocify trabaja con las llamadas que grabas con la app de escritorio de Vocify, así ninguna llamada se procesa dos veces. Actívalo solo si también llamas desde HubSpot, Aircall u otro marcador sin la app de Vocify y quieres convertir esas grabaciones en memos. Siempre puedes procesar una a mano.",
     callRecordingsSaveFailed: "No se pudo guardar. Inténtalo de nuevo.",
     recordShortcutTitle: "Atajo para grabar",
     recordShortcutHelper: "Empieza y para la grabación desde cualquier app.",

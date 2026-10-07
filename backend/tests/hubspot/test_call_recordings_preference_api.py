@@ -36,13 +36,13 @@ def _client(db):
     return TestClient(app)
 
 
-def test_a_rep_who_never_chose_has_recordings_processed():
-    assert _client(_Profiles()).get("/api/v1/crm/call-recordings-preference").json() == {"process": True}
+def test_a_rep_who_never_chose_has_recordings_left_alone():
+    assert _client(_Profiles()).get("/api/v1/crm/call-recordings-preference").json() == {"process": False}
 
 
-def test_turning_it_off_is_saved_and_read_back():
+def test_turning_it_on_is_saved_and_read_back():
     db = _Profiles()
     client = _client(db)
-    assert client.put("/api/v1/crm/call-recordings-preference", json={"process": False}).json() == {"process": False}
-    assert db.writes == [{"process_crm_call_recordings": False}]
-    assert client.get("/api/v1/crm/call-recordings-preference").json() == {"process": False}
+    assert client.put("/api/v1/crm/call-recordings-preference", json={"process": True}).json() == {"process": True}
+    assert db.writes == [{"process_crm_call_recordings": True}]
+    assert client.get("/api/v1/crm/call-recordings-preference").json() == {"process": True}
