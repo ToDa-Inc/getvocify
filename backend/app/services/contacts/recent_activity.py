@@ -9,11 +9,14 @@ a line citing nothing, or anything that was not read, is dropped. Sources that c
 from __future__ import annotations
 
 import html
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from app.services.briefs.preparation import plain_sentence
+
+logger = logging.getLogger(__name__)
 
 TEXT_LIMIT = 280
 INTERACTION_LIMIT = 12
@@ -178,7 +181,8 @@ def grounded_lines(answer: Any, interactions: list[dict], company: Optional[dict
     lines = []
     for line in (answer or {}).get("lines", []) if isinstance(answer, dict) else []:
         text = " ".join(str((line or {}).get("text") or "").split())
-        cited = [str(s) for s in (line or {}).get("sources") or []]
+        # Cited the way the prompt shows them ("[hubspot:note:1]") is still a citation.
+        cited = [str(s).strip().strip("[]").strip() for s in (line or {}).get("sources") or []]
         if text and cited and all(source in known for source in cited):
             lines.append({"text": text, "sources": cited})
     return lines[:SUMMARY_LINES]
@@ -195,5 +199,12 @@ async def summarize(
     try:
         answer = await ask(summary_prompt(interactions, company))
     except Exception:
+        logger.warning("Recent activity summary: the model did not answer", exc_info=True)
         return None
-    return {"lines": grounded_lines(answer, interactions, company)}
+    lines = grounded_lines(answer, interactions, company)
+    offered = answer.get("lines") if isinstance(answer, dict) else None
+    logger.info(
+        "Recent activity summary: kept %d of %d lines (%d items)",
+        len(lines), len(offered) if isinstance(offered, list) else -1, len(interactions),
+    )
+    return {"lines": lines}
