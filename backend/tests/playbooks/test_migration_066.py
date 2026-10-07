@@ -114,8 +114,11 @@ def test_it_applies_to_a_fresh_database_and_a_second_run_changes_nothing(pg_dsn)
     before = _schema(pg)
     assert "col playbooks.state" in before and "col playbooks.archived_at" in before
     assert "paused_version_id" not in before and "archived_state" not in before
-    second = pg_support.psql_file(pg_dsn, UP)
-    assert second.returncode == 0, second.stderr
+    # The chain from 066 on, run again: 066 alone would put back its own playbook_set_meta/overview, which a
+    # later migration (076) replaced.
+    for path in [UP, *(MIGRATIONS / name for name in pg_support.SCHEMA_FILES[pg_support.SCHEMA_FILES.index(UP.name) + 1:])]:
+        second = pg_support.psql_file(pg_dsn, path)
+        assert second.returncode == 0, second.stderr
     assert _schema(pg) == before
 
 

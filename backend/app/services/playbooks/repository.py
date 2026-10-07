@@ -70,6 +70,7 @@ def _type_row(entry: dict) -> dict:
         "status": entry["status"],
         "label": entry.get("label") or None,
         "applies_to": entry.get("applies_to"),
+        "recognize": entry.get("recognize") or None,
         **summarize(entry.get("version"), has_draft=bool(entry.get("has_draft")), paused=bool(entry.get("paused"))),
     }
 
@@ -167,12 +168,18 @@ class PlaybookRepository(Protocol):
 
     # -- types, names and rules -------------------------------------------------------------------
 
-    def add_type(self, company_id: str, key: str, name: str, *, label: Any = UNSET, applies_to: Any = UNSET) -> None:
-        """Adds a type (or brings a deleted one back, empty), with its name and rule in the same step when given.
+    def add_type(
+        self, company_id: str, key: str, name: str, *, label: Any = UNSET, applies_to: Any = UNSET, recognize: Any = UNSET,
+    ) -> None:
+        """Adds a type (or brings a deleted one back, empty), with its name, rule and recognition sentence in the
+        same step when given.
         PublishError `empty_type` for an empty key."""
 
-    def set_meta(self, company_id: str, key: str, *, label: Any = UNSET, applies_to: Any = UNSET) -> None:
-        """The type's name and/or routing rule. Creates the type when it has no row yet."""
+    def set_meta(
+        self, company_id: str, key: str, *, label: Any = UNSET, applies_to: Any = UNSET, recognize: Any = UNSET,
+    ) -> None:
+        """The type's name, rule and/or recognition sentence ("how to recognise it", read by the AI that
+        detects the type). Creates the type when it has no row yet."""
 
     # -- the material a playbook was structured from ---------------------------------------------
 
@@ -303,22 +310,24 @@ class SqlPlaybookRepository:
     # -- types, names and rules
 
     @staticmethod
-    def _meta(label: Any, applies_to: Any) -> Optional[dict]:
+    def _meta(label: Any, applies_to: Any, recognize: Any = UNSET) -> Optional[dict]:
         meta: dict = {}
         if label is not UNSET:
             meta["label"] = label
         if applies_to is not UNSET:
             meta["applies_to"] = applies_to
+        if recognize is not UNSET:
+            meta["recognize"] = recognize
         return meta or None
 
-    def add_type(self, company_id, key, name, *, label=UNSET, applies_to=UNSET) -> None:
+    def add_type(self, company_id, key, name, *, label=UNSET, applies_to=UNSET, recognize=UNSET) -> None:
         self._rpc(
             "playbook_add_type",
-            {"p_company": company_id, "p_key": key, "p_name": name, "p_meta": self._meta(label, applies_to)},
+            {"p_company": company_id, "p_key": key, "p_name": name, "p_meta": self._meta(label, applies_to, recognize)},
         )
 
-    def set_meta(self, company_id, key, *, label=UNSET, applies_to=UNSET) -> None:
-        meta = self._meta(label, applies_to)
+    def set_meta(self, company_id, key, *, label=UNSET, applies_to=UNSET, recognize=UNSET) -> None:
+        meta = self._meta(label, applies_to, recognize)
         if meta:
             self._rpc("playbook_set_meta", {"p_company": company_id, "p_motion": key, "p_meta": meta})
 
@@ -462,7 +471,7 @@ class InMemoryPlaybookRepository:
         if slot not in self._playbooks:
             self._playbooks[slot] = {
                 "id": str(uuid.uuid4()), "company_id": company_id, "key": key, "active_version_id": None,
-                "label": None, "applies_to": None, "state": "active", "archived_at": None,
+                "label": None, "applies_to": None, "recognize": None, "state": "active", "archived_at": None,
             }
         return self._playbooks[slot]
 
@@ -531,7 +540,7 @@ class InMemoryPlaybookRepository:
         for key, entry in sorted(self._listed(company_id).items()):
             pb = entry["pb"]
             if pb is None:
-                out[key] = {"status": "missing", "label": None, "applies_to": None,
+                out[key] = {"status": "missing", "label": None, "applies_to": None, "recognize": None,
                             **summarize(None, has_draft=False, paused=False)}
                 continue
             status = self._status(pb)
@@ -541,6 +550,7 @@ class InMemoryPlaybookRepository:
                 "status": status,
                 "label": pb["label"] or None,
                 "applies_to": copy.deepcopy(pb["applies_to"]),
+                "recognize": pb.get("recognize") or None,
                 **summarize(shown, has_draft=pending is not None, paused=status == "paused"),
             }
         return out
@@ -677,7 +687,7 @@ class InMemoryPlaybookRepository:
 
     # -- types, names and rules
 
-    def add_type(self, company_id, key, name, *, label=UNSET, applies_to=UNSET) -> None:
+    def add_type(self, company_id, key, name, *, label=UNSET, applies_to=UNSET, recognize=UNSET) -> None:
         cleaned = (key or "").strip()
         if not cleaned:
             raise PublishError("empty_type")
@@ -689,16 +699,18 @@ class InMemoryPlaybookRepository:
             row["active"] = True
         if slot in self._playbooks:
             self._unarchive(self._playbooks[slot])
-        self.set_meta(company_id, cleaned, label=label, applies_to=applies_to)
+        self.set_meta(company_id, cleaned, label=label, applies_to=applies_to, recognize=recognize)
 
-    def set_meta(self, company_id, key, *, label=UNSET, applies_to=UNSET) -> None:
-        if label is UNSET and applies_to is UNSET:
+    def set_meta(self, company_id, key, *, label=UNSET, applies_to=UNSET, recognize=UNSET) -> None:
+        if label is UNSET and applies_to is UNSET and recognize is UNSET:
             return
         pb = self._ensure_playbook(company_id, key)
         if label is not UNSET:
             pb["label"] = label or None
         if applies_to is not UNSET:
             pb["applies_to"] = copy.deepcopy(applies_to)
+        if recognize is not UNSET:
+            pb["recognize"] = str(recognize or "").strip() or None
 
     # -- sources and imports
 

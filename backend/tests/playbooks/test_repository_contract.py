@@ -224,7 +224,7 @@ def test_the_list_says_status_counts_label_and_rule_per_type(repo):
     listed = repo.list_types(CO)
     assert sorted(listed) == ["closing", "discovery", "renewal", "sales"]
     assert listed["closing"] == {
-        "status": "published", "label": None, "applies_to": None, "step_count": 1, "answer_count": 1,
+        "status": "published", "label": None, "applies_to": None, "recognize": None, "step_count": 1, "answer_count": 1,
         "criteria_count": 1, "has_draft": False, "paused": False,
     }
     assert listed["discovery"]["status"] == "draft" and listed["discovery"]["has_draft"] is True
@@ -232,7 +232,7 @@ def test_the_list_says_status_counts_label_and_rule_per_type(repo):
     assert listed["renewal"]["status"] == "missing" and listed["renewal"]["label"] == "Renovación"
     assert listed["renewal"]["applies_to"] == RULE and listed["renewal"]["step_count"] == 0
     assert listed["sales"] == {
-        "status": "missing", "label": None, "applies_to": None, "step_count": 0, "answer_count": 0,
+        "status": "missing", "label": None, "applies_to": None, "recognize": None, "step_count": 0, "answer_count": 0,
         "criteria_count": 0, "has_draft": False, "paused": False,
     }
 
@@ -575,6 +575,17 @@ def test_set_meta_sets_only_what_it_is_given(repo):
     assert row["label"] is None and row["applies_to"] is None
     repo.set_meta(CO, "closing", label="Cierre", applies_to=UNSET)
     assert repo.list_types(CO)["closing"]["label"] == "Cierre"
+
+
+def test_the_recognition_sentence_is_kept_alone_and_cleared_when_blank(repo):
+    repo.add_type(CO, "cold", "Llamada en frío", label="Llamada en frío", recognize="  Primera llamada a alguien que no nos conoce.  ")
+    row = repo.list_types(CO)["cold"]
+    assert row["recognize"] == "Primera llamada a alguien que no nos conoce." and row["label"] == "Llamada en frío"
+    repo.set_meta(CO, "cold", label="Frío")  # another field leaves it alone
+    assert repo.list_types(CO)["cold"]["recognize"] == "Primera llamada a alguien que no nos conoce."
+    repo.set_meta(CO, "cold", recognize="   ")
+    assert repo.list_types(CO)["cold"]["recognize"] is None
+    assert repo.list_types(CO).get("discovery", {}).get("recognize") is None
 
 
 # --- the material a playbook was structured from ------------------------------------------------------
