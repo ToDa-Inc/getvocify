@@ -181,7 +181,7 @@ def grounded_lines(answer: Any, interactions: list[dict], company: Optional[dict
     lines = []
     for line in (answer or {}).get("lines", []) if isinstance(answer, dict) else []:
         text = " ".join(str((line or {}).get("text") or "").split())
-        cited = _citations(line)
+        cited = [_resolve(source, known) for source in _citations(line)]
         if text and cited and all(source in known for source in cited):
             lines.append({"text": text, "sources": cited})
         elif text:
@@ -190,6 +190,14 @@ def grounded_lines(answer: Any, interactions: list[dict], company: Optional[dict
 
 
 _CITED_ID = re.compile(r"(?:hubspot|vocify):[a-z_]+:[A-Za-z0-9-]+")
+
+
+def _resolve(source: str, known: set[str]) -> str:
+    """A bare id ("d54011d2-…", "525805075670") is the item whose id it ends, when exactly one does."""
+    if source in known:
+        return source
+    matches = [item for item in known if item.endswith(f":{source}")]
+    return matches[0] if len(matches) == 1 else source
 
 
 def _citations(line: Any) -> list[str]:
