@@ -208,6 +208,23 @@ def test_a_good_patch_is_applied_and_nothing_else_changes(llm):
     assert result.stage_info()["edits_applied"] == 1
 
 
+def test_its_cost_is_attributed_to_sanitize_under_the_memos_scope(llm, monkeypatch):
+    from app.services.usage import usage_scope
+    from app.services.usage.scope import current_scope
+
+    seen = []
+    original = llm.chat_json
+
+    async def spy(self, messages, **kwargs):
+        seen.append(current_scope())
+        return await original(self, messages, **kwargs)
+
+    monkeypatch.setattr(llm, "chat_json", spy)
+    with usage_scope("extract", memo_id="memo-1", user_id="user-1"):
+        run()
+    assert [(s.purpose, s.memo_id, s.user_id) for s in seen] == [("sanitize", "memo-1", "user-1")]
+
+
 def test_the_answer_is_capped_and_bounded_in_time(llm):
     run()
     _, kwargs = llm.calls[0]

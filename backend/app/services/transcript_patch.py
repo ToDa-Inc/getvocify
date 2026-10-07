@@ -278,9 +278,12 @@ async def patch_transcript(
 ) -> PatchResult:
     """Repair misheard words in `transcript`. Always returns a result; `.text` is the input
     unchanged whenever the model fails, answers badly, or has nothing safe to change."""
+    from app.services.usage import usage_scope
+
     result = PatchResult(text=transcript)
     try:
-        return await _patch(result, transcript, list(terms), roles, spoken_language, two_party, model)
+        with usage_scope("sanitize"):  # its tokens and cost are listed under "sanitize", not "extract"
+            return await _patch(result, transcript, list(terms), roles, spoken_language, two_party, model)
     except Exception as exc:  # the transcript is already usable: never fail the memo over a repair
         logger.warning("Transcript patch skipped: %s", exc)
         result.text = transcript
