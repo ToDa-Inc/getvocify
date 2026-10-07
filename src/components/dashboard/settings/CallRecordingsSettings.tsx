@@ -24,9 +24,9 @@ export const CallRecordingsSettings = () => {
 
   return (
     <div className="flex items-start justify-between gap-6">
-      <div className="space-y-1">
-        <p className={THEME_TOKENS.typography.sectionRail}>{t.product.callRecordingsHeading}</p>
-        <p className="text-sm text-muted-foreground">{t.product.callRecordingsHelper}</p>
+      <div>
+        <h3 className={THEME_TOKENS.typography.sectionTitle}>{t.product.callRecordingsHeading}</h3>
+        <p className="text-xs text-muted-foreground mt-1">{t.product.callRecordingsHelper}</p>
       </div>
       <Switch
         checked={data?.process ?? true}
