@@ -173,6 +173,10 @@ async function ensureDevice(token: string, forceNew: boolean): Promise<Device> {
     return device;
   }
   const next = new Device(token, { codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU] });
+  // Twilio's own hang-up tone (up to 3 s) stutters in the desktop app's web view; there the island shows the call ended.
+  if (getDesktopBridge()) next.audio?.disconnect(false);
+  // Twilio's own hang-up tone (up to 3 s) stutters in the desktop app's web view; there the island shows the call ended.
+  if (getDesktopBridge()) next.audio?.disconnect(false);
   next.on("error", (err) => {
     report("device-error", errorDetails(err));
     // Before Twilio has the call, a 31005/31000 is not a hang-up: the page could not reach Twilio.
