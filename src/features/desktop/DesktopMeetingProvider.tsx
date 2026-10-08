@@ -19,6 +19,7 @@ import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
 import { api } from "@/shared/lib/api-client";
 import { ROUTES } from "@/shared/lib/constants";
+import { EchoSuppressor } from "@/lib/echo-suppressor";
 import {
   encodeChannelAudio,
   hookMicPcm,
@@ -257,6 +258,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const wsRef = useRef<WebSocket | null>(null);
   /** Who the meeting app showed speaking, timed on the other side's audio clock (page recording only). */
   const speakersRef = useRef<{ timeline: SpeakerTimeline; clockAt: number | null } | null>(null);
+  /** Keeps the call out of the microphone when the page records both sides itself (a meeting heard through speakers). */
+  const echoRef = useRef<EchoSuppressor | null>(null);
   /** The live service's pass for this recording, sent first on every connection. */
   const ticketRef = useRef<string | null>(null);
   /** The Mac app is recording this meeting itself; the page only mirrors its transcript. */
@@ -433,6 +436,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     releaseAudioRef.current.forEach((release) => release());
     releaseAudioRef.current = [];
     speakersRef.current = null;
+    if (echoRef.current) {
+      // How much of the microphone was the call's echo: the app's log is where a Windows test shows it worked.
+      getDesktopBridge()?.shell.log?.("echo:suppressed", echoRef.current.stats());
+      echoRef.current = null;
+    }
     micRef.current?.getTracks().forEach((track) => track.stop());
     micRef.current = null;
     await getDesktopBridge()?.systemAudio.stop();
@@ -1034,10 +1042,19 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       } else if (ctx && (micStream || call)) {
         // A Vocify call knows who it is with; a meeting recorded here is named from the meeting app's readings.
         speakersRef.current = call ? null : { timeline: new SpeakerTimeline(), clockAt: null };
+        // A Vocify call has the two sides as separate streams already; a meeting is the mic plus what the PC plays.
+        echoRef.current = call ? null : new EchoSuppressor();
         openSocket();
         let levelsSentAt = 0;
-        const send = (channel: MeetingSpeaker) => (pcm: ArrayBuffer) => {
+        const send = (channel: MeetingSpeaker) => (heard: ArrayBuffer) => {
           const side = channel === "rep" ? "you" : "them";
+          let pcm = heard;
+          const echo = echoRef.current;
+          if (echo) {
+            // The mic hears the meeting through the speakers: what is only that echo is not the rep.
+            if (channel === "prospect") echo.pushCall(new Int16Array(heard), performance.now());
+            else pcm = echo.process(new Int16Array(heard), performance.now()).buffer as ArrayBuffer;
+          }
           // Paused: send silence so the session stays open and both channels keep one clock.
           const audio = pausedRef.current ? new ArrayBuffer(pcm.byteLength) : pcm;
           if (!pausedRef.current) {
