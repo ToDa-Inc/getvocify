@@ -17,7 +17,9 @@ import {
   scrolledToEnd,
   summaryParts,
   rowHeadline,
+  rowContacts,
   rowStatus,
+  timeLabel,
   typeChip,
   typeOptions,
 } from "./interactions.ts";
@@ -366,5 +368,44 @@ describe("scrolledToEnd", () => {
 
   it("counts a list that does not overflow as read", () => {
     assert.equal(scrolledToEnd({ scrollTop: 0, clientHeight: 400, scrollHeight: 380 }), true);
+  });
+});
+
+describe("timeLabel", () => {
+  const iso = new Date(2026, 9, 8, 17, 5).toISOString();
+  it("writes the Spanish 24-hour clock with a trailing h", () => {
+    assert.equal(timeLabel(iso, "es-ES"), "17:05 h");
+  });
+  it("leaves other languages as the locale writes them", () => {
+    assert.equal(timeLabel(iso, "en-GB"), "17:05");
+  });
+  it("is empty for a bad date", () => {
+    assert.equal(timeLabel("nope", "es-ES"), "");
+  });
+});
+
+describe("rowContacts", () => {
+  const attendees = [
+    { name: "Pablo Ferrer", email: "pablo@levante.es" },
+    { name: "Marta Ruiz", email: "Marta@levante.es" },
+    { name: null, email: null },
+  ];
+  it("marks the attendee the memo's linked contact matches by email, and puts them first", () => {
+    const people = rowContacts({ attendees, hubspotContactId: "42", extraction: { contactEmail: "marta@levante.es" } });
+    assert.deepEqual(people.map((p) => [p.name, p.crm]), [["Marta Ruiz", true], ["Pablo Ferrer", false]]);
+  });
+  it("marks nobody without a linked contact or without a matching email", () => {
+    assert.ok(rowContacts({ attendees, extraction: { contactEmail: "marta@levante.es" } }).every((p) => !p.crm));
+    assert.ok(rowContacts({ attendees, hubspotContactId: "42", extraction: { contactName: "Marta Ruiz" } }).every((p) => !p.crm));
+  });
+  it("gives a call its one contact, marked only when it is linked in the CRM", () => {
+    assert.deepEqual(rowContacts({ hubspotContactId: "7", extraction: { contactName: "Jordi Casals", contactEmail: null } }), [
+      { name: "Jordi Casals", email: null, crm: true },
+    ]);
+    assert.equal(rowContacts({ extraction: { contactName: "Jordi Casals" } })[0].crm, false);
+  });
+  it("is empty when nobody is known", () => {
+    assert.deepEqual(rowContacts({ hubspotContactId: "7", extraction: {} }), []);
+    assert.deepEqual(rowContacts({}), []);
   });
 });

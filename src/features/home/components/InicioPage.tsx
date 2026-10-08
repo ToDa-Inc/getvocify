@@ -12,6 +12,7 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { useHomeChat } from "../hooks/useHomeChat";
 import { HomeComposer, type HomeComposerHandle } from "./HomeComposer";
+import { HomeRecordButton } from "./HomeRecordButton";
 import { LatestInteractions } from "./LatestInteractions";
 import { RepRail } from "./RepRail";
 import { SignalsRail } from "./SignalsRail";
@@ -128,7 +129,8 @@ export function InicioPage() {
   return (
     <div className={cn("flex flex-col gap-6 md:flex-row md:items-start", inChat && "h-full md:items-stretch")}>
       <div className={cn("relative flex min-w-0 flex-col md:flex-1", inChat && "min-h-0 flex-1")}>
-        <div className="relative z-10 flex shrink-0 justify-end gap-0.5">
+        <div className="relative z-10 flex shrink-0 items-center justify-end gap-0.5">
+          <HomeRecordButton />
           <IconAction label={p.askHistory} onClick={toggleHistory}>
             <History size={16} strokeWidth={historyOpen ? 2.25 : 1.5} />
           </IconAction>

@@ -220,10 +220,46 @@ export function groupByDay<T extends { createdAt: string }>(
   return out;
 }
 
-/** "17:05" / "5:05 PM", the way the viewer's language writes a time. Empty for a bad date. */
+/**
+ * "17:05 h" / "5:05 PM", the way the viewer's language writes a time. Spanish writes the 24-hour clock
+ * with a trailing "h", which is also what tells a time of day apart from a length ("17:05" vs "12:30").
+ * Empty for a bad date.
+ */
 export function timeLabel(iso: string, locale: string): string {
   const at = new Date(iso);
-  return Number.isNaN(at.getTime()) ? "" : new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(at);
+  if (Number.isNaN(at.getTime())) return "";
+  const time = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(at);
+  return locale.toLowerCase().startsWith("es") ? `${time} h` : time;
+}
+
+/** One person a row involved. `crm`: this is the contact the memo is linked to in the CRM. */
+export type RowContact = { name: string | null; email: string | null; crm: boolean };
+
+type ContactSource = {
+  attendees?: { name: string | null; email: string | null }[] | null;
+  hubspotContactId?: string | null;
+  extraction?: { contactName?: string | null; contactEmail?: string | null } | null;
+};
+
+/**
+ * Who a row involved: a meeting's attendees, else the one contact the extraction names. The CRM mark goes
+ * only on a person we can tie to the memo's linked contact: the attendee with the extraction's email, or
+ * the single contact of a call. Nobody else is marked, and nobody is invented. The linked contact comes first.
+ */
+export function rowContacts(memo: ContactSource): RowContact[] {
+  const linked = Boolean(memo.hubspotContactId);
+  const trimmed = (value: string | null | undefined) => value?.trim() || null;
+  const known = trimmed(memo.extraction?.contactEmail)?.toLowerCase() ?? null;
+  const attendees = (memo.attendees ?? [])
+    .map((person) => ({ name: trimmed(person.name), email: trimmed(person.email) }))
+    .filter((person) => person.name || person.email);
+  if (attendees.length) {
+    const people = attendees.map((person) => ({ ...person, crm: linked && known !== null && person.email?.toLowerCase() === known }));
+    return [...people.filter((person) => person.crm), ...people.filter((person) => !person.crm)];
+  }
+  const name = trimmed(memo.extraction?.contactName);
+  const email = trimmed(memo.extraction?.contactEmail);
+  return name || email ? [{ name, email, crm: linked }] : [];
 }
 
 /**

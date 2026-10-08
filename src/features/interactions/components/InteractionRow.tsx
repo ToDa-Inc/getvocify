@@ -1,14 +1,13 @@
 import { Link } from "react-router-dom";
-import { MapPin, Mic, Phone, Users, type LucideIcon } from "lucide-react";
+import { AudioLines, MapPin, Phone, Timer, Video, type LucideIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import type { Memo } from "@/features/memos/types";
 import { formatCallDuration } from "@/lib/call-duration";
 import {
-  callOutcome,
   channelOf,
   groupByDay,
-  initialsOf,
+  rowContacts,
   rowHeadline,
   rowStatus,
   timeLabel,
@@ -19,68 +18,46 @@ import {
 } from "@/lib/interactions";
 import { useLanguage } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { useCrmContactLink } from "../hooks/useCrmContactLink";
+import { ContactStack } from "./ContactStack";
 import { TypeChip } from "./TypeChip";
 
 const CHANNEL_ICON: Record<Channel, LucideIcon> = {
   call: Phone,
-  meeting: Users,
+  meeting: Video,
   visit: MapPin,
-  voice_note: Mic,
+  voice_note: AudioLines,
 };
 
-/**
- * Render circular avatar for an attendee with initials. Overlapping stack for multiple attendees.
- * Max 3 visible, with "+N" badge for overflow.
- */
-function AvatarStack({
-  attendees,
-  maxVisible = 3,
-}: {
-  attendees?: Array<{ name: string | null; email: string | null }> | null;
-  maxVisible?: number;
-}) {
-  if (!attendees || attendees.length === 0) return null;
-
-  const visible = attendees.slice(0, maxVisible);
-  const overflow = attendees.length - maxVisible;
-
-  return (
-    <div className="flex items-center" role="img" aria-label={attendees.map((a) => a.name || a.email).join(", ")}>
-      {visible.map((attendee, idx) => (
-        <div
-          key={`${attendee.email}-${idx}`}
-          className={cn(
-            "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary text-[10px] font-medium text-muted-foreground ring-1 ring-card",
-            idx > 0 && "-ml-2",
-          )}
-          title={attendee.name || attendee.email || undefined}
-        >
-          {initialsOf(attendee)}
-        </div>
-      ))}
-      {overflow > 0 && (
-        <div className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary text-[9px] font-medium text-muted-foreground ring-1 ring-card", "-ml-2")}>
-          +{overflow}
-        </div>
-      )}
-    </div>
-  );
-}
+/** The glyph says what it was; the tint tells calls from meetings at a glance. */
+const CHANNEL_TILE: Record<Channel, string> = {
+  call: "border-success/20 bg-success/10 text-success",
+  meeting: "border-beige/25 bg-beige/10 text-beige",
+  visit: "border-border/60 bg-secondary/60 text-foreground/80",
+  voice_note: "border-border/50 bg-muted/70 text-muted-foreground",
+};
 
 // Only what asks for something: a call to review, one that failed, one still being read. A synced
-// call says nothing; voicemail and no answer are a quiet word.
+// call says nothing; voicemail and no answer are a quiet word. It leads the subtitle.
 const STATUS_CLASS: Partial<Record<RowStatus, string>> = {
-  review: "text-warning",
-  failed: "text-destructive",
+  review: "font-medium text-warning",
+  failed: "font-medium text-destructive",
   processing: "text-muted-foreground",
   voicemail: "text-muted-foreground",
   no_answer: "text-muted-foreground",
 };
 
+/** The corner mark on the tile for what needs the person: to review, or failed. */
+const STATUS_MARK: Partial<Record<RowStatus, string>> = {
+  review: "bg-warning",
+  failed: "bg-destructive",
+};
+
 /**
- * One capture, the way a notes app lists a note: what it was about, a line of what was said, its
- * type as a tag you can change, and the time. The whole row opens the memo; the tag sits above
- * that link so it can be clicked on its own. `author` is who recorded it, shown to managers only.
+ * One capture, the way a notes app lists a note: what it was about, a line of what was said, who was
+ * in it, its type as a tag you can change, and when it happened. The whole row opens the memo; the
+ * contacts and the tag sit above that link so they work on their own. `author` is who recorded it,
+ * shown to managers only.
  */
 export function InteractionRow({
   memo,
@@ -97,7 +74,7 @@ export function InteractionRow({
   const copy = t.product.interactions;
   const locale = t.product.hourLocale;
   const channel = channelOf(memo.interactionKind);
-  const Icon = channel ? CHANNEL_ICON[channel] : Mic;
+  const Icon = channel ? CHANNEL_ICON[channel] : AudioLines;
   const found = typeChip(memo, options);
   // A type the viewer's list doesn't carry comes back as its key: name it from the copy if we can.
   const chip = found && found.label === found.key ? { ...found, label: labelOf(found.key) } : found;
@@ -105,26 +82,30 @@ export function InteractionRow({
   const channelName = channel ? copy.channel[channel] : "";
   const fallback = duration ? copy.untitledWith.replace("{channel}", channelName).replace("{duration}", duration) : channelName || copy.untitled;
   const { title, preview } = rowHeadline(memo, fallback);
-  const subtitle = [author?.trim(), preview].filter(Boolean).join(" · ");
   const status = rowStatus(memo);
   const statusClass = status ? STATUS_CLASS[status] : undefined;
+  const statusWord = status && statusClass ? copy.status[status] : null;
+  const subtitle = [author?.trim(), preview].filter(Boolean).join(" · ");
   const when = new Date(memo.createdAt);
   const fullDate = Number.isNaN(when.getTime())
     ? undefined
     : new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(when);
-
-  // Call info for call channel: duration and outcome
-  const showCallInfo = channel === "call" && duration;
-  const outcome = showCallInfo ? callOutcome(memo) : null;
-  const callInfoText = showCallInfo ? `${duration} · ${copy.callOutcome[outcome as keyof typeof copy.callOutcome]}` : null;
+  const contacts = rowContacts(memo);
+  const crm = useCrmContactLink(memo.hubspotContactId);
 
   return (
     <li className="group relative flex items-center gap-3.5 rounded-xl px-3 py-2.5 transition-colors duration-150 hover:bg-secondary/60 motion-reduce:transition-none">
       <span
         aria-hidden
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-secondary/60 text-muted-foreground"
+        className={cn(
+          "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border",
+          CHANNEL_TILE[channel ?? "voice_note"],
+        )}
       >
-        <Icon className="h-4 w-4" strokeWidth={1.75} />
+        <Icon className="h-[18px] w-[18px]" strokeWidth={1.5} />
+        {status && STATUS_MARK[status] ? (
+          <span className={cn("absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full ring-2 ring-background group-hover:ring-secondary", STATUS_MARK[status])} />
+        ) : null}
       </span>
       <div className="min-w-0 flex-1">
         <Link
@@ -135,23 +116,28 @@ export function InteractionRow({
           {channelName ? <span className="sr-only">{channelName}: </span> : null}
           {title}
         </Link>
-        {subtitle ? <p className="mt-0.5 truncate text-[13px] text-muted-foreground">{subtitle}</p> : null}
-      </div>
-      <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
-        {channel === "meeting" ? <AvatarStack attendees={memo.attendees} /> : null}
-        {status && statusClass && !(callInfoText && (status === "voicemail" || status === "no_answer")) ? (
-          <span className={cn("hidden items-center gap-1.5 sm:inline-flex", statusClass)}>
-            {status === "processing" ? <VocifySpinner size={12} /> : <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />}
-            {copy.status[status]}
-          </span>
+        {statusWord || subtitle ? (
+          <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
+            {statusWord ? (
+              <span className={cn("inline-flex shrink-0 items-center gap-1.5", statusClass)}>
+                {status === "processing" ? <VocifySpinner size={12} /> : null}
+                {statusWord}
+              </span>
+            ) : null}
+            {statusWord && subtitle ? <span aria-hidden>·</span> : null}
+            {subtitle ? <span className="truncate">{subtitle}</span> : null}
+          </p>
         ) : null}
-        {/* No type yet: the chip to tag it shows on hover or focus, not as the same word on every row. */}
-        <span
-          className={cn(
-            "relative z-10",
-            !chip && "opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover:opacity-100 motion-reduce:transition-none",
-          )}
-        >
+      </div>
+      <div className="flex shrink-0 items-center gap-3.5 text-xs text-muted-foreground">
+        <ContactStack
+          contacts={contacts}
+          kind={channel === "meeting" ? "meeting" : "single"}
+          crmUrl={crm.url}
+          crmName={crm.name}
+        />
+        {/* No type yet: the dashed chip says so and tags it on one click. */}
+        <span className="relative z-10">
           <TypeChip
             memoId={memo.id}
             chip={chip ?? { key: "", label: copy.noType }}
@@ -160,14 +146,17 @@ export function InteractionRow({
             untyped={!chip}
           />
         </span>
-        {callInfoText ? <span className="hidden tabular-nums sm:inline">{callInfoText}</span> : null}
-        <time
-          dateTime={memo.createdAt}
-          title={[fullDate, duration].filter(Boolean).join(" · ")}
-          className="w-12 text-right tabular-nums"
-        >
-          {timeLabel(memo.createdAt, locale)}
-        </time>
+        <div className="w-[4.25rem] text-right tabular-nums leading-tight">
+          <time dateTime={memo.createdAt} title={fullDate} className="block text-[13px] text-foreground/85">
+            {timeLabel(memo.createdAt, locale)}
+          </time>
+          {duration ? (
+            <span className="mt-0.5 inline-flex items-center gap-1 text-[11.5px]">
+              <Timer aria-hidden className="h-3 w-3" strokeWidth={1.5} />
+              {duration}
+            </span>
+          ) : null}
+        </div>
       </div>
     </li>
   );

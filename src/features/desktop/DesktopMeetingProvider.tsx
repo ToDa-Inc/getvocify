@@ -122,6 +122,8 @@ type DesktopMeeting = {
   /** The rep switched live help on or off for this call only; null follows the remembered setting. */
   liveHelpOverride: boolean | null;
   start: () => Promise<void>;
+  /** Starts a recording and stays on this page (Inicio keeps its chat). False when it did not go live. */
+  startHere: () => Promise<boolean>;
   /** Live transcript and help for a Vocify call; its memo comes from the call recording, not from here. */
   startCall: (session: VocifyCallSession) => Promise<void>;
   /** A Vocify call ended without a live session (its audio never reached the page): still follow its memo. */
@@ -914,7 +916,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     }
   }, [clearNotes, currentDraft, drainSocket, fail, followCallMemo, followPostCall, navigate, queryClient, releaseAudio, sendDraft, setPhase, updateTranscript]);
 
-  const start = useCallback(async (call?: VocifyCallSession) => {
+  const start = useCallback(async (call?: VocifyCallSession, options?: { stay?: boolean }) => {
     const bridge = getDesktopBridge();
     if (!bridge || phaseRef.current !== "idle") return;
     if (!user?.id || !api.getToken()) {
@@ -1006,7 +1008,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       reconnectsRef.current = 0;
       setPhase("live");
-      navigate(ROUTES.RECORD);
+      if (!options?.stay) navigate(ROUTES.RECORD);
 
       const onCallAudioLost = () => {
         // The Mac already tried to restart it: the island must say so, the window may be hidden.
@@ -1371,6 +1373,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const shownCallType = useMemo(() => callTypeShown(callType), [callType]);
   // Separate entry points, so a click handler's event is never taken for a call session.
   const startMeeting = useCallback(() => start(), [start]);
+  const startHere = useCallback(async () => {
+    await start(undefined, { stay: true });
+    return phaseRef.current === "live";
+  }, [start]);
   const startCall = useCallback((session: VocifyCallSession) => start(session), [start]);
   const followCall = useCallback(
     (callSid: string, contactName: string | null) => {
@@ -1401,12 +1407,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       callMode,
       liveHelpOverride,
       start: startMeeting,
+      startHere,
       startCall,
       followCall,
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startCall, followCall, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startHere, startCall, followCall, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;
