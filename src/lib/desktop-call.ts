@@ -25,32 +25,79 @@ export type OnScreen = {
   brief?: IslandBrief;
 };
 
-export type IslandBrief = { state: "loading" } | { state: "ready"; lines: IslandBriefLine[] };
+export type IslandBrief = { state: "loading" } | { state: "ready"; lines: IslandBriefLine[]; company: IslandCompanyBrief | null };
 
 /** What a brief line is about, from the newest interaction it cites (the island shows its icon). */
 export type IslandBriefKind = "call" | "email" | "note" | "meeting" | "task" | "vocify_conversation" | "company";
 
-/** A brief line, with the kind and date of the newest interaction it cites; null when the backend did not say. */
-export type IslandBriefLine = { text: string; type: IslandBriefKind | null; at: string | null };
+/** A brief line, with the kind and date of the newest interaction it cites; null when the backend did not say. A
+ * company line also says who at the company it was with (null when filed on the company alone). */
+export type IslandBriefLine = { text: string; type: IslandBriefKind | null; at: string | null; who?: string | null };
+
+/** What was already said with other people at the contact's company: who and when last (from what was read), how
+ * many people, and the summary's lines about it. */
+export type IslandCompanyBrief = {
+  name: string | null;
+  latest: { type: IslandBriefKind | null; at: string | null; who: string | null } | null;
+  people: number;
+  lines: IslandBriefLine[];
+};
+
+/** The brief a call keeps while it is up. */
+export type IslandCallBrief = { lines: IslandBriefLine[]; company: IslandCompanyBrief | null };
 
 const BRIEF_KINDS = new Set<string>(["call", "email", "note", "meeting", "task", "vocify_conversation", "company"]);
 
-/** The summary's lines for the island: it shows two folded and all of them when opened. */
+/** The summary's lines for the island. */
 const ISLAND_BRIEF_LINES = 3;
+const ISLAND_COMPANY_LINES = 2;
 
-type SummaryLine = { text?: string; type?: string | null; occurred_at?: string | null };
+type Person = { name?: string | null; title?: string | null } | null | undefined;
+type SummaryLine = { text?: string; type?: string | null; occurred_at?: string | null; with?: Person };
+type Activity = {
+  company?: { name?: string | null } | null;
+  company_interactions?: { type?: string | null; occurred_at?: string | null; with?: Person }[] | null;
+  summary?: { lines?: SummaryLine[]; company_lines?: SummaryLine[] } | null;
+};
+
+const kindOf = (type: string | null | undefined): IslandBriefKind | null => (type && BRIEF_KINDS.has(type) ? (type as IslandBriefKind) : null);
+const dateOf = (at: string | null | undefined): string | null => (at && !Number.isNaN(Date.parse(at)) ? at : null);
+const whoOf = (person: Person): string | null => {
+  const name = person?.name?.trim();
+  if (!name) return null;
+  const title = person?.title?.trim();
+  return title ? `${name} (${title})` : name;
+};
+
+function briefLines(lines: SummaryLine[] | undefined, limit: number, withWho: boolean): IslandBriefLine[] {
+  return (lines ?? [])
+    .map((line): IslandBriefLine => {
+      const shown: IslandBriefLine = { text: (line.text ?? "").trim(), type: kindOf(line.type), at: dateOf(line.occurred_at) };
+      return withWho ? { ...shown, who: whoOf(line.with) } : shown;
+    })
+    .filter((line) => line.text)
+    .slice(0, limit);
+}
+
+function companyBrief(activity: Activity): IslandCompanyBrief | null {
+  const others = activity.company_interactions ?? [];
+  if (!others.length) return null;
+  const newest = others[0];
+  const people = new Set(others.map((item) => whoOf(item.with)).filter(Boolean));
+  return {
+    name: activity.company?.name?.trim() || null,
+    latest: { type: kindOf(newest.type), at: dateOf(newest.occurred_at), who: whoOf(newest.with) },
+    people: people.size,
+    lines: briefLines(activity.summary?.company_lines, ISLAND_COMPANY_LINES, true),
+  };
+}
 
 /** The recent-activity summary as the island shows it; null when it has nothing to say (the island does not grow). */
-export function islandBrief(activity: { summary?: { lines?: SummaryLine[] } | null } | null | undefined): IslandBrief | null {
-  const lines = (activity?.summary?.lines ?? [])
-    .map((line): IslandBriefLine => ({
-      text: (line.text ?? "").trim(),
-      type: line.type && BRIEF_KINDS.has(line.type) ? (line.type as IslandBriefKind) : null,
-      at: line.occurred_at && !Number.isNaN(Date.parse(line.occurred_at)) ? line.occurred_at : null,
-    }))
-    .filter((line) => line.text)
-    .slice(0, ISLAND_BRIEF_LINES);
-  return lines.length ? { state: "ready", lines } : null;
+export function islandBrief(activity: Activity | null | undefined): IslandBrief | null {
+  if (!activity) return null;
+  const lines = briefLines(activity.summary?.lines, ISLAND_BRIEF_LINES, false);
+  const company = companyBrief(activity);
+  return lines.length || company ? { state: "ready", lines, company } : null;
 }
 
 export type CallingAccess = {
@@ -69,6 +116,8 @@ export type DialIsland = {
   message: string | null;
   /** What happened with the contact lately, kept for the whole call (the offer's brief when Call was pressed). */
   brief: IslandBriefLine[] | null;
+  /** And with other people at its company. */
+  companyBrief: IslandCompanyBrief | null;
 };
 
 export type CallCommand =
@@ -109,14 +158,22 @@ export function dialTargetFor(preview: CallPreview | null | undefined, access: C
   };
 }
 
-export function dialIsland(state: CallEngineState, brief: IslandBriefLine[] | null = null): DialIsland | null {
+export function dialIsland(state: CallEngineState, brief: IslandCallBrief | null = null): DialIsland | null {
   const target = state.target;
   if (!target) return null;
   const shown = { name: target.name, phone: target.to, answeredAt: state.answeredAt, muted: state.muted };
-  if (isCallUp(state)) return { ...shown, phase: state.phase as DialIsland["phase"], message: null, brief: brief?.length ? brief : null };
+  if (isCallUp(state)) {
+    return {
+      ...shown,
+      phase: state.phase as DialIsland["phase"],
+      message: null,
+      brief: brief?.lines.length ? brief.lines : null,
+      companyBrief: brief?.company ?? null,
+    };
+  }
   // An answered call carries on as the recording → post-call card; only a missed one stays here.
   if (isCallEnded(state) && !state.answered) {
-    return { ...shown, phase: "ended", message: state.outcome ?? state.error, brief: null };
+    return { ...shown, phase: "ended", message: state.outcome ?? state.error, brief: null, companyBrief: null };
   }
   return null;
 }
