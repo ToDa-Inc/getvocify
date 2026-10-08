@@ -26,8 +26,8 @@ describe("changesFrom", () => {
       { field_name: "notes", field_label: "Notes", new_value: "" },
     ]);
     assert.deepEqual(changes, [
-      { key: "contacts:hs_lead_status", label: "Lead status", object: "contact", from: "NEW", to: "IN_PROGRESS", value: "IN_PROGRESS", options: [], multiple: false, check: false },
-      { key: "deals:amount", label: "Amount", object: "deal", from: null, to: "196", value: "196", options: [], multiple: false, check: true },
+      { key: "contacts:hs_lead_status", label: "Lead status", object: "contact", from: "NEW", to: "IN_PROGRESS", value: "IN_PROGRESS", options: [], multiple: false, editable: true, check: false },
+      { key: "deals:amount", label: "Amount", object: "deal", from: null, to: "196", value: "196", options: [], multiple: false, editable: true, check: true },
     ]);
   });
 
@@ -105,9 +105,24 @@ describe("withEdits", () => {
     assert.deepEqual(next.map((update) => update.new_value), ["customer", "excel;holded", "CEO"]);
   });
 
-  it("ignores a pick outside the field's options, and free-text fields", () => {
-    const next = withEdits(proposed, { "contacts:lifecyclestage": "made-up", "contacts:jobtitle": "Founder" });
+  it("ignores a pick outside the field's options", () => {
+    const next = withEdits(proposed, { "contacts:lifecyclestage": "made-up" });
     assert.deepEqual(next.map((update) => update.new_value), ["lead", "excel", "CEO"]);
+  });
+
+  it("writes text typed over a free-text value, trimmed; never blank", () => {
+    assert.equal(withEdits(proposed, { "contacts:jobtitle": "  Founder  & CEO " })[2].new_value, "Founder & CEO");
+    assert.equal(withEdits(proposed, { "contacts:jobtitle": "   " })[2].new_value, "CEO");
+  });
+
+  it("takes only a number for a number field, and nothing typed for dates or the note-made description", () => {
+    const fields = [
+      { field_name: "amount", object_type: "deals", field_type: "number", new_value: "5000" },
+      { field_name: "closedate", object_type: "deals", field_type: "date", new_value: "2026-11-01" },
+      { field_name: "description", object_type: "deals", new_value: "From the note" },
+    ];
+    assert.deepEqual(withEdits(fields, { "deals:amount": "7500", "deals:closedate": "tomorrow", "deals:description": "typed" }).map((u) => u.new_value), ["7500", "2026-11-01", "From the note"]);
+    assert.equal(withEdits(fields, { "deals:amount": "about 7k" })[0].new_value, "5000");
   });
 });
 

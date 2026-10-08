@@ -28,6 +28,8 @@ export type PostCallChange = {
   options: PostCallOption[];
   /** A checkbox list: several options at once. */
   multiple: boolean;
+  /** Free text the rep can type over in the island (see `typedValue`); false for a value with options. */
+  editable: boolean;
   /** Extraction confidence under CONFIDENCE.MEDIUM ("needs review"): shown, unticked. */
   check: boolean;
 };
@@ -149,6 +151,22 @@ function optionsOf(update: Update): PostCallOption[] {
   return options;
 }
 
+/** CRM field types whose value can be typed: text, and numbers (checked as numbers). Dates and the like are not. */
+const TYPABLE = new Set(["", "string", "text", "textarea", "phone_number", "phonenumber", "number"]);
+
+/** A free-text field the rep may type a new value for in the island: one the review screen may edit, with no options. */
+function typable(update: Update): boolean {
+  return canEditOrRemoveProposedField(update) && optionsOf(update).length === 0 && TYPABLE.has(text(update.field_type).toLowerCase());
+}
+
+/** What the rep typed, as the field takes it, or null when it can't be written (blank, or not a number for a number field). */
+function typedValue(update: Update, typed: string): string | null {
+  const value = typed.replace(/\s+/g, " ").trim();
+  if (!value) return null;
+  if (text(update.field_type).toLowerCase() === "number") return /^-?\d+(\.\d+)?$/.test(value) ? value : null;
+  return value;
+}
+
 /** A value as the rep reads it: option labels instead of the CRM's internal values. */
 export function shownValue(value: string, options: PostCallOption[], multiple: boolean): string {
   if (!options.length) return value;
@@ -176,6 +194,7 @@ export function changesFrom(proposed: Update[] | null | undefined): PostCallChan
       value: to,
       options,
       multiple,
+      editable: typable(update),
       check: confidence !== null && confidence < CONFIDENCE.MEDIUM,
     });
   }
@@ -184,7 +203,8 @@ export function changesFrom(proposed: Update[] | null | undefined): PostCallChan
 
 /**
  * The proposed updates as the rep left them in the island: a value picked from the options
- * replaces the extracted one. A pick outside the field's options is ignored.
+ * replaces the extracted one, and so does text typed over a free-text value (see `typable`).
+ * A pick outside the field's options, or text a field can't take, is ignored.
  */
 export function withEdits(proposed: Update[], edits: Record<string, unknown> | null | undefined): Update[] {
   if (!edits) return proposed;
@@ -192,6 +212,10 @@ export function withEdits(proposed: Update[], edits: Record<string, unknown> | n
     const key = proposedFieldKey(update);
     const edit = key ? edits[key] : undefined;
     if (typeof edit !== "string") return update;
+    if (typable(update)) {
+      const typed = typedValue(update, edit);
+      return typed === null ? update : { ...update, new_value: typed };
+    }
     const allowed = new Set(optionsOf(update).map((option) => option.value));
     const parts = update.multiple ? edit.split(";").filter(Boolean) : [edit];
     if (!parts.length || !parts.every((part) => allowed.has(part))) return update;
