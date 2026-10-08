@@ -114,7 +114,15 @@ function without<T extends object>(map: T | undefined, key: SpeakerKey): T {
 
 export function applyChannelResult(
   state: MeetingTranscript,
-  result: { text: string; isFinal: boolean; audioChannel?: unknown; start?: unknown; end?: unknown },
+  result: {
+    text: string;
+    isFinal: boolean;
+    audioChannel?: unknown;
+    start?: unknown;
+    end?: unknown;
+    /** Who on the other side said it, when the meeting app showed it (finals only). */
+    name?: string | null;
+  },
 ): MeetingTranscript {
   const text = result.text.trim();
   const speaker = speakerOf(result.audioChannel);
@@ -149,7 +157,7 @@ export function applyChannelResult(
     };
   }
   const end = seconds(result.end) ?? start;
-  const segment = { speaker, text, start, end, seen: openSeen ?? nextSeen };
+  const segment: MeetingSegment = { speaker, text, start, end, seen: openSeen ?? nextSeen, ...(result.name ? { name: result.name } : {}) };
   const tail = state.interims[key];
   const tailEnd = state.interimEnds?.[key];
   // Only when the tail's audio goes past the final's: then more is coming for those words

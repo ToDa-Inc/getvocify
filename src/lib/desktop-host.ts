@@ -77,6 +77,13 @@ export type VocifyDesktopBridge = {
     /** Where the detected call happens; null when it can't be told. */
     onCallSource?(cb: (source: { name: string; kind: "call" | "meeting" | null } | null) => void): () => void;
   };
+  /**
+   * Who the meeting app shows speaking while a call is recorded in the page (Mac: Zoom, and Google Meet
+   * through the Vocify extension). Missing on Windows and in older builds.
+   */
+  speakers?: {
+    onSpeaking?(cb: (payload: { names: string[] }) => void): () => void;
+  };
   /** The global record shortcut. Missing in older builds. */
   shortcut?: {
     get(): Promise<RecordShortcutState>;

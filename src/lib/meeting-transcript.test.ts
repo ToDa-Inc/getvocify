@@ -6,6 +6,7 @@ import {
   EMPTY_MEETING_TRANSCRIPT,
   meetingDisplayTurns,
   meetingLastLine,
+  meetingParticipants,
   meetingUploadText,
   resetChannel,
   type MeetingTranscript,
@@ -390,5 +391,15 @@ describe("bubbles never jump", () => {
     let state = applyChannelResult(EMPTY_MEETING_TRANSCRIPT, { text: "vale vale perfecto", isFinal: false, audioChannel: "rep", start: 1, end: 2 });
     state = applyChannelResult(state, { text: "Vale, perfecto.", isFinal: true, audioChannel: "rep", start: 1, end: 2 });
     assert.deepEqual(meetingDisplayTurns(state).map((row) => [row.text, row.pending]), [["Vale, perfecto.", ""]]);
+  });
+});
+
+describe("named finals (page recording on the desktop app)", () => {
+  it("a final from the other side keeps who said it, and the memo lists them", () => {
+    let t = applyChannelResult(EMPTY_MEETING_TRANSCRIPT, { text: "Hola, soy Marta.", isFinal: true, audioChannel: "prospect", start: 1, end: 2, name: "Marta García" });
+    t = applyChannelResult(t, { text: "Y yo Juan.", isFinal: true, audioChannel: "prospect", start: 3, end: 4, name: null });
+    assert.equal(t.segments[0].name, "Marta García");
+    assert.equal("name" in t.segments[1], false);
+    assert.deepEqual(meetingParticipants(t), ["Marta García"]);
   });
 });

@@ -43,6 +43,7 @@ import {
   type MeetingTranscript,
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
+import { SpeakerTimeline } from "@/lib/speaker-timeline";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
 import { islandCallContact, latestOnly, type CallPreview } from "@/lib/call-contact";
@@ -252,6 +253,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const recoveredForRef = useRef<string | null>(null);
   const userIdRef = useRef("");
   const wsRef = useRef<WebSocket | null>(null);
+  /** Who the meeting app showed speaking, timed on the other side's audio clock (page recording only). */
+  const speakersRef = useRef<{ timeline: SpeakerTimeline; clockAt: number | null } | null>(null);
   /** The live service's pass for this recording, sent first on every connection. */
   const ticketRef = useRef<string | null>(null);
   /** The Mac app is recording this meeting itself; the page only mirrors its transcript. */
@@ -427,6 +430,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     setLevels({ you: 0, them: 0 });
     releaseAudioRef.current.forEach((release) => release());
     releaseAudioRef.current = [];
+    speakersRef.current = null;
     micRef.current?.getTracks().forEach((track) => track.stop());
     micRef.current = null;
     await getDesktopBridge()?.systemAudio.stop();
@@ -435,6 +439,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openSocket = useCallback(() => {
+    // A new session times its audio from zero again: who spoke is timed from its first audio too.
+    if (speakersRef.current) speakersRef.current = { timeline: new SpeakerTimeline(), clockAt: null };
     const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current));
     wsRef.current = ws;
     ws.onopen = () => {
@@ -460,12 +466,19 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (data.type === "Results") {
+        // The other side's words go to whoever the meeting app showed speaking then.
+        const speakers = speakersRef.current;
+        const name =
+          data.is_final && data.audio_channel === "prospect" && speakers && !speakers.timeline.isEmpty && typeof data.start === "number"
+            ? speakers.timeline.name(data.start, typeof data.end === "number" ? data.end : data.start)
+            : null;
         const next = applyChannelResult(transcriptRef.current, {
           text: data.channel?.alternatives?.[0]?.transcript ?? "",
           isFinal: Boolean(data.is_final),
           audioChannel: data.audio_channel,
           start: data.start,
           end: data.end,
+          name,
         });
         if (next !== transcriptRef.current) updateTranscript(next);
       } else if (data.type === "ChannelReset") {
@@ -1015,6 +1028,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
         ];
       } else if (ctx && (micStream || call)) {
+        // A Vocify call knows who it is with; a meeting recorded here is named from the meeting app's readings.
+        speakersRef.current = call ? null : { timeline: new SpeakerTimeline(), clockAt: null };
         openSocket();
         let levelsSentAt = 0;
         const send = (channel: MeetingSpeaker) => (pcm: ArrayBuffer) => {
@@ -1031,7 +1046,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             }
           }
           const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) ws.send(encodeChannelAudio(channel, audio));
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(encodeChannelAudio(channel, audio));
+            // The other side's audio clock starts with its first frame sent (result times count from it).
+            const speakers = speakersRef.current;
+            if (channel === "prospect" && speakers && speakers.clockAt === null) speakers.clockAt = performance.now();
+          }
         };
         releaseAudioRef.current = call
           ? // The call's own two sides: nothing else on the Mac reaches the prospect's channel.
@@ -1040,6 +1060,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               hookMicPcm(ctx, micStream as MediaStream, send("rep")),
               bridge.systemAudio.onPcm(send("prospect")),
               bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
+              // Who the meeting app shows speaking (the desktop app reads Zoom, and Meet through the extension).
+              bridge.speakers?.onSpeaking?.(({ names }) => {
+                const speakers = speakersRef.current;
+                if (!speakers || speakers.clockAt === null || !Array.isArray(names)) return;
+                speakers.timeline.record((performance.now() - speakers.clockAt) / 1000, names);
+              }) ?? (() => {}),
             ];
       }
 
