@@ -20,6 +20,7 @@ import {
   parseCallCommand,
   type CallingAccess,
   type IslandBrief,
+  type IslandCallBrief,
 } from "@/lib/desktop-call";
 import { getDesktopBridge } from "@/lib/desktop-host";
 import { useLanguage } from "@/lib/i18n";
@@ -48,7 +49,7 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
   /** The on-screen contact's recent activity, for the island's offer; it belongs to `previewRef`'s contact. */
   const briefRef = useRef<IslandBrief | null>(null);
   /** The brief of the contact being called, for the whole call. */
-  const callBriefRef = useRef<string[] | null>(null);
+  const callBriefRef = useRef<IslandCallBrief | null>(null);
   const copyRef = useRef(t.product);
   copyRef.current = t.product;
   const meetingRef = useRef(meeting);
@@ -125,7 +126,7 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
         if (!target) return;
         // The brief stays with this call, whatever tab the rep moves to while on it.
         const brief = briefRef.current;
-        callBriefRef.current = brief?.state === "ready" ? brief.lines : null;
+        callBriefRef.current = brief?.state === "ready" ? { lines: brief.lines, company: brief.company } : null;
         void callEngine.dial(target, copyRef.current);
       } else if (command.kind === "hangup") {
         callEngine.hangup();
