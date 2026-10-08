@@ -86,7 +86,7 @@ Today a rep recording with the island while a calendar bot is in the call gets t
 - **D1:** a new calendar connection starts with the bot off (`auto_join = false`, migration 077 changes the column default); reconnecting keeps the rep's switch.
 - **D2:** the memo is linked to a contact from the calendar only when exactly one outside attendee matched a HubSpot contact; with several, none is guessed (the rep picks in the review). The CRM tab on screen always wins.
 - **D3:** unchanged: an island recording and a calendar bot on the same meeting still make two memos.
-- **D4:** the heads-up is only for meetings with someone from outside and a call link.
+- **D4:** (changed 2026-10-08 by Dani) the heads-up is for every meeting with someone besides the rep and a call link, internal ones included: an internal meeting is typed "internal" on its memo. Only outside people are matched to HubSpot (the brief is for them), and the bot still joins only meetings with people from outside.
 - **Heads-up window:** from 1 minute before the start until 5 minutes after; the island opens once per meeting for 60 s (the pointer holds it); a closed meeting is not shown again; a call or recording in progress is never interrupted.
 - **Freshness:** `/calendar/upcoming` re-syncs from Recall when the last full sync is over 5 minutes old, so it works even without Recall's webhook.
 - **Recording link:** by start time (meeting starting within 15 minutes, or already running), same-app meeting first. The 1:1 "Them = attendee's name" labelling is not built.
