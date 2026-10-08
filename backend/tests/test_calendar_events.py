@@ -278,6 +278,14 @@ def test_store_events_saves_matches_prunes_and_marks_the_sync(monkeypatch):
     assert search.asked == []
 
 
+def test_colleagues_get_their_vocify_name():
+    rows = [ce.event_row(_event(raw={"attendees": [
+        {"email": "toni@acme.es"}, {"email": "pepe@acme.es", "displayName": "Pepe"}, {"email": "jon@cliente.com"},
+    ]}), CONNECTION)]
+    ce.name_teammates(rows, {"toni@acme.es": "Toni García", "pepe@acme.es": "José Pérez", "jon@cliente.com": "No"})
+    assert [p.get("name") for p in rows[0]["attendees"]] == ["Toni García", "Pepe", None]
+
+
 def test_without_hubspot_the_meetings_are_still_kept(monkeypatch):
     async def broken(_supabase, _company):
         raise ValueError("HubSpot authorization expired")

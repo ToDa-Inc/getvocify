@@ -156,6 +156,31 @@ async def match_contacts(rows: list[dict[str, Any]], known: dict[str, dict[str, 
             known[person["email"]] = person
 
 
+def _team_names(supabase: Client, company_id: str) -> dict[str, str]:
+    """Teammates' emails -> their names in Vocify, so a colleague on the invite reads "Toni García",
+    not an address (calendars often give no display name). Empty when it can't be read."""
+    from app.services.company import CompanyService
+
+    try:
+        members = CompanyService(supabase).list_members(company_id)
+    except Exception:
+        logger.warning("Teammates' names unavailable for calendar attendees", exc_info=True)
+        return {}
+    return {
+        str(m["email"]).strip().lower(): str(m["full_name"]).strip()
+        for m in members
+        if m.get("email") and (m.get("full_name") or "").strip()
+    }
+
+
+def name_teammates(rows: list[dict[str, Any]], names: dict[str, str]) -> None:
+    """Colleagues without a name on the invite get their Vocify name."""
+    for row in rows:
+        for person in row["attendees"]:
+            if not person.get("external") and not person.get("name") and person["email"] in names:
+                person["name"] = names[person["email"]]
+
+
 async def store_events(
     supabase: Client, connection: dict[str, Any], events: list[dict[str, Any]], *, full: bool
 ) -> None:
@@ -179,6 +204,8 @@ async def store_events(
                 # HubSpot unreachable or its login expired: the meetings are kept, matched on a later sync.
                 logger.warning("HubSpot search unavailable for calendar attendees", exc_info=True)
         await match_contacts(rows, known, search)
+        if any(not p.get("external") and not p.get("name") for row in rows for p in row["attendees"]):
+            name_teammates(rows, _team_names(supabase, connection["company_id"]))
         if rows:
             supabase.table(TABLE).upsert(rows, on_conflict="recall_event_id").execute()
         if full:
