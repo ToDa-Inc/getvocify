@@ -589,6 +589,7 @@ async def log_call_engagement(
     reviewable in Vocify.
     """
     from app.api.crm import get_hubspot_client_from_connection
+    from app.services.hubspot import call_entry
     from app.services.hubspot.call_log import (
         build_call_properties,
         hubspot_call_body_for_disposition,
@@ -641,6 +642,8 @@ async def log_call_engagement(
             row.get("hubspot_contact_id"),
             row.get("to_number") or "",
         )
+        # The rep approved before the call was logged: the call carries the write-up (summary, updates, transcript).
+        pending = call_entry.pending_call_body(supabase, row.get("memo_id"))
         properties = build_call_properties(
             occurred_at=datetime.now(timezone.utc)
             .isoformat()
@@ -653,7 +656,7 @@ async def log_call_engagement(
             app_id=str(settings.HUBSPOT_APP_ID or ""),
             owner_id=owner_id,
             title=call_title,
-            body=hubspot_call_body_for_disposition(screening_outcome),
+            body=pending[1] if pending else hubspot_call_body_for_disposition(screening_outcome),
             call_status=hubspot_call_status_for_disposition(screening_outcome),
             disposition=screening_outcome,
         )
@@ -669,6 +672,8 @@ async def log_call_engagement(
                 "status": "logged",
             }
         ).eq("carrier_call_id", call_sid).execute()
+        if pending and engagement_id:
+            call_entry.mark_call_body_written(supabase, pending[0], str(engagement_id))
         memo_id = row.get("memo_id")
         if memo_id and engagement_id:
             try:

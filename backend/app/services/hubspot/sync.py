@@ -29,6 +29,7 @@ from .types import SyncResult
 from .contacts import HubSpotContactService
 from .companies import HubSpotCompanyService
 from .deals import HubSpotDealService, HUBSPOT_READ_ONLY_DEAL_PROPERTIES
+from .call_entry import CALL_BODY_ACTION, write_to_placed_call
 from .call_outcome import CallOutcomeContext, apply_call_outcome
 from .account_info import (
     build_contact_record_url,
@@ -450,6 +451,47 @@ class HubSpotSyncService:
             )
         result.tasks_created_count = batch.created_count
         result.tasks_warning = summarize_task_batch(requested, batch)
+
+    async def _write_up_on_placed_call(
+        self,
+        *,
+        memo_id: str,
+        user_id: str,
+        connection_id: str,
+        summary: Optional[str],
+        transcript: str,
+        call_outcome: Optional[str],
+        lost_reason: Optional[str],
+        field_changes: list,
+    ) -> bool:
+        """The memo's write-up on its Vocify-placed HubSpot Call. False: not such a call, or it failed (a Note then)."""
+        from .note_format import format_hubspot_note_body
+
+        try:
+            return await write_to_placed_call(
+                supabase=self.supabase,
+                client=self.client,
+                crm_updates=self.crm_updates,
+                memo_id=memo_id,
+                user_id=user_id,
+                connection_id=connection_id,
+                body=format_hubspot_note_body(
+                    summary=summary,
+                    transcript=transcript,
+                    source="hubspot_call",
+                    call_outcome=call_outcome,
+                    lost_reason=lost_reason,
+                    field_changes=field_changes,
+                ),
+                extra_data={"outcome_note_merged": True} if call_outcome == "lost" else None,
+            )
+        except Exception as e:
+            inc_pipeline_error(DOMAIN_HUBSPOT, "call_body")
+            logger.warning(
+                "Could not write the call's write-up on its HubSpot call; creating a note instead: %s", e,
+                extra=log_domain(DOMAIN_HUBSPOT, "call_body_failed", memo_id=memo_id, error=str(e)),
+            )
+            return False
 
     async def sync_memo(
         self,
@@ -1602,13 +1644,25 @@ class HubSpotSyncService:
                 # Dedupe by memo, not by deal: one memo produces at most one note,
                 # regardless of how many objects it ends up associated with.
                 note_already_created = CRMUpdatesService.is_action_already_done(
-                    previous_updates, ("create_note",)
+                    previous_updates, ("create_note", CALL_BODY_ACTION)
                 )
                 if note_already_created:
                     logger.info(
                         "Skipping duplicate transcript note",
                         extra=log_domain(DOMAIN_HUBSPOT, "note_skipped_duplicate", memo_id=str(memo_id)),
                     )
+                elif await self._write_up_on_placed_call(
+                    memo_id=str(memo_id),
+                    user_id=user_id,
+                    connection_id=str(connection_id),
+                    summary=getattr(extraction, "summary", None),
+                    transcript=transcript,
+                    call_outcome=call_outcome,
+                    lost_reason=lost_reason,
+                    field_changes=written_fields,
+                ):
+                    # A call placed through Vocify: its HubSpot Call carries the write-up, no second entry.
+                    outcome_note_merged_this_run = call_outcome == "lost"
                 else:
                     try:
                         async with self.crm_updates.track(
@@ -1779,7 +1833,7 @@ class HubSpotSyncService:
                     # run's local flag, so a retry doesn't create a second,
                     # redundant standalone note for the same reason.
                     outcome_note_already_recorded = outcome_note_merged_this_run or any(
-                        u.get("action_type") == "create_note"
+                        u.get("action_type") in ("create_note", CALL_BODY_ACTION)
                         and u.get("status") == "success"
                         and (u.get("data") or {}).get("outcome_note_merged")
                         for u in previous_updates
