@@ -25,16 +25,30 @@ export type OnScreen = {
   brief?: IslandBrief;
 };
 
-export type IslandBrief = { state: "loading" } | { state: "ready"; lines: string[] };
+export type IslandBrief = { state: "loading" } | { state: "ready"; lines: IslandBriefLine[] };
+
+/** What a brief line is about, from the newest interaction it cites (the island shows its icon). */
+export type IslandBriefKind = "call" | "email" | "note" | "meeting" | "task" | "vocify_conversation" | "company";
+
+/** A brief line, with the kind and date of the newest interaction it cites; null when the backend did not say. */
+export type IslandBriefLine = { text: string; type: IslandBriefKind | null; at: string | null };
+
+const BRIEF_KINDS = new Set<string>(["call", "email", "note", "meeting", "task", "vocify_conversation", "company"]);
 
 /** The summary's lines for the island: it shows two folded and all of them when opened. */
 const ISLAND_BRIEF_LINES = 3;
 
+type SummaryLine = { text?: string; type?: string | null; occurred_at?: string | null };
+
 /** The recent-activity summary as the island shows it; null when it has nothing to say (the island does not grow). */
-export function islandBrief(activity: { summary?: { lines?: { text?: string }[] } | null } | null | undefined): IslandBrief | null {
+export function islandBrief(activity: { summary?: { lines?: SummaryLine[] } | null } | null | undefined): IslandBrief | null {
   const lines = (activity?.summary?.lines ?? [])
-    .map((line) => (line.text ?? "").trim())
-    .filter(Boolean)
+    .map((line): IslandBriefLine => ({
+      text: (line.text ?? "").trim(),
+      type: line.type && BRIEF_KINDS.has(line.type) ? (line.type as IslandBriefKind) : null,
+      at: line.occurred_at && !Number.isNaN(Date.parse(line.occurred_at)) ? line.occurred_at : null,
+    }))
+    .filter((line) => line.text)
     .slice(0, ISLAND_BRIEF_LINES);
   return lines.length ? { state: "ready", lines } : null;
 }
@@ -54,7 +68,7 @@ export type DialIsland = {
   /** Why an unanswered call ended, in the rep's language; null shows the island's own "Call ended". */
   message: string | null;
   /** What happened with the contact lately, kept for the whole call (the offer's brief when Call was pressed). */
-  brief: string[] | null;
+  brief: IslandBriefLine[] | null;
 };
 
 export type CallCommand =
@@ -95,7 +109,7 @@ export function dialTargetFor(preview: CallPreview | null | undefined, access: C
   };
 }
 
-export function dialIsland(state: CallEngineState, brief: string[] | null = null): DialIsland | null {
+export function dialIsland(state: CallEngineState, brief: IslandBriefLine[] | null = null): DialIsland | null {
   const target = state.target;
   if (!target) return null;
   const shown = { name: target.name, phone: target.to, answeredAt: state.answeredAt, muted: state.muted };

@@ -108,7 +108,10 @@ describe("dialIsland", () => {
   });
 
   it("carries the contact's brief for as long as the call is up, and not after a missed call", () => {
-    const brief = ["Demo yesterday.", "Proposal to send."];
+    const brief = [
+      { text: "Demo done.", type: "meeting" as const, at: "2026-10-02T04:00:00Z" },
+      { text: "Proposal to send.", type: null, at: null },
+    ];
     const ringing = step(IDLE_CALL, { type: "dial", target: ANA }, { type: "ringing" });
     assert.deepEqual(dialIsland(ringing, brief)?.brief, brief);
     const active = step(ringing, { type: "accepted", at: 1 });
@@ -186,17 +189,36 @@ describe("crmRecordKey", () => {
 });
 
 describe("islandBrief", () => {
-  it("is the summary's lines, three at most (the island folds them to two)", () => {
+  it("is the summary's lines, three at most, each with the kind and date of what it cites", () => {
     const activity = {
       summary: {
         lines: [
-          { text: "Demo with the ops team yesterday.", sources: ["hubspot:meeting:m1"] },
-          { text: "Proposal still to send.", sources: ["hubspot:task:t1"] },
-          { text: "Budget confirmed for Q4.", sources: ["vocify:memo:1"] },
+          { text: "Demo with the ops team.", sources: ["hubspot:meeting:m1"], type: "meeting", occurred_at: "2026-10-02T04:00:00Z" },
+          { text: "Proposal still to send.", sources: ["hubspot:task:t1"], type: "task", occurred_at: "2026-10-05T04:00:00Z" },
+          { text: "Logistics, 120 people.", sources: ["hubspot:company:c1"], type: "company", occurred_at: null },
+          { text: "A fourth line.", sources: ["vocify:memo:1"], type: "vocify_conversation", occurred_at: "2026-09-30T10:00:00Z" },
         ],
       },
     };
-    assert.deepEqual(islandBrief(activity), { state: "ready", lines: ["Demo with the ops team yesterday.", "Proposal still to send.", "Budget confirmed for Q4."] });
+    assert.deepEqual(islandBrief(activity), {
+      state: "ready",
+      lines: [
+        { text: "Demo with the ops team.", type: "meeting", at: "2026-10-02T04:00:00Z" },
+        { text: "Proposal still to send.", type: "task", at: "2026-10-05T04:00:00Z" },
+        { text: "Logistics, 120 people.", type: "company", at: null },
+      ],
+    });
+  });
+
+  it("shows no kind or date it was not told (an older backend, an unknown kind)", () => {
+    const activity = { summary: { lines: [{ text: "Demo done.", sources: ["x"] }, { text: "Spoke.", type: "whatsapp", occurred_at: "not a date" }] } };
+    assert.deepEqual(islandBrief(activity), {
+      state: "ready",
+      lines: [
+        { text: "Demo done.", type: null, at: null },
+        { text: "Spoke.", type: null, at: null },
+      ],
+    });
   });
 
   it("is nothing when there is no summary or it has no lines, so the island does not grow", () => {

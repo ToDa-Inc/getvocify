@@ -20,6 +20,7 @@ import {
   parseCallCommand,
   type CallingAccess,
   type IslandBrief,
+  type IslandBriefLine,
 } from "@/lib/desktop-call";
 import { getDesktopBridge } from "@/lib/desktop-host";
 import { useLanguage } from "@/lib/i18n";
@@ -48,7 +49,7 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
   /** The on-screen contact's recent activity, for the island's offer; it belongs to `previewRef`'s contact. */
   const briefRef = useRef<IslandBrief | null>(null);
   /** The brief of the contact being called, for the whole call. */
-  const callBriefRef = useRef<string[] | null>(null);
+  const callBriefRef = useRef<IslandBriefLine[] | null>(null);
   const copyRef = useRef(t.product);
   copyRef.current = t.product;
   const meetingRef = useRef(meeting);

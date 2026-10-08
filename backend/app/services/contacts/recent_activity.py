@@ -165,9 +165,12 @@ def summary_prompt(interactions: list[dict], company: Optional[dict]) -> list[di
             "content": (
                 "You brief a sales rep in a few seconds, right before they call this contact. Use ONLY the items "
                 "given; never add facts, numbers, names or dates that are not in them. Write at most "
-                f"{SUMMARY_LINES} short lines (max 20 words each), most useful first: where things stand, what was "
-                "promised or is pending, and anything to bring up. Every line cites the ids of the items it comes "
-                'from. Answer in the language the items are mostly written in. Reply as JSON: {"lines": '
+                f"{SUMMARY_LINES} lines of at most 12 words each, as short notes rather than full sentences, most "
+                "useful first: what is pending or promised, then where things stand, then anything to bring up. "
+                "Each line is about one item where possible. Never write the contact's name: the rep already sees "
+                "who they are calling. Do not write dates either; the rep sees each item's date. Every line cites "
+                "the ids of the items it comes from. Answer in the language the items are mostly written in. "
+                'Reply as JSON: {"lines": '
                 '[{"text": "...", "sources": ["<item id>", ...]}]}. If the items say nothing useful, return {"lines": []}.'
             ),
         },
@@ -177,16 +180,27 @@ def summary_prompt(interactions: list[dict], company: Optional[dict]) -> list[di
 
 def grounded_lines(answer: Any, interactions: list[dict], company: Optional[dict]) -> list[dict]:
     """The model's lines that cite only items that were read (and at least one)."""
-    known = {i["id"] for i in interactions} | ({company["id"]} if company else set())
+    read = {i["id"]: i for i in interactions}
+    known = set(read) | ({company["id"]} if company else set())
     lines = []
     for line in (answer or {}).get("lines", []) if isinstance(answer, dict) else []:
         text = " ".join(str((line or {}).get("text") or "").split())
         cited = [_resolve(source, known) for source in _citations(line)]
         if text and cited and all(source in known for source in cited):
-            lines.append({"text": text, "sources": cited})
+            lines.append({"text": text, "sources": cited, **_kind_and_date(cited, read)})
         elif text:
             logger.info("Recent activity summary: dropped a line citing %s", [c for c in cited if c not in known][:5] or "nothing")
     return lines[:SUMMARY_LINES]
+
+
+def _kind_and_date(cited: list[str], read: dict[str, dict]) -> dict:
+    """What a line is about and when, from the newest interaction it cites (never from the model's answer); a line
+    citing only the company has no date."""
+    items = [read[source] for source in cited if source in read]
+    if not items:
+        return {"type": "company", "occurred_at": None}
+    newest = max(items, key=lambda item: item["occurred_at"])
+    return {"type": newest["type"], "occurred_at": newest["occurred_at"]}
 
 
 _CITED_ID = re.compile(r"(?:hubspot|vocify):[a-z_]+:[A-Za-z0-9-]+")

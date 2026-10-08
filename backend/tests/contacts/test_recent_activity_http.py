@@ -91,6 +91,10 @@ def client(world):
     return TestClient(app)
 
 
+def cited(lines):
+    return [{"text": line["text"], "sources": line["sources"]} for line in lines]
+
+
 def get(client, **params):
     response = client.get(f"/api/v1/contacts/{CONTACT}/recent-activity", params={"connection_id": "hubspot", **params})
     assert response.status_code == 200, response.text
@@ -140,7 +144,7 @@ def test_the_summary_keeps_only_lines_grounded_in_what_was_read(client, world):
         ]
     }
     body = get(client)
-    assert body["summary"]["lines"] == [
+    assert cited(body["summary"]["lines"]) == [
         {"text": "Demo with the ops team yesterday; proposal still to send.", "sources": ["hubspot:meeting:m1", "hubspot:task:t1"]},
     ]
     # The model saw only what was read, with the ids it must cite.
@@ -189,14 +193,14 @@ def test_ids_cited_the_way_the_prompt_shows_them_still_count(client, world):
     # The prompt lists items as "[hubspot:meeting:m1] ..."; a model citing them with the brackets is citing them.
     world["llm"] = {"lines": [{"text": "Demo yesterday.", "sources": ["[hubspot:meeting:m1]", " hubspot:task:t1 "]}]}
     body = get(client)
-    assert body["summary"]["lines"] == [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1", "hubspot:task:t1"]}]
+    assert cited(body["summary"]["lines"]) == [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1", "hubspot:task:t1"]}]
 
 
 def test_a_summary_left_with_no_lines_is_asked_again_next_time(client, world):
     world["llm"] = {"lines": [{"text": "Their CFO approved it.", "sources": ["hubspot:email:e999"]}]}
     assert get(client)["summary"] == {"lines": [], "model": body_model()}
     world["llm"] = {"lines": [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1"]}]}
-    assert get(client)["summary"]["lines"] == [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1"]}]
+    assert cited(get(client)["summary"]["lines"]) == [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1"]}]
     assert world["llm_calls"] == 2
 
 
@@ -211,7 +215,7 @@ def test_citations_given_as_one_string_still_count(client, world):
         {"text": "Demo yesterday; proposal to send.", "sources": "hubspot:meeting:m1, hubspot:task:t1"},
         {"text": "Wants pricing for 12 seats.", "source": "[hubspot:note:n1]"},
     ]}
-    assert get(client)["summary"]["lines"] == [
+    assert cited(get(client)["summary"]["lines"]) == [
         {"text": "Demo yesterday; proposal to send.", "sources": ["hubspot:meeting:m1", "hubspot:task:t1"]},
         {"text": "Wants pricing for 12 seats.", "sources": ["hubspot:note:n1"]},
     ]
@@ -224,7 +228,30 @@ def test_a_bare_id_counts_when_it_ends_exactly_one_item_read(client, world):
         {"text": "Pricing for 12 seats.", "sources": ["n1", "m1"]},
         {"text": "Made up.", "sources": ["memo-999"]},
     ]}
-    assert get(client)["summary"]["lines"] == [
+    assert cited(get(client)["summary"]["lines"]) == [
         {"text": "Budget confirmed for Q4.", "sources": ["vocify:memo:memo-1"]},
         {"text": "Pricing for 12 seats.", "sources": ["hubspot:note:n1", "hubspot:meeting:m1"]},
     ]
+
+
+def test_each_line_says_what_and_when_from_the_newest_item_it_cites(client, world):
+    # The island shows the kind and the date next to a line; both come from what was read, never from the model.
+    world["llm"] = {"lines": [
+        {"text": "Demo done; pricing asked.", "sources": ["hubspot:note:n1", "hubspot:meeting:m1"]},
+        {"text": "Proposal to send.", "sources": ["hubspot:task:t1"], "type": "email", "occurred_at": "2020-01-01T00:00:00Z"},
+        {"text": "Logistics, 120 people.", "sources": ["hubspot:company:co77"]},
+    ]}
+    lines = get(client)["summary"]["lines"]
+    assert [(line["type"], line["occurred_at"]) for line in lines] == [
+        ("meeting", "2026-10-02T04:00:00Z"),
+        ("task", "2026-10-05T04:00:00Z"),
+        ("company", None),
+    ]
+
+
+def test_the_model_is_asked_for_short_lines_that_do_not_repeat_the_contact(client, world):
+    world["llm"] = {"lines": []}
+    get(client)
+    rules = world["last_prompt"][0]["content"]
+    assert "12 words" in rules
+    assert "contact's name" in rules
