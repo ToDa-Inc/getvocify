@@ -128,6 +128,8 @@ export const memosApi = {
       /** A Vocify call (desktop): the memo is that call's, from its live transcript. */
       callSid?: string;
       callDurationSeconds?: number;
+      /** When the desktop recording began: links the memo to its calendar meeting. */
+      recordingStartedAt?: string;
     } = {},
   ): Promise<UploadMemoResponse> => {
     return api.post<UploadMemoResponse>('/memos/upload-and-extract', {
@@ -143,6 +145,7 @@ export const memosApi = {
       participants: options.participants?.length ? options.participants : undefined,
       call_sid: options.callSid || undefined,
       call_duration_seconds: options.callDurationSeconds,
+      recording_started_at: options.recordingStartedAt || undefined,
     });
   },
 

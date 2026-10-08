@@ -409,6 +409,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         notes: draft.notes,
         hubspotContactId: draft.contact?.hubspotId,
         participants: meetingParticipants(draft.transcript),
+        recordingStartedAt: new Date(draft.startedAt).toISOString(),
       });
       await getDesktopBridge()?.drafts?.remove(draft.id);
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });

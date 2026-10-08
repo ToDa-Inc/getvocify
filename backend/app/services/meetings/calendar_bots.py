@@ -206,7 +206,8 @@ async def connect_calendar(
         "recall_calendar_id": calendar["id"],
         "email": calendar.get("platform_email") or calendar.get("oauth_email"),
         "status": _status(calendar.get("status")),
-        "auto_join": previous["auto_join"] if previous else True,
+        # A new calendar gives meeting context; the bot joins only once the rep switches it on.
+        "auto_join": previous["auto_join"] if previous else False,
         "updated_at": _now_iso(),
     }
     saved = supabase.table(TABLE).upsert(row, on_conflict="user_id").execute().data or [row]
@@ -358,15 +359,21 @@ async def sync_calendar(
     updated_at_gte: Optional[str] = None,
 ) -> None:
     """With `updated_at_gte` (a calendar.sync_events webhook): only the events that changed.
-    Without it (the rep flipped the switch): every upcoming event."""
+    Without it (the switch, or the island asking for fresh meetings): every upcoming event.
+    Events are stored for meeting context (`calendar_events`) whatever the switch says."""
     if not connection.get("email") or connection.get("status") != "connected":
         connection = await refresh_connection(supabase, client, connection)
+    from app.services.meetings import calendar_events
+
     now = datetime.now(timezone.utc)
     calendar_id = str(connection["recall_calendar_id"])
     if updated_at_gte:
         events = await client.list_calendar_events(calendar_id, updated_at_gte=updated_at_gte)
     else:
-        events = await client.list_calendar_events(calendar_id, start_time_gte=now.isoformat())
+        # From a while back too: a meeting already running is kept for linking its recording.
+        since = now - calendar_events.LOOK_BACK
+        events = await client.list_calendar_events(calendar_id, start_time_gte=since.isoformat())
+    await calendar_events.store_events(supabase, connection, events, full=not updated_at_gte)
     for event in events:
         await apply_event(client, connection, event, now)
 

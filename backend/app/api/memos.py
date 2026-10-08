@@ -915,6 +915,41 @@ class UploadTranscriptRequest(BaseModel):
     # instead of waiting for Twilio's recording (which is still attached to the same memo later).
     call_sid: Optional[str] = Field(default=None, pattern=r"^CA[0-9a-f]{32}$")
     call_duration_seconds: Optional[float] = Field(default=None, ge=0, le=6 * 3600)
+    # When the desktop recording began: links it to the calendar meeting it belongs to.
+    recording_started_at: Optional[datetime] = None
+
+
+def _link_calendar_meeting(
+    supabase: Client,
+    user_id: str,
+    payload: dict,
+    started_at: datetime,
+    call_source: str,
+    speaker_names: list[str],
+) -> None:
+    """The calendar meeting a desktop recording belongs to gives the memo its attendees (with
+    emails and HubSpot contacts) and, when the CRM tab on screen gave none, the one outside
+    contact it was with. Never blocks the memo."""
+    from app.services.meetings import calendar_events
+
+    try:
+        started = started_at if started_at.tzinfo else started_at.replace(tzinfo=timezone.utc)
+        rows = calendar_events.rows_for_user(
+            supabase, user_id, started - calendar_events.LOOK_BACK, started + calendar_events.LINK_WINDOW
+        )
+        meeting = calendar_events.for_recording(rows, started, call_source)
+        if not meeting:
+            return
+        payload["attendees"] = calendar_events.memo_attendees(meeting, speaker_names)
+        contact = calendar_events.single_contact(meeting)
+        if contact and not payload.get("hubspot_contact_id"):
+            payload["hubspot_contact_id"] = contact
+        payload["pipeline_meta"] = {
+            **(payload.get("pipeline_meta") or {}),
+            "calendar_event": {"id": meeting["recall_event_id"], "title": meeting.get("title")},
+        }
+    except Exception:
+        logger.warning("Linking the recording to its calendar meeting failed", exc_info=True)
 
 
 @router.post("/upload-transcript", response_model=UploadResponse)
@@ -1055,6 +1090,8 @@ async def upload_transcript_and_extract(
     participants = [name.strip() for name in body.participants if name.strip()]
     if participants:
         payload["attendees"] = [{"name": name, "email": None} for name in participants]
+    if not call_row and body.recording_started_at:
+        _link_calendar_meeting(supabase, user_id, payload, body.recording_started_at, call_source, participants)
     if call_row:
         # The same memo a Vocify call gets from its recording, born from the live transcript.
         payload["source"] = "vocify_call"

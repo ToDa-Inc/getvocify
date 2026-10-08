@@ -32,6 +32,7 @@ import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopMeetingProvider } from "@/features/desktop/DesktopMeetingProvider";
 import { DesktopCallProvider } from "@/features/desktop/DesktopCallProvider";
+import { MeetingHeadsUp } from "@/features/desktop/MeetingHeadsUp";
 import { DesktopRecordingChip } from "@/features/desktop/DesktopRecordingChip";
 import { DesktopSetupDialog } from "@/features/desktop/DesktopSetupDialog";
 import { isDesktopHost } from "@/lib/desktop-host";
@@ -286,9 +287,16 @@ const DashboardLayout = () => {
   );
 };
 
-/** Calling the contact on screen from the island: only inside the desktop app. */
+/** Calling the contact on screen, and the heads-up before a meeting, from the island: only inside the desktop app. */
 function DesktopCalling({ children }: { children: ReactNode }) {
-  return isDesktopHost() ? <DesktopCallProvider>{children}</DesktopCallProvider> : <>{children}</>;
+  return isDesktopHost() ? (
+    <DesktopCallProvider>
+      <MeetingHeadsUp />
+      {children}
+    </DesktopCallProvider>
+  ) : (
+    <>{children}</>
+  );
 }
 
 /** The call dock lives inside the focus provider so a contact's own "Llamar" can open it. */

@@ -672,11 +672,30 @@ CREATE TABLE IF NOT EXISTS calendar_connections (
   recall_calendar_id UUID NOT NULL UNIQUE,
   email TEXT,
   status TEXT NOT NULL DEFAULT 'connecting' CHECK (status IN ('connecting', 'connected', 'disconnected')),
-  auto_join BOOLEAN NOT NULL DEFAULT true,
+  auto_join BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  events_synced_at TIMESTAMPTZ
 );
 ALTER TABLE calendar_connections ENABLE ROW LEVEL SECURITY;
+
+-- Migration 077: the rep's meetings from that calendar, with attendees matched to HubSpot
+-- contacts (island heads-up, recording ↔ meeting link). Service role only.
+CREATE TABLE IF NOT EXISTS calendar_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recall_event_id TEXT NOT NULL UNIQUE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  start_time TIMESTAMPTZ NOT NULL,
+  end_time TIMESTAMPTZ,
+  title TEXT,
+  meeting_url TEXT,
+  attendees JSONB NOT NULL DEFAULT '[]'::jsonb,
+  is_deleted BOOLEAN NOT NULL DEFAULT false,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_user_start ON calendar_events (user_id, start_time);
+ALTER TABLE calendar_events ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS team_outcome_observations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -35,8 +35,9 @@ const PLATFORM_PROVIDER: Record<string, CalendarProvider> = {
 };
 
 /**
- * The rep's calendar for the Recall.ai meeting bot: connect Google Calendar or Outlook, then
- * one switch for whether the bot joins their meetings with people outside the company.
+ * The rep's calendar: connect Google Calendar or Outlook so the desktop app announces meetings
+ * with people from outside (who, and their brief) and links recordings to them; then one switch
+ * for whether the Recall.ai bot also joins those meetings (off for a new calendar).
  * Its own settings tab (every role), behind RECALL_BOT_ENABLED.
  */
 export const CalendarSettings = () => {
