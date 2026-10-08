@@ -10,8 +10,8 @@ import { api } from "@/shared/lib/api-client";
 const REFRESH_MS = 5 * 60_000;
 
 /**
- * A minute before a meeting with someone from outside, the island says who it is with and what
- * happened with them lately, with Join and Record (`shell:state` `meeting`). Desktop host only;
+ * A minute before a meeting (with clients or internal), the island says who it is with and, for a
+ * client in HubSpot, what happened with them lately, with Join and Record (`shell:state` `meeting`). Desktop host only;
  * nothing without a connected calendar. A recording made then is linked to the meeting by the
  * backend, from when it started.
  */

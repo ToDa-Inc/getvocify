@@ -49,6 +49,8 @@ class CalendarUpdate(BaseModel):
 class MeetingPerson(BaseModel):
     name: Optional[str] = None
     email: str
+    # From another company than the rep (only they are looked up in HubSpot).
+    external: bool = False
     hubspot_contact_id: Optional[str] = None
 
 
@@ -59,7 +61,7 @@ class UpcomingMeeting(BaseModel):
     end_time: Optional[str] = None
     meeting_url: str
     platform: Optional[str] = None
-    # People from outside the company, HubSpot names first.
+    # Everyone but the rep, people from outside first; HubSpot names when matched.
     people: list[MeetingPerson]
 
 
@@ -104,8 +106,8 @@ async def upcoming_meetings(
     membership: Membership = Depends(get_membership),
     supabase: Client = Depends(get_supabase),
 ):
-    """The rep's next meetings with someone from outside, soonest first. Empty without a
-    connected calendar. Refreshes from Recall when the last full sync is over 5 minutes old,
+    """The rep's next meetings with someone else and a call link (internal ones too), soonest
+    first. Empty without a connected calendar. Refreshes from Recall when the last full sync is over 5 minutes old,
     so it stays current even when a calendar webhook is missed."""
     if not is_enabled(supabase, membership.company_id, RECALL_BOT_FLAG):
         return []
@@ -137,9 +139,10 @@ async def upcoming_meetings(
                 MeetingPerson(
                     name=calendar_events.person_name(p),
                     email=p["email"],
+                    external=bool(p.get("external")),
                     hubspot_contact_id=p.get("hubspot_contact_id"),
                 )
-                for p in calendar_events.external_people(row)
+                for p in calendar_events.people_outside_first(row)
             ],
         )
         for row in calendar_events.upcoming(rows, now, horizon)

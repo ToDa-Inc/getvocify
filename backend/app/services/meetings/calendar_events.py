@@ -200,17 +200,24 @@ def external_people(row: dict[str, Any]) -> list[dict[str, Any]]:
     return [p for p in row.get("attendees") or [] if p.get("external")]
 
 
+def people_outside_first(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Everyone on the invite but the rep: people from outside first (the ones a brief is about)."""
+    people = row.get("attendees") or []
+    return [p for p in people if p.get("external")] + [p for p in people if not p.get("external")]
+
+
 def person_name(person: dict[str, Any]) -> Optional[str]:
     return person.get("hubspot_name") or person.get("name")
 
 
 def upcoming(rows: list[dict[str, Any]], now: datetime, horizon: timedelta) -> list[dict[str, Any]]:
-    """Meetings worth a heads-up: not cancelled, a call link, someone from outside, and not
-    over yet, starting before `now + horizon`; soonest first."""
+    """Meetings worth a heads-up: not cancelled, a call link, someone besides the rep (inside or
+    outside the company: an internal meeting is typed "internal" on its memo), and not over yet,
+    starting before `now + horizon`; soonest first."""
     picked = []
     for row in rows:
         start, end = _parse_time(row.get("start_time")), _parse_time(row.get("end_time"))
-        if row.get("is_deleted") or not row.get("meeting_url") or not external_people(row) or not start:
+        if row.get("is_deleted") or not row.get("meeting_url") or not row.get("attendees") or not start:
             continue
         if (end or start) <= now or start > now + horizon:
             continue

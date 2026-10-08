@@ -121,15 +121,18 @@ def _stored(**overrides):
     return row
 
 
-def test_upcoming_only_outside_meetings_with_a_link_not_over():
+def test_upcoming_meetings_with_someone_and_a_link_not_over():
     soon = _stored()
-    internal = _stored(recall_event_id="ev-int", attendees=[{"email": "pepe@acme.es", "external": False}])
+    internal = _stored(recall_event_id="ev-int", start_time="2026-10-08T09:45:00+00:00", attendees=[{"email": "pepe@acme.es", "external": False}])
+    alone = _stored(recall_event_id="ev-alone", attendees=[])
     no_link = _stored(recall_event_id="ev-nolink", meeting_url=None)
     over = _stored(recall_event_id="ev-over", start_time="2026-10-08T07:00:00+00:00", end_time="2026-10-08T08:00:00+00:00")
     cancelled = _stored(recall_event_id="ev-x", is_deleted=True)
     far = _stored(recall_event_id="ev-far", start_time="2026-10-09T09:00:00+00:00", end_time="2026-10-09T10:00:00+00:00")
-    rows = [far, cancelled, over, no_link, internal, soon]
-    assert [r["recall_event_id"] for r in ce.upcoming(rows, NOW, timedelta(hours=12))] == ["ev-1"]
+    rows = [far, cancelled, over, no_link, internal, alone, soon]
+    # An internal meeting gets its heads-up too (its memo is typed "internal"); a meeting with nobody else doesn't.
+    assert [r["recall_event_id"] for r in ce.upcoming(rows, NOW, timedelta(hours=12))] == ["ev-1", "ev-int"]
+    assert [p["email"] for p in ce.people_outside_first(soon)] == ["marta@cliente.com", "pepe@acme.es"]
 
 
 def test_recording_links_to_the_meeting_it_belongs_to():
@@ -341,7 +344,10 @@ def test_upcoming_endpoint(monkeypatch):
         "end_time": row["end_time"],
         "meeting_url": "https://meet.google.com/abc-defg-hij",
         "platform": "meet",
-        "people": [{"name": "Marta García", "email": "marta@cliente.com", "hubspot_contact_id": "901"}],
+        "people": [
+            {"name": "Marta García", "email": "marta@cliente.com", "external": True, "hubspot_contact_id": "901"},
+            {"name": "Pepe", "email": "pepe@acme.es", "external": False, "hubspot_contact_id": None},
+        ],
     }]
 
     db.tables["calendar_connections"] = []

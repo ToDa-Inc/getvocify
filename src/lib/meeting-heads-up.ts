@@ -1,6 +1,6 @@
 import type { IslandBrief } from "./desktop-call.ts";
 
-/** A meeting from GET /calendar/upcoming: someone from outside, a call link, not over yet. */
+/** A meeting from GET /calendar/upcoming: someone besides the rep (internal ones too), a call link, not over yet. */
 export type UpcomingMeeting = {
   id: string;
   title: string | null;
@@ -8,8 +8,8 @@ export type UpcomingMeeting = {
   end_time: string | null;
   meeting_url: string;
   platform: "zoom" | "meet" | "teams" | null;
-  /** People from outside the company, HubSpot names first. */
-  people: { name: string | null; email: string; hubspot_contact_id: string | null }[];
+  /** Everyone but the rep, people from outside first; HubSpot names when matched. */
+  people: { name: string | null; email: string; external?: boolean; hubspot_contact_id: string | null }[];
 };
 
 /** What the island shows (`shell:state` `meeting`). */
@@ -57,7 +57,7 @@ export function meetingWho(meeting: UpcomingMeeting): string {
   return rest.length ? `${name} +${rest.length}` : name;
 }
 
-/** Whose recent activity the island shows: the first outside person found in HubSpot. */
+/** Whose recent activity the island shows: the first outside person found in HubSpot (none for an internal meeting). */
 export function briefContactId(meeting: UpcomingMeeting): string | null {
   return meeting.people.find((p) => p.hubspot_contact_id)?.hubspot_contact_id ?? null;
 }
