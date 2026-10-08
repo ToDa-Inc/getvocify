@@ -6,6 +6,7 @@ import {
   permissionCopy,
   type DesktopPermissionType,
 } from "@/lib/desktop-permissions";
+import { desktopPlatform } from "@/lib/desktop-host";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { useDesktopPermissions } from "./useDesktopPermissions";
@@ -88,6 +89,9 @@ const SYSTEM_AUDIO_NOTE = {
 
 const CRM_TABS_NOTE = "Open Chrome, Safari, Arc, Edge or Brave, then Allow.";
 
+const WINDOWS_MIC_NOTE =
+  'Vocify needs your microphone to record calls. In Windows Settings, open Privacy & security > Microphone and turn on "Let desktop apps access your microphone".';
+
 /** Microphone + system audio rows, with the relaunch step macOS needs for system audio. */
 export function DesktopPermissionRows({ permissions }: { permissions: Permissions }) {
   const { snapshot, request, systemAudioHint, canRelaunch, relaunch } = permissions;
@@ -100,13 +104,16 @@ export function DesktopPermissionRows({ permissions }: { permissions: Permission
         status={snapshot.microphone}
         onAction={() => void request(DESKTOP_PERMISSION.microphone)}
       />
-      <PermissionRow
-        type={DESKTOP_PERMISSION.systemAudio}
-        status={snapshot.systemAudio}
-        onAction={() => void request(DESKTOP_PERMISSION.systemAudio)}
-        note={hint ? SYSTEM_AUDIO_NOTE[hint] : undefined}
-        onRelaunch={hint && hint !== "reopen" ? () => void relaunch() : undefined}
-      />
+      {/* Windows captures the call's audio without a permission: only the Mac asks for it. */}
+      {desktopPlatform() !== "win32" ? (
+        <PermissionRow
+          type={DESKTOP_PERMISSION.systemAudio}
+          status={snapshot.systemAudio}
+          onAction={() => void request(DESKTOP_PERMISSION.systemAudio)}
+          note={hint ? SYSTEM_AUDIO_NOTE[hint] : undefined}
+          onRelaunch={hint && hint !== "reopen" ? () => void relaunch() : undefined}
+        />
+      ) : null}
       {snapshot.crmTabs ? (
         <PermissionRow
           type={DESKTOP_PERMISSION.crmTabs}
@@ -119,12 +126,16 @@ export function DesktopPermissionRows({ permissions }: { permissions: Permission
   );
 }
 
-/** Shown on the Mac app until mic + system audio are ready. */
+/** Shown on the desktop app until permissions are ready. */
 export function DesktopPermissionsPanel({ className }: { className?: string }) {
   const permissions = useDesktopPermissions();
   const { available, loading, blocker } = permissions;
+  const platform = desktopPlatform();
 
   if (!available || blocker === "none") return null;
+
+  const isMac = platform === "darwin";
+  const title = isMac ? "Allow mic and meeting audio" : "Allow microphone";
 
   return (
     <div
@@ -134,12 +145,16 @@ export function DesktopPermissionsPanel({ className }: { className?: string }) {
       )}
     >
       <p className={THEME_TOKENS.typography.capsLabel}>Before your first meeting</p>
-      <h2 className="text-xl font-semibold tracking-tight text-foreground mt-1 mb-1">
-        Allow mic and meeting audio
-      </h2>
+      <h2 className="text-xl font-semibold tracking-tight text-foreground mt-1 mb-1">{title}</h2>
       <p className="text-sm text-muted-foreground mb-5 max-w-lg">
-        Microphone uses the macOS prompt. For meeting audio, drag <strong>Vocify</strong> from the card
-        into Screen &amp; System Audio Recording, or turn it on if it is already listed.
+        {isMac ? (
+          <>
+            Microphone uses the macOS prompt. For meeting audio, drag <strong>Vocify</strong> from the card
+            into Screen &amp; System Audio Recording, or turn it on if it is already listed.
+          </>
+        ) : (
+          WINDOWS_MIC_NOTE
+        )}
       </p>
 
       <div className="max-w-xl">

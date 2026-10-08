@@ -29,7 +29,7 @@ describe("permissionAction", () => {
 });
 
 describe("desktopPermissionsReady", () => {
-  it("requires both channels", () => {
+  it("requires both channels on macOS", () => {
     assert.equal(
       desktopPermissionsReady({ platform: "darwin", microphone: "authorized", systemAudio: "never_requested" }),
       false,
@@ -39,16 +39,42 @@ describe("desktopPermissionsReady", () => {
       true,
     );
   });
+
+  it("requires only microphone on Windows", () => {
+    assert.equal(
+      desktopPermissionsReady({ platform: "win32", microphone: "authorized", systemAudio: "never_requested" }),
+      true,
+    );
+    assert.equal(
+      desktopPermissionsReady({ platform: "win32", microphone: "authorized", systemAudio: "authorized" }),
+      true,
+    );
+    assert.equal(
+      desktopPermissionsReady({ platform: "win32", microphone: "never_requested", systemAudio: "authorized" }),
+      false,
+    );
+  });
 });
 
 describe("desktopPermissionsBlocker", () => {
-  it("blocks until both channels are ready", () => {
+  it("blocks until both channels are ready on macOS", () => {
     assert.equal(
       desktopPermissionsBlocker({ platform: "darwin", microphone: "never_requested", systemAudio: "never_requested" }),
       "permissions",
     );
     assert.equal(
       desktopPermissionsBlocker({ platform: "darwin", microphone: "authorized", systemAudio: "authorized" }),
+      "none",
+    );
+  });
+
+  it("blocks until microphone is ready on Windows", () => {
+    assert.equal(
+      desktopPermissionsBlocker({ platform: "win32", microphone: "never_requested", systemAudio: "authorized" }),
+      "permissions",
+    );
+    assert.equal(
+      desktopPermissionsBlocker({ platform: "win32", microphone: "authorized", systemAudio: "authorized" }),
       "none",
     );
   });

@@ -11,7 +11,7 @@ import {
   type DesktopPermissionSnapshot,
   type DesktopPermissionType,
 } from "@/lib/desktop-permissions";
-import { getDesktopBridge, isDesktopHost } from "@/lib/desktop-host";
+import { getDesktopBridge, isDesktopHost, desktopPlatform } from "@/lib/desktop-host";
 
 const POLL_MS = 2500;
 /** Set just before relaunching for system audio, so the reopened app knows a restart didn't fix it. */
@@ -34,10 +34,14 @@ function writeRelaunched(on: boolean) {
   }
 }
 
-const EMPTY: DesktopPermissionSnapshot = {
-  platform: "darwin",
-  microphone: "never_requested",
-  systemAudio: "never_requested",
+const getEmptySnapshot = (): DesktopPermissionSnapshot => {
+  const platform = desktopPlatform() ?? "darwin";
+  return {
+    platform,
+    microphone: "never_requested",
+    // On Windows, system audio is always available
+    systemAudio: platform === "win32" ? "authorized" : "never_requested",
+  };
 };
 
 function parseSnapshot(raw: Record<string, unknown>): DesktopPermissionSnapshot {
@@ -54,7 +58,7 @@ function parseSnapshot(raw: Record<string, unknown>): DesktopPermissionSnapshot 
 
 export function useDesktopPermissions() {
   const available = isDesktopHost();
-  const [snapshot, setSnapshot] = useState<DesktopPermissionSnapshot>(EMPTY);
+  const [snapshot, setSnapshot] = useState<DesktopPermissionSnapshot>(getEmptySnapshot);
   const [appName, setAppName] = useState("Vocify");
   const [loading, setLoading] = useState(available);
   const [systemAudioAsked, setSystemAudioAsked] = useState(false);
@@ -66,7 +70,7 @@ export function useDesktopPermissions() {
     const bridge = getDesktopBridge();
     if (!bridge) {
       setLoading(false);
-      return EMPTY;
+      return getEmptySnapshot();
     }
     const raw = (await bridge.permissions.status()) as Record<string, unknown>;
     const next = parseSnapshot(raw);

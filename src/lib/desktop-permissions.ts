@@ -1,4 +1,5 @@
-import type { DesktopPermissionStatus } from "@/lib/desktop-host";
+import type { DesktopPermissionStatus } from "./desktop-host.ts";
+import { desktopPlatform } from "./desktop-host.ts";
 
 export const DESKTOP_PERMISSION = {
   microphone: "microphone",
@@ -41,7 +42,11 @@ export function crmTabsToAsk(snapshot: DesktopPermissionSnapshot): boolean {
 }
 
 export function desktopPermissionsReady(snapshot: DesktopPermissionSnapshot): boolean {
-  return snapshot.microphone === "authorized" && snapshot.systemAudio === "authorized";
+  const micReady = snapshot.microphone === "authorized";
+  // Windows: systemAudio is always available, only microphone matters
+  if (snapshot.platform === "win32") return micReady;
+  // macOS: both mic and system audio must be authorized
+  return micReady && snapshot.systemAudio === "authorized";
 }
 
 export function desktopPermissionsBlocker(
@@ -74,6 +79,9 @@ export function permissionCopy(type: DesktopPermissionType): {
       enabledBody: "Ready.",
     };
   }
+
+  const platform = desktopPlatform();
+
   if (type === DESKTOP_PERMISSION.microphone) {
     return {
       enableLabel: "Microphone",
@@ -82,6 +90,17 @@ export function permissionCopy(type: DesktopPermissionType): {
       enabledBody: "Ready.",
     };
   }
+
+  // System audio copy varies by platform
+  if (platform === "win32") {
+    return {
+      enableLabel: "Meeting audio",
+      enabledLabel: "Meeting audio",
+      enableBody: "So Vocify hears Zoom, Meet, and Teams as Them. Your screen is not saved.",
+      enabledBody: "Ready.",
+    };
+  }
+
   return {
     enableLabel: "System audio",
     enabledLabel: "System audio",
