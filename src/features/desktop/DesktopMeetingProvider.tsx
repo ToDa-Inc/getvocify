@@ -18,6 +18,7 @@ import { crmApi } from "@/lib/api/crm";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
 import { api } from "@/shared/lib/api-client";
+import { liveTickets } from "./liveTickets";
 import { ROUTES } from "@/shared/lib/constants";
 import {
   encodeChannelAudio,
@@ -948,10 +949,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       };
 
       // The live service takes no session of its own: a ticket from the API, valid for the day.
-      ticketRef.current = await api
-        .post<{ ticket: string }>("/transcription/ticket")
-        .then((res) => res.ticket)
-        .catch(() => null);
+      // (A call asked for it while it rang, so this is usually instant.)
+      ticketRef.current = await liveTickets.get(user.id);
 
       // The Mac app records natively when it can: no web audio, so nothing waits on this page.
       const recorder = call ? undefined : bridge.recorder;
