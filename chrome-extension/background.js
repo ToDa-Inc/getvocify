@@ -84,8 +84,12 @@ import {
   primeSuggestProfileProductContext,
   resetSuggestProfileProductContextCache,
 } from './lib/suggest-profile-product-context.js';
+import { MEET_SPEAKERS } from './lib/meet-speakers.js';
+import { createIslandRelay } from './lib/island-relay.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
+/** Who Google Meet shows speaking, passed to the Vocify Mac app (it names the other side's lines). */
+const islandRelay = createIslandRelay({ connectNative: (name) => chrome.runtime.connectNative(name) });
 
 // ============================================
 // CENTRAL STATE (Source of Truth)
@@ -1362,6 +1366,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target === 'offscreen') return;
 
   switch (message.type) {
+    case MEET_SPEAKERS:
+      if (sender.url?.startsWith('https://meet.google.com/') && Array.isArray(message.speaking)) {
+        islandRelay.send(message.speaking);
+      }
+      return;
+
     // State queries
     case 'GET_STATE': {
       (async () => {
