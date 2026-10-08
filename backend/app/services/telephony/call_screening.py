@@ -4,7 +4,8 @@ Twilio already reports busy / no-answer / failed on the dial-status webhook.
 This module only decides whether a *connected* recording should skip LLM
 extraction (true voicemail greeting) or be analyzed.
 
-Calls of 30s+ with any transcript are extracted. Diarization imbalance is not
+Calls of 30s+ with any transcript are extracted, and so are shorter calls where both speakers
+took real turns (a "can't talk now, call tomorrow" is a callback, not silence). Diarization imbalance is not
 treated as no-answer — a long two-party demo often lands 90% of words on one
 speaker.
 """
@@ -19,6 +20,10 @@ from app.services.transcript_turns import normalize_speaker, parse_transcript_tu
 ScreeningOutcome = Literal["connected", "voicemail", "no_response"]
 
 MIN_CONNECTED_DURATION_SEC = 30
+# A short call is still a conversation when both sides really spoke: a "can't talk, call me
+# tomorrow" is a callback to capture, and the call reading (not this gate) decides what it was.
+MIN_EXCHANGE_TURNS = 2
+MIN_EXCHANGE_WORDS = 8
 
 _SPEAKER_ONLY = re.compile(
     r"^(?:SPEAKER:\s*)?(S\d+|Speaker\s*\d+)\s*:?\s*$",
@@ -85,6 +90,17 @@ def _speaker_stats(transcript: str) -> dict[str, dict[str, int]]:
     return stats
 
 
+def looks_like_two_way_exchange(transcript: str) -> bool:
+    """Both speakers took part for real: enough turns and words each, not a greeting and a ringback."""
+    stats = _speaker_stats(transcript)
+    if len(stats) < 2:
+        return False
+    return all(
+        side["turns"] >= MIN_EXCHANGE_TURNS and side["words"] >= MIN_EXCHANGE_WORDS
+        for side in stats.values()
+    )
+
+
 def resolve_screening_outcome(
     memo: dict,
     transcript: str,
@@ -125,4 +141,6 @@ def classify_call_outcome(transcript: str, duration: float) -> ScreeningOutcome:
 
     if one_sided:
         return "voicemail"
+    if looks_like_two_way_exchange(cleaned) and not looks_like_voicemail(cleaned):
+        return "connected"
     return "no_response"

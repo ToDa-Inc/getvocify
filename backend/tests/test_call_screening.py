@@ -21,6 +21,28 @@ class TestClassifyCallOutcome:
         )
         assert classify_call_outcome(transcript, duration=20.0) == "no_response"
 
+    def test_short_bad_moment_exchange_with_callback_is_connected(self):
+        """26s call: the contact answers, cannot talk, agrees to talk tomorrow. Both sides spoke,
+        so it goes to the call reading instead of being skipped as no conversation."""
+        transcript = (
+            "SPEAKER: S1\nHola, Miguel.\n\n"
+            "SPEAKER: S2\nSí, dígame.\n\n"
+            "SPEAKER: S1\nHola, Miguel, ¿qué tal? Soy Dani, de Vocify.\n\n"
+            "SPEAKER: S2\nVale, pues la verdad es que no puedo hablar, estoy en reuniones. "
+            "Si podemos hablar mañana por la mañana, ¿vale? Gracias, Dani. Chao.\n\n"
+            "SPEAKER: S1\nPerfecto, hacemos así. Chao, chao."
+        )
+        assert classify_call_outcome(transcript, duration=26.0) == "connected"
+
+    def test_short_exchange_with_voicemail_greeting_is_still_skipped(self):
+        transcript = (
+            "SPEAKER: S1\nHola, buenas.\n\n"
+            "SPEAKER: S2\nEl número al que llama no está disponible, deje su mensaje después del tono.\n\n"
+            "SPEAKER: S1\nHola, soy Dani de Vocify, le llamaba por lo de la demo.\n\n"
+            "SPEAKER: S2\nBuzón de voz, grabe su mensaje y pulse almohadilla para terminar."
+        )
+        assert classify_call_outcome(transcript, duration=20.0) == "no_response"
+
     def test_two_speakers_but_secondary_too_brief_is_connected_after_30s(self):
         """Twilio already marks no-answer. A 40s two-party call must be extracted
         even when diarization gives the other side almost no words."""
