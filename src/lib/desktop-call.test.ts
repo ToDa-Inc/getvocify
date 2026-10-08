@@ -186,7 +186,7 @@ describe("crmRecordKey", () => {
 });
 
 describe("islandBrief", () => {
-  it("is the summary's first two lines, as the island shows them", () => {
+  it("is the summary's lines, three at most (the island folds them to two)", () => {
     const activity = {
       summary: {
         lines: [
@@ -196,7 +196,7 @@ describe("islandBrief", () => {
         ],
       },
     };
-    assert.deepEqual(islandBrief(activity), { state: "ready", lines: ["Demo with the ops team yesterday.", "Proposal still to send."] });
+    assert.deepEqual(islandBrief(activity), { state: "ready", lines: ["Demo with the ops team yesterday.", "Proposal still to send.", "Budget confirmed for Q4."] });
   });
 
   it("is nothing when there is no summary or it has no lines, so the island does not grow", () => {
