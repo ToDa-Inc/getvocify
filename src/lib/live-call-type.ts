@@ -32,15 +32,36 @@ export function withPick(state: CallTypeState, key: string | null): CallTypeStat
   return { ...state, rep: key };
 }
 
+/** After a channel switch: a type (Vocify's or the rep's) that is not one of the new channel's is dropped. */
+export function withChannelTypes(state: CallTypeState, allowed: readonly string[]): CallTypeState {
+  return {
+    vocify: state.vocify && allowed.includes(state.vocify) ? state.vocify : null,
+    rep: state.rep && allowed.includes(state.rep) ? state.rep : null,
+  };
+}
+
 /** What the island's chip shows: the type, and whether it is still Vocify's proposal. */
 export function callTypeShown(state: CallTypeState): { key: string | null; proposed: boolean } {
   if (state.rep) return { key: state.rep, proposed: false };
   return { key: state.vocify, proposed: Boolean(state.vocify) };
 }
 
-/** At most two proposals a call, none once the rep picked: the type never costs more model calls. */
-export function proposalDue(input: { words: number; attempts: number; picked: boolean; lastConfident: boolean }): boolean {
-  if (input.picked) return false;
+/** Who chose the type the memo is sent with: the rep's pick is theirs; Vocify's suggestion stays one,
+ * so the call reading after the call can still correct it. */
+export type TypeSource = "rep" | "vocify";
+
+export function typeForMemo(state: CallTypeState): { key: string; source: TypeSource } | null {
+  if (state.rep) return { key: state.rep, source: "rep" };
+  return state.vocify ? { key: state.vocify, source: "vocify" } : null;
+}
+
+/** Proposals in one call whatever happens: a channel switch starts the two again, up to this many. */
+export const MAX_PROPOSALS_PER_CALL = 4;
+
+/** At most two proposals per channel, none once the rep picked, never more than MAX_PROPOSALS_PER_CALL
+ * in the call (`total`): the type never costs more model calls. */
+export function proposalDue(input: { words: number; attempts: number; picked: boolean; lastConfident: boolean; total?: number }): boolean {
+  if (input.picked || (input.total ?? 0) >= MAX_PROPOSALS_PER_CALL) return false;
   if (input.attempts === 0) return input.words >= FIRST_PROPOSAL_WORDS;
   if (input.attempts === 1) return !input.lastConfident && input.words >= SECOND_PROPOSAL_WORDS;
   return false;
@@ -58,10 +79,16 @@ export function liveHelpActive(input: { remembered: boolean; override: boolean |
 }
 
 /**
- * Call or meeting: the app the call happens in says which; without it, a recording with the CRM
- * contact on screen is that contact's call. One answer for live help and the memo.
+ * Call or meeting: the channel the rep switched to on the island, else the app the call happens
+ * in, else a recording with the CRM contact on screen is that contact's call. One answer for live
+ * help and the memo.
  */
-export function callKind(draft: { source?: { kind: string | null } | null; contact?: unknown }): "call" | "meeting" {
+export function callKind(draft: {
+  channel?: "call" | "meeting";
+  source?: { kind: string | null } | null;
+  contact?: unknown;
+}): "call" | "meeting" {
+  if (draft.channel) return draft.channel;
   const kind = draft.source?.kind;
   if (kind === "call" || kind === "meeting") return kind;
   return draft.contact ? "call" : "meeting";

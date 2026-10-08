@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -27,6 +28,7 @@ from app.services.playbooks.catalog import (
     is_catalog,
     validate_applies_to,
 )
+from app.services.playbooks import channel_types
 from app.services.playbooks.imports import start_import
 from app.services.playbooks.motion import goal_for, visible_to_role
 from app.services.playbooks.repository import (
@@ -54,6 +56,9 @@ class TypeRequest(BaseModel):
     type_key: str
     name: str = ""
     applies_to: Optional[dict] = None
+    # Types by channel: the channels the type belongs to (instead of a role rule), and how to recognise it.
+    channels: Optional[list[Literal["call", "meeting"]]] = Field(default=None, max_length=2)
+    recognize: Optional[str] = Field(default=None, max_length=300)
 
 
 @router.post("/types")
@@ -66,6 +71,8 @@ async def create_type(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden añadir una tipología")
     repository = get_playbook_repository()
     key = body.type_key.strip()
+    if key and is_enabled(supabase, membership.company_id, channel_types.FLAG):
+        return _create_by_channel(supabase, membership, repository, key, body)
     rule = None
     if key:
         try:
@@ -83,6 +90,159 @@ async def create_type(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La tipología necesita una clave") from exc
     motions, stored = motions_and_stored(repository.list_types(membership.company_id))
     return {"motions": motions, "details": build_details(motions, stored)}
+
+
+def _by_channel_rule(key: str, applies_to: Optional[dict], channels: Optional[list[str]]) -> dict:
+    """Types by channel: the rule a type is saved with. No role ever; the channels given win, else the
+    rule's, else the catalog's. A type with no channel at all is 422 channel_required."""
+    try:
+        rule = validate_applies_to(applies_to) if applies_to is not None else default_applies_to(key)
+    except RuleError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": exc.code}) from exc
+    rule = {**(rule or {"contact": "any", "deal_stages": []}), "role": "any"}
+    if channels:
+        rule["channels"] = list(dict.fromkeys(channels))
+    rule["channels"] = [channel for channel in rule.get("channels") or [] if channel in channel_types.CHANNELS]
+    if not rule["channels"]:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": "channel_required"})
+    return validate_applies_to(rule)
+
+
+def _require_by_channel(supabase: Client, membership: Membership) -> None:
+    """The types-by-channel endpoints are not there for a company without the flag."""
+    if not is_enabled(supabase, membership.company_id, channel_types.FLAG):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+
+def _create_by_channel(supabase: Client, membership: Membership, repository: PlaybookRepository, key: str, body: TypeRequest):
+    rule = _by_channel_rule(key, body.applies_to, body.channels)
+    label = body.name.strip() or catalog_label(key) or None
+    try:
+        repository.add_type(
+            membership.company_id, key, body.name or key, label=label, applies_to=rule,
+            **({"recognize": body.recognize} if body.recognize is not None else {}),
+        )
+    except PublishError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="La tipología necesita una clave") from exc
+    return _playbooks_payload(supabase, membership, repository)
+
+
+class TypeEdit(BaseModel):
+    """Types by channel: what Settings edits on a type. Only the fields sent change."""
+    label: Optional[str] = Field(default=None, max_length=80)
+    channels: Optional[list[Literal["call", "meeting"]]] = Field(default=None, min_length=1, max_length=2)
+    recognize: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.patch("/{sales_motion_key}/type")
+async def edit_type(
+    sales_motion_key: str,
+    body: TypeEdit,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    _require_by_channel(supabase, membership)
+    if not can_publish(membership.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden cambiar una tipología")
+    repository = get_playbook_repository()
+    key = sales_motion_key.strip()
+    row = repository.list_types(membership.company_id, include_draft=False).get(key)
+    if not key or row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipología no encontrada")
+    meta: dict[str, Any] = {}
+    if body.label is not None:
+        meta["label"] = body.label.strip() or None
+    if body.recognize is not None:
+        meta["recognize"] = body.recognize
+    if body.channels is not None:
+        meta["applies_to"] = _by_channel_rule(key, row.get("applies_to"), body.channels)
+    if meta:
+        repository.set_meta(membership.company_id, key, **meta)
+    return _playbooks_payload(supabase, membership, repository)
+
+
+class RecognizeDraftRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    channels: list[Literal["call", "meeting"]] = Field(default_factory=list, max_length=2)
+    language: Literal["es", "en"] = "es"
+
+
+_RECOGNIZE_SYSTEM = """You help a sales team describe one kind of sales conversation so an AI can recognise it from a transcript.
+Write ONE short sentence (max 25 words) saying what makes this kind of conversation different: who the other side is
+and where the relationship stands. No steps, no advice. Write it in the requested language.
+Return only JSON: {"recognize": "<sentence>"}"""
+
+
+async def _ask_recognize(messages: list[dict]) -> Any:
+    from app.config import settings
+    from app.services.llm import LLMClient
+
+    return await LLMClient().chat_json(
+        messages, model=settings.COPILOT_MODEL, temperature=0.2, timeout=8.0, max_retries=0, reasoning_effort="minimal",
+    )
+
+
+@router.post("/types/recognize")
+async def draft_recognize(
+    body: RecognizeDraftRequest,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """Vocify's draft of a type's "how to recognise it" sentence, from its name and channels. The
+    person edits or keeps it; nothing is saved here. {recognize: null} when the model fails."""
+    _require_by_channel(supabase, membership)
+    if not can_publish(membership.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden cambiar una tipología")
+    channels = ", ".join(body.channels) or "call or meeting"
+    language = "Spanish" if body.language == "es" else "English"
+    messages = [
+        {"role": "system", "content": _RECOGNIZE_SYSTEM},
+        {"role": "user", "content": f"Type name: {body.name.strip()}\nChannel: {channels}\nLanguage: {language}"},
+    ]
+    try:
+        raw = await _ask_recognize(messages)
+    except Exception:
+        logger.warning("recognize draft failed", exc_info=True)
+        return {"recognize": None}
+    sentence = " ".join(str((raw or {}).get("recognize") or "").split()) if isinstance(raw, dict) else ""
+    return {"recognize": sentence[:300] or None}
+
+
+STATS_DAYS = 30
+_STATS_LIMIT = 5000
+
+
+@router.get("/type-stats")
+async def type_stats(
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """Per type, the company's interactions in the last 30 days and how many a person changed after
+    Vocify typed them (a manual pin that names what it replaced). What a manager reads to see which
+    type's sentence needs work."""
+    require_manager(membership)
+    _require_by_channel(supabase, membership)
+    since = (datetime.now(timezone.utc) - timedelta(days=STATS_DAYS)).isoformat()
+    rows = (
+        supabase.table("memos")
+        .select("sales_motion_key,pipeline_meta")
+        .eq("company_id", str(membership.company_id))
+        .gte("created_at", since)
+        .limit(_STATS_LIMIT)
+        .execute()
+    ).data or []
+    out: dict[str, dict[str, int]] = {}
+    for row in rows:
+        key = row.get("sales_motion_key")
+        if not key:
+            continue
+        entry = out.setdefault(str(key), {"count": 0, "corrected": 0})
+        entry["count"] += 1
+        meta = row.get("pipeline_meta")
+        pin = meta.get("playbook_pin") if isinstance(meta, dict) else None
+        if isinstance(pin, dict) and pin.get("source") == "manual" and pin.get("changed_from"):
+            entry["corrected"] += 1
+    return {"days": STATS_DAYS, "types": out}
 
 
 def _rule_for_new_type(supabase: Client, company_id: str, key: str, applies_to: Optional[dict]) -> Optional[dict]:
@@ -149,6 +309,15 @@ def _playbooks_payload(supabase: Client, membership: Membership, repository: Pla
         key: {**detail, **{name: types[key][name] for name in _COUNT_FIELDS}}
         for key, detail in build_details(motions, stored).items()
     }
+    if is_enabled(supabase, membership.company_id, channel_types.FLAG):
+        # Types by channel: every member sees every type (no role), each with its channels and sentence,
+        # and Settings says whether detection runs (it needs the call reading too).
+        for key, detail in details.items():
+            detail["channels"] = sorted(channel_types.type_channels(key, types[key].get("applies_to")) & channel_types.CHANNELS)
+            detail["recognize"] = types[key].get("recognize")
+        on = channel_types.enabled(supabase, membership.company_id)
+        return {"motions": motions, "details": details, "type_detection": {"by_channel": on, "call_reading": on or is_enabled(
+            supabase, membership.company_id, channel_types.CALL_READING_FLAG)}}
     if not is_enabled(supabase, membership.company_id, SALES_ROLES_FLAG):
         return {"motions": motions, "details": details}
     if not manager:

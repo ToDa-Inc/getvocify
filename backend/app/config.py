@@ -324,6 +324,10 @@ class Settings(BaseSettings):
     # catalog, the "when it applies" rules, rule-based pinning and "change type" on a recording.
     PLAYBOOK_V2_ENABLED: bool = False
     PLAYBOOK_ROUTING_ENABLED: bool = False
+    # Types by channel (spec 2026-10-07): a recording's type is one of its channel's types (call or
+    # meeting), never decided by the member's sales role, and needs no playbook. Only takes effect
+    # with INTELLIGENCE_CALL_READING_ENABLED, which makes the final call after the call.
+    TYPE_BY_CHANNEL_ENABLED: bool = False
     # Playbooks v2, per company. QUALIFICATION: C04 v7 reads "what has to come out of the call"
     # criteria and the company's own objections, and the score is built from three blocks
     # (steps, qualification, objections) instead of steps alone.

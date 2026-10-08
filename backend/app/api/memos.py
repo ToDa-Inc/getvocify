@@ -10,7 +10,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Q
 from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 from uuid import UUID
-from typing import Annotated, Optional, List, Union
+from typing import Annotated, Literal, Optional, List, Union
 from app.services.usage import scoped
 from app.deps import get_supabase, get_user_id
 from app.services.activity_scope import (
@@ -302,7 +302,7 @@ async def _read_call_first(
 
     try:
         rows = supabase.table("memos").select(
-            "id,company_id,user_id,hubspot_contact_id,created_at"
+            "id,company_id,user_id,hubspot_contact_id,created_at,interaction_kind,source,source_type"
         ).eq("id", str(memo_id)).limit(1).execute().data or []
         memo = rows[0] if rows else {}
         if not memo or not is_enabled(supabase, memo.get("company_id"), CALL_READING_FLAG):
@@ -318,7 +318,7 @@ async def _read_call_first(
             transcript, LLMClient(), model=settings.INTELLIGENCE_MODEL,
             captured_at=str(call_date or memo.get("created_at") or ""),
             # The same read names the playbook the call was, from the company's own types.
-            playbooks=reading_playbooks(memo.get("company_id")),
+            playbooks=reading_playbooks(memo.get("company_id"), kind=interaction_kind_of(memo), supabase=supabase),
             **context,
         )
         if reading is not None and speakers_verified:
@@ -852,28 +852,43 @@ async def upload_memo(
         )
 
 
-def _pin_picked_type(supabase: Client, memo: dict, key: str) -> None:
-    """Pins the type the rep picked during the call as a manual choice. A type with no live
-    playbook is ignored (the memo keeps the pin it was born with). Never raises."""
+def _pin_picked_type(supabase: Client, memo: dict, key: str, source: str = "rep") -> None:
+    """Pins the type the call had when it ended. `source` says who chose it: the rep's pick is
+    theirs (`manual`, nothing re-types it); Vocify's suggestion is `live`, so the call reading can
+    still correct it. A type the memo cannot have is ignored (the memo keeps the pin it was born
+    with): without a live playbook, or with TYPE_BY_CHANNEL_ENABLED not a type of the memo's channel.
+    Never raises."""
+    from app.services.playbooks import channel_types
     from app.services.playbooks.catalog import INTERNAL_KEY
     from app.services.playbooks.live import live_version_id
     from app.services.playbooks.routing import merge_pin_meta
 
+    pin_source = "manual" if source == "rep" else channel_types.LIVE_SOURCE
+    extra = {"picked": "during_call"} if pin_source == "manual" else {}
+    company_id = str(memo.get("company_id") or "")
     try:
-        version = None
-        if key != INTERNAL_KEY:
-            version = live_version_id(supabase, str(memo.get("company_id") or ""), key)
-            if not version:
-                return
-        supabase.table("memos").update(
-            {
+        if channel_types.enabled(supabase, company_id):
+            if pin_source != "manual" and channel_types.pin_source(memo.get("pipeline_meta")) in channel_types.FINAL_SOURCES:
+                return  # Vocify's live guess never replaces a CRM decision made at capture.
+            if key != INTERNAL_KEY:
+                types = channel_types._types(company_id)
+                if key not in channel_types.candidates(types, interaction_kind_of(memo)):
+                    return
+            update = channel_types.pin_fields(supabase, company_id, key, pin_source, memo.get("pipeline_meta"), **extra)
+        else:
+            version = None
+            if key != INTERNAL_KEY:
+                version = live_version_id(supabase, company_id, key)
+                if not version:
+                    return
+            update = {
                 "sales_motion_key": key,
                 "playbook_version_id": str(version) if version else None,
-                "pipeline_meta": merge_pin_meta(memo.get("pipeline_meta"), "manual", picked="during_call"),
+                "pipeline_meta": merge_pin_meta(memo.get("pipeline_meta"), pin_source, **extra),
             }
-        ).eq("id", str(memo["id"])).execute()
+        supabase.table("memos").update(update).eq("id", str(memo["id"])).execute()
     except Exception:
-        logger.warning("could not pin the type picked during the call", exc_info=True)
+        logger.warning("could not pin the type the call ended with", exc_info=True)
 
 
 class UploadTranscriptRequest(BaseModel):
@@ -890,8 +905,10 @@ class UploadTranscriptRequest(BaseModel):
     # The app the call happened in, as the desktop saw it (e.g. "Google Meet", "Zoom"): context
     # for reading the call's type.
     call_source: Optional[str] = Field(default=None, max_length=60)
-    # The call's type, if the rep picked it while recording: theirs, so nothing re-types it.
+    # The call's type when it ended, and who chose it: "rep" (theirs, nothing re-types it) or
+    # "vocify" (a live suggestion the call reading may still correct). Absent = "rep", as before.
     sales_motion_key: Optional[str] = Field(default=None, max_length=64)
+    type_source: Literal["rep", "vocify"] = "rep"
     # Who the meeting app showed speaking on the other side (desktop reads Zoom's screen).
     participants: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list, max_length=20)
     # A Vocify call placed from the desktop: its live transcript becomes the call's memo at hang-up,
@@ -1067,7 +1084,7 @@ async def upload_transcript_and_extract(
         source_type = "vocify_call"
         stt_meta["screening_outcome"] = outcome
     if body.sales_motion_key:
-        _pin_picked_type(supabase, created, body.sales_motion_key.strip())
+        _pin_picked_type(supabase, created, body.sales_motion_key.strip(), body.type_source)
 
     await start_extraction_from_transcript(
         str(memo_id),

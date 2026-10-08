@@ -263,3 +263,70 @@ def test_an_objection_with_no_line_is_asked_once_more_without_the_playbook(monke
     assert len(calls) == 2 and calls[0] is not None and calls[1] is None
     assert results[-1]["suggestion"]["say_this"] == "¿Qué os preocupa que escriba mal?"
     assert len(results) == 1, "the empty answer is never sent: the island would show and withdraw it"
+
+
+# --- types by channel ---------------------------------------------------------------------------
+
+from app.services.playbooks import channel_types  # noqa: E402
+
+BY_CHANNEL_TYPES = {
+    "discovery": {"status": "published", "label": None, "applies_to": None},  # catalog: call
+    "inbound_lead": {"status": "missing", "label": "Lead inbound", "recognize": "Someone who asked us to call.",
+                     "applies_to": {"role": "any", "channels": ["call"], "contact": "any", "deal_stages": []}},
+    "closing": {"status": "published", "label": None, "applies_to": None},  # catalog: meeting
+}
+
+
+def _by_channel(monkeypatch):
+    monkeypatch.setattr(channel_types, "enabled", lambda *_a, **_k: True)
+    monkeypatch.setattr(channel_types, "_types", lambda *_a, **_k: BY_CHANNEL_TYPES)
+
+
+def test_by_channel_the_guess_ignores_a_last_type_of_the_other_channel(monkeypatch):
+    _by_channel(monkeypatch)
+    monkeypatch.setattr(call_type, "last_contact_type", lambda *_a, **_k: "closing")
+    response = _client(_company(), monkeypatch).post(
+        "/api/v1/copilot/call-type/guess", json={"interaction_kind": "call", "contact_id": "c-1"},
+    )
+    assert response.json() == {"type": None, "source": None}
+
+
+def test_by_channel_the_guess_takes_a_last_type_of_this_channel_even_without_a_playbook(monkeypatch):
+    _by_channel(monkeypatch)
+    monkeypatch.setattr(call_type, "last_contact_type", lambda *_a, **_k: "inbound_lead")
+    response = _client(_company(), monkeypatch).post(
+        "/api/v1/copilot/call-type/guess", json={"interaction_kind": "call", "contact_id": "c-1"},
+    )
+    assert response.json() == {"type": "inbound_lead", "source": "history"}
+
+
+def test_by_channel_the_proposal_offers_the_channels_types_described(monkeypatch):
+    _by_channel(monkeypatch)
+    seen = {}
+
+    async def fake_ask(messages):
+        seen["prompt"] = messages[1]["content"]
+        return {"type": "inbound_lead", "confident": True}
+
+    monkeypatch.setattr(call_type, "ask_model", fake_ask)
+    body = {
+        "transcript_window": "Them: rellené el formulario",
+        "interaction_kind": "call",
+        "options": [{"key": "discovery", "label": "Llamada en frío"}, {"key": "inbound_lead", "label": "Lead inbound"},
+                    {"key": "closing", "label": "Cierre"}],
+    }
+    response = _client(_company(), monkeypatch).post("/api/v1/copilot/call-type/propose", json=body)
+    assert response.json() == {"type": "inbound_lead", "confident": True}
+    assert 'key "inbound_lead"' in seen["prompt"] and "Someone who asked us to call." in seen["prompt"]
+    assert 'key "closing"' not in seen["prompt"]
+
+
+def test_by_channel_a_proposal_without_the_calls_channel_offers_nothing(monkeypatch):
+    _by_channel(monkeypatch)
+
+    async def never(_messages):
+        raise AssertionError("no model call without a channel")
+
+    monkeypatch.setattr(call_type, "ask_model", never)
+    body = {"transcript_window": "Them: hola", "options": [{"key": "closing", "label": "Cierre"}]}
+    assert _client(_company(), monkeypatch).post("/api/v1/copilot/call-type/propose", json=body).json() == {"type": None, "confident": False}

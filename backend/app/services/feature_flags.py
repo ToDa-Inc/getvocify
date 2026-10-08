@@ -80,7 +80,9 @@ PLAYBOOK_V2_FLAGS: tuple[str, ...] = (
     "PLAYBOOK_ROUTING_ENABLED",
     "PLAYBOOK_QUALIFICATION_ENABLED",
 )
-CLIENT_FLAGS: tuple[str, ...] = LISTA_3_FLAGS + LISTA_4_FLAGS + PLAYBOOK_V2_FLAGS
+# Types by channel (spec 2026-10-07-interaction-types-by-channel-design).
+TYPE_FLAGS: tuple[str, ...] = ("TYPE_BY_CHANNEL_ENABLED",)
+CLIENT_FLAGS: tuple[str, ...] = LISTA_3_FLAGS + LISTA_4_FLAGS + PLAYBOOK_V2_FLAGS + TYPE_FLAGS
 
 
 def enabled_features(supabase: Any, company_id: Optional[str], names: "list[str] | tuple[str, ...]") -> list[str]:

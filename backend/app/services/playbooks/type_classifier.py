@@ -61,11 +61,32 @@ def _company_types(company_id: str) -> tuple[dict, dict]:
     return motions_and_stored(get_playbook_repository().list_types(company_id, include_draft=False))
 
 
-def reading_playbooks(company_id: Optional[str]) -> Optional[dict[str, str]]:
+_INTERNAL_DESCRIPTION = "Internal: no customer or prospect takes part (team meeting, 1:1, coaching)."
+
+
+def reading_playbooks(
+    company_id: Optional[str], *, kind: Optional[str] = None, supabase: Any = None,
+) -> Optional[dict[str, str]]:
     """{key: what it is} for the call reading: the company's published types plus internal.
-    None when the company has none published (then the reading names no playbook)."""
+    None when the company has none published (then the reading names no playbook).
+
+    With types by channel: the types of the recording's channel, with or without a playbook,
+    described by name, recognition sentence and steps (channel_types.describe)."""
     if not company_id:
         return None
+    if supabase is not None:
+        from app.services.playbooks import channel_types
+
+        if channel_types.enabled(supabase, str(company_id)):
+            try:
+                types = channel_types._types(str(company_id))
+                keys = channel_types.candidates(types, kind)
+                if not keys:
+                    return None
+                return {**channel_types.describe(supabase, str(company_id), types, keys), INTERNAL_KEY: _INTERNAL_DESCRIPTION}
+            except Exception:
+                logger.warning("could not load the channel's types for the call reading", exc_info=True)
+                return None
     try:
         motions, stored = _company_types(str(company_id))
     except Exception:
@@ -78,7 +99,7 @@ def reading_playbooks(company_id: Optional[str]) -> Optional[dict[str, str]]:
     }
     if not published:
         return None
-    published[INTERNAL_KEY] = "Internal: no customer or prospect takes part (team meeting, 1:1, coaching)."
+    published[INTERNAL_KEY] = _INTERNAL_DESCRIPTION
     return published
 
 
@@ -94,13 +115,18 @@ def apply_reading_type(supabase: Any, memo_id: str, reading: Optional[dict]) -> 
 
         rows = (
             supabase.table("memos")
-            .select("id,company_id,sales_motion_key,playbook_version_id,pipeline_meta")
+            .select("id,company_id,sales_motion_key,playbook_version_id,pipeline_meta,interaction_kind,source,source_type")
             .eq("id", memo_id)
             .limit(1)
             .execute()
         ).data or []
         memo = rows[0] if rows else None
         if not memo:
+            return
+        from app.services.playbooks import channel_types
+
+        if channel_types.enabled(supabase, str(memo.get("company_id") or "")):
+            _apply_by_channel(supabase, memo, key)
             return
         meta = memo.get("pipeline_meta") if isinstance(memo.get("pipeline_meta"), dict) else {}
         pin = meta.get(PIN_META_KEY) if isinstance(meta.get(PIN_META_KEY), dict) else {}
@@ -130,3 +156,22 @@ def apply_reading_type(supabase: Any, memo_id: str, reading: Optional[dict]) -> 
         ).eq("id", str(memo_id)).execute()
     except Exception:
         logger.warning("call type pin failed", exc_info=True)
+
+
+def _apply_by_channel(supabase: Any, memo: dict, key: str) -> None:
+    """Types by channel: the reading's type is the memo's unless a person picked one or a CRM condition
+    decided it (a `single` pin only becomes Interna). The write is conditional on the pin not having
+    become final meanwhile, so a retag made while the call was being read always wins."""
+    from app.services.captures import interaction_kind_of
+    from app.services.playbooks import channel_types
+
+    company_id = str(memo.get("company_id") or "")
+    meta = memo.get("pipeline_meta") if isinstance(memo.get("pipeline_meta"), dict) else {}
+    current = memo.get("sales_motion_key")
+    if key == current or not channel_types.may_move(meta, key):
+        return
+    if key != INTERNAL_KEY and key not in channel_types.candidates(channel_types._types(company_id), interaction_kind_of(memo)):
+        return
+    extra = {"changed_from": current} if current else {}
+    update = channel_types.pin_fields(supabase, company_id, key, READING_SOURCE, meta, **extra)
+    channel_types.write_unless_final(supabase, str(memo["id"]), update, channel_types.pin_source(meta))

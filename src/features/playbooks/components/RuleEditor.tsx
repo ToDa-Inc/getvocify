@@ -10,18 +10,22 @@ const ROLES: SalesRoleKey[] = ["sdr", "ae", "any"];
 const CHANNELS: Channel[] = ["call", "meeting", "visit"];
 const CONTACTS: ContactRule[] = ["any", "new", "contacted", "inbound"];
 
-/** "When does this playbook apply": who, channel, contact and, with a CRM, the deal stage. */
+/** "When does this playbook apply": who, channel, contact and, with a CRM, the deal stage. With
+ * `crmOnly` (types by channel) only the CRM condition: the channels are set on the type itself and
+ * there is no role. */
 export function RuleEditor({
   value,
   stages,
   saving,
   saveLabel,
+  crmOnly = false,
   onSave,
 }: {
   value: AppliesTo | null;
   stages: { id: string; label: string }[];
   saving?: boolean;
   saveLabel?: string;
+  crmOnly?: boolean;
   onSave: (rule: AppliesTo) => void;
 }) {
   const { t } = useLanguage();
@@ -39,6 +43,8 @@ export function RuleEditor({
 
   return (
     <div className="space-y-4">
+      {crmOnly ? null : (
+      <>
       <div className="space-y-1.5">
         <p className={THEME_TOKENS.typography.capsLabel}>{copy.ruleWho}</p>
         <Segmented
@@ -71,6 +77,8 @@ export function RuleEditor({
           ))}
         </div>
       </div>
+      </>
+      )}
 
       <div className="space-y-1.5">
         <p className={THEME_TOKENS.typography.capsLabel}>{copy.ruleContact}</p>
@@ -117,7 +125,7 @@ export function RuleEditor({
           )
         : null}
       <div className="flex justify-end">
-        <Button type="button" size="sm" disabled={saving} onClick={() => onSave(rule)}>
+        <Button type="button" size="sm" disabled={saving} onClick={() => onSave(crmOnly ? { ...rule, role: "any" } : rule)}>
           {saveLabel ?? copy.ruleSave}
         </Button>
       </div>

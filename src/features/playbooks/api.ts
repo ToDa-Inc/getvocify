@@ -1,6 +1,7 @@
 /** Playbooks v2 API (plan §12). One place for every call the playbook screens make. */
 
 import { api, ApiError } from "@/shared/lib/api-client";
+import type { LiveChannel, TypeDetection } from "@/lib/type-channels";
 import type { draftPayload, EditorSnapshot } from "@/lib/playbook-editor";
 import type { MotionStatus } from "@/lib/playbook-setup";
 import type { Knowledge, KnowledgeDoc } from "@/lib/playbook-knowledge";
@@ -71,7 +72,12 @@ export type PlaybookList = {
   motions: Record<string, MotionStatus>;
   goals?: Record<string, string>;
   details?: Record<string, PlaybookDetail>;
+  /** Types by channel: present when the company's types go by channel; whether detection runs. */
+  type_detection?: TypeDetection;
 };
+
+export type TypeEdit = { label?: string; channels?: LiveChannel[]; recognize?: string };
+export type TypeStats = { days: number; types: Record<string, { count: number; corrected: number }> };
 
 const path = (key: string) => `/playbooks/${encodeURIComponent(key)}`;
 
@@ -136,8 +142,13 @@ export const playbooksApi = {
   company: () => api.get<KnowledgeDoc>("/playbooks/company"),
   saveCompany: (knowledge: Knowledge, baseUpdatedAt: string | null) =>
     api.put<KnowledgeDoc>("/playbooks/company", { knowledge, base_updated_at: baseUpdatedAt }),
-  addType: (body: { type_key: string; name: string; applies_to?: AppliesTo }) =>
-    api.post<{ motions: Record<string, MotionStatus>; details?: Record<string, PlaybookDetail> }>("/playbooks/types", body),
+  addType: (body: { type_key: string; name: string; applies_to?: AppliesTo; channels?: LiveChannel[] }) =>
+    api.post<PlaybookList>("/playbooks/types", body),
+  // Types by channel: a type's name, channels and recognition sentence; Vocify's draft of the sentence.
+  editType: (key: string, body: TypeEdit) => api.patch<PlaybookList>(`${path(key)}/type`, body),
+  draftRecognize: (body: { name: string; channels: LiveChannel[]; language: "es" | "en" }) =>
+    api.post<{ recognize: string | null }>("/playbooks/types/recognize", body, { timeoutMs: 15_000 }),
+  typeStats: () => api.get<TypeStats>("/playbooks/type-stats"),
   saveRule: (key: string, appliesTo: AppliesTo) =>
     api.put<{ sales_motion_key: string; applies_to: AppliesTo }>(`${path(key)}/rule`, { applies_to: appliesTo }),
   dealStages: () => api.get<{ stages: { id: string; label: string }[] }>("/playbooks/deal-stages"),

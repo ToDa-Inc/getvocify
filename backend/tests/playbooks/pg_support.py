@@ -33,7 +33,7 @@ import pytest
 
 ENV_DSN = "VOCIFY_TEST_PG_DSN"
 MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
-SCHEMA_FILES = ("040_company_playbooks.sql", "055_playbook_goal.sql", "066_playbooks_v2.sql")
+SCHEMA_FILES = ("040_company_playbooks.sql", "055_playbook_goal.sql", "066_playbooks_v2.sql", "076_type_recognize.sql")
 
 
 def _env() -> dict[str, str]:

@@ -296,3 +296,68 @@ def test_get_says_when_the_type_is_the_call_readings_suggestion():
     memo = {**_memo(), "pipeline_meta": {"playbook_pin": {"source": "reading"}}}
     body = _client(_Db(memo)).get(f"/api/v1/memos/{MEMO}/playbook").json()
     assert body["suggested"] is True
+
+
+# -- types by channel ----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def by_channel(monkeypatch):
+    monkeypatch.setattr("app.services.playbooks.channel_types.enabled", lambda *_a, **_k: True)
+
+
+def _channel_store():
+    store = InMemoryPlaybookRepository({"co-1": {"discovery": "published", "closing": "published", "paused_one": "paused"}})
+    store.add_type("co-1", "inbound_lead", "Lead inbound", label="Lead inbound",
+                   applies_to={"role": "any", "channels": ["call"], "contact": "any", "deal_stages": []})
+    store.set_meta("co-1", "paused_one", applies_to={"role": "any", "channels": ["call"], "contact": "any", "deal_stages": []})
+    return store
+
+
+def test_by_channel_get_offers_the_memos_channel_types_with_or_without_a_playbook(by_channel):
+    db = _Db(_memo(interaction_kind="call", sales_motion_key="discovery"))
+    body = _client(db, store=_channel_store()).get(f"/api/v1/memos/{MEMO}/playbook").json()
+    assert [option["key"] for option in body["options"]] == ["discovery", "inbound_lead", "internal"]
+    assert body["options"][1]["label"] == "Lead inbound"
+    assert body["interaction_kind"] == "call" and body["can_change_channel"] is True
+
+
+def test_by_channel_a_type_without_a_playbook_is_pinned_as_a_label_and_nothing_is_requeued(by_channel, requeued):
+    db = _Db(_memo(interaction_kind="call", sales_motion_key="discovery", playbook_version_id=None))
+    response = _client(db, store=_channel_store()).post(f"/api/v1/memos/{MEMO}/playbook", json={"sales_motion_key": "inbound_lead"})
+    assert response.status_code == 200
+    assert (db.memo["sales_motion_key"], db.memo["playbook_version_id"]) == ("inbound_lead", None)
+    assert db.memo["pipeline_meta"]["playbook_pin"]["source"] == "manual"
+    assert requeued == []
+
+
+def test_by_channel_a_type_of_another_channel_or_paused_is_409(by_channel, requeued):
+    for key in ("closing", "paused_one"):
+        db = _Db(_memo(interaction_kind="call"))
+        response = _client(db, store=_channel_store()).post(f"/api/v1/memos/{MEMO}/playbook", json={"sales_motion_key": key})
+        assert response.status_code == 409 and response.json()["detail"] == {"code": "not_a_type_of_channel"}
+
+
+def test_by_channel_changing_the_channel_clears_a_type_that_does_not_belong(by_channel, requeued):
+    db = _Db(_memo(interaction_kind="call", sales_motion_key="discovery", playbook_version_id="v-discovery"))
+    response = _client(db, store=_channel_store()).post(f"/api/v1/memos/{MEMO}/playbook", json={"interaction_kind": "meeting"})
+    assert response.status_code == 200
+    assert db.memo["interaction_kind"] == "meeting"
+    assert (db.memo["sales_motion_key"], db.memo["playbook_version_id"]) == (None, None)
+    assert [name for name, _ in requeued] == ["hooks", "enqueue"]  # it had a playbook: the score goes
+
+
+def test_by_channel_changing_the_channel_keeps_internal(by_channel, requeued):
+    db = _Db(_memo(interaction_kind="call", sales_motion_key="internal", playbook_version_id=None))
+    _client(db, store=_channel_store()).post(f"/api/v1/memos/{MEMO}/playbook", json={"interaction_kind": "meeting"})
+    assert (db.memo["interaction_kind"], db.memo["sales_motion_key"]) == ("meeting", "internal")
+
+
+def test_the_channel_cannot_change_without_types_by_channel(requeued):
+    db = _Db(_memo(interaction_kind="call"))
+    response = _client(db).post(f"/api/v1/memos/{MEMO}/playbook", json={"interaction_kind": "meeting"})
+    assert response.status_code == 409 and db.memo["interaction_kind"] == "call"
+
+
+def test_a_body_with_neither_type_nor_channel_is_422(requeued):
+    assert _client(_Db(_memo())).post(f"/api/v1/memos/{MEMO}/playbook", json={}).status_code == 422

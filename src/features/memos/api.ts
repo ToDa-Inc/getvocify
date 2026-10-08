@@ -74,6 +74,13 @@ export const memosApi = {
   },
 
   /**
+   * Types by channel: move a memo to the other channel. A type that does not belong to it is cleared.
+   */
+  setChannel: (id: string, kind: 'call' | 'meeting'): Promise<{ sales_motion_key: string | null; interaction_kind: string; status: string }> => {
+    return api.post(`/memos/${encodeURIComponent(id)}/playbook`, { interaction_kind: kind });
+  },
+
+  /**
    * Get usage analytics (real stats from memos)
    */
   getUsage: (): Promise<UsageResponse> => {
@@ -113,8 +120,9 @@ export const memosApi = {
       hubspotContactId?: string;
       /** The app the call happened in (desktop), e.g. "Google Meet". */
       callSource?: string;
-      /** The call type the rep picked while recording (desktop). */
+      /** The call type when the call ended (desktop), and who chose it. */
       salesMotionKey?: string;
+      typeSource?: 'rep' | 'vocify';
       /** Names the meeting app showed speaking on the other side (desktop, Zoom). */
       participants?: string[];
       /** A Vocify call (desktop): the memo is that call's, from its live transcript. */
@@ -131,6 +139,7 @@ export const memosApi = {
       hubspot_contact_id: options.hubspotContactId || undefined,
       call_source: options.callSource || undefined,
       sales_motion_key: options.salesMotionKey || undefined,
+      type_source: options.salesMotionKey ? options.typeSource ?? 'rep' : undefined,
       participants: options.participants?.length ? options.participants : undefined,
       call_sid: options.callSid || undefined,
       call_duration_seconds: options.callDurationSeconds,
