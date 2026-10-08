@@ -6,8 +6,10 @@ import { getDesktopBridge } from "@/lib/desktop-host";
 import { briefContactId, headsUpMeeting, islandMeeting, nextChangeAt, type UpcomingMeeting } from "@/lib/meeting-heads-up";
 import { api } from "@/shared/lib/api-client";
 
-/** How often the rep's next meetings are read (the backend refreshes them from the calendar). */
-const REFRESH_MS = 5 * 60_000;
+/** How often the rep's next meetings are read: every minute, so a meeting added just before it starts still gets
+ * its heads-up (the backend reads its stored copy; it asks Recall again at most every 5 minutes, and Recall's
+ * calendar webhook keeps the copy current in between). */
+const REFRESH_MS = 60_000;
 
 /**
  * A minute before a meeting (with clients or internal), the island says who it is with and, for a
