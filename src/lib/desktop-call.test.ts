@@ -99,6 +99,7 @@ describe("dialIsland", () => {
       muted: false,
       message: null,
       brief: null,
+      companyBrief: null,
     });
   });
 
@@ -108,14 +109,24 @@ describe("dialIsland", () => {
   });
 
   it("carries the contact's brief for as long as the call is up, and not after a missed call", () => {
-    const brief = ["Demo yesterday.", "Proposal to send."];
+    const brief = {
+      lines: [
+        { text: "Demo done.", type: "meeting" as const, at: "2026-10-02T04:00:00Z" },
+        { text: "Proposal to send.", type: null, at: null },
+      ],
+      company: { name: "Acme SL", latest: { type: "call" as const, at: "2026-09-12T04:00:00Z", who: "Toni García (CFO)" }, people: 1, lines: [] },
+    };
     const ringing = step(IDLE_CALL, { type: "dial", target: ANA }, { type: "ringing" });
-    assert.deepEqual(dialIsland(ringing, brief)?.brief, brief);
+    assert.deepEqual(dialIsland(ringing, brief)?.brief, brief.lines);
+    assert.deepEqual(dialIsland(ringing, brief)?.companyBrief, brief.company);
     const active = step(ringing, { type: "accepted", at: 1 });
-    assert.deepEqual(dialIsland(active, brief)?.brief, brief);
+    assert.deepEqual(dialIsland(active, brief)?.brief, brief.lines);
+    assert.deepEqual(dialIsland(active, brief)?.companyBrief, brief.company);
     assert.equal(dialIsland(ringing)?.brief, null);
+    assert.equal(dialIsland(ringing)?.companyBrief, null);
     const missed = step(IDLE_CALL, { type: "dial", target: ANA }, { type: "outcome", message: "Busy" }, { type: "ended", at: 2 });
     assert.equal(dialIsland(missed, brief)?.brief, null);
+    assert.equal(dialIsland(missed, brief)?.companyBrief, null);
   });
 
   it("an answered call hands over to the post-call card when it ends", () => {
@@ -186,17 +197,38 @@ describe("crmRecordKey", () => {
 });
 
 describe("islandBrief", () => {
-  it("is the summary's lines, three at most (the island folds them to two)", () => {
+  it("is the summary's lines, three at most, each with the kind and date of what it cites", () => {
     const activity = {
       summary: {
         lines: [
-          { text: "Demo with the ops team yesterday.", sources: ["hubspot:meeting:m1"] },
-          { text: "Proposal still to send.", sources: ["hubspot:task:t1"] },
-          { text: "Budget confirmed for Q4.", sources: ["vocify:memo:1"] },
+          { text: "Demo with the ops team.", sources: ["hubspot:meeting:m1"], type: "meeting", occurred_at: "2026-10-02T04:00:00Z" },
+          { text: "Proposal still to send.", sources: ["hubspot:task:t1"], type: "task", occurred_at: "2026-10-05T04:00:00Z" },
+          { text: "Logistics, 120 people.", sources: ["hubspot:company:c1"], type: "company", occurred_at: null },
+          { text: "A fourth line.", sources: ["vocify:memo:1"], type: "vocify_conversation", occurred_at: "2026-09-30T10:00:00Z" },
         ],
       },
     };
-    assert.deepEqual(islandBrief(activity), { state: "ready", lines: ["Demo with the ops team yesterday.", "Proposal still to send.", "Budget confirmed for Q4."] });
+    assert.deepEqual(islandBrief(activity), {
+      state: "ready",
+      lines: [
+        { text: "Demo with the ops team.", type: "meeting", at: "2026-10-02T04:00:00Z" },
+        { text: "Proposal still to send.", type: "task", at: "2026-10-05T04:00:00Z" },
+        { text: "Logistics, 120 people.", type: "company", at: null },
+      ],
+      company: null,
+    });
+  });
+
+  it("shows no kind or date it was not told (an older backend, an unknown kind)", () => {
+    const activity = { summary: { lines: [{ text: "Demo done.", sources: ["x"] }, { text: "Spoke.", type: "whatsapp", occurred_at: "not a date" }] } };
+    assert.deepEqual(islandBrief(activity), {
+      state: "ready",
+      lines: [
+        { text: "Demo done.", type: null, at: null },
+        { text: "Spoke.", type: null, at: null },
+      ],
+      company: null,
+    });
   });
 
   it("is nothing when there is no summary or it has no lines, so the island does not grow", () => {
@@ -204,5 +236,47 @@ describe("islandBrief", () => {
     assert.equal(islandBrief({ summary: { lines: [] } }), null);
     assert.equal(islandBrief({ summary: { lines: [{ text: "  ", sources: ["x"] }] } }), null);
     assert.equal(islandBrief(null), null);
+  });
+
+  it("carries what others at the company said: who and when of the latest, and the company lines with theirs", () => {
+    const toni = { name: "Toni García", title: "CFO" };
+    const activity = {
+      company: { id: "hubspot:company:77", name: "Acme SL" },
+      company_interactions: [
+        { id: "hubspot:call:7", type: "call", occurred_at: "2026-09-12T04:00:00Z", text: "Pricing", with: toni },
+        { id: "hubspot:note:8", type: "note", occurred_at: "2026-08-24T04:00:00Z", text: "In-house CRM", with: { name: "Marta Soler", title: null } },
+        { id: "hubspot:note:9", type: "note", occurred_at: "2026-08-04T04:00:00Z", text: "Renewal in March", with: null },
+        { id: "vocify:memo:1", type: "vocify_conversation", occurred_at: "2026-08-01T04:00:00Z", text: "Wants reporting", with: toni },
+      ],
+      summary: {
+        lines: [],
+        company_lines: [
+          { text: "Asked for a demo", sources: ["hubspot:call:7"], type: "call", occurred_at: "2026-09-12T04:00:00Z", with: toni },
+          { text: "Renewal in March", sources: ["hubspot:note:9"], type: "note", occurred_at: "2026-08-04T04:00:00Z", with: null },
+        ],
+      },
+    };
+    assert.deepEqual(islandBrief(activity), {
+      state: "ready",
+      lines: [],
+      company: {
+        name: "Acme SL",
+        latest: { type: "call", at: "2026-09-12T04:00:00Z", who: "Toni García (CFO)" },
+        people: 2,
+        lines: [
+          { text: "Asked for a demo", type: "call", at: "2026-09-12T04:00:00Z", who: "Toni García (CFO)" },
+          { text: "Renewal in March", type: "note", at: "2026-08-04T04:00:00Z", who: null },
+        ],
+      },
+    });
+  });
+
+  it("has no company part when nobody else at the company was talked to", () => {
+    const activity = {
+      company: { id: "hubspot:company:77", name: "Acme SL" },
+      company_interactions: [],
+      summary: { lines: [{ text: "Demo done.", type: "meeting", occurred_at: "2026-10-02T04:00:00Z" }], company_lines: [] },
+    };
+    assert.equal((islandBrief(activity) as { company?: unknown }).company, null);
   });
 });

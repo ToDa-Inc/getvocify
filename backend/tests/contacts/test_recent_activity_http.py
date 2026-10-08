@@ -38,6 +38,8 @@ class FakeHubSpot:
             if kind == "companies":
                 return {"results": [{"toObjectId": self.company["id"]}]} if self.company else {"results": []}
             return {"results": [{"toObjectId": o["id"]} for o in self.objects.get(kind, [])]}
+        if self.company and endpoint.startswith(f"/crm/v4/objects/companies/{self.company['id']}/associations/"):
+            return {"results": []}  # nobody else at the company (see test_recent_activity_company.py)
         if self.company and endpoint == f"/crm/v3/objects/companies/{self.company['id']}":
             return {"id": self.company["id"], "properties": self.company["properties"]}
         raise AssertionError(f"unexpected GET {endpoint}")
@@ -69,6 +71,8 @@ def world(monkeypatch):
 
     monkeypatch.setattr(api, "hubspot_client_for", lambda _supabase, _user_id: state["hubspot"])
     monkeypatch.setattr(api, "read_contact_memos", lambda _supabase, _membership, _contact_id: state["memos"])
+    monkeypatch.setattr(api, "read_colleague_memos", lambda _supabase, _membership, _contact_ids: [])
+    monkeypatch.setattr(api, "vocify_pushed_ids", lambda _supabase, _company_id, _memo_ids: set())
 
     async def summarize(messages):
         state["llm_calls"] += 1
@@ -89,6 +93,10 @@ def client(world):
     app.dependency_overrides[get_membership] = lambda: MEMBERSHIP
     app.dependency_overrides[get_supabase] = lambda: object()
     return TestClient(app)
+
+
+def cited(lines):
+    return [{"text": line["text"], "sources": line["sources"]} for line in lines]
 
 
 def get(client, **params):
@@ -112,7 +120,7 @@ def test_returns_the_interactions_it_read_newest_first_with_their_ids(client):
 
 def test_company_context_comes_from_hubspot(client):
     body = get(client, summary="false")
-    assert body["company"] == {"id": "hubspot:company:co77", "name": "Acme SL", "domain": "acme.es", "industry": "Logistics", "employees": "120"}
+    assert body["company"] == {"id": "hubspot:company:co77", "name": "Acme SL"}
 
 
 def test_says_which_sources_could_not_be_read_instead_of_hiding_them(client):
@@ -140,7 +148,7 @@ def test_the_summary_keeps_only_lines_grounded_in_what_was_read(client, world):
         ]
     }
     body = get(client)
-    assert body["summary"]["lines"] == [
+    assert cited(body["summary"]["lines"]) == [
         {"text": "Demo with the ops team yesterday; proposal still to send.", "sources": ["hubspot:meeting:m1", "hubspot:task:t1"]},
     ]
     # The model saw only what was read, with the ids it must cite.
@@ -183,20 +191,21 @@ def test_hubspot_unreachable_still_answers_with_vocify(client, world):
     body = get(client, summary="false")
     assert [i["id"] for i in body["interactions"]] == ["vocify:memo:memo-1"]
     assert body["sources"]["hubspot"]["notes"] == "failed"
+    assert body["company_interactions"] == []
 
 
 def test_ids_cited_the_way_the_prompt_shows_them_still_count(client, world):
     # The prompt lists items as "[hubspot:meeting:m1] ..."; a model citing them with the brackets is citing them.
     world["llm"] = {"lines": [{"text": "Demo yesterday.", "sources": ["[hubspot:meeting:m1]", " hubspot:task:t1 "]}]}
     body = get(client)
-    assert body["summary"]["lines"] == [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1", "hubspot:task:t1"]}]
+    assert cited(body["summary"]["lines"]) == [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1", "hubspot:task:t1"]}]
 
 
 def test_a_summary_left_with_no_lines_is_asked_again_next_time(client, world):
     world["llm"] = {"lines": [{"text": "Their CFO approved it.", "sources": ["hubspot:email:e999"]}]}
-    assert get(client)["summary"] == {"lines": [], "model": body_model()}
+    assert get(client)["summary"] == {"lines": [], "company_lines": [], "model": body_model()}
     world["llm"] = {"lines": [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1"]}]}
-    assert get(client)["summary"]["lines"] == [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1"]}]
+    assert cited(get(client)["summary"]["lines"]) == [{"text": "Demo yesterday.", "sources": ["hubspot:meeting:m1"]}]
     assert world["llm_calls"] == 2
 
 
@@ -211,7 +220,7 @@ def test_citations_given_as_one_string_still_count(client, world):
         {"text": "Demo yesterday; proposal to send.", "sources": "hubspot:meeting:m1, hubspot:task:t1"},
         {"text": "Wants pricing for 12 seats.", "source": "[hubspot:note:n1]"},
     ]}
-    assert get(client)["summary"]["lines"] == [
+    assert cited(get(client)["summary"]["lines"]) == [
         {"text": "Demo yesterday; proposal to send.", "sources": ["hubspot:meeting:m1", "hubspot:task:t1"]},
         {"text": "Wants pricing for 12 seats.", "sources": ["hubspot:note:n1"]},
     ]
@@ -224,7 +233,28 @@ def test_a_bare_id_counts_when_it_ends_exactly_one_item_read(client, world):
         {"text": "Pricing for 12 seats.", "sources": ["n1", "m1"]},
         {"text": "Made up.", "sources": ["memo-999"]},
     ]}
-    assert get(client)["summary"]["lines"] == [
+    assert cited(get(client)["summary"]["lines"]) == [
         {"text": "Budget confirmed for Q4.", "sources": ["vocify:memo:memo-1"]},
         {"text": "Pricing for 12 seats.", "sources": ["hubspot:note:n1", "hubspot:meeting:m1"]},
     ]
+
+
+def test_each_line_says_what_and_when_from_the_newest_item_it_cites(client, world):
+    # The island shows the kind and the date next to a line; both come from what was read, never from the model.
+    world["llm"] = {"lines": [
+        {"text": "Demo done; pricing asked.", "sources": ["hubspot:note:n1", "hubspot:meeting:m1"]},
+        {"text": "Proposal to send.", "sources": ["hubspot:task:t1"], "type": "email", "occurred_at": "2020-01-01T00:00:00Z"},
+    ]}
+    lines = get(client)["summary"]["lines"]
+    assert [(line["type"], line["occurred_at"]) for line in lines] == [
+        ("meeting", "2026-10-02T04:00:00Z"),
+        ("task", "2026-10-05T04:00:00Z"),
+    ]
+
+
+def test_the_model_is_asked_for_short_lines_that_do_not_repeat_the_contact(client, world):
+    world["llm"] = {"lines": []}
+    get(client)
+    rules = world["last_prompt"][0]["content"]
+    assert "12 words" in rules
+    assert "Never write people's names or dates" in rules
