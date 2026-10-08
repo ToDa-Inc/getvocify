@@ -170,6 +170,23 @@ def may_move(pipeline_meta: Any, key: str) -> bool:
     return True
 
 
+# The memo's pin source as a PostgREST column (a JSON path), for writes conditional on it.
+SOURCE_PATH = f"pipeline_meta->{PIN_META_KEY}->>source"
+
+
+def write_unless_final(supabase: Any, memo_id: str, update: dict, read_source: Optional[str]) -> None:
+    """Writes `update` only if the pin did not become final (a person's pick or a CRM decision) since
+    it was read as `read_source`: one UPDATE whose filter is the condition, so a retag made in between
+    always wins. Plain JSON-path filters (no `or`): no pin at all must still be no pin, else the source
+    must not be final."""
+    query = supabase.table("memos").update(update).eq("id", str(memo_id))
+    if read_source is None:
+        query = query.is_(SOURCE_PATH, "null")
+    else:
+        query = query.filter(SOURCE_PATH, "not.in", f"({','.join(sorted(FINAL_SOURCES))})")
+    query.execute()
+
+
 def pin_fields(supabase: Any, company_id: str, key: str, source: str, existing_meta: Any = None, **extra: Any) -> dict:
     """The memo columns for pinning `key`: its live playbook version when it has one, else none
     (a label, never scored)."""
@@ -209,9 +226,7 @@ def recheck_crm(supabase: Any, memo: dict) -> dict:
         if not key or key == current:
             return memo
         update = pin_fields(supabase, company_id, key, CRM_SOURCE, meta, **({"repinned_from": current} if current else {}))
-        from app.services.playbooks.type_classifier import NOT_MANUAL_FILTER
-
-        supabase.table("memos").update(update).eq("id", str(memo["id"])).or_(NOT_MANUAL_FILTER).execute()
+        write_unless_final(supabase, str(memo["id"]), update, pin_source(meta))
         return {**memo, **update}
     except Exception:
         logger.warning("type by channel: CRM re-check failed", exc_info=True)

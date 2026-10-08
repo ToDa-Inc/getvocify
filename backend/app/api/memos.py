@@ -868,6 +868,8 @@ def _pin_picked_type(supabase: Client, memo: dict, key: str, source: str = "rep"
     company_id = str(memo.get("company_id") or "")
     try:
         if channel_types.enabled(supabase, company_id):
+            if pin_source != "manual" and channel_types.pin_source(memo.get("pipeline_meta")) in channel_types.FINAL_SOURCES:
+                return  # Vocify's live guess never replaces a CRM decision made at capture.
             if key != INTERNAL_KEY:
                 types = channel_types._types(company_id)
                 if key not in channel_types.candidates(types, interaction_kind_of(memo)):

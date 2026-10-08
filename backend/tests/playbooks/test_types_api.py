@@ -172,3 +172,11 @@ def test_stats_count_each_types_interactions_and_how_many_a_person_corrected(by_
     since = next(value for op, column, value in db.filters if op == "gte" and column == "created_at")
     assert datetime.fromisoformat(since) < datetime.now(timezone.utc) - timedelta(days=29)
     assert ("eq", "company_id", "co-1") in db.filters
+
+
+def test_the_types_by_channel_endpoints_do_not_exist_without_the_flag():
+    store = InMemoryPlaybookRepository({"co-1": {"discovery": "published"}})
+    client = _client(store)
+    assert client.patch("/api/v1/playbooks/discovery/type", json={"label": "X"}).status_code == 404
+    assert client.post("/api/v1/playbooks/types/recognize", json={"name": "X", "channels": ["call"]}).status_code == 404
+    assert client.get("/api/v1/playbooks/type-stats").status_code == 404

@@ -108,6 +108,12 @@ def _by_channel_rule(key: str, applies_to: Optional[dict], channels: Optional[li
     return validate_applies_to(rule)
 
 
+def _require_by_channel(supabase: Client, membership: Membership) -> None:
+    """The types-by-channel endpoints are not there for a company without the flag."""
+    if not is_enabled(supabase, membership.company_id, channel_types.FLAG):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+
 def _create_by_channel(supabase: Client, membership: Membership, repository: PlaybookRepository, key: str, body: TypeRequest):
     rule = _by_channel_rule(key, body.applies_to, body.channels)
     label = body.name.strip() or catalog_label(key) or None
@@ -135,6 +141,7 @@ async def edit_type(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
+    _require_by_channel(supabase, membership)
     if not can_publish(membership.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden cambiar una tipología")
     repository = get_playbook_repository()
@@ -176,9 +183,14 @@ async def _ask_recognize(messages: list[dict]) -> Any:
 
 
 @router.post("/types/recognize")
-async def draft_recognize(body: RecognizeDraftRequest, membership: Membership = Depends(get_membership)):
+async def draft_recognize(
+    body: RecognizeDraftRequest,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
     """Vocify's draft of a type's "how to recognise it" sentence, from its name and channels. The
     person edits or keeps it; nothing is saved here. {recognize: null} when the model fails."""
+    _require_by_channel(supabase, membership)
     if not can_publish(membership.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner o admin pueden cambiar una tipología")
     channels = ", ".join(body.channels) or "call or meeting"
@@ -209,6 +221,7 @@ async def type_stats(
     Vocify typed them (a manual pin that names what it replaced). What a manager reads to see which
     type's sentence needs work."""
     require_manager(membership)
+    _require_by_channel(supabase, membership)
     since = (datetime.now(timezone.utc) - timedelta(days=STATS_DAYS)).isoformat()
     rows = (
         supabase.table("memos")

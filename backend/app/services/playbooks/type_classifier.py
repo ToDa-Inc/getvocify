@@ -161,7 +161,7 @@ def apply_reading_type(supabase: Any, memo_id: str, reading: Optional[dict]) -> 
 def _apply_by_channel(supabase: Any, memo: dict, key: str) -> None:
     """Types by channel: the reading's type is the memo's unless a person picked one or a CRM condition
     decided it (a `single` pin only becomes Interna). The write is conditional on the pin not having
-    become manual meanwhile, so a retag made while the call was being read always wins."""
+    become final meanwhile, so a retag made while the call was being read always wins."""
     from app.services.captures import interaction_kind_of
     from app.services.playbooks import channel_types
 
@@ -174,14 +174,4 @@ def _apply_by_channel(supabase: Any, memo: dict, key: str) -> None:
         return
     extra = {"changed_from": current} if current else {}
     update = channel_types.pin_fields(supabase, company_id, key, READING_SOURCE, meta, **extra)
-    (
-        supabase.table("memos")
-        .update(update)
-        .eq("id", str(memo["id"]))
-        .or_(NOT_MANUAL_FILTER)
-        .execute()
-    )
-
-
-# PostgREST: the pin is not manual (no pin at all counts as not manual).
-NOT_MANUAL_FILTER = "pipeline_meta->playbook_pin->>source.is.null,pipeline_meta->playbook_pin->>source.neq.manual"
+    channel_types.write_unless_final(supabase, str(memo["id"]), update, channel_types.pin_source(meta))

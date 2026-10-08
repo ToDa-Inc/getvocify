@@ -1306,7 +1306,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
   // One model proposal once the conversation says enough, a second only if it was unsure.
   useEffect(() => {
-    if (phase !== "live" || !typeOptionsRef.current.length) return;
+    // Only Interna offered (a channel with no types): nothing to propose, and no proposal spent.
+    if (phase !== "live" || !typeOptionsRef.current.some((option) => option.key !== "internal")) return;
     const lines = turns.filter((turn) => turn.text.trim()).map((turn) => (turn.label ? `${turn.label}: ${turn.text}` : turn.text));
     const words = lines.reduce((sum, line) => sum + line.split(/\s+/).length, 0);
     const state = proposalRef.current;

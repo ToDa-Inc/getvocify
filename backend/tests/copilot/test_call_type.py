@@ -319,3 +319,14 @@ def test_by_channel_the_proposal_offers_the_channels_types_described(monkeypatch
     assert response.json() == {"type": "inbound_lead", "confident": True}
     assert 'key "inbound_lead"' in seen["prompt"] and "Someone who asked us to call." in seen["prompt"]
     assert 'key "closing"' not in seen["prompt"]
+
+
+def test_by_channel_a_proposal_without_the_calls_channel_offers_nothing(monkeypatch):
+    _by_channel(monkeypatch)
+
+    async def never(_messages):
+        raise AssertionError("no model call without a channel")
+
+    monkeypatch.setattr(call_type, "ask_model", never)
+    body = {"transcript_window": "Them: hola", "options": [{"key": "closing", "label": "Cierre"}]}
+    assert _client(_company(), monkeypatch).post("/api/v1/copilot/call-type/propose", json=body).json() == {"type": None, "confident": False}

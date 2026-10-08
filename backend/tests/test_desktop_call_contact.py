@@ -103,10 +103,10 @@ def test_the_upload_keeps_the_app_the_call_happened_in():
     assert "pipeline_meta" not in _upload()
 
 
-def _picked(key: str, live, source=None, by_channel=False, types=None, kind="meeting"):
+def _picked(key: str, live, source=None, by_channel=False, types=None, kind="meeting", meta=None):
     supabase = MagicMock()
     update = supabase.table.return_value.update
-    memo = {"id": "memo-1", "company_id": "co-1", "interaction_kind": kind, "pipeline_meta": {"call_source": "Zoom"}}
+    memo = {"id": "memo-1", "company_id": "co-1", "interaction_kind": kind, "pipeline_meta": meta or {"call_source": "Zoom"}}
     with patch("app.services.playbooks.live.live_version_id", return_value=live), \
             patch("app.services.playbooks.channel_types.live_version_id", return_value=live), \
             patch("app.services.playbooks.channel_types.enabled", return_value=by_channel), \
@@ -154,3 +154,10 @@ def test_by_channel_a_type_without_a_playbook_is_pinned_as_a_label():
 
 def test_by_channel_a_type_of_another_channel_is_ignored():
     assert _picked("cold", "v-1", source="rep", by_channel=True, types=MEETING_TYPES) is None
+
+
+def test_by_channel_vocifys_live_guess_never_replaces_a_crm_decision():
+    crm = {"playbook_pin": {"source": "crm_rule"}}
+    assert _picked("demo", None, source="vocify", by_channel=True, types=MEETING_TYPES, meta=crm) is None
+    # The rep's own pick still wins over it.
+    assert _picked("demo", None, source="rep", by_channel=True, types=MEETING_TYPES, meta=crm)["sales_motion_key"] == "demo"

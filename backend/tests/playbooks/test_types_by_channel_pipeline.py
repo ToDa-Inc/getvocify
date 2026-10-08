@@ -83,7 +83,16 @@ def test_the_reading_decides_over_a_live_suggestion_and_the_write_skips_a_manual
     row = _write(supabase)
     assert row["sales_motion_key"] == "inbound_lead" and row["playbook_version_id"] is None
     assert row["pipeline_meta"]["playbook_pin"] == {"source": "reading", "changed_from": "cold"}
-    supabase.table.return_value.update.return_value.eq.return_value.or_.assert_called_once_with(tc.NOT_MANUAL_FILTER)
+    # One UPDATE, conditional on the pin still not being final (a retag in between wins).
+    supabase.table.return_value.update.return_value.eq.return_value.filter.assert_called_once_with(
+        ct.SOURCE_PATH, "not.in", "(crm_rule,manual)",
+    )
+
+
+def test_an_unpinned_memo_is_written_only_while_it_is_still_unpinned():
+    supabase = _read(_memo(), "cold")
+    assert _write(supabase)["sales_motion_key"] == "cold"
+    supabase.table.return_value.update.return_value.eq.return_value.is_.assert_called_once_with(ct.SOURCE_PATH, "null")
 
 
 def test_the_reading_never_moves_a_pick_or_a_crm_decision():

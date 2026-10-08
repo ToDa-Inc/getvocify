@@ -68,7 +68,8 @@ export function usePlaybookProcess() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const motions = withBaseFlows(list.data?.motions ?? {}, canEdit);
+  // By channel a type exists only once it is added (with its channels): no placeholder rows.
+  const motions = typesByChannel(list.data) ? list.data?.motions ?? {} : withBaseFlows(list.data?.motions ?? {}, canEdit);
   const details = list.data?.details ?? {};
   const types = catalog.data?.types ?? [];
   const typeOf = (key: string) => types.find((type) => type.key === key);

@@ -182,8 +182,9 @@ async def propose(
     from app.services.playbooks import channel_types
 
     try:
-        if kind and channel_types.enabled(supabase, company_id):
-            types = channel_types_offered(supabase, company_id, kind, labels)
+        if channel_types.enabled(supabase, company_id):
+            # Never the other channel's types: without the call's channel there is nothing to offer.
+            types = channel_types_offered(supabase, company_id, kind, labels) if kind else []
         else:
             types = published_types(supabase, company_id, labels)
     except Exception:

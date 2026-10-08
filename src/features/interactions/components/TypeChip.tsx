@@ -46,6 +46,22 @@ export function TypeChip({
   const { t } = useLanguage();
   const copy = t.product.interactions;
   const queryClient = useQueryClient();
+
+  // Optimistic changes touch this memo's row only, and a failure puts back only its type and channel,
+  // so a concurrent change to another field (or another row) is never reverted.
+  const rowBefore = (): Pick<Memo, "salesMotionKey" | "interactionKind"> | undefined => {
+    for (const [, rows] of queryClient.getQueriesData<Memo[]>({ queryKey: memoKeys.lists() })) {
+      const row = rows?.find((candidate) => candidate.id === memoId);
+      if (row) return { salesMotionKey: row.salesMotionKey, interactionKind: row.interactionKind };
+    }
+    return undefined;
+  };
+  const restoreRow = (before: Pick<Memo, "salesMotionKey" | "interactionKind"> | undefined) => {
+    if (!before) return;
+    queryClient.setQueriesData<Memo[]>({ queryKey: memoKeys.lists() }, (rows) =>
+      rows?.map((row) => (row.id === memoId ? { ...row, ...before } : row)),
+    );
+  };
   // The same cached GET /playbooks the options come from: it says whether types go by channel.
   const list = useQuery({ queryKey: PLAYBOOKS_KEY, queryFn: playbooksApi.list, retry: false });
   const channels = byChannel(list.data);
@@ -55,7 +71,7 @@ export function TypeChip({
     mutationFn: (kind: LiveChannel) => memosApi.setChannel(memoId, kind),
     onMutate: async (kind) => {
       await queryClient.cancelQueries({ queryKey: memoKeys.lists() });
-      const before = queryClient.getQueriesData<Memo[]>({ queryKey: memoKeys.lists() });
+      const before = rowBefore();
       const keep = channelTypeOptions(options, list.data, kind).some((option) => option.key === chip.key);
       queryClient.setQueriesData<Memo[]>({ queryKey: memoKeys.lists() }, (rows) =>
         rows?.map((row) => (row.id === memoId ? { ...row, interactionKind: kind, ...(keep ? {} : { salesMotionKey: null }) } : row)),
@@ -63,7 +79,7 @@ export function TypeChip({
       return { before };
     },
     onError: (_error, _kind, context) => {
-      context?.before.forEach(([key, rows]) => queryClient.setQueryData(key, rows));
+      restoreRow(context?.before);
       toast.error(copy.retagFailed);
     },
     onSettled: () => {
@@ -77,14 +93,14 @@ export function TypeChip({
     mutationFn: (option: TypeOption) => memosApi.setType(memoId, option.key),
     onMutate: async (option) => {
       await queryClient.cancelQueries({ queryKey: memoKeys.lists() });
-      const before = queryClient.getQueriesData<Memo[]>({ queryKey: memoKeys.lists() });
+      const before = rowBefore();
       queryClient.setQueriesData<Memo[]>({ queryKey: memoKeys.lists() }, (rows) =>
         rows?.map((row) => (row.id === memoId ? { ...row, salesMotionKey: option.key } : row)),
       );
       return { before };
     },
     onError: (error, _option, context) => {
-      context?.before.forEach(([key, rows]) => queryClient.setQueryData(key, rows));
+      restoreRow(context?.before);
       toast.error(errorCode(error) === "not_published" ? copy.retagNotPublished : copy.retagFailed);
     },
     onSuccess: (_result, option) => {

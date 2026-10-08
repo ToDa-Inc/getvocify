@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { RuleChange } from "@/features/playbooks/components/RuleChange";
@@ -35,7 +35,13 @@ export function TypeSetup({
   const { t } = useLanguage();
   const copy = t.product.pb2;
   const [sentence, setSentence] = useState(recognize ?? "");
+  // Typed by the person and not saved yet: until then the field follows the stored sentence (Vocify's
+  // draft lands a moment after the type is created).
+  const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!dirty) setSentence(recognize ?? "");
+  }, [recognize, dirty]);
 
   const save = (edit: { channels?: LiveChannel[]; recognize?: string }) => {
     setSaving(true);
@@ -82,7 +88,12 @@ export function TypeSetup({
             <>
               {" · "}
               {copy.crmCondition}{" "}
-              <RuleChange rule={rule} stages={stages} crmOnly onSave={onSaveRule} />
+              <RuleChange
+                rule={{ ...(rule ?? { role: "any", contact: "any", deal_stages: [] }), channels }}
+                stages={stages}
+                crmOnly
+                onSave={onSaveRule}
+              />
             </>
           ) : null}
         </span>
@@ -94,9 +105,22 @@ export function TypeSetup({
           placeholder={copy.recognizePlaceholder}
           aria-label={copy.recognizeLabel}
           className="text-sm text-muted-foreground"
-          onChange={(event) => setSentence(event.target.value)}
+          onChange={(event) => {
+            setSentence(event.target.value);
+            setDirty(true);
+          }}
           onBlur={() => {
-            if (sentence.trim() !== (recognize ?? "").trim()) save({ recognize: sentence.trim() });
+            if (!dirty) return;
+            if (sentence.trim() === (recognize ?? "").trim()) {
+              setDirty(false);
+              return;
+            }
+            // Stays as typed until saved; a failed save keeps the text so nothing is lost.
+            setSaving(true);
+            void onEdit({ recognize: sentence.trim() })
+              .then(() => setDirty(false))
+              .catch(() => toast.error(copy.typeSaveFailed))
+              .finally(() => setSaving(false));
           }}
         />
       ) : recognize ? (
