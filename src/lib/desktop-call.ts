@@ -125,7 +125,9 @@ export type CallCommand =
   | { kind: "hangup" }
   | { kind: "mute"; muted: boolean }
   | { kind: "digit"; digit: string }
-  | { kind: "open-calling" };
+  | { kind: "open-calling" }
+  /** The island can't see the browser in front (macOS refused it): show how to allow it. */
+  | { kind: "open-crm-access" };
 
 /** How long the island shows why an unanswered call ended. */
 export const ENDED_HOLD_MS = 4000;
@@ -181,7 +183,7 @@ export function dialIsland(state: CallEngineState, brief: IslandCallBrief | null
 const DIGIT = /^digit:([0-9*#])$/;
 
 export function parseCallCommand(raw: string): CallCommand | null {
-  if (raw === "dial" || raw === "hangup" || raw === "open-calling") return { kind: raw };
+  if (raw === "dial" || raw === "hangup" || raw === "open-calling" || raw === "open-crm-access") return { kind: raw };
   if (raw === "mute" || raw === "unmute") return { kind: "mute", muted: raw === "mute" };
   const digit = DIGIT.exec(raw);
   return digit ? { kind: "digit", digit: digit[1] } : null;

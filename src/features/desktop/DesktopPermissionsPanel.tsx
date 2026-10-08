@@ -132,10 +132,12 @@ export function DesktopPermissionsPanel({ className }: { className?: string }) {
   const { available, loading, blocker } = permissions;
   const platform = desktopPlatform();
 
-  if (!available || blocker === "none") return null;
+  // Mic and meeting audio ready, but the rep's browser is refused: the island can't offer calls, so say how to fix it.
+  const browserOnly = blocker === "none" && permissions.snapshot.crmTabs === "denied";
+  if (!available || (blocker === "none" && !browserOnly)) return null;
 
   const isMac = platform === "darwin";
-  const title = isMac ? "Allow mic and meeting audio" : "Allow microphone";
+  const title = browserOnly ? "Let Vocify see your browser tabs" : isMac ? "Allow mic and meeting audio" : "Allow microphone";
 
   return (
     <div
@@ -144,10 +146,16 @@ export function DesktopPermissionsPanel({ className }: { className?: string }) {
         className,
       )}
     >
-      <p className={THEME_TOKENS.typography.capsLabel}>Before your first meeting</p>
+      <p className={THEME_TOKENS.typography.capsLabel}>{browserOnly ? "To call from the island" : "Before your first meeting"}</p>
       <h2 className="text-xl font-semibold tracking-tight text-foreground mt-1 mb-1">{title}</h2>
       <p className="text-sm text-muted-foreground mb-5 max-w-lg">
-        {isMac ? (
+        {browserOnly ? (
+          <>
+            The island offers to call the contact you have open in your CRM, but macOS isn't letting Vocify see your
+            browser. Click <strong>Open Settings</strong> below and turn on your browser under <strong>Vocify</strong>.
+            The call button comes back on its own a few seconds later.
+          </>
+        ) : isMac ? (
           <>
             Microphone uses the macOS prompt. For meeting audio, drag <strong>Vocify</strong> from the card
             into Screen &amp; System Audio Recording, or turn it on if it is already listed.

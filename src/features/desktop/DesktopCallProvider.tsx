@@ -137,6 +137,10 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
       } else if (command.kind === "open-calling") {
         navigate(ROUTES.CALLING);
         bridge.shell.command("show");
+      } else if (command.kind === "open-crm-access") {
+        // The permissions card on the record page says how to allow it, with the button to the right Settings page.
+        navigate(ROUTES.RECORD);
+        bridge.shell.command("show");
       }
     });
   }, [navigate]);

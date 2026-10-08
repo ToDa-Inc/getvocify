@@ -280,3 +280,9 @@ describe("islandBrief", () => {
     assert.equal((islandBrief(activity) as { company?: unknown }).company, null);
   });
 });
+
+describe("the island's Fix for a browser macOS refused", () => {
+  it("opens how to allow it", () => {
+    assert.deepEqual(parseCallCommand("open-crm-access"), { kind: "open-crm-access" });
+  });
+});
