@@ -27,8 +27,8 @@ export type OnScreen = {
 
 export type IslandBrief = { state: "loading" } | { state: "ready"; lines: string[] };
 
-/** At most two lines: the island is a glance, the full summary lives in Vocify. */
-const ISLAND_BRIEF_LINES = 2;
+/** The summary's lines for the island: it shows two folded and all of them when opened. */
+const ISLAND_BRIEF_LINES = 3;
 
 /** The recent-activity summary as the island shows it; null when it has nothing to say (the island does not grow). */
 export function islandBrief(activity: { summary?: { lines?: { text?: string }[] } | null } | null | undefined): IslandBrief | null {
