@@ -152,3 +152,15 @@ export const MEMO_CHANGED_EVENT = "vocify:memo-changed";
 
 /** Opens transcript search on the meeting screen (e.g. from the floating pill). */
 export const TRANSCRIPT_SEARCH_EVENT = "vocify:transcript-search";
+
+/**
+ * Click handler for a link that leaves Vocify. The desktop app's web view ignores `target="_blank"`
+ * (nothing opens), so there the page is handed to the Mac or Windows default browser; in a browser the
+ * link works as it is.
+ */
+export function openExternalLink(event: { preventDefault: () => void }, url: string): void {
+  const bridge = getDesktopBridge();
+  if (!bridge) return;
+  event.preventDefault();
+  void bridge.shell.openExternal(url);
+}

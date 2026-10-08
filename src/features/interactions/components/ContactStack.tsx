@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { HubSpotMark } from "@/components/dashboard/hubspot/HubSpotMark";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { openExternalLink } from "@/lib/desktop-host";
 import { initialsOf, type RowContact } from "@/lib/interactions";
 import { useLanguage } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -98,26 +99,41 @@ export function ContactStack({
           {contacts.map((contact, index) => {
             const detail = contact.email ?? "";
             const label = contact.name || contact.email || "";
-            return (
-              <li key={`${contact.email ?? contact.name}-${index}`} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-secondary/60">
+            const link = contact.crm ? crmUrl : null;
+            const body = (
+              <>
                 <Circle contact={contact} className="h-[30px] w-[30px]" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13.5px] text-foreground">{label}</p>
                   {contact.name && detail ? <p className="truncate text-xs text-muted-foreground">{detail}</p> : null}
                 </div>
-                {contact.crm && crmUrl ? (
-                  <a
-                    href={crmUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={copy.openInCrm.replace("{crm}", crmName)}
-                    className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 pl-1.5 pr-2 text-xs text-foreground/85 transition-colors hover:border-foreground/30 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-                  >
+                {link ? (
+                  <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 pl-1.5 pr-2 text-xs text-foreground/85">
                     <HubSpotMark className="h-4 w-4" />
                     {crmName}
                     <ExternalLink aria-hidden className="h-3 w-3 opacity-60" strokeWidth={1.5} />
-                  </a>
+                  </span>
                 ) : null}
+              </>
+            );
+            const rowClass = "flex items-center gap-2.5 rounded-lg px-2 py-1.5";
+            return (
+              <li key={`${contact.email ?? contact.name}-${index}`}>
+                {link ? (
+                  // The whole row opens the CRM record, not only the chip.
+                  <a
+                    href={link}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(event) => openExternalLink(event, link)}
+                    aria-label={`${label}: ${copy.openInCrm.replace("{crm}", crmName)}`}
+                    className={cn(rowClass, "transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none")}
+                  >
+                    {body}
+                  </a>
+                ) : (
+                  <div className={rowClass}>{body}</div>
+                )}
               </li>
             );
           })}
