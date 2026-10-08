@@ -6,7 +6,7 @@ export function useCrmContactLink(contactId: string | null | undefined): { url: 
   const { data } = useIntegrations();
   const hubspot = data?.find((connection) => connection.provider === "hubspot" && connection.status === "connected");
   return {
-    url: contactRecordUrl(hubspot ? "hubspot" : null, hubspot?.metadata?.portalId ?? null, contactId ?? null),
+    url: contactRecordUrl(hubspot ? "hubspot" : null, hubspot?.metadata?.portalId ?? null, contactId ?? null, hubspot?.metadata),
     name: "HubSpot",
   };
 }

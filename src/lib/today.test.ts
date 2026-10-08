@@ -5,6 +5,7 @@ import {
   todaySurface,
   cardsAfterDismiss,
   canShowTodayCall,
+  contactRecordUrl,
   crmContactsUrl,
   crmTasksUrl,
   dealItems,
@@ -300,4 +301,20 @@ it("dealMeetingLine shows the handed-off meeting time and nothing without one", 
   assert.ok(line?.includes("11:00"));
   assert.equal(dealMeetingLine({ meeting_starts_at: null }, { locale: "es-ES", template: "{when}" }), null);
   assert.equal(dealMeetingLine({ meeting_starts_at: "not a date" }, { locale: "es-ES", template: "{when}" }), null);
+});
+
+describe("contactRecordUrl", () => {
+  it("opens a HubSpot contact on app.hubspot.com for a na1 or unknown data center", () => {
+    assert.equal(contactRecordUrl("hubspot", "147", "9"), "https://app.hubspot.com/contacts/147/record/0-1/9");
+    assert.equal(contactRecordUrl("hubspot", "147", "9", { region: "na1" }), "https://app.hubspot.com/contacts/147/record/0-1/9");
+  });
+  it("follows the account's own host, else its data center", () => {
+    assert.equal(contactRecordUrl("hubspot", "147", "9", { uiDomain: "https://app-eu1.hubspot.com/" }), "https://app-eu1.hubspot.com/contacts/147/record/0-1/9");
+    assert.equal(contactRecordUrl("hubspot", "147", "9", { region: "eu1" }), "https://app-eu1.hubspot.com/contacts/147/record/0-1/9");
+  });
+  it("is null without a portal, a contact or HubSpot", () => {
+    assert.equal(contactRecordUrl("hubspot", null, "9"), null);
+    assert.equal(contactRecordUrl("hubspot", "147", null), null);
+    assert.equal(contactRecordUrl("pipedrive", "147", "9"), null);
+  });
 });

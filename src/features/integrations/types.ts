@@ -129,6 +129,10 @@ export interface CRMConnection {
 export interface CRMConnectionMetadata {
   /** HubSpot portal ID */
   portalId?: string;
+  /** HubSpot data center (`na1`, `eu1`): where its app lives */
+  region?: string;
+  /** HubSpot app host when it is not the default (e.g. `app-eu1.hubspot.com`) */
+  uiDomain?: string;
   /** Salesforce instance URL */
   instanceUrl?: string;
   /** Pipedrive company domain */

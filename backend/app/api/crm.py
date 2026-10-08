@@ -1310,11 +1310,25 @@ async def list_connections(
 
     connections = []
     for conn in result.data or []:
+        stored = conn.get("metadata") or {}
+        # Only what the dashboard needs to build links to CRM records; never tokens or owner lists.
+        portal = stored.get("portal_id") or stored.get("hub_id")
+        metadata = {
+            key: value
+            for key, value in {
+                "portalId": str(portal) if portal else None,
+                "region": stored.get("region"),
+                "uiDomain": stored.get("ui_domain"),
+                "companyDomain": stored.get("company_domain"),
+            }.items()
+            if value
+        }
         connections.append({
             "id": conn["id"],
             "provider": conn["provider"],
             "status": conn["status"],
             "created_at": conn["created_at"],
+            "metadata": metadata,
         })
 
     return {"connections": connections}

@@ -271,15 +271,24 @@ export function canShowTodayCall(
   return Boolean(todayItemHref(item, provider, portalId) || item.phone);
 }
 
+/** HubSpot's app host: the account's own domain, else its data center's (EU portals are not on app.hubspot.com). */
+export function hubspotHost(account?: { uiDomain?: string | null; region?: string | null }): string {
+  const domain = (account?.uiDomain || "").trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  if (domain) return domain;
+  const region = (account?.region || "").trim().toLowerCase();
+  return region && region !== "na1" ? `app-${region}.hubspot.com` : "app.hubspot.com";
+}
+
 export function contactRecordUrl(
   provider: string | null,
   portalId: string | null,
   contactId: string | null,
+  account?: { uiDomain?: string | null; region?: string | null },
 ): string | null {
   if (!contactId) return null;
   const name = (provider || "").trim().toLowerCase();
   if (name === "hubspot" && portalId) {
-    return `https://app.hubspot.com/contacts/${portalId}/record/0-1/${contactId}`;
+    return `https://${hubspotHost(account)}/contacts/${portalId}/record/0-1/${contactId}`;
   }
   return null;
 }
