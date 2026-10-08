@@ -2,8 +2,9 @@ import { useState } from "react";
 import { CallTypePanel } from "@/features/playbooks/components/CallTypePanel";
 import { CompanyKnowledge } from "@/features/playbooks/components/CompanyKnowledge";
 import { IntakePanel } from "@/features/playbooks/components/IntakePanel";
-import { ProcessNav, type NavItem } from "@/features/playbooks/components/ProcessNav";
+import { ProcessNav, type NavGroup, type NavItem } from "@/features/playbooks/components/ProcessNav";
 import { RuleChange } from "@/features/playbooks/components/RuleChange";
+import { TypeSetup } from "@/features/playbooks/components/TypeSetup";
 import { useIntake } from "@/features/playbooks/hooks/useIntake";
 import { usePlaybookProcess } from "@/features/playbooks/hooks/usePlaybookProcess";
 import { BASE_KEYS, COMPANY_ROW } from "@/features/playbooks/keys";
@@ -13,6 +14,7 @@ import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
 import { addableTypes, publishState, publishSwitch, ruleNeeded, usedForLine } from "@/lib/playbook-doc";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { channelGroups, channelsOf, LIVE_CHANNELS } from "@/lib/type-channels";
 import { cn } from "@/lib/utils";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
@@ -75,8 +77,16 @@ export function PlaybookList() {
     key: row.key,
     label: process.name(row.key),
     state: publishState(row.status, process.details[row.key]),
-    role: row.role && row.role !== "any" ? copy.ruleRoles[row.role] : null,
+    // Types by channel: a type has no role.
+    role: !process.byChannel && row.role && row.role !== "any" ? copy.ruleRoles[row.role] : null,
   }));
+  const grouped = channelGroups(items.map((entry) => entry.key), process.list.data);
+  const groups: NavGroup[] | null = process.byChannel
+    ? LIVE_CHANNELS.map((channel) => ({
+        label: copy.ruleChannels[channel],
+        items: items.filter((entry) => grouped[channel].includes(entry.key)),
+      }))
+    : null;
   const fallbackKey = items.find((item) => item.state !== "empty")?.key ?? items[0]?.key ?? COMPANY_ROW;
   const selected = picked === COMPANY_ROW || items.some((item) => item.key === picked) ? (picked as string) : fallbackKey;
   const row = process.rows.find((item) => item.key === selected);
@@ -123,6 +133,18 @@ export function PlaybookList() {
         onSaved={() => void process.refresh()}
         registerFlush={(flush) => process.registerFlush(row.key, flush)}
         meta={
+          process.byChannel ? (
+            <TypeSetup
+              channels={channelsOf(process.list.data, row.key)}
+              recognize={process.details[row.key]?.recognize ?? null}
+              stats={process.stats[row.key] ?? null}
+              rule={rule}
+              stages={process.stages}
+              canEdit={canEdit}
+              onEdit={(edit) => process.editType(row.key, edit)}
+              onSaveRule={(next) => process.saveRule(row.key, next)}
+            />
+          ) : (
           <p className={THEME_TOKENS.typography.capsLabel}>
             {line}
             {canEdit && ruleNeeded(process.rows, row.key, process.routing) ? (
@@ -132,6 +154,7 @@ export function PlaybookList() {
               </>
             ) : null}
           </p>
+          )
         }
       />
     );
@@ -148,6 +171,12 @@ export function PlaybookList() {
         </div>
       ) : null}
 
+      {process.byChannel && process.detection ? (
+        <p className={cn("text-[13px]", process.detection.by_channel ? "text-muted-foreground" : "text-destructive")} role="status">
+          {process.detection.by_channel ? copy.detectionOn : copy.detectionOff}
+        </p>
+      ) : null}
+
       <div className="flex flex-col gap-4 md:flex-row md:gap-6">
         <ProcessNav
           items={items}
@@ -162,9 +191,11 @@ export function PlaybookList() {
           onImport={() => intake.setOpen(true)}
           addable={addableTypes(process.types, process.motions)}
           stages={process.stages}
-          showAddType={process.routing}
-          onTypeAdded={(key) => {
-            void process.refresh();
+          showAddType={process.routing || process.byChannel}
+          groups={groups}
+          onTypeAdded={(key, label, channels) => {
+            if (process.byChannel) void process.typeAdded(key, label, channels);
+            else void process.refresh();
             setPicked(key);
           }}
         />

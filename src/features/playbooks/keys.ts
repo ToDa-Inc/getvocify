@@ -1,6 +1,8 @@
 /** Query keys and fixed identifiers shared by the playbook screens. */
 
 export const PLAYBOOKS_KEY = ["playbooks"] as const;
+/** Types by channel: each type's interactions and corrections in the last 30 days. */
+export const TYPE_STATS_KEY = ["playbooks", "type-stats"] as const;
 export const COMPANY_KEY = ["playbook-company"] as const;
 export const CATALOG_KEY = ["playbooks-catalog"] as const;
 export const DEAL_STAGES_KEY = ["playbooks-deal-stages"] as const;

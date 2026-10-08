@@ -50,6 +50,9 @@ export type PlaybookDetail = {
   has_draft?: boolean;
   /** Plan §16: switched off. Kept, but new calls aren't scored against it. */
   paused?: boolean;
+  /** Types by channel: the channels the type belongs to, and how the AI recognises it. */
+  channels?: ("call" | "meeting")[];
+  recognize?: string | null;
 };
 
 export type CatalogType = {

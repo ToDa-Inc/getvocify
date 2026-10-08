@@ -2,9 +2,9 @@ import { useCallback, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
-import { errorCode, playbooksApi, type PlaybookList } from "@/features/playbooks/api";
+import { errorCode, playbooksApi, type PlaybookList, type TypeEdit } from "@/features/playbooks/api";
 import type { Flush } from "@/features/playbooks/hooks/usePlaybookDraft";
-import { CATALOG_KEY, COMPANY_KEY, DEAL_STAGES_KEY, DEFAULT_GOALS, PLAYBOOKS_KEY } from "@/features/playbooks/keys";
+import { CATALOG_KEY, COMPANY_KEY, DEAL_STAGES_KEY, DEFAULT_GOALS, PLAYBOOKS_KEY, TYPE_STATS_KEY } from "@/features/playbooks/keys";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
 import {
@@ -16,6 +16,7 @@ import {
 import { newStepKey, templateSteps, type EditorStep } from "@/lib/playbook-editor";
 import { isEmptyKnowledge, knowledgeSummary } from "@/lib/playbook-knowledge";
 import type { MotionStatus } from "@/lib/playbook-setup";
+import { byChannel as typesByChannel, type LiveChannel } from "@/lib/type-channels";
 
 /** A manager always sees the two base flows, even before anything was created. */
 function withBaseFlows(motions: Record<string, MotionStatus>, canEdit: boolean): Record<string, MotionStatus> {
@@ -45,18 +46,27 @@ export function usePlaybookProcess() {
   const catalog = useQuery({
     queryKey: CATALOG_KEY,
     queryFn: playbooksApi.catalog,
-    enabled: routing && canEdit,
+    enabled: (routing || typesByChannel(list.data)) && canEdit,
     retry: false,
     staleTime: 60 * 60 * 1000,
   });
   const stages = useQuery({
     queryKey: DEAL_STAGES_KEY,
     queryFn: playbooksApi.dealStages,
-    enabled: routing && canEdit,
+    enabled: (routing || typesByChannel(list.data)) && canEdit,
     retry: false,
     staleTime: 5 * 60 * 1000,
   });
   const company = useQuery({ queryKey: COMPANY_KEY, queryFn: playbooksApi.company, retry: false });
+  // Types by channel: the server says so with `type_detection`; then types need no role and no rule.
+  const byChannel = typesByChannel(list.data);
+  const stats = useQuery({
+    queryKey: TYPE_STATS_KEY,
+    queryFn: playbooksApi.typeStats,
+    enabled: byChannel && canEdit,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const motions = withBaseFlows(list.data?.motions ?? {}, canEdit);
   const details = list.data?.details ?? {};
@@ -94,6 +104,24 @@ export function usePlaybookProcess() {
     if (flush) flushes.current.set(key, flush);
     else flushes.current.delete(key);
   }, []);
+
+  /** Types by channel: name, channels or recognition sentence. The answer is the new list. */
+  const editType = async (key: string, edit: TypeEdit): Promise<void> => {
+    adoptList(await playbooksApi.editType(key, edit));
+  };
+
+  /** A type was just added: Vocify drafts how to recognise it, unless someone wrote one meanwhile.
+   * Best-effort and silent: a type works without the sentence. */
+  const typeAdded = async (key: string, label: string, channels: LiveChannel[]) => {
+    await refresh();
+    try {
+      const { recognize } = await playbooksApi.draftRecognize({ name: label, channels, language: lang });
+      const current = queryClient.getQueryData<PlaybookList>(PLAYBOOKS_KEY)?.details?.[key];
+      if (recognize && current && !current.recognize) await editType(key, { recognize });
+    } catch {
+      // No sentence: the type is still recognised by its name and playbook.
+    }
+  };
 
   const saveRule = async (key: string, rule: AppliesTo) => {
     await playbooksApi.saveRule(key, rule);
@@ -175,6 +203,11 @@ export function usePlaybookProcess() {
   return {
     canEdit,
     routing,
+    byChannel,
+    detection: list.data?.type_detection ?? null,
+    stats: stats.data?.types ?? {},
+    editType,
+    typeAdded,
     list,
     company,
     companySummary,

@@ -5,10 +5,14 @@ import { COMPANY_ROW } from "@/features/playbooks/keys";
 import { PUBLISH_TONE, linkButton } from "@/features/playbooks/styles";
 import { useLanguage } from "@/lib/i18n";
 import type { CatalogType, PublishState } from "@/lib/playbook-doc";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
+import type { LiveChannel } from "@/lib/type-channels";
 import { cn } from "@/lib/utils";
 
 /** `role` is the label shown next to the name ("SDR"), or null. */
 export type NavItem = { key: string; label: string; state: PublishState; role: string | null };
+/** Types by channel: the entries under "Llamadas" and under "Reuniones" (a type of both is in both). */
+export type NavGroup = { label: string; items: NavItem[] };
 
 /**
  * The left rail of "Vuestro proceso": "Vuestra empresa" and one entry per call type, each with
@@ -25,6 +29,7 @@ export function ProcessNav({
   addable,
   stages,
   showAddType,
+  groups = null,
   onTypeAdded,
 }: {
   items: NavItem[];
@@ -36,7 +41,8 @@ export function ProcessNav({
   addable: CatalogType[];
   stages: { id: string; label: string }[];
   showAddType: boolean;
-  onTypeAdded: (key: string) => void;
+  groups?: NavGroup[] | null;
+  onTypeAdded: (key: string, label: string, channels: LiveChannel[]) => void;
 }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
@@ -49,10 +55,10 @@ export function ProcessNav({
   };
 
   // The role is in the header of what is open; here it would only cut the name.
-  const entry = (key: string, label: string, Icon: typeof CompanyIcon, state: PublishState | null, role?: string | null) => {
+  const entry = (key: string, label: string, Icon: typeof CompanyIcon, state: PublishState | null, role?: string | null, group = "") => {
     const active = selected === key;
     return (
-      <li key={key} className="shrink-0 md:shrink">
+      <li key={`${group}:${key}`} className="shrink-0 md:shrink">
         <button
           type="button"
           aria-current={active ? "page" : undefined}
@@ -80,11 +86,24 @@ export function ProcessNav({
         <li aria-hidden className="hidden md:block">
           <div className="mx-2.5 my-1.5 h-px bg-border/50" />
         </li>
-        {items.map((item) => entry(item.key, item.label, callTypeIcon(item.key), item.state, item.role))}
+        {groups
+          ? groups.map((group) => (
+              <li key={group.label} className="shrink-0 md:shrink">
+                <p className={cn(THEME_TOKENS.typography.capsLabel, "px-3 pb-1 pt-2")}>{group.label}</p>
+                <ul className="flex gap-1 md:flex-col">
+                  {group.items.length ? (
+                    group.items.map((item) => entry(item.key, item.label, callTypeIcon(item.key), item.state, null, group.label))
+                  ) : (
+                    <li className="px-3 py-1.5 text-[13px] text-muted-foreground">{copy.groupEmpty}</li>
+                  )}
+                </ul>
+              </li>
+            ))
+          : items.map((item) => entry(item.key, item.label, callTypeIcon(item.key), item.state, item.role))}
       </ul>
       {canEdit ? (
         <div className="mt-2 flex flex-wrap gap-1 md:flex-col md:items-start">
-          {showAddType ? <AddTypeMenu catalog={addable} stages={stages} onAdded={onTypeAdded} /> : null}
+          {showAddType ? <AddTypeMenu catalog={addable} stages={stages} byChannel={Boolean(groups)} onAdded={onTypeAdded} /> : null}
           <button type="button" className={cn(linkButton, "whitespace-nowrap")} onClick={onImport}>
             <Upload size={12} strokeWidth={1.5} />
             {copy.importDoc}

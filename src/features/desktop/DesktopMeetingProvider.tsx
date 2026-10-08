@@ -229,8 +229,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   // Every type of the company (GET /playbooks) for this recording: the island's options are the
   // channel's ones, recomputed when the rep switches the channel.
   const allTypesRef = useRef<{ options: TypeOption[]; payload: unknown } | null>(null);
-  const channelLabelsRef = useRef<Record<LiveChannel, string>>(t.product.pb2.ruleChannels);
-  channelLabelsRef.current = t.product.pb2.ruleChannels;
+  const channelLabelsRef = useRef<Record<string, string>>(t.product.interactions.channel);
+  channelLabelsRef.current = t.product.interactions.channel;
   /** The model proposals asked this call (at most two). */
   // `attempts` per channel (a switch starts them again), `total` for the whole call.
   const proposalRef = useRef({ attempts: 0, total: 0, lastConfident: false, busy: false });

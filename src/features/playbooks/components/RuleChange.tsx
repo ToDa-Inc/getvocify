@@ -8,10 +8,13 @@ import type { AppliesTo } from "@/lib/playbook-doc";
 export function RuleChange({
   rule,
   stages,
+  crmOnly = false,
   onSave,
 }: {
   rule: AppliesTo | null;
   stages: { id: string; label: string }[];
+  /** Types by channel: only the CRM condition is edited here. */
+  crmOnly?: boolean;
   onSave: (rule: AppliesTo) => Promise<void>;
 }) {
   const { t } = useLanguage();
@@ -32,6 +35,7 @@ export function RuleChange({
           value={rule}
           stages={stages}
           saving={saving}
+          crmOnly={crmOnly}
           onSave={(next) => {
             setSaving(true);
             setFailed(false);
