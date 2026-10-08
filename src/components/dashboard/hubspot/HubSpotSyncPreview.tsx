@@ -35,6 +35,7 @@ import {
   proposedFieldKey,
 } from "@/lib/extraction-omit";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
+import { isUncertainExtractionConfidence } from "@/shared/lib/constants";
 import { CopilotNote } from "@/components/dashboard/CopilotNote";
 import {
   clearCachedPreview,
@@ -811,6 +812,8 @@ export const HubSpotSyncPreview = ({
         String(update.current_value).trim() === String(update.new_value ?? "").trim();
       const hadExisting = hasCurrent && !unchanged;
       const isOverride = !!hadExisting && !alreadyApplied;
+      // Extracted with middling confidence: the rep should check it before it is written.
+      const isUncertain = !alreadyApplied && isUncertainExtractionConfidence(update.extraction_confidence);
       const canEditRow = canEditOrRemoveProposedField(update);
       const isEditing = editingIdx === idx;
       const options: Array<{ value: string; label?: string }> = (update.options ?? []).filter(
@@ -847,7 +850,9 @@ export const HubSpotSyncPreview = ({
           )}
           <div
             className={`group relative rounded-xl px-3.5 py-3 transition-all flex items-start justify-between gap-3 border ${
-              isOverride
+              isUncertain
+                ? "bg-warning/[0.04] border-warning/30 hover:border-warning/45"
+                : isOverride
                 ? "bg-destructive/[0.03] border-destructive/25 hover:border-destructive/40"
                 : "bg-card border-border/50 hover:border-beige/40 shadow-xs"
             }`}
@@ -858,6 +863,10 @@ export const HubSpotSyncPreview = ({
                 {alreadyApplied ? (
                   <span className="bg-muted text-muted-foreground text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
                     Written
+                  </span>
+                ) : isUncertain ? (
+                  <span className="bg-warning/10 text-warning text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
+                    Not sure
                   </span>
                 ) : isOverride ? (
                   <span className="bg-destructive/10 text-destructive text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0">
@@ -885,7 +894,7 @@ export const HubSpotSyncPreview = ({
                     if (!open && isEditing) setEditingIdx(null);
                   }}
                 >
-                  <SelectTrigger size="sm" aria-label={update.field_label} className="mt-1 text-success">
+                  <SelectTrigger size="sm" aria-label={update.field_label} className={`mt-1 ${isUncertain ? "text-warning" : "text-success"}`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -922,7 +931,7 @@ export const HubSpotSyncPreview = ({
                 </div>
               ) : (
                 <p
-                  className="text-[13px] font-normal leading-relaxed text-success"
+                  className={`text-[13px] font-normal leading-relaxed ${isUncertain ? "text-warning" : "text-success"}`}
                 >
                   {isCrmDateField(update)
                     ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"

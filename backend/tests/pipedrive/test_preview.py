@@ -31,13 +31,42 @@ async def test_skip_deal_preview_has_no_deal_fields():
     preview = await svc.build_preview(
         memo_id=uuid4(),
         transcript="hello",
-        extraction=MemoExtraction(contactName="Ada", companyName="Acme", dealAmount=10),
+        extraction=MemoExtraction(
+            contactName="Ada",
+            companyName="Acme",
+            dealAmount=10,
+            raw_extraction={"contact_properties": {"job_title": "Director"}},
+        ),
         matched_deals=[],
         selected_deal_id=None,
         allowed_fields=["title", "value", "stage_id"],
+        allowed_contact_fields=["name", "job_title"],
         skip_deal=True,
     )
     assert preview.skip_deal is True
     assert preview.is_new_deal is False
     assert all(u.object_type != "deals" for u in preview.proposed_updates)
     assert any(u.object_type == "contacts" for u in preview.proposed_updates)
+
+
+@pytest.mark.asyncio
+async def test_deal_preview_still_lists_contact_fields():
+    class _SchemaWithContact(_Schema):
+        def map_extraction_to_deal_fields(self, extraction, **k):
+            return {"title": extraction.companyName or "Deal"}
+
+    svc = PipedrivePreviewService(_Search(), _SchemaWithContact())
+    preview = await svc.build_preview(
+        memo_id=uuid4(),
+        transcript="hello",
+        extraction=MemoExtraction(
+            companyName="Acme",
+            raw_extraction={"contact_properties": {"job_title": "Director"}},
+        ),
+        matched_deals=[],
+        selected_deal_id="1",
+        allowed_fields=["title"],
+        allowed_contact_fields=["name", "job_title"],
+    )
+    assert any(u.object_type == "contacts" and u.field_name == "job_title" for u in preview.proposed_updates)
+    assert any(f.object_type == "contacts" for f in preview.available_fields)

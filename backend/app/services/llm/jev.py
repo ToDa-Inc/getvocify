@@ -14,6 +14,7 @@ import httpx
 
 from app.config import settings
 from app.logging_config import DOMAIN_LLM, log_domain
+from app.services.extraction_confidence import jev_score_to_field_confidence
 from app.services.llm.lead_status import (
     is_lead_status_field,
     lead_reach_question,
@@ -189,9 +190,10 @@ class JevClient:
             "company_properties": {},
             "deals": {},
         }
+        confidences: dict[str, float] = {}
         abstained: list[str] = []
 
-        def _write(spec: dict, choice: str) -> None:
+        def _write(spec: dict, choice: str, *, jev_conf: float) -> None:
             name = spec["name"]
             obj = spec.get("object_type") or "deals"
             if obj == "contacts":
@@ -201,6 +203,7 @@ class JevClient:
             else:
                 patch["deals"][name] = choice
                 patch[name] = choice
+            confidences[name] = jev_score_to_field_confidence(jev_conf)
 
         for q_id, spec in lead_status_questions:
             reach_ans = answers.get(f"{q_id}__reach")
@@ -217,7 +220,9 @@ class JevClient:
             if not choice:
                 abstained.append(spec["name"])
                 continue
-            _write(spec, choice)
+            reach_conf = float(reach_ans.get("confidence") or 0.0)
+            stance_conf = float(stance_ans.get("confidence") or 0.0)
+            _write(spec, choice, jev_conf=min(reach_conf, stance_conf))
 
         for q_id, ans in answers.items():
             if not isinstance(ans, dict):
@@ -229,10 +234,12 @@ class JevClient:
             conf = float(ans.get("confidence") or 0.0)
             if not choice or choice == "not_stated" or conf < min_confidence:
                 continue
-            _write(spec, str(choice))
+            _write(spec, str(choice), jev_conf=conf)
 
         if abstained:
             patch["_abstained"] = abstained
+        if confidences:
+            patch["_confidences"] = confidences
         return patch
 
     async def classify_questions(
@@ -329,3 +336,74 @@ class JevClient:
         if choice and choice in criteria and conf >= min_confidence:
             return choice
         return None
+
+    async def verify_numbers(
+        self,
+        transcript: str,
+        candidates: list[dict[str, Any]],
+        min_confidence: float = MIN_CONFIDENCE_THRESHOLD,
+    ) -> dict[str, dict[str, Any]]:
+        """Verify proposed numeric CRM values against the transcript.
+
+        Each candidate: {"q_id": str, "spec": dict, "value": number}.
+        Returns {q_id: {"verdict": "stated"|"not_stated", "confidence": float}}.
+        """
+        if not transcript or not transcript.strip() or not candidates:
+            return {}
+
+        questions: dict[str, dict[str, Any]] = {}
+        for item in candidates:
+            q_id = str(item.get("q_id") or "").strip()
+            spec = item.get("spec") or {}
+            value = item.get("value")
+            name = spec.get("name")
+            if not q_id or not name or value is None:
+                continue
+            try:
+                n = float(value)
+            except (TypeError, ValueError):
+                continue
+            if n != n:  # NaN
+                continue
+            rendered = str(int(n)) if n == int(n) else str(n).rstrip("0").rstrip(".")
+            label = spec.get("label") or name
+            desc = (spec.get("description") or "").strip()
+            desc_part = f" ({desc})" if desc else ""
+            questions[q_id] = {
+                "type": "choice",
+                "instructions": (
+                    f"Did the speaker explicitly state the number {rendered} for `{name}` ({label}){desc_part}? "
+                    "Count only when that number was clearly said for this topic — not inferred, not rounded "
+                    "from vague language, not a guess. Spoken words count even when digits do not appear in text. "
+                    "Select 'not_stated' if a different number was said or no number was given for this field."
+                ),
+                "criteria": {
+                    "stated": f"The number {rendered} was explicitly stated for this field.",
+                    "not_stated": "That number was not stated, or a different value was given.",
+                },
+            }
+
+        if not questions:
+            return {}
+
+        state = {"transcript": transcript[:MAX_STATE_CHARS]}
+        answers = await self._post_systemone(state, questions)
+        if not answers:
+            return {}
+
+        out: dict[str, dict[str, Any]] = {}
+        for q_id in questions:
+            ans = answers.get(q_id)
+            if not isinstance(ans, dict):
+                out[q_id] = {"verdict": "not_stated", "confidence": 0.0}
+                continue
+            choice = str(ans.get("choice") or "")
+            try:
+                conf = float(ans.get("confidence") or 0.0)
+            except (TypeError, ValueError):
+                conf = 0.0
+            if choice == "stated" and conf >= min_confidence:
+                out[q_id] = {"verdict": "stated", "confidence": conf}
+            else:
+                out[q_id] = {"verdict": "not_stated", "confidence": conf}
+        return out

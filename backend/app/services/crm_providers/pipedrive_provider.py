@@ -104,7 +104,6 @@ class PipedriveCRMProvider:
         stage_confirm: bool = False,
         commitment_tasks: Optional[list] = None,
     ) -> SyncResult:
-        del allowed_contact_fields, allowed_company_fields, allowed_line_item_fields
         del lost_reason, lost_reason_deal_property, lost_lead_status_value, on_hold_lead_status_value
         if call_outcome:
             return SyncResult(
@@ -121,6 +120,8 @@ class PipedriveCRMProvider:
             deal_id=deal_id,
             is_new_deal=is_new_deal,
             allowed_fields=allowed_fields,
+            allowed_contact_fields=allowed_contact_fields,
+            allowed_company_fields=allowed_company_fields,
             transcript=transcript,
             auto_create_contact_company=auto_create_contact_company,
             auto_create_companies=auto_create_companies,
@@ -159,7 +160,7 @@ class PipedriveCRMProvider:
         meeting_booked_stage: Optional[dict[str, str]] = None,
         commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview:
-        del create_new_deal, include_unchanged
+        del create_new_deal
         return await self._preview_service().build_preview(
             memo_id=memo_id,
             transcript=transcript,
@@ -179,6 +180,7 @@ class PipedriveCRMProvider:
             stage_confirm=stage_confirm,
             meeting_booked_stage=meeting_booked_stage,
             commitment_tasks=commitment_tasks,
+            include_unchanged=include_unchanged,
         )
 
     async def find_matching_deals(

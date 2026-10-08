@@ -12,6 +12,8 @@ from .opportunities import SalesforceOpportunityService
 from .schema import SalesforceSchemaService
 from .search import SalesforceSearchService
 
+from app.services.extraction_confidence import field_extraction_confidence
+
 from .client import SalesforceClient
 
 
@@ -76,7 +78,7 @@ class SalesforcePreviewService:
                         field_label=field_labels.get(field_name, field_name),
                         current_value=None,
                         new_value=_fmt(new_value),
-                        extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
+                        extraction_confidence=field_extraction_confidence(extraction, field_name),
                         field_type=spec.get("type"),
                         options=spec.get("options"),
                     )
@@ -138,7 +140,7 @@ class SalesforcePreviewService:
                                 field_label=field_labels.get(field_name, field_name),
                                 current_value=cur_disp or "(empty)",
                                 new_value=new_disp,
-                                extraction_confidence=extraction.confidence.get("fields", {}).get(field_name, 0.7),
+                                extraction_confidence=field_extraction_confidence(extraction, field_name),
                                 field_type=spec.get("type"),
                                 options=spec.get("options"),
                             )
@@ -156,7 +158,7 @@ class SalesforcePreviewService:
                         field_label="Contact Name",
                         current_value=None,
                         new_value=cn,
-                        extraction_confidence=extraction.confidence.get("fields", {}).get("contactName", 0.8),
+                        extraction_confidence=field_extraction_confidence(extraction, "contactName"),
                     ),
                 )
             if extraction.companyName:
@@ -167,7 +169,7 @@ class SalesforcePreviewService:
                         field_label="Company",
                         current_value=None,
                         new_value=extraction.companyName,
-                        extraction_confidence=extraction.confidence.get("fields", {}).get("companyName", 0.8),
+                        extraction_confidence=field_extraction_confidence(extraction, "companyName"),
                     ),
                 )
 

@@ -1431,6 +1431,10 @@ body {
   background: #fef2f2;
   border-color: rgba(239, 68, 68, 0.22);
 }
+.crm-field-row.is-uncertain {
+  background: #fffbeb;
+  border-color: rgba(245, 158, 11, 0.28);
+}
 .crm-field-row.is-written {
   background: #f8f6f2;
   border-color: rgba(120, 113, 108, 0.22);
@@ -1496,6 +1500,10 @@ body {
 .crm-field-row.is-override .crm-field-input,
 .crm-field-row.is-override .custom-select-trigger {
   color: var(--destructive);
+}
+.crm-field-row.is-uncertain .crm-field-input,
+.crm-field-row.is-uncertain .custom-select-trigger {
+  color: #b45309;
 }
 .crm-field-row.is-written .crm-field-input,
 .crm-field-row.is-written .custom-select-trigger {

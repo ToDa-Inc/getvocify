@@ -86,6 +86,8 @@ async def test_jev_classify_enums_success(sample_enum_specs):
     assert patch_result["contact_properties"]["vocify_sales_motion"] == "field_sales"
     assert patch_result["deals"]["dealstage"] == "appointmentscheduled"
     assert patch_result["dealstage"] == "appointmentscheduled"
+    assert patch_result["_confidences"]["crm_utilizado"] == 0.92
+    assert patch_result["_confidences"]["vocify_sales_motion"] == 0.92
 
 
 @pytest.mark.asyncio
@@ -120,6 +122,50 @@ async def test_jev_classify_enums_handles_api_failure(sample_enum_specs):
         patch_result = await client.classify_enums("Algún texto", sample_enum_specs)
 
     assert patch_result == {}
+
+
+@pytest.mark.asyncio
+async def test_jev_verify_numbers_keeps_stated_values():
+    client = JevClient(api_key="test-key")
+    spec = {
+        "name": "preu_per_alumne",
+        "label": "Preu per alumne",
+        "type": "number",
+        "object_type": "deals",
+    }
+    mock_answers = {
+        "deals__preu_per_alumne": {
+            "type": "choice",
+            "choice": "stated",
+            "confidence": 0.81,
+        }
+    }
+    with patch.object(client, "_post_systemone", new=AsyncMock(return_value=mock_answers)):
+        result = await client.verify_numbers(
+            "El preu per alumne seria Trentacinc euros.",
+            [{"q_id": "deals__preu_per_alumne", "spec": spec, "value": 35.0}],
+        )
+    assert result["deals__preu_per_alumne"]["verdict"] == "stated"
+    assert result["deals__preu_per_alumne"]["confidence"] == 0.81
+
+
+@pytest.mark.asyncio
+async def test_jev_verify_numbers_drops_not_stated():
+    client = JevClient(api_key="test-key")
+    spec = {"name": "amount", "label": "Amount", "type": "number", "object_type": "deals"}
+    mock_answers = {
+        "deals__amount": {
+            "type": "choice",
+            "choice": "not_stated",
+            "confidence": 0.91,
+        }
+    }
+    with patch.object(client, "_post_systemone", new=AsyncMock(return_value=mock_answers)):
+        result = await client.verify_numbers(
+            "Hablamos del proyecto pero no del precio.",
+            [{"q_id": "deals__amount", "spec": spec, "value": 1000.0}],
+        )
+    assert result["deals__amount"]["verdict"] == "not_stated"
 
 
 @pytest.mark.asyncio

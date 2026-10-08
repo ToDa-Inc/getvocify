@@ -155,22 +155,9 @@ class PipedriveSchemaService:
         for name in field_names:
             f = by_key.get(name)
             if not f:
-                out.append({"name": name, "label": name, "type": "string"})
+                out.append({"name": name, "label": name, "type": "string", "object_type": object_type})
                 continue
-            spec: dict[str, Any] = {
-                "name": name,
-                "label": field_label(f),
-                "type": f.get("field_type") or "string",
-                "description": "",
-            }
-            opts = f.get("options") or []
-            if opts:
-                spec["options"] = [
-                    {"value": str(o.get("id") if o.get("id") is not None else o.get("label") or ""), "label": o.get("label") or str(o.get("id") or "")}
-                    for o in opts
-                    if isinstance(o, dict)
-                ]
-            out.append(spec)
+            out.append(curated_spec_from_field(f, object_type))
         return out
 
     async def resolve_stage_id(
@@ -279,3 +266,102 @@ class PipedriveSchemaService:
             ).execute()
         except Exception:
             pass
+
+
+def flatten_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Unpack v2 custom_fields onto the top level for reads."""
+    out = dict(record)
+    custom = out.pop("custom_fields", None)
+    if isinstance(custom, dict):
+        out.update(custom)
+    return out
+
+
+def extraction_field_type(field_type: Optional[str]) -> str:
+    raw = str(field_type or "string").lower()
+    if raw in {"enum", "set", "status"}:
+        return "enumeration"
+    if raw in {"double", "int", "monetary"}:
+        return "number"
+    if raw in {"date", "daterange"}:
+        return "date"
+    return "string"
+
+
+def curated_spec_from_field(field: dict[str, Any], object_type: str) -> dict[str, Any]:
+    name = field_key(field) or ""
+    spec: dict[str, Any] = {
+        "name": name,
+        "label": field_label(field),
+        "type": extraction_field_type(field.get("field_type")),
+        "description": str(field.get("description") or ""),
+        "object_type": object_type,
+    }
+    opts = field.get("options") or []
+    if opts:
+        spec["options"] = [
+            {
+                "value": str(o.get("id") if o.get("id") is not None else o.get("label") or ""),
+                "label": o.get("label") or str(o.get("id") or ""),
+            }
+            for o in opts
+            if isinstance(o, dict)
+        ]
+    return spec
+
+
+def contact_write_props(props: dict[str, Any], allowed: Optional[list[str]] = None) -> dict[str, Any]:
+    """Person PATCH body without overwriting identity name when already set."""
+    allow = set(allowed) if allowed is not None else None
+    out: dict[str, Any] = {}
+    for key, value in props.items():
+        if key == "name":
+            continue
+        if allow is not None and key not in allow:
+            continue
+        if value is None or value == "":
+            continue
+        out[key] = value
+    return out
+
+
+def company_write_props(props: dict[str, Any], allowed: Optional[list[str]] = None) -> dict[str, Any]:
+    allow = set(allowed) if allowed is not None else None
+    out: dict[str, Any] = {}
+    for key, value in props.items():
+        if key == "name":
+            continue
+        if allow is not None and key not in allow:
+            continue
+        if value is None or value == "":
+            continue
+        out[key] = value
+    return out
+
+
+def _same_display(left: Any, right: Any) -> bool:
+    if left is None and right is None:
+        return True
+    if isinstance(left, list) or isinstance(right, list):
+        return str(left) == str(right)
+    return str(left).strip() == str(right).strip()
+
+
+def props_changed_from_record(
+    props: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    include_unchanged: bool = False,
+) -> dict[str, Any]:
+    flat = flatten_record(current)
+    out: dict[str, Any] = {}
+    for key, value in props.items():
+        if value is None or value == "":
+            continue
+        cur = flat.get(key)
+        if _same_display(cur, value):
+            if include_unchanged:
+                out[key] = value
+            continue
+        out[key] = value
+    return out

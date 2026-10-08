@@ -1,9 +1,11 @@
 from app.api.crm_pipedrive import _fields_to_properties
 from app.services.pipedrive.schema import (
     PipedriveSchemaService,
+    curated_spec_from_field,
     expand_schema_fields,
     field_key,
     field_label,
+    flatten_record,
     is_custom_field_code,
 )
 
@@ -62,6 +64,28 @@ def test_live_enum_options_id_label():
     prop = _fields_to_properties([raw])[0]
     assert prop.name == "5f65fa0c38e46e47a59a4721d5b51f21d89fb679"
     assert [(o.value, o.label) for o in prop.options] == [("39", "Hubspot"), ("41", "Pipedrive")]
+
+
+def test_curated_spec_normalizes_enum_and_number():
+    enum_field = {
+        "field_code": "abc1234567890123456789012345678901234567890",
+        "field_name": "Funcionalitats",
+        "field_type": "set",
+        "options": [{"id": 1338, "label": "Menjador"}],
+    }
+    spec = curated_spec_from_field(enum_field, "deals")
+    assert spec["type"] == "enumeration"
+    assert spec["object_type"] == "deals"
+    assert spec["options"][0]["value"] == "1338"
+
+    number_field = {"field_code": "preu", "field_name": "Preu per alumne", "field_type": "double"}
+    assert curated_spec_from_field(number_field, "deals")["type"] == "number"
+
+
+def test_flatten_record_unwraps_custom_fields():
+    flat = flatten_record({"title": "Acme", "custom_fields": {"hash1234567890123456789012345678901234567890": 35}})
+    assert flat["title"] == "Acme"
+    assert flat["hash1234567890123456789012345678901234567890"] == 35
 
 
 def test_split_write_uses_official_hash_rule():

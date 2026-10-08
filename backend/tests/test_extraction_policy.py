@@ -1,3 +1,5 @@
+import pytest
+
 from app.services.extraction_policy import (
     FILL_POLICY_LABELS,
     annotate_schema_fill_policies,
@@ -8,8 +10,10 @@ from app.services.extraction_policy import (
 )
 from app.services.extraction import (
     apply_enumeration_patch,
+    apply_number_verification,
     build_extraction_prompt,
     drop_unspoken_numbers,
+    number_digit_in_transcript,
     number_was_spoken,
     pending_enumeration_specs,
     _normalize_raw_extraction,
@@ -88,8 +92,40 @@ def test_drop_unspoken_numbers_keeps_said_headcount_only():
     )
     assert out["vocify_num_sales_reps"] is None
     assert out["vocify_contacts_per_day"] == 5
-    assert number_was_spoken(6, "cinco o seis directores") is True
-    assert number_was_spoken(7, "cinco o seis directores") is False
+    assert number_digit_in_transcript(6, "Hay 5 o 6 directores") is True
+    assert number_was_spoken(6, "cinco o seis directores") is False
+
+
+@pytest.mark.asyncio
+async def test_apply_number_verification_keeps_spoken_words_via_jev():
+    specs = [
+        {
+            "name": "preu_per_alumne",
+            "label": "Preu per alumne",
+            "type": "number",
+            "object_type": "deals",
+        }
+    ]
+    extracted = {"preu_per_alumne": 35.0, "confidence": {"overall": 0.8, "fields": {}}}
+    transcript = "El preu per alumne seria Trentacinc euros."
+
+    class FakeJev:
+        is_available = True
+
+        async def verify_numbers(self, _transcript, candidates):
+            assert len(candidates) == 1
+            q_id = candidates[0]["q_id"]
+            return {q_id: {"verdict": "stated", "confidence": 0.62}}
+
+    out = await apply_number_verification(
+        extracted,
+        transcript,
+        specs,
+        FakeJev(),
+        jev_available=True,
+    )
+    assert out["preu_per_alumne"] == 35.0
+    assert out["confidence"]["fields"]["preu_per_alumne"] == 0.65
 
 
 def test_pending_enumerations_skip_filled_strategy_and_existing():
