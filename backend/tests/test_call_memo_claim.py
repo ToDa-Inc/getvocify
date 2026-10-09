@@ -80,3 +80,39 @@ def test_a_call_is_only_found_for_the_rep_who_placed_it():
     assert find_user_call(fake, "rep-1", "CA1")["carrier_call_id"] == "CA1"
     assert find_user_call(fake, "rep-2", "CA1") is None
     assert find_user_call(fake, "rep-1", "CA9") is None
+
+
+def test_the_recording_gets_the_live_memo_when_it_appears_within_the_grace():
+    import asyncio
+
+    from app.services.telephony.call_memo_claim import wait_for_live_memo
+
+    fake = db()
+
+    async def scenario():
+        async def live_transcript_lands():
+            await asyncio.sleep(0.12)
+            fake.table("outbound_calls").update({"memo_id": "live-memo"}).eq("carrier_call_id", "CA1").execute()
+
+        landed = asyncio.create_task(live_transcript_lands())
+        found = await wait_for_live_memo(fake, "CA1", grace_s=2.0, poll_s=0.02)
+        await landed
+        return found
+
+    assert asyncio.run(scenario()) == "live-memo"
+
+
+def test_the_recording_goes_on_alone_when_no_live_memo_comes():
+    import asyncio
+
+    from app.services.telephony.call_memo_claim import wait_for_live_memo
+
+    assert asyncio.run(wait_for_live_memo(db(), "CA1", grace_s=0.1, poll_s=0.02)) is None
+
+
+def test_a_memo_already_there_is_returned_at_once():
+    import asyncio
+
+    from app.services.telephony.call_memo_claim import wait_for_live_memo
+
+    assert asyncio.run(wait_for_live_memo(db("live-memo"), "CA1", grace_s=5.0, poll_s=5.0)) == "live-memo"
