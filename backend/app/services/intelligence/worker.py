@@ -71,11 +71,12 @@ def run_claimed(claim, load_memo, publish, classify, sources_for, store=None) ->
 
 
 async def run_claimed_awaiting(claim, load_memo, publish, classify, sources_for, store=None) -> Optional[dict]:
-    """Same as run_claimed, after awaiting an async classifier."""
-    claimed = claim()
+    """Same as run_claimed, after awaiting an async classifier. The blocking stages (claim, load,
+    interpret, store, publish) run in threads so a pass never holds the event loop."""
+    claimed = await asyncio.to_thread(claim)
     if not claimed:
         return None
-    memo = load_memo(claimed["memo_id"])
+    memo = await asyncio.to_thread(load_memo, claimed["memo_id"])
     if not memo:
         return {"outcome": "missing_memo", "published": False}
     result = classify(memo)
@@ -83,11 +84,12 @@ async def run_claimed_awaiting(claim, load_memo, publish, classify, sources_for,
         result = await result
     from app.services.intelligence.interpret import interpret_memo
 
-    intelligence, created = interpret_memo(memo, lambda _memo: result, sources_for(memo))
+    sources = await asyncio.to_thread(sources_for, memo)
+    intelligence, created = await asyncio.to_thread(interpret_memo, memo, lambda _memo: result, sources)
     dumped = intelligence.model_dump()
     if store is not None:
-        store(memo, dumped)
-    outcome = publish(claimed["job_id"], claimed["run_id"], dumped)
+        await asyncio.to_thread(store, memo, dumped)
+    outcome = await asyncio.to_thread(publish, claimed["job_id"], claimed["run_id"], dumped)
     return {
         "created": created,
         "outcome": outcome,

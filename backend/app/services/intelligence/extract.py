@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -810,9 +811,9 @@ def extraction_plan(supabase: Any, memo: dict) -> tuple[str, list[dict]]:
     return OBSERVATIONS_PROMPT_VERSION, pinned_playbook_steps(supabase, memo)
 
 
-@scoped("intelligence")
-async def ensure_intelligence(supabase: Any, memo_id: str, *, llm: Any = None) -> dict:
-    """Idempotent per revision. A failure leaves the memo as it was."""
+def _intelligence_inputs(supabase: Any, memo_id: str) -> dict:
+    """Everything the intelligence read needs from the database, or a terminal status. Blocking:
+    callers run it in a thread."""
     result = supabase.table("memos").select("*").eq("id", str(memo_id)).limit(1).execute()
     rows = list(getattr(result, "data", None) or [])
     if not rows:
@@ -821,32 +822,55 @@ async def ensure_intelligence(supabase: Any, memo_id: str, *, llm: Any = None) -
     prompt_version, playbook_steps = extraction_plan(supabase, memo)
     if is_current(memo) and not _needs_upgrade(memo, prompt_version):
         return {"status": "current"}
-    if llm is None:
-        from app.services.llm import LLMClient
-
-        llm = LLMClient()
     qualification: list[dict] = []
     objections: list[dict] = []
     if prompt_version in _READS_QUALIFICATION:
         qualification, objections = pinned_qualification_inputs(supabase, memo)
     context = call_context(supabase, memo) if prompt_version == CALL_READING_PROMPT_VERSION else {}
+    return {
+        "memo": memo,
+        "prompt_version": prompt_version,
+        "playbook_steps": playbook_steps,
+        "qualification": qualification,
+        "objections": objections,
+        "context": context,
+    }
+
+
+def _store_intelligence(supabase: Any, memo: dict, shaped: dict) -> None:
+    """Saves the read on the memo and refreshes what is built from it. Blocking: callers run it
+    in a thread."""
+    from app.services.intelligence.interpret import extraction_with_intelligence
+    from app.services.memo_extraction_hooks import refresh_coaching_from_intelligence, refresh_meeting_proposal
+
+    stored = extraction_with_intelligence(memo.get("extraction"), shaped)
+    supabase.table("memos").update({"extraction": stored}).eq("id", str(memo["id"])).execute()
+    memo_with_extraction = {**memo, "extraction": stored}
+    refresh_meeting_proposal(supabase, memo_with_extraction)
+    refresh_coaching_from_intelligence(supabase, memo_with_extraction, stored)
+
+
+@scoped("intelligence")
+async def ensure_intelligence(supabase: Any, memo_id: str, *, llm: Any = None) -> dict:
+    """Idempotent per revision. A failure leaves the memo as it was.
+
+    The database reads and writes run in threads: they would otherwise hold the event loop for
+    every other request while this runs."""
+    inputs = await asyncio.to_thread(_intelligence_inputs, supabase, str(memo_id))
+    if "memo" not in inputs:
+        return inputs
+    if llm is None:
+        from app.services.llm import LLMClient
+
+        llm = LLMClient()
+    memo = inputs["memo"]
     shaped, meta = await extract_intelligence(
-        memo, llm, prompt_version=prompt_version, playbook_steps=playbook_steps,
-        playbook_qualification=qualification, playbook_objections=objections, **context,
+        memo, llm, prompt_version=inputs["prompt_version"], playbook_steps=inputs["playbook_steps"],
+        playbook_qualification=inputs["qualification"], playbook_objections=inputs["objections"], **inputs["context"],
     )
     if shaped is None:
         return {"status": "no_transcript"}
-    from app.services.intelligence.interpret import extraction_with_intelligence
-
-    stored = extraction_with_intelligence(memo.get("extraction"), shaped)
-    supabase.table("memos").update({"extraction": stored}).eq("id", str(memo_id)).execute()
-    from app.services.memo_extraction_hooks import refresh_meeting_proposal
-
-    memo_with_extraction = {**memo, "extraction": stored}
-    refresh_meeting_proposal(supabase, memo_with_extraction)
-    from app.services.memo_extraction_hooks import refresh_coaching_from_intelligence
-
-    refresh_coaching_from_intelligence(supabase, memo_with_extraction, stored)
+    await asyncio.to_thread(_store_intelligence, supabase, memo, shaped)
     return {"status": "stored", "meta": meta, "intelligence": shaped}
 
 

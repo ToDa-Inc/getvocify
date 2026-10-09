@@ -119,7 +119,7 @@ def set_meeting_writer_factory(factory: WriterFactory | None) -> None:
 
 
 @router.get("/memos/{memo_id}/meeting-proposal")
-async def get_meeting_proposal(
+def get_meeting_proposal(
     memo_id: str,
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
