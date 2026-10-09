@@ -283,6 +283,15 @@ def _call_date_from_memo(memo_data: Optional[dict]) -> Optional[str]:
     return str(created)[:10] if created else None
 
 
+def _type_chosen_on_the_island(pipeline_meta: Optional[dict]) -> bool:
+    """The memo's type came from the call itself: the rep's pick (`manual`) or what the island
+    showed when it ended (`live`)."""
+    from app.services.playbooks.routing import PIN_META_KEY
+
+    pin = pipeline_meta.get(PIN_META_KEY) if isinstance(pipeline_meta, dict) else None
+    return isinstance(pin, dict) and pin.get("source") in ("manual", "live")
+
+
 async def _read_call_first(
     supabase: Client,
     memo_id: str,
@@ -302,10 +311,14 @@ async def _read_call_first(
 
     try:
         rows = supabase.table("memos").select(
-            "id,company_id,user_id,hubspot_contact_id,created_at,interaction_kind,source,source_type"
+            "id,company_id,user_id,hubspot_contact_id,created_at,interaction_kind,source,source_type,pipeline_meta"
         ).eq("id", str(memo_id)).limit(1).execute().data or []
         memo = rows[0] if rows else {}
         if not memo or not is_enabled(supabase, memo.get("company_id"), CALL_READING_FLAG):
+            return None, transcript
+        if speakers_verified and _type_chosen_on_the_island(memo.get("pipeline_meta")):
+            # The audio channels already say who spoke and the island already chose the type: the
+            # reading would decide nothing extraction needs, and costs ~1.5 s before it can start.
             return None, transcript
         context = call_context(supabase, memo)
         if profile and profile.get("company_name") and not context.get("company_name"):
