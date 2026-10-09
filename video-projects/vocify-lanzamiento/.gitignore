@@ -1,0 +1,4 @@
+# Generated when rendering and checking the video: keep them out of the repo.
+renders/
+snapshots/
+qa/
