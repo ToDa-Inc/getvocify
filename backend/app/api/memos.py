@@ -34,6 +34,7 @@ from app.services.handoff_visibility import (
     sdr_ids_for_contact,
 )
 from app.services.followup import schedule_followup
+from app.services.pipeline_lease import update_memo_row
 from app.services.followup_logic import SKIPPED_SCREENING
 from app.services.storage import StorageService
 from app.services.memo_playback import can_retranscribe, recording_path_for_memo, sign_memo_audio
