@@ -247,3 +247,151 @@ def test_a_quiet_side_still_keeps_its_session_alive():
     for _ in range(int(KEEPALIVE_S * 10) + 1):
         stream.feed(bytes(3200))
     assert round(stream.fed_s, 1) == 0.1
+
+
+class _FakeStream:
+    """A provider stream the test drives: it records what it is given and starts (or not) as told."""
+
+    starts = True
+    made: list = []
+
+    def __init__(self, label, language, domain, *, vocab, offset_s, on_event):
+        import asyncio
+
+        self.label, self.language, self.domain, self.offset_s, self.on_event = label, language, domain, offset_s, on_event
+        self.provider = "mai"
+        self.ready = asyncio.Event()
+        self.finished = asyncio.Event()
+        self.started_at = None
+        self.live_from_s = 0.0
+        self.task = None
+        self.fed = bytearray()
+        self.ended = False
+        _FakeStream.made.append(self)
+
+    def start(self, api_key):
+        if _FakeStream.starts:
+            self.started_at = 1.0
+            self.ready.set()
+
+    def feed(self, pcm):
+        self.fed.extend(pcm)
+
+    def end(self):
+        self.ended = True
+
+
+class _FakeClient:
+    def __init__(self):
+        self.sent = []
+
+    async def send_json(self, payload):
+        self.sent.append(payload)
+
+
+def _sessions(monkeypatch):
+    from app.services import live_channel_sessions as live
+
+    monkeypatch.setattr(live.settings, "AI_GATEWAY_API_KEY", "k")
+    monkeypatch.setattr(live.settings, "LIVE_STT_PROVIDER", "mai")
+    monkeypatch.setitem(live.STREAMS, "mai", _FakeStream)
+    monkeypatch.setattr(live, "RECOVER_BACKOFF_S", (0.0,))
+    monkeypatch.setattr(live, "FINISH_TIMEOUT_S", 0.05)
+    _FakeStream.made = []
+    _FakeStream.starts = True
+    client = _FakeClient()
+    sessions = live.ChannelSessions(client, labels=["prospect", "rep"], language="multi", profile_languages=["es"], glossary=[], detect=False)
+    return live, sessions, client
+
+
+def test_a_side_whose_stream_dies_mid_call_is_reopened_and_its_unsettled_audio_replayed(monkeypatch):
+    import asyncio
+
+    live, sessions, client = _sessions(monkeypatch)
+
+    async def scenario():
+        failed = sessions._open("rep", "es", "bilingual-en", offset_s=0.0)
+        sessions.active["rep"] = failed
+        # 10 s of the rep's audio heard, the last words settled at 6.0 s.
+        sessions.buffers["rep"].append(bytes(10 * live.BYTES_PER_SECOND))
+        sessions.sides["rep"].add_final(2.0, 6.0)
+        await sessions._on_stream(failed, {"kind": "error", "reason": "received 1011 (internal error) Transcription provider stream error"})
+        await asyncio.sleep(0.2)
+        return failed
+
+    failed = asyncio.run(scenario())
+    fresh = sessions.active["rep"]
+    assert fresh is not failed and failed.ended
+    # From 3 s before the last settled words: 6.0 - 3.0 = 3.0 s, to the end of what was heard (10 s).
+    assert fresh.offset_s == 3.0
+    assert len(fresh.fed) == 7 * live.BYTES_PER_SECOND
+    # The client drops the side's text from there and takes the replay's; it is not told of an error.
+    assert {"type": "ChannelReset", "audio_channel": "rep", "from": 3.0, "language": sessions.sides["rep"].language} in client.sent
+    assert not [m for m in client.sent if m.get("type") == "Error"]
+    # The other side is untouched.
+    assert sessions.active.get("prospect") is None or sessions.active["prospect"].offset_s == 0.0
+
+
+def test_a_side_that_cannot_be_reopened_is_given_up_and_the_client_is_told(monkeypatch):
+    import asyncio
+
+    live, sessions, client = _sessions(monkeypatch)
+    monkeypatch.setattr(live, "MAX_RECOVERIES", 3)
+
+    async def scenario():
+        failed = sessions._open("rep", "es", "bilingual-en", offset_s=0.0)
+        sessions.active["rep"] = failed
+        sessions.buffers["rep"].append(bytes(4 * live.BYTES_PER_SECOND))
+        _FakeStream.starts = False  # every new stream fails to connect
+        await sessions._on_stream(failed, {"kind": "error", "reason": "gateway down"})
+        await asyncio.sleep(0.6)
+        return failed
+
+    failed = asyncio.run(scenario())
+    assert sessions.active["rep"] is failed
+    assert sessions.recoveries["rep"] == 3
+    assert [m for m in client.sent if m.get("type") == "Error"] == [{"type": "Error", "provider": "mai", "error": "gateway down"}]
+    # One stream to start with, then one new attempt each time.
+    assert len(_FakeStream.made) == 1 + 3
+
+
+def test_a_stream_that_settles_words_again_clears_its_sides_failures(monkeypatch):
+    import asyncio
+
+    live, sessions, _ = _sessions(monkeypatch)
+
+    async def scenario():
+        stream = sessions._open("rep", "es", "bilingual-en", offset_s=0.0)
+        sessions.active["rep"] = stream
+        sessions.recoveries["rep"] = 4
+        await sessions._on_stream(stream, {"kind": "final", "transcript": "Hola.", "start": 0.0, "end": 1.0, "words": []})
+
+    asyncio.run(scenario())
+    assert sessions.recoveries["rep"] == 0
+
+
+def test_a_stream_ending_normally_or_a_closing_session_is_not_reopened(monkeypatch):
+    import asyncio
+
+    live, sessions, client = _sessions(monkeypatch)
+
+    async def scenario():
+        failed = sessions._open("rep", "es", "bilingual-en", offset_s=0.0)
+        sessions.active["rep"] = failed
+        sessions.closing = True
+        await sessions._on_stream(failed, {"kind": "error", "reason": "closed"})
+        await asyncio.sleep(0.1)
+
+    asyncio.run(scenario())
+    assert len(_FakeStream.made) == 1
+    assert [m for m in client.sent if m.get("type") == "Error"]
+
+
+def test_a_mai_stream_reopened_mid_call_starts_its_sentences_at_its_offset():
+    from app.services.live_channel_sessions import MaiStream
+
+    stream = MaiStream("rep", "es", None, vocab=[], offset_s=0.0, on_event=_noop)
+    stream.offset_s = 12.5  # given after it was built, as a restart does
+    stream.feed(b"\0" * 32000)
+    event = stream.events({"type": "transcript-delta", "delta": "Hola."})[0]
+    assert (event["start"], event["end"]) == (12.5, 13.5)
