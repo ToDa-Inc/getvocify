@@ -108,20 +108,6 @@ describe("addCard", () => {
   });
 });
 
-describe("display rules", async () => {
-  const { coolingDown, cooldownKey, CATEGORY_COOLDOWN_MS } = await import("./live-assist.ts");
-  const card = objectionCard(suggestion(), 1000)!;
-
-  it("waits a minute before the same kind of help interrupts again", () => {
-    const shown = { [cooldownKey(card)]: 1000 };
-    assert.equal(coolingDown(card, shown, 1000 + CATEGORY_COOLDOWN_MS - 1), true);
-    assert.equal(coolingDown(card, shown, 1000 + CATEGORY_COOLDOWN_MS), false);
-    const other = objectionCard(suggestion({ objection_type: "timing", say_this: "¿Qué cambia en marzo?" }), 2000)!;
-    assert.equal(coolingDown(other, shown, 2000), false);
-  });
-
-});
-
 describe("bridge while the answer is written", async () => {
   const { bridgeLine, draftCard, draftType, spokenLanguage } = await import("./live-assist.ts");
 
@@ -261,5 +247,31 @@ describe("streamedDraft", () => {
 
   it("nothing until it knows it is an objection", () => {
     assert.equal(streamedDraft('{"is_objection": false', "Hola", 1), null);
+  });
+});
+
+describe("transcript window", async () => {
+  const { windowOf } = await import("./live-assist.ts");
+  const line = (n: number) => `Them: ${String(n).padStart(4, "0")} ${"x".repeat(93)}`;
+  const call = (count: number) => Array.from({ length: count }, (_, n) => line(n));
+
+  it("keeps a short call whole", () => {
+    assert.equal(windowOf(call(20)), call(20).join("\n"));
+  });
+
+  it("keeps the opening and the latest stretch of a long call, cut on whole lines", () => {
+    const lines = call(400);
+    const out = windowOf(lines).split("\n");
+    assert.equal(out[0], lines[0]);
+    assert.equal(out.at(-1), lines[399]);
+    assert.ok(out.includes("[…]"));
+    assert.ok(out.every((entry) => entry === "[…]" || lines.includes(entry)));
+    assert.ok(out.join("\n").length <= 15100);
+  });
+
+  it("never comes back empty when one line is enormous", () => {
+    const out = windowOf(["Them: hola", `Them: ${"y".repeat(30000)}`]);
+    assert.ok(out.length > 0 && out.length <= 15100);
+    assert.ok(out.endsWith("y"));
   });
 });

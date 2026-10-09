@@ -1,0 +1,377 @@
+[
+ {
+  "t": 0.4688,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.45
+ },
+ {
+  "t": 0.9375,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.4
+ },
+ {
+  "t": 1.4063,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.35
+ },
+ {
+  "t": 1.6406,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.2
+ },
+ {
+  "t": 1.875,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 2.3438,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 2.8125,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 3.2813,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.35
+ },
+ {
+  "t": 3.4219,
+  "file": "assets/audio/sfx/whoosh_up.wav",
+  "gain": 0.5
+ },
+ {
+  "t": 3.75,
+  "file": "assets/audio/sfx/swish.wav",
+  "gain": 0.4
+ },
+ {
+  "t": 3.75,
+  "file": "assets/audio/sfx/pop_low.wav",
+  "gain": 0.4
+ },
+ {
+  "t": 4.8047,
+  "file": "assets/audio/sfx/tick.wav",
+  "gain": 0.2
+ },
+ {
+  "t": 5.1563,
+  "file": "assets/audio/sfx/click.wav",
+  "gain": 0.6
+ },
+ {
+  "t": 5.2031,
+  "file": "assets/audio/sfx/ding.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 5.3906,
+  "file": "assets/audio/sfx/whoosh.wav",
+  "gain": 0.35
+ },
+ {
+  "t": 7.0313,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.25
+ },
+ {
+  "t": 7.2656,
+  "file": "assets/audio/sfx/tick.wav",
+  "gain": 0.25
+ },
+ {
+  "t": 8.2031,
+  "file": "assets/audio/sfx/tick.wav",
+  "gain": 0.25
+ },
+ {
+  "t": 8.9063,
+  "file": "assets/audio/sfx/tick.wav",
+  "gain": 0.25
+ },
+ {
+  "t": 10.0313,
+  "file": "assets/audio/sfx/whoosh.wav",
+  "gain": 0.5
+ },
+ {
+  "t": 10.3125,
+  "file": "assets/audio/sfx/swish.wav",
+  "gain": 0.4
+ },
+ {
+  "t": 10.6641,
+  "file": "assets/audio/sfx/whoosh.wav",
+  "gain": 0.4
+ },
+ {
+  "t": 11.7188,
+  "file": "assets/audio/sfx/typing.wav",
+  "gain": 0.22
+ },
+ {
+  "t": 12.4219,
+  "file": "assets/audio/sfx/typing.wav",
+  "gain": 0.18
+ },
+ {
+  "t": 13.7813,
+  "file": "assets/audio/sfx/swish.wav",
+  "gain": 0.45
+ },
+ {
+  "t": 14.5313,
+  "file": "assets/audio/sfx/click.wav",
+  "gain": 0.4
+ },
+ {
+  "t": 15,
+  "file": "assets/audio/sfx/typing.wav",
+  "gain": 0.18
+ },
+ {
+  "t": 15.7031,
+  "file": "assets/audio/sfx/typing.wav",
+  "gain": 0.15
+ },
+ {
+  "t": 17.25,
+  "file": "assets/audio/sfx/whoosh_up.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 17.4375,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 17.8125,
+  "file": "assets/audio/sfx/sub_boom.wav",
+  "gain": 0.8
+ },
+ {
+  "t": 17.8125,
+  "file": "assets/audio/sfx/shimmer.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 18.5625,
+  "file": "assets/audio/sfx/swish.wav",
+  "gain": 0.35
+ },
+ {
+  "t": 19.1719,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 19.3359,
+  "file": "assets/audio/sfx/tick.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 19.5703,
+  "file": "assets/audio/sfx/tick.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 19.8047,
+  "file": "assets/audio/sfx/tick.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 20.0391,
+  "file": "assets/audio/sfx/tick.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 21.0938,
+  "file": "assets/audio/sfx/click.wav",
+  "gain": 0.6
+ },
+ {
+  "t": 21.7969,
+  "file": "assets/audio/sfx/success.wav",
+  "gain": 0.55
+ },
+ {
+  "t": 22.2656,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 22.7344,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 23.6719,
+  "file": "assets/audio/sfx/click.wav",
+  "gain": 0.5
+ },
+ {
+  "t": 23.7656,
+  "file": "assets/audio/sfx/ding.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 25.0781,
+  "file": "assets/audio/sfx/whoosh.wav",
+  "gain": 0.45
+ },
+ {
+  "t": 25.7813,
+  "file": "assets/audio/sfx/typing.wav",
+  "gain": 0.25
+ },
+ {
+  "t": 27.1875,
+  "file": "assets/audio/sfx/pop_low.wav",
+  "gain": 0.35
+ },
+ {
+  "t": 27.1875,
+  "file": "assets/audio/sfx/shimmer.wav",
+  "gain": 0.25
+ },
+ {
+  "t": 27.8906,
+  "file": "assets/audio/sfx/typing.wav",
+  "gain": 0.25
+ },
+ {
+  "t": 28.125,
+  "file": "assets/audio/sfx/click.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 29.5313,
+  "file": "assets/audio/sfx/typing.wav",
+  "gain": 0.2
+ },
+ {
+  "t": 30.9375,
+  "file": "assets/audio/sfx/sub_boom.wav",
+  "gain": 0.5
+ },
+ {
+  "t": 31.1719,
+  "file": "assets/audio/sfx/typing.wav",
+  "gain": 0.2
+ },
+ {
+  "t": 31.875,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 33.0469,
+  "file": "assets/audio/sfx/typing.wav",
+  "gain": 0.2
+ },
+ {
+  "t": 34.6406,
+  "file": "assets/audio/sfx/click.wav",
+  "gain": 0.55
+ },
+ {
+  "t": 35.0391,
+  "file": "assets/audio/sfx/whoosh_up.wav",
+  "gain": 0.35
+ },
+ {
+  "t": 35.3906,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.4
+ },
+ {
+  "t": 35.9063,
+  "file": "assets/audio/sfx/swish.wav",
+  "gain": 0.35
+ },
+ {
+  "t": 36.2813,
+  "file": "assets/audio/sfx/shimmer.wav",
+  "gain": 0.35
+ },
+ {
+  "t": 37.0313,
+  "file": "assets/audio/sfx/tick.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 37.7344,
+  "file": "assets/audio/sfx/tick.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 38.4375,
+  "file": "assets/audio/sfx/tick.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 39.1406,
+  "file": "assets/audio/sfx/click.wav",
+  "gain": 0.25
+ },
+ {
+  "t": 41.9531,
+  "file": "assets/audio/sfx/whoosh.wav",
+  "gain": 0.45
+ },
+ {
+  "t": 42.1875,
+  "file": "assets/audio/sfx/success.wav",
+  "gain": 0.5
+ },
+ {
+  "t": 42.6563,
+  "file": "assets/audio/sfx/ding.wav",
+  "gain": 0.35
+ },
+ {
+  "t": 43.125,
+  "file": "assets/audio/sfx/glitch.wav",
+  "gain": 0.45
+ },
+ {
+  "t": 43.3594,
+  "file": "assets/audio/sfx/click.wav",
+  "gain": 0.4
+ },
+ {
+  "t": 43.5938,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.4
+ },
+ {
+  "t": 43.8281,
+  "file": "assets/audio/sfx/glitch.wav",
+  "gain": 0.5
+ },
+ {
+  "t": 44.0625,
+  "file": "assets/audio/sfx/final_hit.wav",
+  "gain": 0.7
+ },
+ {
+  "t": 44.8828,
+  "file": "assets/audio/sfx/typing.wav",
+  "gain": 0.3
+ },
+ {
+  "t": 46.4063,
+  "file": "assets/audio/sfx/pop.wav",
+  "gain": 0.55
+ },
+ {
+  "t": 46.875,
+  "file": "assets/audio/sfx/shimmer.wav",
+  "gain": 0.25
+ }
+]

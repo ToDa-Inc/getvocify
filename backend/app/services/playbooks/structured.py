@@ -32,7 +32,8 @@ MAX_LABEL = 80
 MAX_CRITERION = 400
 MAX_EXAMPLE = 300
 MAX_GUIDANCE = 600
-MAX_CUSTOM_OBJECTIONS = 12
+# A safety ceiling, not a design limit: every entry goes into the live prompt, which is cached per call.
+MAX_CUSTOM_OBJECTIONS = 200
 MAX_OBJECTION_LABEL = 60
 MAX_TRIGGER = 200
 MAX_CRITERIA = 8

@@ -869,7 +869,7 @@ export const productCatalog = {
       criterion_label_empty: "Every fact needs a name.",
       criterion_label_too_long: "A fact name is too long (60 characters max).",
       custom_objection_label_empty: "Every custom objection needs a name.",
-      too_many_custom_objections: "12 custom objections at most.",
+      too_many_custom_objections: "200 custom objections at most.",
       field_too_long: "A text is too long. Shorten it.",
     },
     pb2: {
@@ -2271,7 +2271,7 @@ export const productCatalog = {
       criterion_label_empty: "Cada dato necesita un nombre.",
       criterion_label_too_long: "El nombre de un dato es demasiado largo (máx. 60 caracteres).",
       custom_objection_label_empty: "Cada objeción propia necesita un nombre.",
-      too_many_custom_objections: "Máximo 12 objeciones propias.",
+      too_many_custom_objections: "Máximo 200 objeciones propias.",
       field_too_long: "Un texto es demasiado largo. Acórtalo.",
     },
     pb2: {

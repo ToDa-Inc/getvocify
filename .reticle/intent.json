@@ -372,6 +372,111 @@
         "grade": "presence",
         "at": 1790763790285
       }
+    },
+    "inline:a-rep-who-never-chose-sees-the-dialer-recordings-951bcacc": {
+      "id": "inline:a-rep-who-never-chose-sees-the-dialer-recordings-951bcacc",
+      "statement": "A rep who never chose sees the dialer-recordings switch off, with text explaining it is off by default",
+      "state": "bound",
+      "declaredAt": 1791416330239,
+      "binding": {
+        "kind": "allOf",
+        "predicates": [
+          {
+            "kind": "text",
+            "contains": "Desactivado por defecto: Vocify trabaja con las llamadas que grabas"
+          },
+          {
+            "kind": "net",
+            "method": "GET",
+            "urlContains": "/crm/call-recordings-preference",
+            "status": 200,
+            "since": 0
+          },
+          {
+            "kind": "not",
+            "predicate": {
+              "kind": "element",
+              "query": {
+                "by": "role",
+                "value": "switch",
+                "name": "Llamadas de otros marcadores"
+              },
+              "state": "checked"
+            }
+          }
+        ]
+      }
+    },
+    "inline:a-rep-who-calls-from-another-dialer-can-turn-pro-779dfd49": {
+      "id": "inline:a-rep-who-calls-from-another-dialer-can-turn-pro-779dfd49",
+      "statement": "A rep who calls from another dialer can turn processing of those recordings on",
+      "state": "proved",
+      "declaredAt": 1791416340327,
+      "binding": {
+        "kind": "allOf",
+        "predicates": [
+          {
+            "kind": "net",
+            "method": "PUT",
+            "urlContains": "/crm/call-recordings-preference",
+            "status": 200
+          },
+          {
+            "kind": "element",
+            "query": {
+              "by": "role",
+              "value": "switch",
+              "name": "Llamadas de otros marcadores"
+            },
+            "state": "checked"
+          }
+        ]
+      },
+      "surface": {
+        "route": "/dashboard/settings/calling",
+        "files": [
+          "src/components/ui/switch.tsx"
+        ]
+      },
+      "provenBy": {
+        "verdictId": "reticle_act_and_wait:1791416340861",
+        "grade": "net",
+        "at": 1791416340861
+      }
+    },
+    "inline:clicking-the-contact-circles-on-an-interaction-r-a2e5166c": {
+      "id": "inline:clicking-the-contact-circles-on-an-interaction-r-a2e5166c",
+      "statement": "Clicking the contact circles on an interaction row opens the card with the people involved",
+      "state": "bound",
+      "declaredAt": 1791466094880,
+      "binding": {
+        "kind": "text",
+        "contains": "Alexander",
+        "visible": true
+      }
+    },
+    "inline:clicking-the-contact-circles-on-an-interaction-r-2fa45fc2": {
+      "id": "inline:clicking-the-contact-circles-on-an-interaction-r-2fa45fc2",
+      "statement": "Clicking the contact circles on an interaction row opens a card with the people involved",
+      "state": "proved",
+      "declaredAt": 1791466158088,
+      "binding": {
+        "kind": "element",
+        "query": {
+          "role": "dialog"
+        }
+      },
+      "surface": {
+        "route": "/dashboard",
+        "files": [
+          "src/features/interactions/components/ContactStack.tsx"
+        ]
+      },
+      "provenBy": {
+        "verdictId": "reticle_act_and_wait:1791466159603",
+        "grade": "presence",
+        "at": 1791466159603
+      }
     }
   }
 }
