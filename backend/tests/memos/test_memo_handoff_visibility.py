@@ -150,7 +150,7 @@ def _store(*, handoff_status="active", flag_on=True):
 
 async def test_ae_reads_the_handed_off_sdr_memo(monkeypatch):
     _patch_viewer(monkeypatch, role_by_user={"ae-1": "member"})
-    memo = await api.get_memo(UUID(M1), supabase=_store(), user_id="ae-1")
+    memo = api.get_memo(UUID(M1), supabase=_store(), user_id="ae-1")
     assert memo.userId == "sdr-1"
 
 
@@ -159,7 +159,7 @@ async def test_ae_cannot_read_a_different_sdr_memo(monkeypatch):
     store = _store()
     store.tables["memos"] = [_memo(MEMO_ID, "sdr-2", contact="c-2")]
     with pytest.raises(HTTPException) as exc:
-        await api.get_memo(UUID(MEMO_ID), supabase=store, user_id="ae-1")
+        api.get_memo(UUID(MEMO_ID), supabase=store, user_id="ae-1")
     assert exc.value.status_code == 404
 
 
@@ -168,7 +168,7 @@ async def test_sdr_cannot_read_the_ae(monkeypatch):
     store = _store()
     store.tables["memos"] = [_memo(MEMO_ID, "ae-1", contact="c-1")]
     with pytest.raises(HTTPException) as exc:
-        await api.get_memo(UUID(MEMO_ID), supabase=store, user_id="sdr-1")
+        api.get_memo(UUID(MEMO_ID), supabase=store, user_id="sdr-1")
     assert exc.value.status_code == 404
 
 
@@ -177,7 +177,7 @@ async def test_flag_off_denies_the_handoff_read(monkeypatch):
     store = _store(flag_on=False)
     store.tables["memos"] = [_memo(MEMO_ID, "sdr-1", contact="c-1")]
     with pytest.raises(HTTPException) as exc:
-        await api.get_memo(UUID(MEMO_ID), supabase=store, user_id="ae-1")
+        api.get_memo(UUID(MEMO_ID), supabase=store, user_id="ae-1")
     assert exc.value.status_code == 404
 
 
@@ -185,7 +185,7 @@ async def test_closed_handoff_still_readable(monkeypatch):
     _patch_viewer(monkeypatch, role_by_user={"ae-1": "member"})
     store = _store(handoff_status="closed")
     store.tables["memos"] = [_memo(MEMO_ID, "sdr-1", contact="c-1")]
-    memo = await api.get_memo(UUID(MEMO_ID), supabase=store, user_id="ae-1")
+    memo = api.get_memo(UUID(MEMO_ID), supabase=store, user_id="ae-1")
     assert memo.userId == "sdr-1"
 
 

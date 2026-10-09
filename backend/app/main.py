@@ -394,11 +394,17 @@ async def startup_event():
     set_annotation_store(SupabaseAnnotationStore(get_supabase()))
     install_intelligence_tick()
     start_worker()
+    from app.services import loop_monitor
+
+    loop_monitor.start()
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    from app.services import loop_monitor
     from app.services.intelligence.worker import stop_worker
+
+    loop_monitor.stop()
     await stop_worker()
 
 

@@ -101,7 +101,7 @@ def _require_readable_memo(supabase, membership: Membership, memo_id: str) -> di
 
 
 @router.get("/memos/{memo_id}/score")
-async def get_memo_score(
+def get_memo_score(
     memo_id: str,
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
@@ -141,7 +141,7 @@ async def get_memo_score(
 
 
 @router.get("/memos/{memo_id}/brief")
-async def get_memo_brief(
+def get_memo_brief(
     memo_id: str,
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
