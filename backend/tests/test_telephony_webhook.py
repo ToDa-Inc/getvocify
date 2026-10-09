@@ -649,3 +649,67 @@ class TestRecordingAfterLiveTranscriptMemo:
         initiate.assert_awaited_once()
         process.assert_called_once()
         log_call.assert_not_called()
+
+
+class TestRecordingWaitsForTheLiveTranscript:
+    """When the rep was transcribing live, the recording gives that transcript a moment to make the memo."""
+
+    def _run(self, live_memo, *, memos):
+        import asyncio
+
+        supabase, stores = _fake_supabase(
+            {"outbound_calls": [{"carrier_call_id": "CA1", "user_id": "rep-1", "call_disposition": "connected"}], "memos": memos}
+        )
+        call_row = {"carrier_call_id": "CA1", "user_id": "rep-1", "call_disposition": "connected"}
+        with (
+            patch("app.api.webhooks.wait_for_live_memo", AsyncMock(return_value=live_memo)) as wait,
+            patch(
+                "app.api.webhooks.initiate_vocify_call_memo",
+                AsyncMock(side_effect=lambda _sb, row: (row["memo_id"], False) if row.get("memo_id") else ("rec-memo", True)),
+            ),
+            patch("app.api.webhooks.process_vocify_call_background", AsyncMock()) as process,
+            patch("app.api.webhooks.log_call_engagement", AsyncMock()) as log_call,
+        ):
+            async def go():
+                await webhooks._memo_from_recording(
+                    supabase, call_row, "CA1", "calls/rep-1/CA1.wav", b"RIFF", 65.0, [], 0.0, wait_for_live=True
+                )
+                await asyncio.sleep(0)  # let the tasks it starts run
+
+            asyncio.run(go())
+        return stores, wait, process, log_call
+
+    def test_the_live_transcript_wins_so_the_recording_is_not_transcribed(self):
+        stores, wait, process, log_call = self._run("live-memo", memos=[{"id": "live-memo", "screening_outcome": "connected"}])
+        wait.assert_awaited_once()
+        process.assert_not_called()
+        log_call.assert_called_once()
+        assert stores["memos"][0]["recording_path"] == "calls/rep-1/CA1.wav"
+
+    def test_without_a_live_transcript_in_time_the_recording_is_transcribed(self):
+        _, wait, process, log_call = self._run(None, memos=[])
+        wait.assert_awaited_once()
+        process.assert_called_once()
+        log_call.assert_not_called()
+
+    def test_a_rep_who_was_live_gets_the_wait_and_twilio_an_answer_at_once(self):
+        supabase, _ = _fake_supabase({"outbound_calls": [{"carrier_call_id": "CA1", "user_id": "rep-1"}], "memos": []})
+        storage = MagicMock()
+        storage.return_value.upload_call_recording = AsyncMock(return_value="calls/rep-1/CA1.wav")
+        with (
+            patch("app.api.webhooks.get_supabase", return_value=supabase),
+            patch.object(webhooks.settings, "ENVIRONMENT", "development"),
+            patch.dict("os.environ", {"TWILIO_SKIP_SIG_CHECK": "1"}),
+            patch("app.api.webhooks.download_twilio_recording", AsyncMock(return_value=b"RIFF")),
+            patch("app.api.webhooks.StorageService", storage),
+            patch("app.api.webhooks.attach_hubspot_contact_by_phone", AsyncMock(side_effect=lambda _sb, row: row)),
+            patch("app.api.webhooks.live_activity.recently_live", return_value=True),
+            patch("app.api.webhooks._memo_from_recording", AsyncMock()) as memo_from_recording,
+        ):
+            resp = _test_client().post(
+                "/webhooks/twilio/recording",
+                data={"CallSid": "CA1", "RecordingUrl": "https://api.twilio.com/rec/RE1", "RecordingSid": "RE1", "RecordingDuration": "65"},
+            )
+        assert resp.status_code == 204
+        memo_from_recording.assert_called_once()
+        assert memo_from_recording.call_args.kwargs["wait_for_live"] is True

@@ -136,8 +136,9 @@ type DesktopMeeting = {
 };
 
 const MAX_RECONNECTS = 5;
-/** Production closes ~5s after CloseStream, once the last finals are flushed. */
-const DRAIN_MS = 6000;
+/** The server answers CloseStream with EndOfTranscript as soon as the last finals are flushed (well under a second),
+ * and gives up after 3 s; this waits a second longer so its answer always wins. */
+const DRAIN_MS = 4000;
 /** Worst case a crash loses this much transcript. */
 const SAVE_EVERY_MS = 2000;
 
