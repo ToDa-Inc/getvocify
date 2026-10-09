@@ -78,6 +78,12 @@ BUFFER_S = 90.0
 # Speechmatics takes replayed audio faster than real time (34 s back in ~4 s).
 REPLAY_CHUNK_BYTES = 3200
 FINISH_TIMEOUT_S = 8.0
+# A side whose stream fails mid-call (MAI's gateway closes with 1011 now and then) is reopened and its last audio replayed.
+MAX_RECOVERIES = 5
+RECOVER_BACKOFF_S = (0.3, 1.0, 2.0, 4.0, 8.0)
+# Replay starts this long before the side's last settled words: their end is only approximate, and the client drops
+# and re-takes the side's text from the replay's start, so an overlap costs nothing and loses nothing.
+RECOVER_OVERLAP_S = 3.0
 
 
 def session_language(code: str, profile: list[str]) -> tuple[str, Optional[str]]:
@@ -632,6 +638,8 @@ class MaiStream(LiveStream):
         a sentence ends where the audio fed so far ends."""
         kind = data.get("type")
         now = time.monotonic()
+        # A stream reopened mid-call is given its offset after it was built: its first sentence starts there.
+        self.last_end = max(self.last_end, self.offset_s)
         if kind == "transcript-delta":
             # A partial follows at once with whatever is still unsettled; none means all is.
             self.unsettled = ""
@@ -745,6 +753,7 @@ class ChannelSessions:
         self.shadows: dict[str, LiveStream] = {}
         # Streams replaced by a fresh session of the same provider: their last results still count.
         self.retiring: set[LiveStream] = set()
+        self.recoveries: dict[str, int] = {label: 0 for label in labels}
 
     async def run(self) -> None:
         await self._send({"type": "connected", "model": "realtime", "mode": "copilot_channels", "provider": self.provider})
@@ -889,6 +898,9 @@ class ChannelSessions:
             if not transcript and not words:
                 return
             final = kind == "final"
+            if final and transcript.strip():
+                # A stream that settles words works again: its side's failures count from zero.
+                self.recoveries[stream.label] = 0
             payload: dict[str, Any] = {
                 "type": "Results",
                 "provider": stream.provider,
@@ -929,6 +941,12 @@ class ChannelSessions:
         elif kind == "error":
             reason = event.get("reason") or "Unknown error"
             logger.error("%s %s error: %s", stream.provider, stream.label, reason)
+            if self._recoverable(stream):
+                # The side keeps going on a fresh stream; the client hears of it only if that fails too.
+                task = asyncio.create_task(self._recover(stream, reason))
+                self.checks.add(task)
+                task.add_done_callback(self.checks.discard)
+                return
             await self._send({"type": "Error", "provider": stream.provider, "error": reason})
         elif kind == "warning":
             logger.warning("%s %s warning: %s", stream.provider, stream.label, event.get("reason"))
@@ -966,6 +984,29 @@ class ChannelSessions:
         side.checked(confidence >= SWITCH_CONFIDENCE)
         if target:
             await self._restart(label, target, from_s)
+
+    def _recoverable(self, stream: LiveStream) -> bool:
+        return not self.closing and self.active.get(stream.label) is stream and self.recoveries.get(stream.label, MAX_RECOVERIES) < MAX_RECOVERIES
+
+    async def _recover(self, failed: LiveStream, reason: str) -> None:
+        """A side's stream died mid-call: reopen it and replay what it had not yet settled, until it holds or the
+        attempts run out (then the client is told, as before)."""
+        label = failed.label
+        while self._recoverable(failed):
+            attempt = self.recoveries[label]
+            self.recoveries[label] = attempt + 1
+            await asyncio.sleep(RECOVER_BACKOFF_S[min(attempt, len(RECOVER_BACKOFF_S) - 1)])
+            if self.closing or self.active.get(label) is not failed:
+                return
+            side = self.sides[label]
+            settled = side.spans[-1][1] if side.spans else 0.0
+            from_s = max(self.buffers[label].start_s, settled - RECOVER_OVERLAP_S)
+            logger.warning("Live channels: %s %s stream stopped (%s): reopening from %.1fs (attempt %d of %d)", label, failed.provider, reason, from_s, attempt + 1, MAX_RECOVERIES)
+            await self._restart(label, side.language, from_s)
+            if self.active.get(label) is not failed:
+                return
+        if not self.closing and self.active.get(label) is failed:
+            await self._send({"type": "Error", "provider": failed.provider, "error": reason})
 
     async def _restart(self, label: str, code: str, from_s: float) -> None:
         language, domain = session_language(code, self.profile)
