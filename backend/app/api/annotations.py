@@ -95,7 +95,7 @@ def _save(annotation_id: str, body: NoteBody, membership: Membership, *, client_
 
 
 @router.get("/memos/{memo_id}/objections")
-async def get_objections(
+def get_objections(
     memo_id: str,
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),

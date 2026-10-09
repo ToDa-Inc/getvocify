@@ -28,3 +28,13 @@ def _no_live_sessions_left_behind():
     yield
     live_activity._open.clear()
     live_activity._ended_at.clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_auth_email_cache():
+    """Emails are cached by user id for minutes: one test's user must not answer for another's."""
+    from app.services.company import _AUTH_EMAILS
+
+    _AUTH_EMAILS.clear()
+    yield
+    _AUTH_EMAILS.clear()

@@ -1407,7 +1407,7 @@ async def get_usage(
 
 
 @router.get("/{memo_id}", response_model=Memo)
-async def get_memo(
+def get_memo(
     memo_id: UUID,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
@@ -1776,7 +1776,7 @@ async def get_approval_preview(
     if contact_id == "":
         contact_id = None
 
-    memo_data = _require_readable_memo(supabase, str(memo_id), user_id)
+    memo_data = await asyncio.to_thread(_require_readable_memo, supabase, str(memo_id), user_id)
 
     if skip_deal:
         deal_id = None
@@ -1832,13 +1832,8 @@ async def get_approval_preview(
 
     extraction = MemoExtraction(**extraction_data)
     pipeline_id = config.default_pipeline_id if config else None
-    matches = await provider.find_matching_deals(extraction, limit=5, pipeline_id=pipeline_id)
-
-    identity = await provider.resolve_identity(
-        extraction,
-        limit_deals=5,
-        pipeline_id=pipeline_id,
-        preferred_contact_id=contact_id,
+    matches, identity = await _deals_and_identity(
+        provider, extraction, pipeline_id=pipeline_id, contact_id=contact_id
     )
     # Salesforce stub returns None
     if identity is None:
@@ -1868,6 +1863,10 @@ async def get_approval_preview(
         skip_deal=skip_deal,
     )
 
+    stage_kwargs, commitment_kwargs = await asyncio.gather(
+        asyncio.to_thread(preview_stage_kwargs, supabase, memo=memo_data, connection=conn, config=config),
+        asyncio.to_thread(commitment_preview_kwargs, supabase, memo=memo_data, connection=conn),
+    )
     try:
         logger.info(
             "👁️ Get approval preview",
@@ -1897,8 +1896,8 @@ async def get_approval_preview(
             create_new_deal=create_new,
             include_unchanged=replay_written_fields(memo_data.get("status")),
             skip_deal=skip_deal,
-            **preview_stage_kwargs(supabase, memo=memo_data, connection=conn, config=config),
-            **commitment_preview_kwargs(supabase, memo=memo_data, connection=conn),
+            **stage_kwargs,
+            **commitment_kwargs,
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)
@@ -1930,19 +1929,46 @@ async def get_approval_preview(
 
     # If a deal was explicitly selected, persist it to the memo record
     if deal_id:
-        supabase.table("memos").update({
-            "matched_deal_id": deal_id,
-            "matched_deal_name": preview.selected_deal.deal_name if preview.selected_deal else None,
-            "is_new_deal": False
-        }).eq("id", str(memo_id)).execute()
+        await asyncio.to_thread(
+            update_memo_row,
+            supabase,
+            str(memo_id),
+            {
+                "matched_deal_id": deal_id,
+                "matched_deal_name": preview.selected_deal.deal_name if preview.selected_deal else None,
+                "is_new_deal": False,
+            },
+        )
     elif create_new_deal:
-        supabase.table("memos").update({
-            "matched_deal_id": None,
-            "matched_deal_name": None,
-            "is_new_deal": True
-        }).eq("id", str(memo_id)).execute()
-    
+        await asyncio.to_thread(
+            update_memo_row,
+            supabase,
+            str(memo_id),
+            {"matched_deal_id": None, "matched_deal_name": None, "is_new_deal": True},
+        )
+
     return preview
+
+
+async def _deals_and_identity(provider, extraction, *, pipeline_id, contact_id):
+    """The deals to offer and the contact the memo belongs to.
+
+    With a locked contact its own linked deals are the picker, so the fuzzy name search (which
+    fans out to every contact sharing the name) only runs when that contact has none. Without a
+    locked contact the two searches are independent and run together."""
+    identity_call = provider.resolve_identity(
+        extraction, limit_deals=5, pipeline_id=pipeline_id, preferred_contact_id=contact_id
+    )
+    if not contact_id:
+        matches, identity = await asyncio.gather(
+            provider.find_matching_deals(extraction, limit=5, pipeline_id=pipeline_id), identity_call
+        )
+        return matches, identity
+    identity = await identity_call
+    anchor = identity.selected if identity is not None else None
+    if anchor is not None and anchor.deal_matches:
+        return [], identity
+    return await provider.find_matching_deals(extraction, limit=5, pipeline_id=pipeline_id), identity
 
 
 @router.post("/{memo_id}/preview", response_model=ApprovalPreview)
