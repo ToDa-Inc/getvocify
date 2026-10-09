@@ -55,7 +55,7 @@ export const LicenseCell = ({ companyId, seatLimit, seatsUsed }: LicenseCellProp
           aria-label="Decrease licenses"
           disabled={mutation.isPending || value <= min}
           onClick={() => commit(value - 1)}
-          className="h-7 w-7 rounded-full text-muted-foreground hover:bg-secondary/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          className="h-7 w-7 rounded-full text-muted-foreground hover:bg-secondary/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
         >
           <Minus className="h-3.5 w-3.5 mx-auto" />
         </button>
@@ -81,7 +81,7 @@ export const LicenseCell = ({ companyId, seatLimit, seatsUsed }: LicenseCellProp
           aria-label="Increase licenses"
           disabled={mutation.isPending}
           onClick={() => commit(value + 1)}
-          className="h-7 w-7 rounded-full text-muted-foreground hover:bg-secondary/40 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+          className="h-7 w-7 rounded-full text-muted-foreground hover:bg-secondary/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
         >
           <Plus className="h-3.5 w-3.5 mx-auto" />
         </button>

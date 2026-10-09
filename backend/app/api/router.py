@@ -4,11 +4,32 @@ Main API router combining all route modules
 
 from fastapi import APIRouter
 from app.api import (
+    contact_activity,
     health,
     memos,
+    captures,
+    followup,
+    playbook_rules,
+    playbook_company,
+    playbooks,
+    playbook_intake,
+    playbook_insights,
+    ask,
+    intelligence,
+    contact_priorities,
+    today,
+    annotations,
+    briefs,
+    meetings,
+    calendar,
+    coaching,
+    brief_preferences,
+    team_insights,
+    reports,
     crm,
     crm_salesforce,
     crm_pipedrive,
+    crm_field_permissions,
     transcription,
     auth,
     glossary,
@@ -19,8 +40,11 @@ from app.api import (
     voice_enrollment,
     admin,
     calls,
+    live_calls,
     hubspot_recordings,
     company,
+    handoffs,
+    after_call,
 )
 
 api_router = APIRouter()
@@ -31,8 +55,35 @@ api_router.include_router(auth.router)
 api_router.include_router(company.router)
 api_router.include_router(billing.router)
 api_router.include_router(memos.router)
+api_router.include_router(after_call.router)
+api_router.include_router(followup.router)
+api_router.include_router(followup.listing)
+# Before playbooks.router: /catalog and /deal-stages must not be read as /{sales_motion_key}.
+api_router.include_router(playbook_rules.router)
+api_router.include_router(playbook_rules.memo_router)
+api_router.include_router(playbook_company.router)
+api_router.include_router(playbooks.router)
+api_router.include_router(playbook_intake.router)
+api_router.include_router(playbook_insights.router)
+api_router.include_router(ask.router)
+api_router.include_router(intelligence.router)
+api_router.include_router(contact_priorities.router)
+api_router.include_router(today.router)
+api_router.include_router(annotations.router)
+api_router.include_router(briefs.router)
+api_router.include_router(contact_activity.router)
+api_router.include_router(meetings.router)
+api_router.include_router(calendar.router)
+api_router.include_router(coaching.router)
+api_router.include_router(brief_preferences.router)
+api_router.include_router(team_insights.router)
+api_router.include_router(reports.router)
+api_router.include_router(reports.notifications)
+api_router.include_router(captures.router)
 api_router.include_router(crm.router)
+api_router.include_router(crm_field_permissions.router)
 api_router.include_router(calls.router)
+api_router.include_router(live_calls.router)
 api_router.include_router(hubspot_recordings.router)
 api_router.include_router(crm_salesforce.router, prefix="/api/v1/crm")
 api_router.include_router(crm_pipedrive.router, prefix="/api/v1/crm")
@@ -43,5 +94,6 @@ api_router.include_router(stripe_webhooks.router, prefix="/webhooks")
 api_router.include_router(copilot.router)
 api_router.include_router(voice_enrollment.router)
 api_router.include_router(admin.router)
+api_router.include_router(handoffs.router)
 
 

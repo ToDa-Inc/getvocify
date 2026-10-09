@@ -1,0 +1,24 @@
+{"id": "c04_pain_and_demo_with_time", "pass": true, "failures": [], "errors": []}
+{"id": "c04_scheduled_phone_call_is_a_meeting", "pass": true, "failures": [], "errors": []}
+{"id": "c04_pain_denied", "pass": true, "failures": [], "errors": []}
+{"id": "c04_no_pain_mentioned", "pass": true, "failures": [], "errors": []}
+{"id": "c04_meeting_left_open", "pass": true, "failures": [], "errors": []}
+{"id": "c04_meeting_refused", "pass": true, "failures": [], "errors": []}
+{"id": "c04_meeting_only_day", "pass": true, "failures": [], "errors": []}
+{"id": "c04_rep_claims_pain_prospect_does_not", "pass": true, "failures": [], "errors": []}
+{"id": "c04_price_objection_and_send", "pass": true, "failures": [], "errors": []}
+{"id": "c04_voicemail", "pass": true, "failures": [], "errors": []}
+{"id": "c04_english_pain_and_meeting", "pass": true, "failures": [], "errors": []}
+{"id": "c04_pain_then_send_info_no_meeting", "pass": true, "failures": [], "errors": []}
+{"id": "c04_gatekeeper", "pass": true, "failures": [], "errors": []}
+{"id": "c04_commitment_with_time", "pass": true, "failures": [], "errors": []}
+{"id": "c04_meeting_time_changed", "pass": true, "failures": [], "errors": []}
+{"id": "c04_meeting_part_of_day_is_not_a_time", "pass": true, "failures": [], "errors": []}
+{"id": "c04_prospect_calls_back_is_not_a_rep_commitment", "pass": true, "failures": [], "errors": []}
+{"id": "c04_confirm_call_beside_agreed_meeting", "pass": true, "failures": [], "errors": []}
+{"id": "c04_dictated_follow_up_task", "pass": true, "failures": [], "errors": []}
+{"id": "c04_undated_rep_promise_is_kept", "pass": true, "failures": [], "errors": []}
+{"id": "c04_noisy_confirm_call_beside_meeting", "pass": true, "failures": [], "errors": []}
+{"id": "c04_call_the_referred_colleague_tomorrow", "pass": true, "failures": [], "errors": []}
+{"id": "c04_dictated_next_step_in_two_weeks", "pass": true, "failures": [], "errors": []}
+{"prompt": "intelligence_v3", "model": "google/gemini-3.8-flash", "cases": 23, "failed": 0, "model_errors": 0, "passed_after_retry": 0}

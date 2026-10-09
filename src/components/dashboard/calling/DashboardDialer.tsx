@@ -1,36 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Link } from "react-router-dom";
-import { Device, Call } from "@twilio/voice-sdk";
-import {
-  MagnifyingGlass,
-  Microphone,
-  MicrophoneSlash,
-  Phone,
-  PhoneDisconnect,
-} from "@phosphor-icons/react";
+import { Mic, MicOff, PhoneOff, Search } from "lucide-react";
+import { AnimIcon } from "@/components/ui/anim-icon";
+import { Button } from "@/components/ui/button";
+import { IconAction } from "@/components/ui/icon-action";
 import { toast } from "sonner";
-import { callsApi } from "@/features/calls/api";
 import type { CallerId } from "@/features/calls/types";
+import { callEngine } from "@/features/calling/callEngine";
 import { crmApi } from "@/lib/api/crm";
-import {
-  dispositionMessage,
-  isCarrierHangupError,
-  isVoiceAccessTokenError,
-  isVoiceSdkGeneralError,
-  userFacingCallError,
-  mapTelnyxCallState,
-  fetchVoiceTokenAfterRingback,
-  startLocalRingback,
-  TELNYX_RING_TIMEOUT_MS,
-  telnyxHangupMessage,
-  telnyxNewCallOptions,
-  telnyxRtcClientOptions,
-  watchRemoteAudio,
-  voiceClientFromToken,
-  connectWithVoiceTokenRecovery,
-  applyVoiceTokenRefresh,
-  type VoiceClient,
-} from "@/lib/dial-session";
+import { useLanguage } from "@/lib/i18n";
 import { ROUTES } from "@/shared/lib/constants";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import {
@@ -44,21 +22,10 @@ import {
   normalizeDialTarget,
   type CallState,
 } from "@/lib/dial-target";
-
-type TelnyxCall = {
-  id?: string;
-  hangup?: () => void;
-  muteAudio?: () => void;
-  unmuteAudio?: () => void;
-  sipCode?: number;
-  causeCode?: number;
-  cause?: string;
-};
-
-type TelnyxNotification = {
-  type?: string;
-  call?: TelnyxCall & { state?: string };
-};
+import type { CallEndedPayload, DialerFocus } from "@/features/calling/DialerFocusProvider";
+import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
+import { useRecordingBusy } from "@/features/desktop/DesktopMeetingProvider";
+import { useAuth } from "@/features/auth";
 
 type ContactHit = {
   contact_id: string;
@@ -78,64 +45,75 @@ type SelectedTarget = {
 type LiveInfo = {
   state: CallState;
   elapsed: string;
+  contact?: DialerFocus | null;
+  callSid?: string | null;
 };
 
 type Props = {
   callerIds: CallerId[];
   onLiveChange?: (live: LiveInfo) => void;
   onRequestClose?: () => void;
+  focusContact?: DialerFocus | null;
+  onFocusHandled?: () => void;
+  compact?: boolean;
+  /** Off when the rep home's contact panel already shows the brief. */
+  showBrief?: boolean;
+  onCallEnded?: (payload: CallEndedPayload) => void;
 };
 
-async function fetchCarrierDisposition(callSid: string | null): Promise<string | null> {
-  if (callSid) {
-    try {
-      const call = await callsApi.getCall(callSid);
-      return call.callDisposition || null;
-    } catch {
-      return null;
-    }
-  }
-  const latest = await callsApi.getLatestDisposition();
-  return latest.disposition || null;
-}
-
-export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Props) => {
+export const DashboardDialer = ({
+  callerIds,
+  onLiveChange,
+  onRequestClose,
+  focusContact = null,
+  onFocusHandled,
+  compact = false,
+  showBrief = true,
+  onCallEnded,
+}: Props) => {
+  const { t } = useLanguage();
+  const { user } = useAuth();
+  const callCopy = t.product;
   const verified = callerIds.filter(
-    (c) => c.status === "verified" && c.source !== "twilio",
+    (c) => c.status === "verified" && c.source !== "twilio" && !c.callBlocked,
   );
   const defaultFrom =
     verified.find((c) => c.isDefault)?.phoneNumber || verified[0]?.phoneNumber || "";
+
+  // The call lives in callEngine, so one dialled from the desktop island shows here too.
+  const call = useSyncExternalStore(callEngine.subscribe, callEngine.getState);
+  const state: CallState = call.phase;
+  const { muted, answeredAt, error, outcome } = call;
+  // Desktop app: a meeting being recorded holds the mic and the island; a call waits for it to end.
+  const recordingBusy = useRecordingBusy();
 
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<ContactHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<SelectedTarget | null>(null);
+  const [picked, setPicked] = useState<SelectedTarget | null>(null);
   const [from, setFrom] = useState(defaultFrom);
-  const [state, setState] = useState<CallState>(CALL_STATES.IDLE);
-  const [muted, setMuted] = useState(false);
-  const [answeredAt, setAnsweredAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState("0:00");
-  const [error, setError] = useState<string | null>(null);
-  const [outcome, setOutcome] = useState<string | null>(null);
 
-  const deviceRef = useRef<Device | null>(null);
-  const callRef = useRef<Call | null>(null);
-  const telnyxClientRef = useRef<{ disconnect?: () => void } | null>(null);
-  const telnyxCallRef = useRef<TelnyxCall | null>(null);
-  const stopRingbackRef = useRef<(() => void) | null>(null);
-  const stopRemoteWatchRef = useRef<(() => void) | null>(null);
-  const voiceClientRef = useRef<VoiceClient>("twilio");
-  const hangupRef = useRef<() => void>(() => {});
-  const callSidRef = useRef<string | null>(null);
-  const wasAnsweredRef = useRef(false);
-  const pendingMissRef = useRef(false);
-  const placingCallRef = useRef(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const queryRef = useRef(query);
   const onLiveChangeRef = useRef(onLiveChange);
+  const onCallEndedRef = useRef(onCallEnded);
+  const wasInCallRef = useRef(false);
+  const endedReportedRef = useRef(false);
   onLiveChangeRef.current = onLiveChange;
+  onCallEndedRef.current = onCallEnded;
   queryRef.current = query;
+
+  const selected: SelectedTarget | null =
+    picked ??
+    (call.target
+      ? {
+          contactId: call.target.contactId,
+          name: call.target.name || formatCallerIdDisplay(call.target.to),
+          phone: call.target.to,
+        }
+      : null);
 
   useEffect(() => {
     if (!from && defaultFrom) setFrom(defaultFrom);
@@ -146,6 +124,31 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   }, []);
 
   useEffect(() => {
+    if (!focusContact?.contactId || state !== CALL_STATES.IDLE) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const results = await crmApi.searchContacts(focusContact.contactId);
+        if (cancelled) return;
+        const hit =
+          results.find((row: ContactHit) => row.contact_id === focusContact.contactId) ?? results[0];
+        if (!hit) return;
+        const dest = dialTargetFromContact(hit);
+        if (!dest) return;
+        const name = hit.name || focusContact.name || hit.contact_id;
+        setPicked({ contactId: hit.contact_id, name, phone: dest });
+        setQuery(name);
+        setHits(results);
+      } finally {
+        if (!cancelled) onFocusHandled?.();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [focusContact?.contactId, focusContact?.name, onFocusHandled, state]);
+
+  useEffect(() => {
     if (!answeredAt || state !== CALL_STATES.ACTIVE) return;
     const tick = () => setElapsed(formatLiveDuration(Date.now() - answeredAt));
     tick();
@@ -154,75 +157,31 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   }, [answeredAt, state]);
 
   useEffect(() => {
-    if (state !== CALL_STATES.RINGING || voiceClientRef.current !== "telnyx") {
+    const contact =
+      selected?.contactId != null
+        ? { contactId: selected.contactId, name: selected.name }
+        : focusContact;
+    onLiveChangeRef.current?.({ state, elapsed, contact, callSid: call.callSid });
+    if (state !== CALL_STATES.IDLE) {
+      wasInCallRef.current = true;
+      endedReportedRef.current = false;
       return;
     }
-    const timer = window.setTimeout(() => {
-      setOutcome("Sin respuesta");
-      pendingMissRef.current = false;
-      hangupRef.current();
-    }, TELNYX_RING_TIMEOUT_MS);
-    return () => window.clearTimeout(timer);
-  }, [state]);
-
-  useEffect(() => {
-    const inFlight = state === CALL_STATES.RINGING || state === CALL_STATES.CONNECTING;
-    const waiting = state === CALL_STATES.IDLE && pendingMissRef.current && !wasAnsweredRef.current;
-    if (!inFlight && !waiting) return;
-    let stopped = false;
-    const started = Date.now();
-    const poll = async () => {
-      if (stopped) return;
-      if (waiting && Date.now() - started > 20_000) {
-        pendingMissRef.current = false;
-        return;
-      }
-      try {
-        const message = dispositionMessage(await fetchCarrierDisposition(callSidRef.current));
-        if (message) {
-          setOutcome(message);
-          setError(null);
-          pendingMissRef.current = false;
-          if (inFlight) hangupRef.current();
-          return;
-        }
-      } catch {
-        /* WebRTC hangup or timeout will still end the call */
-      }
-      if (!stopped) window.setTimeout(poll, 1500);
-    };
-    void poll();
-    return () => {
-      stopped = true;
-    };
-  }, [state]);
-
-  useEffect(() => {
-    onLiveChangeRef.current?.({ state, elapsed });
-  }, [state, elapsed]);
+    if (!wasInCallRef.current || endedReportedRef.current) return;
+    wasInCallRef.current = false;
+    endedReportedRef.current = true;
+    // Memo and screening only exist once the recording is processed; the home polls for them.
+    const failed = call.failed || !call.answered;
+    onCallEndedRef.current?.({
+      callSid: call.callSid,
+      answered: call.answered,
+      callStatus: failed ? "failed" : undefined,
+    });
+  }, [state, elapsed, selected?.contactId, selected?.name, focusContact, call.callSid, call.failed, call.answered]);
 
   useEffect(() => {
     return () => {
       onLiveChangeRef.current?.({ state: CALL_STATES.IDLE, elapsed: "0:00" });
-      try {
-        if (voiceClientRef.current === "telnyx") {
-          telnyxCallRef.current?.hangup?.();
-        } else {
-          callRef.current?.disconnect();
-        }
-      } catch {
-        /* already gone */
-      }
-      try {
-        telnyxClientRef.current?.disconnect?.();
-      } catch {
-        /* already gone */
-      }
-      try {
-        deviceRef.current?.destroy();
-      } catch {
-        /* already gone */
-      }
     };
   }, []);
 
@@ -246,270 +205,37 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       } catch {
         if (queryRef.current.trim() !== q) return;
         setHits([]);
-        setSearchError("No se pudo buscar en HubSpot");
+        setSearchError(callCopy.callHubSpotSearchFailed);
       } finally {
         if (queryRef.current.trim() === q) setSearching(false);
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [query, state]);
+  }, [query, state, callCopy]);
 
-  const destroyDevice = () => {
-    const device = deviceRef.current;
-    deviceRef.current = null;
-    try {
-      device?.destroy();
-    } catch {
-      /* already gone */
-    }
-  };
-
-  const ensureDevice = async (token: string, { forceNew = false } = {}) => {
-    if (forceNew) destroyDevice();
-    if (deviceRef.current) {
-      deviceRef.current.updateToken(token);
-      return deviceRef.current;
-    }
-    const device = new Device(token, {
-      codecPreferences: [Call.Codec.Opus, Call.Codec.PCMU],
-    });
-    device.on("tokenWillExpire", () => {
-      void applyVoiceTokenRefresh({
-        remint: async () => (await callsApi.createToken()).token,
-        apply: (next) => {
-          deviceRef.current?.updateToken(next);
-        },
-        onFailure: () => {
-          if (!callRef.current) destroyDevice();
-        },
-      });
-    });
-    device.on("error", (err) => {
-      if (
-        isCarrierHangupError(err) ||
-        isCarrierHangupError(err?.message) ||
-        isVoiceSdkGeneralError(err) ||
-        isVoiceSdkGeneralError(err?.message)
-      ) {
-        return;
-      }
-      if (isVoiceAccessTokenError(err)) {
-        destroyDevice();
-        // connect() / recovery owns the retry while placing; idle expiry is silent.
-        if (placingCallRef.current || !callRef.current) return;
-      }
-      setError(userFacingCallError(err) || "No se pudo iniciar la llamada.");
-      setState(CALL_STATES.IDLE);
-    });
-    deviceRef.current = device;
-    return device;
-  };
-
-  const stopRingback = () => {
-    stopRingbackRef.current?.();
-    stopRingbackRef.current = null;
-    stopRemoteWatchRef.current?.();
-    stopRemoteWatchRef.current = null;
-  };
-
-  const hangup = () => {
-    stopRingback();
-    const twilioCall = callRef.current;
-    const telnyxCall = telnyxCallRef.current;
-    callRef.current = null;
-    telnyxCallRef.current = null;
-    setAnsweredAt(null);
-    setMuted(false);
-    setState(CALL_STATES.IDLE);
-    try {
-      if (voiceClientRef.current === "telnyx") {
-        // Hang up the call only — disconnecting the client drops SIP BYE
-        // before Telnyx can tear down the parked PSTN legs.
-        telnyxCall?.hangup?.();
-      } else {
-        twilioCall?.disconnect();
-      }
-    } catch {
-      /* already gone */
-    }
-  };
-  hangupRef.current = hangup;
-
-  const ensureTelnyxRemote = () => {
-    const existing = document.getElementById("vocify-telnyx-remote");
-    if (existing instanceof HTMLAudioElement) return existing;
-    const audio = document.createElement("audio");
-    audio.id = "vocify-telnyx-remote";
-    audio.autoplay = true;
-    document.body.appendChild(audio);
-    return audio;
-  };
-
-  const startTelnyxCall = async (token: string, target: SelectedTarget) => {
-    const { TelnyxRTC } = await import("@telnyx/webrtc");
-    try {
-      telnyxClientRef.current?.disconnect?.();
-    } catch {
-      /* already gone */
-    }
-
-    const client = new TelnyxRTC(telnyxRtcClientOptions(token));
-    telnyxClientRef.current = client;
-    voiceClientRef.current = "telnyx";
-
-    await new Promise<void>((resolve, reject) => {
-      let settled = false;
-      client.on("telnyx.ready", () => {
-        if (settled) return;
-        settled = true;
-        resolve();
-      });
-      client.on("telnyx.error", (err: { message?: string }) => {
-        if (settled) return;
-        settled = true;
-        reject(new Error(err?.message || "Error de Telnyx"));
-      });
-      client.connect();
-    });
-
-    const remote = ensureTelnyxRemote();
-    const call = client.newCall({
-      ...telnyxNewCallOptions({
-        to: target.phone,
-        callerId: from,
-        contactId: target.contactId,
-      }),
-      remoteElement: remote,
-    });
-    telnyxCallRef.current = call;
-    stopRemoteWatchRef.current = watchRemoteAudio(remote, () => {
-      stopRingback();
-    });
-
-    client.on("telnyx.notification", (notification: TelnyxNotification) => {
-      if (notification?.type !== "callUpdate" || !notification.call) return;
-      if (call.id && notification.call.id && notification.call.id !== call.id) {
-        return;
-      }
-      const next = mapTelnyxCallState(notification.call.state);
-      if (next === CALL_STATES.ACTIVE) {
-        // Park answers the WebRTC leg immediately; PSTN is still ringing.
-        setState(CALL_STATES.RINGING);
-        return;
-      }
-      if (next === CALL_STATES.IDLE) {
-        const ended = telnyxHangupMessage(notification.call);
-        if (ended) {
-          setOutcome(ended);
-          setError(null);
-          pendingMissRef.current = false;
-        }
-        hangup();
-        return;
-      }
-      setState(next);
-    });
-  };
-
-  const startTwilioCall = async (token: string, target: SelectedTarget) => {
-    voiceClientRef.current = "twilio";
-    placingCallRef.current = true;
-    let call;
-    try {
-      call = await connectWithVoiceTokenRecovery({
-        token,
-        connect: async (jwt, forceNew) => {
-          const device = await ensureDevice(jwt, { forceNew });
-          return device.connect({
-            params: {
-              To: target.phone,
-              CallerId: from,
-              ContactId: target.contactId || "",
-            },
-          });
-        },
-        remint: async () => (await callsApi.createToken()).token,
-      });
-      callRef.current = call;
-    } finally {
-      placingCallRef.current = false;
-    }
-    const rememberSid = () => {
-      const sid = call.parameters?.CallSid;
-      if (sid) callSidRef.current = sid;
-    };
-    rememberSid();
-    call.on("ringing", () => {
-      rememberSid();
-      setState(CALL_STATES.RINGING);
-    });
-    call.on("accept", () => {
-      rememberSid();
-      wasAnsweredRef.current = true;
-      pendingMissRef.current = false;
-      setAnsweredAt(Date.now());
-      setState(CALL_STATES.ACTIVE);
-    });
-    call.on("disconnect", hangup);
-    call.on("cancel", hangup);
-    call.on("error", (err) => {
-      if (isCarrierHangupError(err) || isCarrierHangupError(err?.message)) {
-        if (!wasAnsweredRef.current) {
-          setOutcome((prev) => prev || "Sin respuesta");
-        }
-        hangup();
-        return;
-      }
-      if (isVoiceSdkGeneralError(err) || isVoiceSdkGeneralError(err?.message)) {
-        hangup();
-        return;
-      }
-      if (isVoiceAccessTokenError(err)) destroyDevice();
-      setError(userFacingCallError(err) || "No se pudo iniciar la llamada.");
-      pendingMissRef.current = false;
-      hangup();
-    });
-  };
+  const hangup = () => callEngine.hangup();
 
   const startCall = async (target: SelectedTarget) => {
-    setError(null);
-    setOutcome(null);
     if (!from) {
-      toast.error("Verifica tu número antes de llamar");
+      toast.error(callCopy.dialVerifyBeforeCall);
       return;
     }
-    callSidRef.current = null;
-    wasAnsweredRef.current = false;
-    pendingMissRef.current = true;
-    try {
-      setSelected(target);
-      setState(CALL_STATES.CONNECTING);
-      const { token: session, stop } = await fetchVoiceTokenAfterRingback(
-        startLocalRingback,
-        () => callsApi.createToken(),
-      );
-      stopRingbackRef.current = stop;
-      const { token, provider } = session;
-      if (voiceClientFromToken(provider) !== "telnyx") {
-        stopRingback();
-        await startTwilioCall(token, target);
-        return;
-      }
-      await startTelnyxCall(token, target);
-    } catch (err) {
-      stopRingback();
-      setState(CALL_STATES.IDLE);
-      pendingMissRef.current = false;
-      const message = userFacingCallError(err) || "No se pudo iniciar la llamada.";
-      setError(message);
-      toast.error(message);
+    if (recordingBusy) {
+      toast.error("Stop the recording before calling.");
+      return;
     }
+    setPicked(target);
+    const { error: failed } = await callEngine.dial(
+      { to: target.phone, name: target.name, contactId: target.contactId ?? null, dealId: null, callerId: from },
+      callCopy,
+    );
+    if (failed) toast.error(failed);
   };
 
   const callContact = (hit: ContactHit) => {
     const dest = dialTargetFromContact(hit);
     if (!dest) {
-      toast.error("Este contacto no tiene teléfono");
+      toast.error(callCopy.dialContactNoPhone);
       return;
     }
     void startCall({
@@ -536,17 +262,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
 
   const toggleMute = () => {
     if (!canMute(state)) return;
-    const next = !muted;
-    if (voiceClientRef.current === "telnyx") {
-      if (!telnyxCallRef.current) return;
-      if (next) telnyxCallRef.current.muteAudio?.();
-      else telnyxCallRef.current.unmuteAudio?.();
-      setMuted(next);
-      return;
-    }
-    if (!callRef.current) return;
-    callRef.current.mute(next);
-    setMuted(next);
+    callEngine.setMuted(!muted);
   };
 
   if (inCall || selected) {
@@ -554,8 +270,48 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
       state === CALL_STATES.ACTIVE
         ? elapsed
         : state === CALL_STATES.IDLE
-          ? outcome || "Listo para llamar"
+          ? outcome || callCopy.dialReadyToCall
           : callButtonLabel(state);
+    // Rings until they pick up, so the rep sees the call is alive without reading the label.
+    const ringing = state === CALL_STATES.RINGING || state === CALL_STATES.CONNECTING;
+    const ring = ringing ? <AnimIcon name="phone" size={11} stroke={1.5} state="ringing" /> : null;
+
+    if (compact && inCall) {
+      return (
+        <div className="select-none">
+          <div className="flex items-center gap-3">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/50 text-[10px] font-medium text-muted-foreground">
+              {contactInitials(selected?.name)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-medium text-foreground">{selected?.name}</p>
+              <p className="mt-0.5 flex items-center gap-1 text-[11px] tabular-nums text-beige">{ring}{label}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {state === CALL_STATES.ACTIVE ? (
+                <IconAction label={muted ? callCopy.dialUnmuteMic : callCopy.dialMuteMic} pressed={muted} onClick={toggleMute}>
+                  {muted ? (
+                    <MicOff size={15} strokeWidth={1.5} />
+                  ) : (
+                    <Mic size={15} strokeWidth={1.5} />
+                  )}
+                </IconAction>
+              ) : null}
+              <Button
+                type="button"
+                variant="dangerGhost"
+                size="sm"
+                onClick={() => hangup()}
+                className="gap-1.5"
+              >
+                <PhoneOff size={15} strokeWidth={1.5} />
+                {callCopy.panel_hang_up}
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="select-none">
@@ -570,33 +326,30 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
             <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
               {selected ? formatCallerIdDisplay(selected.phone) : ""}
             </p>
-            <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{label}</p>
+            <p className="mt-1 flex items-center gap-1 text-[11px] tabular-nums text-muted-foreground">{ring}{label}</p>
           </div>
         </div>
 
+        {showBrief && !compact && user?.company?.briefV2 && selected?.contactId ? (
+          <div className="mt-3">
+            <ContactBrief contactId={selected.contactId} compact />
+          </div>
+        ) : null}
+
         <div className="mt-4 flex items-center justify-center gap-2">
           {live ? (
-            <button
-              type="button"
-              aria-label={muted ? "Activar micrófono" : "Silenciar"}
-              aria-pressed={muted}
-              onClick={toggleMute}
-              className={`flex h-9 w-9 items-center justify-center rounded-full transition-colors ${
-                muted
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
-              }`}
-            >
+            <IconAction label={muted ? callCopy.dialUnmuteMic : callCopy.dialMuteMic} pressed={muted} onClick={toggleMute}>
               {muted ? (
-                <MicrophoneSlash size={16} weight="light" />
+                <MicOff size={16} strokeWidth={1.5} />
               ) : (
-                <Microphone size={16} weight="light" />
+                <Mic size={16} strokeWidth={1.5} />
               )}
-            </button>
+            </IconAction>
           ) : null}
 
-          <button
+          <Button
             type="button"
+            size="sm"
             onClick={() => {
               if (inCall) {
                 hangup();
@@ -606,34 +359,32 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
             }}
             disabled={!canPlace && !inCall}
             aria-label={callButtonLabel(state)}
-            className={`inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] transition-colors disabled:opacity-40 ${
-              inCall
-                ? "text-destructive hover:bg-destructive/10"
-                : "bg-beige text-cream hover:bg-beige-dark"
-            }`}
+            variant={inCall ? "dangerGhost" : "default"}
+            className="gap-1.5"
           >
             {inCall ? (
-              <PhoneDisconnect size={15} weight="light" />
+              <PhoneOff size={15} strokeWidth={1.5} />
             ) : (
-              <Phone size={15} weight="light" />
+              <AnimIcon name="phone" size={15} stroke={1.25} />
             )}
             {inCall ? "Colgar" : "Llamar"}
-          </button>
+          </Button>
         </div>
 
         {!inCall ? (
-          <button
+          <Button
             type="button"
+            variant="quiet"
+            size="text"
             onClick={() => {
-              setSelected(null);
-              setError(null);
-              setOutcome(null);
+              setPicked(null);
+              callEngine.reset();
               window.setTimeout(() => searchRef.current?.focus(), 0);
             }}
-            className="mt-3 w-full text-center text-[11px] text-muted-foreground hover:text-foreground"
+            className="mt-3 w-full"
           >
             Buscar otro contacto
-          </button>
+          </Button>
         ) : null}
 
         {from ? (
@@ -647,9 +398,9 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
               onClick={() => onRequestClose?.()}
               className="text-beige hover:underline"
             >
-              Verifica tu número
+              {callCopy.dialVerifyNumber}
             </Link>{" "}
-            para llamar
+            {callCopy.dialToCallHint}
           </p>
         )}
 
@@ -661,9 +412,9 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
   return (
     <div className="select-none">
       <div className="relative">
-        <MagnifyingGlass
+        <Search
           size={14}
-          weight="light"
+          strokeWidth={1.5}
           className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
         />
         <input
@@ -672,7 +423,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
           autoComplete="off"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Nombre, email o teléfono"
+          placeholder={callCopy.dialSearchPlaceholder}
           onKeyDown={(e) => {
             if (e.key !== "Enter") return;
             const first = hits.find((hit) => dialTargetFromContact(hit));
@@ -694,7 +445,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
             onClick={() => callTypedNumber(typedNumber)}
             className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-beige/10 disabled:opacity-40"
           >
-            <Phone size={14} weight="light" className="shrink-0 text-beige" />
+            <AnimIcon name="phone" size={14} stroke={1.25} className="text-beige" />
             <span className="min-w-0">
               <span className="block truncate text-[13px] font-medium text-foreground">
                 Llamar a {formatCallerIdDisplay(typedNumber)}
@@ -726,7 +477,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
                 type="button"
                 disabled={!canPlace || !dest}
                 onClick={() => callContact(hit)}
-                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-beige/10 disabled:opacity-40"
+                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-secondary/60 disabled:opacity-40"
               >
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border/50 text-[9px] font-medium text-muted-foreground">
                   {contactInitials(hit.name || hit.email)}
@@ -736,7 +487,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
                     {hit.name || hit.email || "Contacto"}
                   </span>
                   <span className="block truncate text-[11px] text-muted-foreground">
-                    {[hit.jobtitle, hit.company_name, dest ? formatCallerIdDisplay(dest) : "Sin teléfono"]
+                    {[hit.jobtitle, hit.company_name, dest ? formatCallerIdDisplay(dest) : callCopy.dialNoPhone]
                       .filter(Boolean)
                       .join(" · ")}
                   </span>
@@ -747,7 +498,7 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
 
         {!searching && query.trim().length >= 2 && hits.length === 0 && !typedNumber ? (
           <p className="px-1 py-6 text-center text-xs text-muted-foreground">
-            {searchError || "Ningún contacto. Prueba otro nombre."}
+            {searchError || callCopy.dialNoContactsTryAnother}
           </p>
         ) : null}
 
@@ -769,9 +520,9 @@ export const DashboardDialer = ({ callerIds, onLiveChange, onRequestClose }: Pro
             onClick={() => onRequestClose?.()}
             className="text-beige hover:underline"
           >
-            Verifica tu número
+            {callCopy.dialVerifyNumber}
           </Link>{" "}
-          para llamar
+          {callCopy.dialToCallHint}
         </p>
       )}
     </div>

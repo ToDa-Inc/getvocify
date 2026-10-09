@@ -121,3 +121,12 @@ def log_json_failed(error: str, content: str) -> None:
             content_preview=content[:200] if content else "",
         ),
     )
+
+
+def answers_without_reasoning(model: Optional[str], effort: Optional[str]) -> bool:
+    """Whether this call runs on a model that does not reason first: effort "none", or a Together
+    model with no effort set (providers/openrouter.py turns its reasoning off). Such a model gets
+    the *_no_reasoning prompt addenda: the checks a reasoning model makes on its own, written out."""
+    if effort:
+        return effort == "none"
+    return str(model or "").startswith("together/")

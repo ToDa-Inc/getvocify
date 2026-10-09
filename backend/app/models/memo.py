@@ -7,6 +7,8 @@ from typing import Optional, List, Literal, Any
 from datetime import datetime
 from uuid import UUID
 
+from app.models.intelligence import IntelligenceV1
+
 
 # Universal normalization: LLM often returns null or {} instead of []/{}.
 # These mappings define how to coerce invalid values per field type.
@@ -87,6 +89,13 @@ class MemoExtraction(BaseModel):
     # Raw extraction for dynamic fields
     raw_extraction: Optional[dict] = Field(default_factory=dict)
 
+    # Typed intelligence. Absent on legacy memos. null is unknown, not false.
+    intelligence: Optional[IntelligenceV1] = None
+
+    # Whether anyone outside the rep's team took part. false tags the memo `internal`
+    # (playbooks.routing.apply_internal_detection). null is unknown, never false.
+    customerPresent: Optional[bool] = None
+
     @model_validator(mode="before")
     @classmethod
     def normalize_llm_output(cls, v: Any) -> Any:
@@ -145,7 +154,15 @@ class Memo(MemoBase):
     hubspotContactId: Optional[str] = None
     hubspotDealId: Optional[str] = None
     screeningOutcome: Optional[str] = None
-    
+    interactionKind: Optional[str] = None
+    salesMotionKey: Optional[str] = None
+    # Lista 4 T4: what the after-call outcome did (stored date, handoff hint). Approve only.
+    after_call: Optional[dict] = None
+    # What the rep typed while a desktop meeting recorded.
+    userNotes: Optional[str] = None
+    # Meeting attendees: name and email from calendar event (for dashboard avatars on meeting rows)
+    attendees: List[dict] = Field(default_factory=list)
+
     class Config:
         from_attributes = True
 
@@ -200,6 +217,24 @@ class ApproveMemoRequest(BaseModel):
         ),
     )
 
+    # Lista 4 T4 (E10, AFTER_CALL_FLOW_ENABLED): the outcome the rep picks in Hoy's panel after
+    # the call. With the flag on it replaces call_outcome (see services/after_call.py); with it
+    # off these are ignored and approval behaves exactly as before.
+    rep_outcome: Optional[Literal["meeting_booked", "follow_up", "not_interested", "disqualified"]] = None
+    followup_at: Optional[datetime] = Field(
+        None, description="follow_up only: when to call back. None = the cadence's suggested date."
+    )
+    disqualify_reason: Optional[str] = Field(
+        None, description="Required for not_interested/disqualified; written as the lost reason."
+    )
+    lead_status: Optional[str] = Field(
+        None,
+        description=(
+            "The contact lead status the rep chose instead of the proposed one - honoured only "
+            "when it is one of the account's mapped On hold / Lost values."
+        ),
+    )
+
     @model_validator(mode="after")
     def _lost_requires_reason(self) -> "ApproveMemoRequest":
         """
@@ -210,5 +245,27 @@ class ApproveMemoRequest(BaseModel):
         """
         if self.call_outcome == "lost" and not (self.lost_reason or "").strip():
             raise ValueError("lost_reason is required when call_outcome is 'lost'")
+        _require_outcome_reason(self.rep_outcome, self.disqualify_reason or self.lost_reason)
+        return self
+
+
+def _require_outcome_reason(rep_outcome: Optional[str], reason: Optional[str]) -> None:
+    """Same rule as a Lost call_outcome: closing a contact out always records why."""
+    if rep_outcome in ("not_interested", "disqualified") and not (reason or "").strip():
+        raise ValueError(f"disqualify_reason is required when rep_outcome is '{rep_outcome}'")
+
+
+class RecordOutcomeRequest(BaseModel):
+    """POST /memos/{id}/outcome (Lista 4 T4): the after-call outcome for a memo that is already
+    approved (auto-approve wrote it before the rep got to the panel). Same semantics as the
+    rep_outcome fields of ApproveMemoRequest."""
+    rep_outcome: Literal["meeting_booked", "follow_up", "not_interested", "disqualified"]
+    followup_at: Optional[datetime] = None
+    disqualify_reason: Optional[str] = None
+    lead_status: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _closing_requires_reason(self) -> "RecordOutcomeRequest":
+        _require_outcome_reason(self.rep_outcome, self.disqualify_reason)
         return self
 

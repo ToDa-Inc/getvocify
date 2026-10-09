@@ -110,14 +110,20 @@ class LLMRouter:
         provider: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> dict:
         active = self._active_provider(provider)
+        kwargs = {"reasoning_effort": reasoning_effort} if reasoning_effort else {}
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
         return await active.chat_json(
             messages,
             model=model or self._default_model,
             temperature=temperature,
             timeout=timeout,
             max_retries=max_retries,
+            **kwargs,
         )
 
     async def chat_tools(
@@ -147,3 +153,39 @@ class LLMRouter:
             max_retries=max_retries,
             extra=extra,
         )
+
+    async def chat_tools_stream(
+        self,
+        messages: list[dict],
+        *,
+        tools: list,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        provider: Optional[str] = None,
+        timeout: Optional[float] = None,
+        extra: Optional[dict] = None,
+    ):
+        """Stream a tool-calling turn. Providers without streaming fall back to one final result."""
+        active = self._active_provider(provider)
+        stream_fn = getattr(active, "chat_tools_stream", None)
+        if stream_fn is not None:
+            async for item in stream_fn(
+                messages,
+                tools=tools,
+                model=model or self._default_model,
+                temperature=temperature,
+                timeout=timeout,
+                extra=extra,
+            ):
+                yield item
+            return
+        result = await self.chat_tools(
+            messages,
+            tools=tools,
+            model=model,
+            temperature=temperature,
+            provider=provider,
+            timeout=timeout,
+            extra=extra,
+        )
+        yield "final", result

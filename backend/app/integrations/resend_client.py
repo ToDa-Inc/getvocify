@@ -48,6 +48,8 @@ class ResendClient:
         subject: str,
         html: str,
         from_email: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        reply_to: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not from_email:
             from_email = get_resend_from_email()
@@ -57,10 +59,15 @@ class ResendClient:
             "subject": subject,
             "html": html,
         }
+        if reply_to:
+            payload["reply_to"] = [reply_to]
+        headers = dict(self.headers)
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"{self.base_url}/emails",
-                headers=self.headers,
+                headers=headers,
                 json=payload,
             )
         if response.status_code >= 400:

@@ -1,0 +1,1363 @@
+[
+ {
+  "id": "ae01",
+  "persona": "ae",
+  "q": "¿Qué pasó con Marina de Acme?",
+  "expect_tools_any": [
+   "deal_story"
+  ],
+  "max_tools": 3,
+  "must": [
+   "(?i)precio|caro"
+  ],
+  "must_any": [
+   [
+    "(?i)gong",
+    "(?i)conduc",
+    "(?i)caso de log"
+   ]
+  ]
+ },
+ {
+  "id": "ae02",
+  "persona": "ae",
+  "q": "resúmeme lo de Pablo de logística",
+  "expect_tools_any": [
+   "deal_story"
+  ],
+  "max_tools": 3,
+  "must": [
+   "(?i)precio|presupuesto|retorno"
+  ]
+ },
+ {
+  "id": "ae03",
+  "persona": "ae",
+  "q": "prepárame la llamada con Inés Vidal",
+  "expect_tools_any": [
+   "deal_story"
+  ],
+  "max_tools": 3,
+  "must_any": [
+   [
+    "(?i)enfri|sin novedades|15 d|días|silencio|interés"
+   ]
+  ]
+ },
+ {
+  "id": "ae04",
+  "persona": "ae",
+  "q": "¿qué tengo pendiente hoy?",
+  "expect_tools_any": [
+   "next_actions"
+  ],
+  "max_tools": 1,
+  "forbid_tools": [
+   "objection_breakdown",
+   "crm_call_stats"
+  ],
+  "must_any": [
+   [
+    "(?i)marina|caso de log|enviar"
+   ]
+  ]
+ },
+ {
+  "id": "ae05",
+  "persona": "ae",
+  "q": "qué deals se me están enfriando",
+  "expect_tools_any": [
+   "next_actions"
+  ],
+  "max_tools": 1,
+  "must_any": [
+   [
+    "(?i)inés|ines|enfri|sin contacto|silencio"
+   ]
+  ]
+ },
+ {
+  "id": "ae06",
+  "persona": "ae",
+  "q": "¿Qué objeciones me han puesto este mes?",
+  "expect_tools_any": [
+   "objection_breakdown"
+  ],
+  "max_tools": 1,
+  "forbid_tools": [
+   "crm_call_stats",
+   "crm_lost_reasons",
+   "team_health"
+  ],
+  "must": [
+   "(?i)precio"
+  ],
+  "must_not": [
+   "(?i)adherencia|tasa de conexi"
+  ],
+  "note": "objections first; obstacles only as one separate line",
+  "max_matches": [
+   {
+    "pattern": "(?i)obst[aá]culo",
+    "max": 2
+   }
+  ]
+ },
+ {
+  "id": "ae07",
+  "persona": "ae",
+  "q": "¿cuáles son los obstáculos más comunes cuando llamo?",
+  "expect_tools_any": [
+   "objection_breakdown"
+  ],
+  "max_tools": 1,
+  "must_any": [
+   [
+    "(?i)mal momento|gatekeeper|recepci|persona adecuada|consult"
+   ]
+  ],
+  "note": "must talk about obstacles, not repackage objections",
+  "must_not": [
+   "(?i)objeci"
+  ]
+ },
+ {
+  "id": "ae08",
+  "persona": "ae",
+  "q": "¿cómo respondo cuando me dicen que es caro?",
+  "expect_tools_any": [
+   "playbook_lookup"
+  ],
+  "max_tools": 1,
+  "must_any": [
+   [
+    "(?i)retorno|cuánto les cuesta|coste"
+   ]
+  ],
+  "note": "answer from the approved playbook, cited"
+ },
+ {
+  "id": "ae09",
+  "persona": "ae",
+  "q": "how did I handle the price objection with Marina?",
+  "expect_tools_any": [
+   "deal_story",
+   "find_interactions"
+  ],
+  "max_tools": 3,
+  "lang": "en",
+  "must_any": [
+   [
+    "(?i)open|unanswer|no reply|not (yet )?(answered|addressed)|still"
+   ]
+  ]
+ },
+ {
+  "id": "ae10",
+  "persona": "ae",
+  "q": "¿Cuál fue mi tasa de conexión en agosto?",
+  "expect_tools_any": [
+   "crm_call_stats"
+  ],
+  "max_tools": 1,
+  "forbid_tools": [
+   "deal_story",
+   "objection_breakdown",
+   "find_interactions"
+  ],
+  "numbers": [
+   "ana_rate_aug"
+  ],
+  "must_not": [
+   "(?i)equipo"
+  ]
+ },
+ {
+  "id": "ae11",
+  "persona": "ae",
+  "q": "¿cuántas llamadas hice el mes pasado y cuántas contestaron?",
+  "expect_tools_any": [
+   "crm_call_stats"
+  ],
+  "max_tools": 1,
+  "numbers": [
+   "ana_calls_aug",
+   "ana_connected_aug"
+  ]
+ },
+ {
+  "id": "ae12",
+  "persona": "ae",
+  "q": "¿cuántas reuniones he agendado en los últimos 30 días?",
+  "expect_tools_any": [
+   "meetings_agreed"
+  ],
+  "max_tools": 1,
+  "forbid_tools": [
+   "crm_call_stats"
+  ]
+ },
+ {
+  "id": "ae13",
+  "persona": "ae",
+  "q": "¿qué competidores mencionan mis prospectos?",
+  "expect_tools_any": [
+   "competitor_mentions"
+  ],
+  "max_tools": 1,
+  "must": [
+   "(?i)gong"
+  ]
+ },
+ {
+  "id": "ae14",
+  "persona": "ae",
+  "q": "muéstrame las llamadas donde el tema del precio se quedó sin resolver",
+  "expect_tools_any": [
+   "find_interactions"
+  ],
+  "max_tools": 2,
+  "must_any": [
+   [
+    "(?i)marina|acme"
+   ]
+  ]
+ },
+ {
+  "id": "ae15",
+  "persona": "ae",
+  "q": "¿por qué perdí deals en agosto?",
+  "expect_tools_any": [
+   "crm_lost_reasons"
+  ],
+  "max_tools": 1,
+  "numbers": [
+   "ana_lost_aug"
+  ],
+  "must": [
+   "(?i)precio"
+  ]
+ },
+ {
+  "id": "ae16",
+  "persona": "ae",
+  "q": "¿cómo va el equipo esta semana?",
+  "expect_none_of": [
+   "team_health"
+  ],
+  "forbid_tools": [
+   "team_health"
+  ],
+  "must_any": [
+   [
+    "(?i)manager|responsable|owner|admin|no tienes|no puedo|acceso|solo (puedo|tengo)"
+   ]
+  ],
+  "note": "a member is refused, briefly, with no invented team numbers",
+  "max_tools": 0
+ },
+ {
+  "id": "ae17",
+  "persona": "ae",
+  "q": "¿quién es el mejor vendedor del equipo?",
+  "forbid_tools": [
+   "team_health"
+  ],
+  "must_not": [
+   "(?i)Luis|Marta"
+  ],
+  "allow_ranking_words": true,
+  "note": "no ranking and no teammates' names for a member"
+ },
+ {
+  "id": "ae18",
+  "persona": "ae",
+  "q": "apunta una nota en HubSpot para Marina: enviar la propuesta el jueves",
+  "expect_tools_any": [
+   "search_contacts",
+   "create_note"
+  ],
+  "expect_confirm": true,
+  "max_tools": 3,
+  "note": "a write pauses for confirmation",
+  "must": [
+   "(?i)marina"
+  ]
+ },
+ {
+  "id": "ae19",
+  "persona": "ae",
+  "q": "hola",
+  "max_tools": 0,
+  "max_words": 25,
+  "allow_question": true
+ },
+ {
+  "id": "ae20",
+  "persona": "ae",
+  "q": "asdf qwe",
+  "max_tools": 0,
+  "max_words": 30,
+  "note": "gibberish: short and helpful, no data",
+  "allow_question": true
+ },
+ {
+  "id": "ae21",
+  "persona": "ae",
+  "q": "¿cuántas veces me dijeron 'ahora no puedo' o 'llámame luego'?",
+  "expect_tools_any": [
+   "objection_breakdown",
+   "find_interactions"
+  ],
+  "max_tools": 2,
+  "must_any": [
+   [
+    "(?i)mal momento|obst"
+   ]
+  ],
+  "note": "that is an obstacle, not a price/timing objection"
+ },
+ {
+  "id": "mg01",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cómo va el equipo con el playbook?",
+  "expect_tools_any": [
+   "team_health"
+  ],
+  "max_tools": 1,
+  "forbid_tools": [
+   "objection_breakdown",
+   "crm_call_stats"
+  ],
+  "must_not": [
+   "(?i)objeci"
+  ],
+  "numbers": [
+   "adherence_pct"
+  ]
+ },
+ {
+  "id": "mg02",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿con qué objeciones perdemos más?",
+  "expect_tools_any": [
+   "objection_breakdown",
+   "crm_lost_reasons"
+  ],
+  "max_tools": 2,
+  "must": [
+   "(?i)precio"
+  ],
+  "expect_tools_all": [
+   "objection_breakdown",
+   "crm_lost_reasons"
+  ],
+  "must_any": [
+   [
+    "(?i)hubspot|motivos de p[eé]rdida|fuentes|deals? perdid"
+   ]
+  ]
+ },
+ {
+  "id": "mg03",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuál fue la tasa de conexión del equipo en agosto?",
+  "expect_tools_any": [
+   "crm_call_stats"
+  ],
+  "max_tools": 1,
+  "forbid_tools": [
+   "objection_breakdown",
+   "team_health",
+   "deal_story"
+  ],
+  "numbers": [
+   "team_rate_aug"
+  ],
+  "must_not": [
+   "(?i)objeci"
+  ]
+ },
+ {
+  "id": "mg04",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "dame la tasa de conexión de agosto por comercial",
+  "expect_tools_any": [
+   "crm_call_stats"
+  ],
+  "max_tools": 1,
+  "must": [
+   "(?i)ana",
+   "(?i)luis",
+   "(?i)marta"
+  ],
+  "numbers": [
+   "ana_rate_aug",
+   "luis_rate_aug",
+   "marta_rate_aug"
+  ],
+  "note": "a table in alphabetical order, no ranking words"
+ },
+ {
+  "id": "mg05",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuáles son los 5 principales motivos por los que marcamos un deal como perdido?",
+  "expect_tools_any": [
+   "crm_lost_reasons"
+  ],
+  "max_tools": 1,
+  "must": [
+   "(?i)precio"
+  ],
+  "note": "period not given: a sensible default is fine",
+  "expect_period_note": true
+ },
+ {
+  "id": "mg06",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "motivos de pérdida en agosto y win rate",
+  "expect_tools_any": [
+   "crm_lost_reasons"
+  ],
+  "max_tools": 1,
+  "numbers": [
+   "lost_aug",
+   "won_aug",
+   "win_rate_aug",
+   "price_lost_aug"
+  ]
+ },
+ {
+  "id": "mg07",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿en cuántas llamadas no cualificamos bien?",
+  "max_tools": 4,
+  "note": "the data cannot say this: it must not invent a number",
+  "allow_question": true
+ },
+ {
+  "id": "mg08",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿qué deals del equipo están en riesgo?",
+  "expect_tools_any": [
+   "next_actions"
+  ],
+  "max_tools": 1,
+  "must_any": [
+   [
+    "(?i)luis|marta|ana"
+   ]
+  ],
+  "max_words": 150,
+  "must_not": [
+   "(?i)objeciones abiertas.*obst"
+  ]
+ },
+ {
+  "id": "mg09",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿quién necesita ayuda con el precio?",
+  "max_tools": 1,
+  "note": "exploratory: names the objection and sample size, alphabetical, no ranking",
+  "expect_tools_any": [
+   "objection_breakdown"
+  ],
+  "must": [
+   "(?i)ana",
+   "(?i)luis",
+   "(?i)marta"
+  ]
+ },
+ {
+  "id": "mg10",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántas reuniones ha agendado cada uno esta semana?",
+  "expect_tools_any": [
+   "meetings_agreed"
+  ],
+  "max_tools": 1,
+  "forbid_tools": [
+   "crm_call_stats"
+  ],
+  "must_any": [
+   [
+    "(?i)no se pud|no determin|sin determinar|indetermin|sin datos|no hay datos|sin evaluar|no consta"
+   ]
+  ]
+ },
+ {
+  "id": "mg11",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿qué competidores aparecen más y en qué conversaciones?",
+  "expect_tools_any": [
+   "competitor_mentions"
+  ],
+  "max_tools": 1,
+  "must": [
+   "(?i)gong"
+  ]
+ },
+ {
+  "id": "mg12",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "quiero ejemplos reales de lo que dicen los prospectos cuando les damos precio",
+  "expect_tools_any": [
+   "find_interactions",
+   "deal_story"
+  ],
+  "max_tools": 1,
+  "note": "real quotes, cited"
+ },
+ {
+  "id": "mg13",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "How many calls did Luis make in August?",
+  "expect_tools_any": [
+   "crm_call_stats"
+  ],
+  "max_tools": 2,
+  "lang": "en",
+  "numbers": [
+   "luis_calls_aug"
+  ]
+ },
+ {
+  "id": "mg14",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "dame los datos generales del equipo",
+  "max_tools": 3,
+  "must_not": [],
+  "note": "vague: acceptable to ask what they want or to give a short overview; must not dump everything",
+  "allow_question": true,
+  "max_words": 120
+ },
+ {
+  "id": "mg15",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿qué obstáculos nos frenan más, aparte de las objeciones?",
+  "expect_tools_any": [
+   "objection_breakdown"
+  ],
+  "max_tools": 1,
+  "must_any": [
+   [
+    "(?i)mal momento|gatekeeper|recepci|persona|consult"
+   ]
+  ]
+ },
+ {
+  "id": "g01",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántos deals abiertos tenemos por etapa?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 3,
+  "numbers": [
+   "open_deals",
+   "qualified_open"
+  ],
+  "must_not": [
+   "(?i)objeci"
+  ],
+  "max_words": 140
+ },
+ {
+  "id": "g02",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuál es el valor total del pipeline abierto?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 3,
+  "numbers": [
+   "open_value"
+  ],
+  "must_not": [
+   "(?i)objeci"
+  ]
+ },
+ {
+  "id": "g03",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "What was the average deal size of the deals we won in August?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 3,
+  "numbers": [
+   "avg_won_amount_aug"
+  ],
+  "lang": "en"
+ },
+ {
+  "id": "g04",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántas llamadas de más de 2 minutos hicimos en agosto?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "calls_over_2min_aug"
+  ]
+ },
+ {
+  "id": "g05",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuánto duran de media las llamadas conectadas de agosto?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "must_any": [
+   [
+    "161",
+    "(?i)2 ?(min|m)[^0-9]{0,6}41"
+   ]
+  ]
+ },
+ {
+  "id": "g06",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "How many meetings did we hold in August, and how many were no-shows?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 3,
+  "numbers": [
+   "no_shows_aug"
+  ],
+  "must_any": [
+   [
+    "\\b15\\b",
+    "\\b12\\b"
+   ]
+  ],
+  "lang": "en"
+ },
+ {
+  "id": "g07",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántas tareas vencidas tenemos ahora mismo?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "overdue_tasks"
+  ]
+ },
+ {
+  "id": "g08",
+  "persona": "ae",
+  "q": "¿cuántas tareas vencidas tengo?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "ana_overdue_tasks"
+  ],
+  "must_not": [
+   "(?i)equipo"
+  ]
+ },
+ {
+  "id": "g09",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántos deals llevan más de 30 días sin actividad?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 5,
+  "numbers": [
+   "stale_open_deals"
+  ]
+ },
+ {
+  "id": "g10",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "dame los 3 deals abiertos más grandes por importe",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "biggest_open_amount"
+  ],
+  "must": [
+   "Oportunidad 4"
+  ],
+  "max_words": 140
+ },
+ {
+  "id": "g11",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuánto pipeline abierto tenemos por segmento?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 5,
+  "numbers": [
+   "enterprise_open_value"
+  ]
+ },
+ {
+  "id": "g12",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántas llamadas hicimos por semana en agosto?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "team_calls_aug"
+  ],
+  "max_words": 150
+ },
+ {
+  "id": "g13",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿de dónde vienen los contactos que creamos en agosto?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "contacts_aug",
+   "organic_contacts_aug"
+  ],
+  "max_words": 140
+ },
+ {
+  "id": "g14",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántas llamadas hicimos a deals que luego perdimos?",
+  "max_tools": 4,
+  "must_any": [
+   [
+    "(?i)no (se puede|puedo|es posible|se pueden|permite|existe|hay|encuentro|figura|aparece)|can(no|')t|not (possible|found|exist)|doesn't exist|does not exist|no tiene"
+   ]
+  ],
+  "must_not": [
+   "\\b\\d{2,}\\b"
+  ],
+  "note": "needs a join HubSpot cannot do: it must say so, not approximate"
+ },
+ {
+  "id": "g15",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántos deals tienen rellenado el campo 'fecha de renovación'?",
+  "max_tools": 4,
+  "must_any": [
+   [
+    "(?i)no (se puede|puedo|es posible|se pueden|permite|existe|hay|encuentro|figura|aparece)|can(no|')t|not (possible|found|exist)|doesn't exist|does not exist|no tiene"
+   ]
+  ],
+  "must_not": [
+   "\\b\\d{2,}\\b"
+  ],
+  "note": "the property does not exist: it must not invent one"
+ },
+ {
+  "id": "g16",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "dime la tasa de conexión de Luis en agosto y qué objeciones le ponen",
+  "expect_tools_all": [
+   "objection_breakdown"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "luis_rate_aug"
+  ],
+  "max_words": 140
+ },
+ {
+  "id": "g17",
+  "persona": "ae",
+  "q": "¿cuánto pipeline abierto tengo yo?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 3,
+  "numbers": [
+   "ana_open_value"
+  ],
+  "must_not": [
+   "(?i)equipo"
+  ]
+ },
+ {
+  "id": "g18",
+  "persona": "ae",
+  "q": "how many meetings did I have in August?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 3,
+  "numbers": [
+   "ana_meetings_aug"
+  ],
+  "lang": "en",
+  "must_not": [
+   "(?i)team"
+  ]
+ },
+ {
+  "id": "g19",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "dime cómo va el pipeline",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "must_not": [
+   "(?i)objeci"
+  ],
+  "max_words": 140
+ },
+ {
+  "id": "g20",
+  "persona": "ae",
+  "q": "¿cuánto pipeline tiene Luis?",
+  "forbid_tools": [
+   "hubspot_query",
+   "hubspot_describe"
+  ],
+  "max_tools": 0,
+  "must_any": [
+   [
+    "(?i)solo|only|propio|tuy"
+   ]
+  ]
+ },
+ {
+  "id": "t01",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿qué porcentaje de nuestras llamadas de agosto duraron más de 2 minutos?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "pct_calls_over_2min_aug"
+  ]
+ },
+ {
+  "id": "t02",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cómo va agosto frente a julio en número de llamadas?",
+  "expect_tools_any": [
+   "hubspot_query",
+   "crm_call_stats"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "calls_jul",
+   "calls_change_vs_jul_pct"
+  ]
+ },
+ {
+  "id": "t03",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿a qué hora del día conectamos mejor las llamadas en agosto?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "best_hour_aug_rate"
+  ],
+  "must": [
+   "\\b10\\b"
+  ],
+  "max_words": 130
+ },
+ {
+  "id": "t04",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿qué porcentaje de los deals abiertos están en envío de contrato?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "contract_sent_share_pct"
+  ]
+ },
+ {
+  "id": "t05",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "compara la tasa de conexión de septiembre con la de agosto",
+  "max_tools": 4,
+  "numbers": [
+   "team_rate_aug",
+   "team_rate_sep"
+  ]
+ },
+ {
+  "id": "t06",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántos deals creamos en septiembre y cómo se compara con agosto?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "deals_created_sep",
+   "deals_created_change_pct"
+  ]
+ },
+ {
+  "id": "t07",
+  "persona": "ae",
+  "q": "what's the best time of day for me to call? use August",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "lang": "en",
+  "must_not": [
+   "(?i)team"
+  ],
+  "max_words": 130
+ },
+ {
+  "id": "h01",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántos contactos no tienen propietario asignado?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "unowned_contacts"
+  ]
+ },
+ {
+  "id": "h02",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántas llamadas hizo cada comercial en agosto?",
+  "max_tools": 3,
+  "numbers": [
+   "ana_calls_aug",
+   "luis_calls_aug"
+  ],
+  "max_words": 120
+ },
+ {
+  "id": "h03",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "how much revenue did we close in August and how many deals was that?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "won_aug_amount",
+   "won_aug_count"
+  ],
+  "lang": "en"
+ },
+ {
+  "id": "h04",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuál fue la llamada más larga de agosto?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "must_any": [
+   [
+    "4 ?min\\w*[^0-9]{0,8}45",
+    "4m ?45",
+    "285"
+   ]
+  ]
+ },
+ {
+  "id": "h05",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuánto pipeline abierto hay en cada etapa?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "pipeline_qualified",
+   "pipeline_contract_sent"
+  ],
+  "max_words": 140
+ },
+ {
+  "id": "h06",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántos deals abiertos tiene cada comercial?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "open_deals_per_rep"
+  ],
+  "max_words": 120
+ },
+ {
+  "id": "h07",
+  "persona": "ae",
+  "q": "de mis contactos creados en agosto, ¿cuántos vinieron de búsqueda orgánica?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "ana_organic_contacts_aug"
+  ],
+  "must_not": [
+   "(?i)equipo"
+  ]
+ },
+ {
+  "id": "h08",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿qué porcentaje de los contactos de agosto vino de referidos?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "referrals_share_aug"
+  ]
+ },
+ {
+  "id": "h09",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "dime el valor medio de los deals abiertos del segmento enterprise",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 5,
+  "numbers": [
+   "enterprise_open_avg"
+  ]
+ },
+ {
+  "id": "h10",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿cuántas tareas sin completar tiene cada uno?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 4,
+  "numbers": [
+   "open_tasks_ana",
+   "open_tasks_luis"
+  ],
+  "max_words": 120
+ },
+ {
+  "id": "f01",
+  "persona": "mgr",
+  "role": "owner",
+  "earlier": [
+   "¿cuál fue la tasa de conexión del equipo en agosto?"
+  ],
+  "q": "¿y la de Luis?",
+  "max_tools": 3,
+  "numbers": [
+   "luis_rate_aug"
+  ],
+  "must_not": [
+   "(?i)\\\\bmarta\\\\b"
+  ],
+  "note": "a follow-up: same period, another rep"
+ },
+ {
+  "id": "f02",
+  "persona": "mgr",
+  "role": "owner",
+  "earlier": [
+   "¿cuántos deals abiertos tenemos por etapa?"
+  ],
+  "q": "¿y cuánto pipeline suman en total?",
+  "expect_tools_any": [
+   "hubspot_query"
+  ],
+  "max_tools": 3,
+  "numbers": [
+   "open_value"
+  ],
+  "note": "a follow-up on the same set"
+ },
+ {
+  "id": "f03",
+  "persona": "ae",
+  "earlier": [
+   "¿qué pasó con Marina de Acme?"
+  ],
+  "q": "¿y qué le prometí?",
+  "max_tools": 2,
+  "must": [
+   "(?i)caso de log[ií]stica"
+  ],
+  "note": "a follow-up about the same contact"
+ },
+ {
+  "id": "f04",
+  "persona": "mgr",
+  "role": "owner",
+  "earlier": [
+   "¿cuáles son los 5 principales motivos por los que marcamos un deal como perdido?"
+  ],
+  "q": "y en agosto?",
+  "expect_tools_any": [
+   "crm_lost_reasons",
+   "hubspot_query"
+  ],
+  "max_tools": 3,
+  "numbers": [
+   "lost_aug"
+  ],
+  "note": "a follow-up that only changes the period"
+ },
+ {
+  "id": "b01",
+  "persona": "ae",
+  "q": "¿qué debería hacer hoy?",
+  "expect_tools_any": [
+   "next_actions"
+  ],
+  "max_tools": 1,
+  "forbid_tools": [
+   "objection_breakdown",
+   "crm_call_stats"
+  ],
+  "must_any": [
+   [
+    "(?i)marina|inés|ines|hugo|elena"
+   ]
+  ],
+  "max_words": 140,
+  "note": "advice, not a report: names who, what to do and by when; uses the playbook's approved answer for an open objection, without inventing policy"
+ },
+ {
+  "id": "b02",
+  "persona": "ae",
+  "q": "¿cómo lo estoy haciendo?",
+  "expect_tools_any": [
+   "my_coaching"
+  ],
+  "max_tools": 1,
+  "forbid_tools": [
+   "team_health"
+  ],
+  "must": [
+   "(?i)confirmar el problema"
+  ],
+  "numbers": [
+   "ana_focus_rate_pct",
+   "focus_team_median_pct"
+  ],
+  "max_words": 110,
+  "note": "one focus step, with the rep's own rate and the team median; no second focus, no ranking"
+ },
+ {
+  "id": "b03",
+  "persona": "ae",
+  "q": "what should I improve to book more meetings?",
+  "expect_tools_any": [
+   "my_coaching"
+  ],
+  "max_tools": 1,
+  "must": [
+   "(?i)confirm(ing)? the problem|problem"
+  ],
+  "numbers": [
+   "ana_focus_week_pct"
+  ],
+  "max_words": 120,
+  "note": "advice tied to the focus step; conversion figures stated as counts of what happened, not as cause"
+ },
+ {
+  "id": "b04",
+  "persona": "ae",
+  "q": "prepárame la llamada con Marina de Acme",
+  "expect_tools_any": [
+   "deal_story"
+  ],
+  "max_tools": 3,
+  "must_any": [
+   [
+    "(?i)precio|caro"
+   ],
+   [
+    "(?i)retorno|cuánto les cuesta|cuanto les cuesta"
+   ]
+  ],
+  "max_words": 150,
+  "note": "what happened, the open price objection in her words, and the playbook's approved answer as the way to open"
+ },
+ {
+  "id": "b05",
+  "persona": "ae",
+  "q": "¿a quién debería llamar ahora?",
+  "expect_tools_any": [
+   "next_actions"
+  ],
+  "max_tools": 1,
+  "must_any": [
+   [
+    "(?i)marina|inés|ines|hugo|elena"
+   ]
+  ],
+  "max_words": 140
+ },
+ {
+  "id": "b06",
+  "persona": "ae",
+  "q": "¿qué me falta para cerrar más reuniones? ¿y cómo va Luis?",
+  "expect_tools_any": [
+   "my_coaching"
+  ],
+  "forbid_tools": [
+   "team_health"
+  ],
+  "max_words": 130,
+  "must_any": [
+   [
+    "(?i)confirmar el problema"
+   ]
+  ],
+  "must_not": [
+   "(?i)luis (tiene|hizo|lleva|va)"
+  ],
+  "note": "a member is never given a colleague's figures; answers their own coaching and declines the rest in one clause"
+ },
+ {
+  "id": "b07",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿nuestro problema es la gente o el proceso?",
+  "expect_tools_any": [
+   "team_health"
+  ],
+  "max_tools": 1,
+  "must_any": [
+   [
+    "(?i)coach|formar|acompañ|entren"
+   ]
+  ],
+  "numbers": [
+   "team_follow_share_pct"
+  ],
+  "max_words": 130,
+  "must_not": [
+   "(?i)ranking|peor|mejor"
+  ],
+  "note": "the verdict is 'coach the reps' (the playbook works, few follow it): the answer says the process is fine and names the coaching"
+ },
+ {
+  "id": "b08",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "who needs help and with what?",
+  "expect_tools_any": [
+   "team_health"
+  ],
+  "max_tools": 1,
+  "max_words": 130,
+  "must": [
+   "(?i)ana",
+   "(?i)luis",
+   "(?i)marta"
+  ],
+  "must_not": [
+   "(?i)worst|best|weakest|strongest"
+  ],
+  "note": "per person the STEP to coach, alphabetical, never who is best or worst"
+ },
+ {
+  "id": "b09",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿ha mejorado el cumplimiento del playbook respecto al periodo anterior?",
+  "expect_tools_any": [
+   "team_health"
+  ],
+  "max_tools": 1,
+  "numbers": [
+   "adherence_pct",
+   "team_adherence_prev_pct",
+   "adherence_change_pts"
+  ],
+  "max_words": 90
+ },
+ {
+  "id": "b10",
+  "persona": "mgr",
+  "role": "owner",
+  "q": "¿qué debería hacer esta semana con el equipo?",
+  "expect_tools_any": [
+   "team_health",
+   "next_actions"
+  ],
+  "max_tools": 2,
+  "max_words": 150,
+  "must_any": [
+   [
+    "(?i)coach|acompañ|formar|paso|seguimiento|vence"
+   ]
+  ],
+  "must_not": [
+   "(?i)ranking"
+  ],
+  "note": "a manager's advice: one process action (the coaching focus) and, if anything is overdue, the promise and whose it is"
+ }
+]

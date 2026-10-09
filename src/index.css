@@ -1,4 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital,wght@0,400;1,400&display=swap');
+@import "./styles/tokens.css";
+@import "../shared/ui/vocify-ui.css";
 
 @font-face {
   font-family: 'Geist';
@@ -22,9 +24,6 @@
 
 @layer base {
   :root {
-    --background: 40 33% 96%;
-    --foreground: 30 10% 14%;
-
     --card: 0 0% 100%;
     --card-foreground: 0 0% 4%;
 
@@ -37,16 +36,10 @@
     --secondary: 38 25% 88%;
     --secondary-foreground: 0 0% 4%;
 
-    --muted: 38 20% 90%;
-    --muted-foreground: 30 6% 46%;
-
     --accent: 35 30% 45%;
     --accent-foreground: 40 33% 96%;
 
-    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-
-    --border: 38 20% 85%;
     --input: 0 0% 100%;
     --ring: 35 25% 35%;
 
@@ -61,23 +54,16 @@
     --sidebar-border: 38 20% 85%;
     --sidebar-ring: 35 25% 35%;
 
-    /* Custom Vocify tokens */
-    --cream: 40 33% 96%;
-    --cream-dark: 38 25% 88%;
+    /* Custom Vocify tokens still owned here */
     --cream-darker: 35 20% 82%;
-    --beige: 35 25% 35%;
-    --beige-light: 35 20% 50%;
-    --beige-dark: 35 30% 25%;
-    
+
     /* Status colors */
-    --success: 142 76% 36%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 4%;
     --processing: 0 0% 60%;
 
     /* Warm near-black for dark contrast sections */
-    --ink: 30 15% 8%;
     --ink-foreground: 40 33% 96%;
 
     /* Shadows */
@@ -123,6 +109,34 @@
     --sidebar-accent-foreground: 40 33% 96%;
     --sidebar-border: 0 0% 20%;
     --sidebar-ring: 38 25% 70%;
+
+    /* Dark is the dashboard's alone (DashboardThemeProvider). Brand tokens flip so that
+       text-beige stays readable on the dark surfaces and text-cream stays readable on bg-beige. */
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 0 0% 4%;
+    --cream: 0 0% 11%;
+    --cream-dark: 0 0% 17%;
+    --cream-darker: 0 0% 22%;
+    --beige: 36 30% 60%;
+    --beige-light: 35 18% 52%;
+    --beige-dark: 38 34% 72%;
+    --success: 125 28% 55%;
+    --success-foreground: 0 0% 4%;
+
+    /* The shared UI kit (v-*) reads its own copies of the tokens. */
+    --v-background: hsl(var(--background));
+    --v-foreground: hsl(var(--foreground));
+    --v-card: hsl(var(--card));
+    --v-muted: hsl(var(--muted));
+    --v-muted-foreground: hsl(var(--muted-foreground));
+    --v-border: hsl(var(--border));
+    --v-cream: hsl(var(--cream));
+    --v-cream-dark: hsl(var(--cream-dark));
+    --v-beige: hsl(var(--beige));
+    --v-beige-light: hsl(var(--beige-light));
+    --v-beige-dark: hsl(var(--beige-dark));
+    --v-success: hsl(var(--success));
+    --v-destructive: hsl(var(--destructive));
   }
 }
 
@@ -433,3 +447,9 @@
 
   .ring-beige { --tw-ring-color: hsl(var(--beige)); }
 }
+
+/* Memo review pane: the shared follow-up card's controls on the pane's scale (secondary 32px / 13px,
+ * quiet text actions 28px / 12px). The extension and desktop keep the shared sizes. */
+.review-pane .v-pill { min-height: 32px; padding: 0 14px; font-size: 13px; }
+.review-pane .v-text-action { padding: 6px 4px; font-size: 12px; }
+.review-pane .v-mail-client { width: 28px; height: 28px; }

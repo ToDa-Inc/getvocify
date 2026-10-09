@@ -1,0 +1,193 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import {
+  applyFetchedMotions,
+  applyPublishResult,
+  flowLabel,
+  importReview,
+  motionAfterImport,
+  playbookNotice,
+  visiblePlaybookKeys,
+} from "./playbook-setup.ts";
+
+const playbooksSectionSource = readFileSync(
+  fileURLToPath(new URL("../features/playbooks/components/PlaybooksSection.tsx", import.meta.url)),
+  "utf8",
+);
+const playbookListSource = readFileSync(
+  fileURLToPath(new URL("../features/playbooks/components/PlaybookList.tsx", import.meta.url)),
+  "utf8",
+);
+const playbooksApiSource = readFileSync(
+  fileURLToPath(new URL("../features/playbooks/api.ts", import.meta.url)),
+  "utf8",
+);
+
+describe("playbook setup", () => {
+  it("tells a member they cannot edit and an admin they can start", () => {
+    const empty = {};
+    const member = playbookNotice("member", empty);
+    const admin = playbookNotice("admin", empty);
+    assert.equal(member.showNotice, true);
+    assert.equal(member.canEdit, false);
+    assert.equal(member.message, "playbookNoticeAdmin");
+    assert.equal(admin.canEdit, true);
+    assert.equal(admin.message, "playbookNoticeStart");
+  });
+
+  it("keeps the notice while a draft or import exists", () => {
+    const notice = playbookNotice("owner", { discovery: "draft", qualification: "importing" });
+    assert.equal(notice.showNotice, true);
+    assert.equal(notice.message, "playbookNoticeDraft");
+    assert.deepEqual(notice.publishedKeys, []);
+  });
+
+  it("publishing discovery does not mark the other motions as done", () => {
+    const notice = playbookNotice("owner", { discovery: "published", qualification: "missing" });
+    assert.deepEqual(notice.publishedKeys, ["discovery"]);
+    assert.equal(notice.showNotice, true);
+    assert.equal(notice.message, "playbookNoticeMissing");
+  });
+
+  it("a rejected publish leaves the draft, and discovery does not publish the rest", () => {
+    const motions = { discovery: "draft", qualification: "missing", closing: "missing" };
+    assert.deepEqual(applyPublishResult(motions, "discovery", { ok: false }), motions);
+    const next = applyPublishResult(motions, "discovery", {
+      ok: true,
+      salesMotionKey: "discovery",
+      status: "published",
+    });
+    assert.equal(next.discovery, "published");
+    assert.equal(next.qualification, "missing");
+    assert.equal(next.closing, "missing");
+    assert.deepEqual(
+      applyPublishResult({ discovery: "missing" }, "discovery", {
+        ok: true,
+        salesMotionKey: "qualification",
+        status: "published",
+      }),
+      { discovery: "missing" },
+    );
+  });
+
+  it("completes setup from the company's own material, not an AI interview", () => {
+    // v2: the section is the list; setup goes through the structure endpoints and types.
+    for (const source of [playbooksSectionSource, playbookListSource]) {
+      assert.doesNotMatch(source, /copilot|interview|entrevista/i);
+    }
+    assert.doesNotMatch(playbookListSource, /\/ask\//);
+    assert.match(playbooksApiSource, /"\/playbooks\/structure"/);
+    assert.match(playbooksApiSource, /\/structure`/);
+    assert.match(playbooksApiSource, /"\/playbooks\/types"/);
+    const review = importReview({
+      status: "ready",
+      published: false,
+      draft: { text: "Confirmar el problema antes del precio." },
+    });
+    assert.equal(review.canPublish, true);
+    assert.equal(review.status, "draft");
+  });
+
+  it("a pdf without text does not replace a published motion", () => {
+    const failed = motionAfterImport("published", {
+      status: "failed",
+      published: false,
+      reason: "pdf_has_no_text",
+    });
+    assert.equal(failed.status, "published");
+    assert.equal(failed.error, "playbookPdfNoText");
+    const locked = motionAfterImport("published", {
+      status: "failed",
+      published: false,
+      reason: "pdf_encrypted",
+    });
+    assert.equal(locked.status, "published");
+    assert.equal(locked.error, "playbookPdfEncrypted");
+    const conflict = importReview({
+      status: "ready",
+      published: false,
+      draft: { text: "Nunca descuentes. Siempre cierra.", contradictions: ["siempre/nunca"] },
+    });
+    assert.equal(conflict.canPublish, false);
+    assert.equal(conflict.status, "draft");
+    assert.equal(conflict.warning, "playbookContradiction");
+    assert.equal(conflict.text.startsWith("Nunca"), true);
+    const drafted = motionAfterImport("missing", { status: "ready", published: false, reason: null });
+    assert.equal(drafted.status, "draft");
+    assert.equal(drafted.error, null);
+  });
+});
+
+describe("applyFetchedMotions (T2 review fix, D5)", () => {
+  it("flag off: merges onto local defaults, same as before", () => {
+    const merged = applyFetchedMotions(
+      { discovery: "missing", qualification: "missing", closing: "missing" },
+      { discovery: "published" },
+      false,
+    );
+    assert.deepEqual(merged, { discovery: "published", qualification: "missing", closing: "missing" });
+  });
+
+  it("flag on: replaces local state so a role-filtered motion does not linger", () => {
+    // A SDR's local defaults include "closing", but the server already dropped it (D5).
+    const replaced = applyFetchedMotions(
+      { discovery: "missing", qualification: "missing", closing: "missing" },
+      { discovery: "published" },
+      true,
+    );
+    assert.deepEqual(replaced, { discovery: "published" });
+    assert.equal("closing" in replaced, false);
+  });
+});
+
+describe("visiblePlaybookKeys (T2, D4)", () => {
+  it("flag off: keeps the old behavior, base keys plus whatever the company has", () => {
+    const keys = visiblePlaybookKeys(
+      ["discovery", "qualification", "closing"],
+      { discovery: "published" },
+      false,
+    );
+    assert.deepEqual(new Set(keys), new Set(["discovery", "qualification", "closing"]));
+  });
+
+  it("flag on: qualification only shows once published", () => {
+    const missing = visiblePlaybookKeys(
+      ["discovery", "qualification", "closing"],
+      { discovery: "published", closing: "published", qualification: "draft" },
+      true,
+    );
+    assert.equal(missing.includes("qualification"), false);
+    const published = visiblePlaybookKeys(
+      ["discovery", "qualification", "closing"],
+      { discovery: "published", closing: "published", qualification: "published" },
+      true,
+    );
+    assert.equal(published.includes("qualification"), true);
+  });
+
+  it("flag on: only shows motions the API returned (already role-filtered)", () => {
+    const keys = visiblePlaybookKeys(["discovery", "qualification", "closing"], { discovery: "published" }, true);
+    assert.deepEqual(keys, ["discovery"]);
+  });
+});
+
+describe("flowLabel (T2, D4)", () => {
+  const flowLabels = { discovery: "Prospección (SDR)", closing: "Demo y cierre (AE)" };
+
+  it("flag off: always the plain fallback label", () => {
+    assert.equal(flowLabel("discovery", "Descubrimiento", flowLabels, false), "Descubrimiento");
+    assert.equal(flowLabel("closing", "Cierre", flowLabels, false), "Cierre");
+  });
+
+  it("flag on: the SDR/AE label for discovery and closing", () => {
+    assert.equal(flowLabel("discovery", "Descubrimiento", flowLabels, true), "Prospección (SDR)");
+    assert.equal(flowLabel("closing", "Cierre", flowLabels, true), "Demo y cierre (AE)");
+  });
+
+  it("flag on: a custom type keeps its plain label", () => {
+    assert.equal(flowLabel("qualification", "Calificación", flowLabels, true), "Calificación");
+    assert.equal(flowLabel("outbound", "outbound", flowLabels, true), "outbound");
+  });
+});

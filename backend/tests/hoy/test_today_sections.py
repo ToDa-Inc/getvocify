@@ -1,0 +1,368 @@
+"""GET /today `sections` (T6): AE deals, role split, and the lazy handoff close."""
+
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
+os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-today-sections")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-today-sections")
+
+import time
+from datetime import datetime, timezone
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.api import today as today_api
+from app.deps import get_membership, get_supabase
+from app.services import feature_flags as feature_flags_mod
+from app.services.company import Membership
+
+NOW = datetime(2026, 9, 27, 10, 0, tzinfo=timezone.utc)
+
+
+class _Result:
+    def __init__(self, data):
+        self.data = data
+
+
+class _Query:
+    def __init__(self, db, name):
+        self.db, self.name = db, name
+        self.eqs, self.ins = [], []
+        self._update, self._select = None, None
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, column, value):
+        self.eqs.append((column, value))
+        return self
+
+    def in_(self, column, values):
+        self.ins.append((column, set(values)))
+        return self
+
+    def order(self, *_args, **_kwargs):
+        return self
+
+    def limit(self, *_args, **_kwargs):
+        return self
+
+    def update(self, payload):
+        self._update = payload
+        return self
+
+    def _matching(self):
+        rows = self.db.tables.get(self.name, [])
+        rows = [row for row in rows if all(row.get(c) == v for c, v in self.eqs)]
+        return [row for row in rows if all(row.get(c) in v for c, v in self.ins)]
+
+    def execute(self):
+        matched = self._matching()
+        if self._update is not None:
+            for row in matched:
+                row.update(self._update)
+            return _Result(matched)
+        return _Result(matched)
+
+
+class _Supabase:
+    def __init__(self):
+        self.tables: dict[str, list[dict]] = {
+            "action_signals": [], "crm_connections": [], "company_feature_flags": [],
+            "deal_handoffs": [], "memos": [],
+        }
+
+    def table(self, name):
+        return _Query(self, name.split("(")[0])
+
+
+def _client(store, *, user_id="ae-1", sales_role="ae"):
+    app = FastAPI()
+    app.include_router(today_api.router)
+    app.dependency_overrides[get_membership] = lambda: Membership(
+        id="m", company_id="co-1", user_id=user_id, role="member", status="active", sales_role=sales_role,
+    )
+    app.dependency_overrides[get_supabase] = lambda: store
+    return TestClient(app)
+
+
+def _flags(**flags):
+    return [{"company_id": "co-1", "flag": name, "enabled": value} for name, value in flags.items()]
+
+
+def _isolate():
+    feature_flags_mod.clear_cache()
+    today_api.set_today_tasks(None)
+    today_api.set_today_fetch(None)
+
+
+def test_flag_off_never_adds_a_sections_key():
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=False)
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        feature_flags_mod.clear_cache()
+    assert "sections" not in body
+
+
+def test_ae_sections_keep_calls_and_include_the_active_handoff():
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True, HANDOFF_ENABLED=True)
+    store.tables["deal_handoffs"] = [{
+        "company_id": "co-1", "connection_id": "crm-A", "contact_id": "42", "deal_id": "d1",
+        "sdr_user_id": "sdr-1", "ae_user_id": "ae-1", "status": "active",
+    }]
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        feature_flags_mod.clear_cache()
+    assert set(body["sections"]) == {"calls", "meetings", "deals"}
+    assert [item["deal_id"] for item in body["sections"]["deals"]] == ["d1"]
+    assert body["sections"]["deals"][0]["reason"] == "Traspasado a ti"
+
+
+def test_general_sections_have_all_three_buckets():
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True)
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _client(store, user_id="gen-1", sales_role=None).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        feature_flags_mod.clear_cache()
+    assert set(body["sections"]) == {"calls", "meetings", "deals"}
+
+
+def test_sdr_sections_only_have_calls():
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True)
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _client(store, user_id="sdr-1", sales_role="sdr").get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        feature_flags_mod.clear_cache()
+    assert set(body["sections"]) == {"calls"}
+
+
+def test_a_handoff_deal_observed_closed_won_leaves_the_section_and_closes_the_handoff():
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True, HANDOFF_ENABLED=True)
+    store.tables["deal_handoffs"] = [{
+        "company_id": "co-1", "connection_id": "crm-A", "contact_id": "42", "deal_id": "d1",
+        "sdr_user_id": "sdr-1", "ae_user_id": "ae-1", "status": "active",
+    }]
+    store.tables["crm_connections"] = [{
+        "id": "crm-A", "company_id": "co-1", "status": "connected", "provider": "hubspot",
+        "access_token": "tok", "metadata": {},
+    }]
+
+    def fake_fetch(request):
+        if request["path"] == "/crm/v3/objects/tasks/search":
+            return {"results": []}
+        assert request["path"] == "/crm/v3/objects/deals/batch/read"
+        return {"results": [{"id": "d1", "properties": {"dealstage": "closedwon"}}]}
+
+    today_api.set_today_fetch(fake_fetch)
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_fetch(None)
+        feature_flags_mod.clear_cache()
+    assert body["sections"]["deals"] == []
+    assert store.tables["deal_handoffs"][0]["status"] == "closed"
+
+
+def test_an_open_deal_stage_is_never_closed():
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True, HANDOFF_ENABLED=True)
+    store.tables["deal_handoffs"] = [{
+        "company_id": "co-1", "connection_id": "crm-A", "contact_id": "42", "deal_id": "d1",
+        "sdr_user_id": "sdr-1", "ae_user_id": "ae-1", "status": "active",
+    }]
+    store.tables["crm_connections"] = [{
+        "id": "crm-A", "company_id": "co-1", "status": "connected", "provider": "hubspot",
+        "access_token": "tok", "metadata": {},
+    }]
+
+    def fake_fetch(request):
+        if request["path"] == "/crm/v3/objects/tasks/search":
+            return {"results": []}
+        return {"results": [{"id": "d1", "properties": {"dealstage": "appointmentscheduled"}}]}
+
+    today_api.set_today_fetch(fake_fetch)
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_fetch(None)
+        feature_flags_mod.clear_cache()
+    assert [item["deal_id"] for item in body["sections"]["deals"]] == ["d1"]
+    assert store.tables["deal_handoffs"][0]["status"] == "active"
+
+
+def test_a_timed_out_stage_read_leaves_the_handoff_open_and_the_deal_listed(monkeypatch):
+    _isolate()
+    monkeypatch.setattr(today_api, "DEAL_STAGE_DEADLINE", 0.05)
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True, HANDOFF_ENABLED=True)
+    store.tables["deal_handoffs"] = [{
+        "company_id": "co-1", "connection_id": "crm-A", "contact_id": "42", "deal_id": "d1",
+        "sdr_user_id": "sdr-1", "ae_user_id": "ae-1", "status": "active",
+    }]
+    store.tables["crm_connections"] = [{
+        "id": "crm-A", "company_id": "co-1", "status": "connected", "provider": "hubspot",
+        "access_token": "tok", "metadata": {},
+    }]
+
+    def slow_fetch(request):
+        if request["path"] == "/crm/v3/objects/tasks/search":
+            return {"results": []}
+        time.sleep(0.3)
+        return {"results": [{"id": "d1", "properties": {"dealstage": "closedwon"}}]}
+
+    today_api.set_today_fetch(slow_fetch)
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_fetch(None)
+        feature_flags_mod.clear_cache()
+    assert [item["deal_id"] for item in body["sections"]["deals"]] == ["d1"]
+    assert store.tables["deal_handoffs"][0]["status"] == "active"
+
+
+def test_a_handoff_from_a_different_connection_is_never_stage_read_or_closed():
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True, HANDOFF_ENABLED=True)
+    store.tables["deal_handoffs"] = [{
+        "company_id": "co-1", "connection_id": "crm-OLD", "contact_id": "42", "deal_id": "d1",
+        "sdr_user_id": "sdr-1", "ae_user_id": "ae-1", "status": "active",
+    }]
+    store.tables["crm_connections"] = [{
+        "id": "crm-A", "company_id": "co-1", "status": "connected", "provider": "hubspot",
+        "access_token": "tok", "metadata": {},
+    }]
+    fetched_deal_ids: list[str] = []
+
+    def fake_fetch(request):
+        if request["path"] == "/crm/v3/objects/tasks/search":
+            return {"results": []}
+        fetched_deal_ids.extend(row["id"] for row in request["json"]["inputs"])
+        return {"results": [{"id": "d1", "properties": {"dealstage": "closedwon"}}]}
+
+    today_api.set_today_fetch(fake_fetch)
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_fetch(None)
+        feature_flags_mod.clear_cache()
+    assert fetched_deal_ids == []
+    assert [item["deal_id"] for item in body["sections"]["deals"]] == ["d1"]
+    assert store.tables["deal_handoffs"][0]["status"] == "active"
+
+
+def test_the_ae_keeps_their_own_follow_up_card_in_calls():
+    """An AE's own "te llamo el jueves" must not vanish from their Hoy."""
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True)
+    store.tables["action_signals"] = [{
+        "id": "sig-1", "company_id": "co-1", "user_id": "ae-1", "connection_id": "crm-A",
+        "contact_id": "77", "deal_id": None, "memo_id": "memo-ae", "type": "commitment_due",
+        "dedupe_key": "commitment:1", "payload": {"kind": "call", "origin": "rep_promise", "text": "llamar el jueves", "due_at": NOW.isoformat()},
+        "status": "pending", "version": 1,
+    }]
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        feature_flags_mod.clear_cache()
+    assert [item["contact_id"] for item in body["sections"]["calls"]] == ["77"]
+
+
+def test_a_handed_off_deal_card_is_named_from_the_sdrs_memo_and_carries_the_meeting():
+    _isolate()
+    store = _Supabase()
+    store.tables["company_feature_flags"] = _flags(HOY_AE_DEALS_ENABLED=True, HANDOFF_ENABLED=True)
+    store.tables["deal_handoffs"] = [{
+        "id": "h-1", "company_id": "co-1", "connection_id": "crm-A", "contact_id": "42", "deal_id": "d1",
+        "sdr_user_id": "sdr-1", "ae_user_id": "ae-1", "status": "active",
+        "meeting_starts_at": "2026-09-29T09:00:00+00:00",
+    }]
+    store.tables["memos"] = [
+        {"id": "m-sdr", "company_id": "co-1", "user_id": "sdr-1", "hubspot_contact_id": "42",
+         "extraction": {"contactName": "Marina Ortiz", "companyName": "Acme"}},
+        # Another SDR's memo on another contact never names anything here.
+        {"id": "m-other", "company_id": "co-1", "user_id": "sdr-2", "hubspot_contact_id": "99",
+         "extraction": {"contactName": "Otro", "companyName": "Otra"}},
+    ]
+    today_api.set_today_tasks(lambda _company: ([], "complete"))
+    try:
+        body = _client(store).get("/api/v1/today").json()
+    finally:
+        today_api.set_today_tasks(None)
+        feature_flags_mod.clear_cache()
+    deal = body["sections"]["deals"][0]
+    assert deal["contact_name"] == "Marina Ortiz"
+    assert deal["company_name"] == "Acme"
+    assert deal["meeting_starts_at"] == "2026-09-29T09:00:00+00:00"
+    assert deal["handoff_id"] == "h-1"
+
+
+# --- never-contacted cards can be acted on (Lista 3 fix) ---
+
+
+class _UpsertSupabase(_Supabase):
+    def table(self, name):
+        query = _Query(self, name.split("(")[0])
+        store = self
+
+        def upsert(payload, **_kwargs):
+            rows = store.tables.setdefault(name, [])
+            if not any(row.get("dedupe_key") == payload["dedupe_key"] and row.get("user_id") == payload["user_id"] for row in rows):
+                rows.append({"id": f"sig-{len(rows) + 1}", "version": 1, **payload})
+            return query
+
+        query.upsert = upsert
+        return query
+
+
+def test_persisting_a_never_contacted_card_is_idempotent_and_returns_an_id():
+    _isolate()
+    store = _UpsertSupabase()
+    client = _client(store, user_id="sdr-1", sales_role="sdr")
+    first = client.post("/api/v1/today/never-contacted", json={"contact_id": "55", "connection_id": "crm-A"}).json()
+    second = client.post("/api/v1/today/never-contacted", json={"contact_id": "55", "connection_id": "crm-A"}).json()
+    assert first["id"] and first["id"] == second["id"]
+    assert first["status"] == "pending" and first["version"] == 1
+    assert len(store.tables["action_signals"]) == 1
+    row = store.tables["action_signals"][0]
+    assert row["type"] == "never_contacted" and row["user_id"] == "sdr-1"
+
+
+def test_a_persisted_never_contacted_card_hides_once_the_lead_has_a_conversation():
+    from app.api.today import _drop_touched_never_contacted
+
+    rows = [
+        {"type": "never_contacted", "contact_id": "55"},
+        {"type": "never_contacted", "contact_id": "56"},
+        {"type": "commitment_due", "contact_id": "55"},
+    ]
+    kept = _drop_touched_never_contacted(rows, {"55"})
+    assert kept == [{"type": "never_contacted", "contact_id": "56"}, {"type": "commitment_due", "contact_id": "55"}]

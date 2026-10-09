@@ -103,6 +103,8 @@ class RecoveryService:
             
             extraction_service = ExtractionService()
             source_type = memo_data.get("source_type") or memo_data.get("source") or "voice_memo"
+            if source_type == "recall_bot":  # T14: a bot-recorded meeting, same as a manual meeting_transcript
+                source_type = "meeting_transcript"
             if source_type not in ("voice_memo", "meeting_transcript", "hubspot_call"):
                 source_type = "voice_memo"
             
@@ -139,6 +141,8 @@ class RecoveryService:
 
             user_id = memo_data.get("user_id")
             source_type = memo_data.get("source_type") or memo_data.get("source") or "voice_memo"
+            if source_type == "recall_bot":  # T14: a bot-recorded meeting, same as a manual meeting_transcript
+                source_type = "meeting_transcript"
             if source_type not in ("voice_memo", "meeting_transcript", "hubspot_call"):
                 source_type = "voice_memo"
 

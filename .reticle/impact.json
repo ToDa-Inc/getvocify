@@ -1,15 +1,15 @@
 {
   "counts": {
-    "calls": 8,
-    "verdicts": 2,
-    "passed": 2,
-    "failed": 0,
-    "unknown": 0,
-    "refusals": 0,
+    "calls": 77,
+    "verdicts": 29,
+    "passed": 16,
+    "failed": 3,
+    "unknown": 10,
+    "refusals": 3,
     "marks": 0,
-    "sessions": 3,
-    "tokensReturned": 1390,
-    "drivingMs": 65189
+    "sessions": 35,
+    "tokensReturned": 74606,
+    "drivingMs": 244508
   },
   "days": [
     {
@@ -26,25 +26,85 @@
         "tokensReturned": 1390,
         "drivingMs": 65189
       }
+    },
+    {
+      "date": "2026-09-28",
+      "counts": {
+        "calls": 11,
+        "verdicts": 10,
+        "passed": 7,
+        "failed": 1,
+        "unknown": 2,
+        "refusals": 0,
+        "marks": 0,
+        "sessions": 3,
+        "tokensReturned": 10620,
+        "drivingMs": 40259
+      }
+    },
+    {
+      "date": "2026-09-29",
+      "counts": {
+        "calls": 22,
+        "verdicts": 7,
+        "passed": 5,
+        "failed": 0,
+        "unknown": 2,
+        "refusals": 0,
+        "marks": 0,
+        "sessions": 10,
+        "tokensReturned": 36918,
+        "drivingMs": 47010
+      }
+    },
+    {
+      "date": "2026-09-30",
+      "counts": {
+        "calls": 36,
+        "verdicts": 10,
+        "passed": 2,
+        "failed": 2,
+        "unknown": 6,
+        "refusals": 3,
+        "marks": 0,
+        "sessions": 19,
+        "tokensReturned": 25678,
+        "drivingMs": 92050
+      }
     }
   ],
   "records": {
-    "longestRunMs": 0,
-    "bestVerdictDay": 2,
-    "bestDefectDay": 0,
-    "streakDays": 1,
-    "bestStreakDays": 1
+    "longestRunMs": 81199,
+    "bestVerdictDay": 10,
+    "bestDefectDay": 2,
+    "streakDays": 3,
+    "bestStreakDays": 3
   },
   "savings": {
     "tokens": {
-      "value": 1810,
+      "value": 0,
       "basis": "vs an agent reading the app through screenshots"
     },
     "minutes": {
-      "value": 1,
+      "value": 26.5,
       "basis": "vs checking each consequence by hand, plus one re-prompt cycle per defect caught"
     }
   },
   "since": 1789473886954,
-  "defects": []
+  "defects": [
+    {
+      "at": 1790763985575,
+      "title": "channels disagree about this action (stale-response-applied) even though the assertion passed"
+    },
+    {
+      "at": 1790763706191,
+      "title": "the declared consequence did not hold"
+    },
+    {
+      "at": 1790626410768,
+      "title": "Pregunta por un contacto",
+      "detail": "no 'button' named 'Confirmar'; saw: Preguntar, Llamar, Salir, Grabar interacción, Cancelar, Historial, Nueva conversación, Consultó 1 fuente, De la conversación 1, De la conversación 2, Copiar, Consultó 1 fuente, De la conversación 1, De la conversación 2, Copiar, Grabar, Enviar",
+      "source": "src/features/ask/components/Composer.tsx:53"
+    }
+  ]
 }

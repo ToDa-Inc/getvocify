@@ -1,0 +1,306 @@
+{
+  "captured_from": "4b1987f",
+  "cases": [
+    {
+      "name": "ready_with_pending_and_objection",
+      "memos": [
+        {
+          "id": "memo-old",
+          "company_id": "co-1",
+          "user_id": "user-a",
+          "created_at": "2026-09-01T10:00:00Z",
+          "capture_started_at": "2026-09-01T10:00:00Z",
+          "hubspot_contact_id": "42",
+          "hubspot_deal_id": null,
+          "matched_deal_id": null,
+          "playbook_version_id": null,
+          "sales_motion_key": null,
+          "extraction": {
+            "summary": "Versión vieja."
+          }
+        },
+        {
+          "id": "memo-new",
+          "company_id": "co-1",
+          "user_id": "user-a",
+          "created_at": "2026-09-02T10:00:00Z",
+          "capture_started_at": "2026-09-02T10:00:00Z",
+          "hubspot_contact_id": "42",
+          "hubspot_deal_id": null,
+          "matched_deal_id": null,
+          "playbook_version_id": null,
+          "sales_motion_key": null,
+          "extraction": {
+            "summary": "El 2 sep hablasteis del almacén.",
+            "next_steps": [
+              {
+                "text": "Quedó pendiente: enviar el caso de logística."
+              }
+            ],
+            "objections": [
+              "Objeción: el precio."
+            ],
+            "pain_confirmed": true
+          }
+        }
+      ],
+      "expected": {
+        "status": "ready",
+        "text": null,
+        "lines": [
+          {
+            "type": "last",
+            "text": "El 2 sep hablasteis del almacén.",
+            "source_ref": "memo-new",
+            "observed_at": "2026-09-02T10:00:00Z"
+          },
+          {
+            "type": "pending",
+            "text": "Quedó pendiente: enviar el caso de logística.",
+            "source_ref": "memo-new",
+            "observed_at": null
+          },
+          {
+            "type": "objection",
+            "text": "Objeción: el precio.",
+            "source_ref": "memo-new",
+            "observed_at": null
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "name": "nothing_pending",
+      "memos": [
+        {
+          "id": "memo-1",
+          "company_id": "co-1",
+          "user_id": "user-a",
+          "created_at": "2026-09-02T10:00:00Z",
+          "capture_started_at": "2026-09-02T10:00:00Z",
+          "hubspot_contact_id": "42",
+          "hubspot_deal_id": null,
+          "matched_deal_id": null,
+          "playbook_version_id": null,
+          "sales_motion_key": null,
+          "extraction": {
+            "summary": ""
+          }
+        }
+      ],
+      "expected": {
+        "status": "nothing_pending",
+        "text": "Última vez: 2026-09-02. No quedó nada pendiente.",
+        "lines": [],
+        "notice": null
+      }
+    },
+    {
+      "name": "summary_only_without_pain",
+      "memos": [
+        {
+          "id": "memo-1",
+          "company_id": "co-1",
+          "user_id": "user-a",
+          "created_at": "2026-09-02T10:00:00Z",
+          "capture_started_at": "2026-09-02T10:00:00Z",
+          "hubspot_contact_id": "42",
+          "hubspot_deal_id": null,
+          "matched_deal_id": null,
+          "playbook_version_id": null,
+          "sales_motion_key": null,
+          "extraction": {
+            "summary": "Hablasteis del plazo."
+          }
+        }
+      ],
+      "expected": {
+        "status": "nothing_pending",
+        "text": "Última vez: 2026-09-02. No quedó nada pendiente.",
+        "lines": [],
+        "notice": null
+      }
+    },
+    {
+      "name": "no_conversation",
+      "memos": [],
+      "expected": {
+        "status": "no_conversation",
+        "text": "Sin conversación todavía.",
+        "lines": [],
+        "notice": null
+      }
+    },
+    {
+      "name": "current_c04_is_ignored",
+      "memos": [
+        {
+          "id": "memo-c04",
+          "company_id": "co-1",
+          "user_id": "user-a",
+          "created_at": "2026-09-11T08:00:00Z",
+          "capture_started_at": "2026-09-11T08:00:00Z",
+          "hubspot_contact_id": "42",
+          "hubspot_deal_id": null,
+          "matched_deal_id": null,
+          "playbook_version_id": null,
+          "sales_motion_key": "outbound",
+          "extraction": {
+            "summary": "Hablaron del almacén y del precio.",
+            "next_steps": [
+              "Enviar el caso de logística"
+            ],
+            "objections": [
+              "Objeción: el precio."
+            ],
+            "intelligence": {
+              "version": 1,
+              "pain_confirmed": true,
+              "objections": [
+                {
+                  "id": "obj-1",
+                  "category": "price",
+                  "resolution": "open",
+                  "quote": "está caro",
+                  "evidence_refs": [
+                    "ev-obj"
+                  ]
+                }
+              ],
+              "commitments": [
+                {
+                  "id": "com-1",
+                  "kind": "call",
+                  "origin": "prospect_request",
+                  "text": "llamar",
+                  "due_at": "2026-09-26T09:00:00+02:00",
+                  "temporal_precision": "time",
+                  "evidence_refs": [
+                    "ev-com"
+                  ]
+                }
+              ],
+              "competitor_mentions": [
+                {
+                  "id": "cmp-1",
+                  "name": "Ringover"
+                }
+              ],
+              "playbook_observations": [
+                {
+                  "step_id": "pitch",
+                  "status": "met",
+                  "evidence_refs": []
+                }
+              ],
+              "evidence": [
+                {
+                  "id": "ev-pain",
+                  "quote": "se nos quedan leads sin llamar"
+                },
+                {
+                  "id": "ev-obj",
+                  "quote": "está caro"
+                },
+                {
+                  "id": "ev-com",
+                  "quote": "llámame el viernes"
+                }
+              ],
+              "prompt_version": "intelligence_v3",
+              "input_revision": "795a87b3e02c8540cf78bc1b15d068075bd0dfe514737e953abb8e8263620fa4"
+            }
+          }
+        }
+      ],
+      "expected": {
+        "status": "ready",
+        "text": null,
+        "lines": [
+          {
+            "type": "last",
+            "text": "Hablaron del almacén y del precio.",
+            "source_ref": "memo-c04",
+            "observed_at": "2026-09-11T08:00:00Z"
+          },
+          {
+            "type": "pending",
+            "text": "Enviar el caso de logística",
+            "source_ref": "memo-c04",
+            "observed_at": null
+          },
+          {
+            "type": "objection",
+            "text": "Objeción: el precio.",
+            "source_ref": "memo-c04",
+            "observed_at": null
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "name": "deal_filter",
+      "deal_id": "D1",
+      "memos": [
+        {
+          "id": "memo-d9",
+          "company_id": "co-1",
+          "user_id": "user-a",
+          "created_at": "2026-09-04T10:00:00Z",
+          "capture_started_at": "2026-09-04T10:00:00Z",
+          "hubspot_contact_id": "42",
+          "hubspot_deal_id": "D9",
+          "matched_deal_id": null,
+          "playbook_version_id": null,
+          "sales_motion_key": null,
+          "extraction": {
+            "summary": "Otro deal.",
+            "pain_confirmed": true
+          }
+        },
+        {
+          "id": "memo-d1",
+          "company_id": "co-1",
+          "user_id": "user-a",
+          "created_at": "2026-09-03T10:00:00Z",
+          "capture_started_at": "2026-09-03T10:00:00Z",
+          "hubspot_contact_id": "42",
+          "hubspot_deal_id": null,
+          "matched_deal_id": "D1",
+          "playbook_version_id": null,
+          "sales_motion_key": null,
+          "extraction": {
+            "summary": "Match por matched_deal_id.",
+            "pain_confirmed": true
+          }
+        }
+      ],
+      "expected": {
+        "status": "ready",
+        "text": null,
+        "lines": [
+          {
+            "type": "last",
+            "text": "Match por matched_deal_id.",
+            "source_ref": "memo-d1",
+            "observed_at": "2026-09-03T10:00:00Z"
+          }
+        ],
+        "notice": null
+      }
+    },
+    {
+      "name": "memos_read_fails",
+      "memos": [],
+      "memos_fail": true,
+      "expected": {
+        "status": "unavailable",
+        "text": "No se pudo cargar todo.",
+        "lines": [],
+        "notice": "No se pudo cargar todo."
+      }
+    }
+  ]
+}

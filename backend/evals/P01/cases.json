@@ -1,0 +1,216 @@
+[
+  {
+    "id": "p01_dictated_disordered_es",
+    "note": "Audio dictado: sin viñetas ni orden, con muletillas y una objeción dicha de pasada.",
+    "motion_key": "discovery",
+    "lang": "es",
+    "source": "vale pues mira lo primero que hacemos cuando llamamos es presentarnos claro decir quién somos y de dónde llamamos y preguntar si tiene un momento porque si no te cuelgan eh y luego pues lo importante es no soltar el rollo del producto sino preguntarle cómo llevan ahora mismo el tema de los presupuestos de reformas si lo hacen en excel o con algún programa y que te cuente qué es lo que más les duele ah y antes se me olvidaba decir por qué llamamos que normalmente es porque hemos visto que trabajan con reformas integrales y ya está y al final si ves que hay dolor pues intentamos cerrar una videollamada de veinte minutos con el jefe con día y hora concretos no vale con lo llamo la semana que viene y bueno si te dicen que ahora no pueden pues les decimos que solo son veinte minutos y que buscamos un hueco que les vaya bien y si dicen que ya tienen un programa preguntamos qué es lo que no les convence de él",
+    "expect": {
+      "min_steps": 3,
+      "max_steps": 6,
+      "reason": null,
+      "categories": [
+        "timing",
+        "status_quo|competitor"
+      ],
+      "must_contain_any": [
+        "presupuesto",
+        "reforma"
+      ],
+      "language": "es"
+    }
+  },
+  {
+    "id": "p01_numbered_script_with_quotes",
+    "note": "Guion numerado con frases literales en dos pasos.",
+    "motion_key": "discovery",
+    "lang": "es",
+    "source": "Guion llamada en frío SDR — Nominia\n\n1. Apertura: \"Hola, soy {nombre} de Nominia. ¿Tienes 30 segundos y te cuento por qué te llamo?\"\n2. Motivo: menciona que hemos visto que tienen más de 50 empleados y varias sedes.\n3. Pregunta de dolor: \"¿Cómo gestionáis hoy las incidencias de nómina entre sedes?\"\n4. Cualificación: confirmar cuántos empleados son y quién lleva RR. HH.\n5. Cierre: proponer una videollamada de 20 minutos con día y hora.\n",
+    "expect": {
+      "min_steps": 4,
+      "max_steps": 6,
+      "reason": null,
+      "min_examples": 2,
+      "must_contain_any": [
+        "Apertura",
+        "apertura"
+      ],
+      "language": "es"
+    }
+  },
+  {
+    "id": "p01_pdf_with_objections_section",
+    "note": "Texto de un PDF: estructura de la llamada y apartado de objeciones con cuatro respuestas.",
+    "motion_key": "discovery",
+    "lang": "es",
+    "source": "PLAYBOOK LLAMADA EN FRÍO · Equipo SDR Norte\nVersión 3 · septiembre\n\nESTRUCTURA DE LA LLAMADA\nPaso 1 · Abrir con permiso. Nos presentamos y preguntamos si es buen momento. Si no lo es, acordamos cuándo volver a llamar.\nPaso 2 · Motivo. Decimos en una frase por qué llamamos a esa empresa y no a otra.\nPaso 3 · Diagnóstico. Preguntamos cómo llevan hoy el seguimiento de los leads y cuánto tiempo pierden.\nPaso 4 · Agenda. Proponemos una demo de 20 minutos con día y hora y la dejamos en el calendario del prospecto.\n\nOBJECIONES FRECUENTES\nPrecio (\"es caro\"): Comparamos el coste con lo que pierden en un mes de leads sin atender. No hablamos de descuentos en la primera llamada.\nAhora no es el momento: Proponemos una llamada de 10 minutos dentro de dos semanas y dejamos la fecha en el calendario.\n\"No soy yo quien decide\": Pedimos que nos presente a quien decide o que nos diga cuándo podemos hablar con esa persona.\nYa trabajamos con otro proveedor: Preguntamos qué es lo que menos les convence y no hablamos mal del proveedor actual.\n\n© Equipo SDR Norte · Documento interno\n",
+    "expect": {
+      "min_steps": 3,
+      "max_steps": 6,
+      "reason": null,
+      "categories": [
+        "price",
+        "timing",
+        "authority",
+        "competitor|status_quo"
+      ],
+      "must_not_contain": [
+        "Documento interno",
+        "Versión 3"
+      ],
+      "language": "es"
+    }
+  },
+  {
+    "id": "p01_english_source",
+    "note": "Fuente en inglés: el documento sale en inglés aunque la empresa opere en español.",
+    "motion_key": "discovery",
+    "lang": "es",
+    "source": "How we run a cold call\nStart by saying who you are and asking if it is a good time. If they say no, ask when to call back.\nThen give one reason for the call that is specific to them: their recent funding round, a job post, or a tool they use.\nAsk how they handle outbound today and let them talk. Dig until they name one concrete problem.\nBefore you hang up, book a 20 minute call with a day and a time. A maybe does not count as booked.\nIf they say it is too expensive, ask what they are comparing it to before you talk about price.\n",
+    "expect": {
+      "min_steps": 3,
+      "max_steps": 6,
+      "reason": null,
+      "categories": [
+        "price"
+      ],
+      "language": "en"
+    }
+  },
+  {
+    "id": "p01_granola_style_notes",
+    "note": "Notas sueltas de una reunión: mezcla proceso con tareas pendientes y nombres propios que no son pasos.",
+    "motion_key": "discovery",
+    "lang": "es",
+    "source": "Sync ventas 24/9 — cómo llamamos\n- abrir rápido, nombre + empresa, pedir 1 min\n- NO hablar de features en los primeros 2 min\n- preguntar cómo cierran hoy los cuadres de caja (ahí está el dolor)\n- si hay dolor → meter demo, jueves o viernes mejor\n- Marta: \"lo del precio se resuelve enseñando el ahorro en horas\"\n- pendiente: revisar el guion con legal\n- Juan trae los números de Q3 el lunes\n- comprar pizza para el viernes\n",
+    "expect": {
+      "min_steps": 3,
+      "max_steps": 5,
+      "reason": null,
+      "categories": [
+        "price"
+      ],
+      "must_not_contain": [
+        "legal",
+        "Q3",
+        "Juan",
+        "pizza"
+      ],
+      "language": "es"
+    }
+  },
+  {
+    "id": "p01_twenty_step_document",
+    "note": "Documento de 20 pasos: máximo 7 y reason grouped.",
+    "motion_key": "discovery",
+    "lang": "es",
+    "source": "Proceso de llamada saliente\n1. Revisar la cuenta en el CRM antes de marcar\n2. Buscar al contacto en LinkedIn\n3. Marcar el número directo\n4. Saludar con el nombre completo\n5. Presentarse con nombre y empresa\n6. Pedir permiso para hablar un minuto\n7. Decir el motivo de la llamada\n8. Mencionar un dato concreto de su empresa\n9. Preguntar cómo gestionan hoy los leads\n10. Preguntar cuántos leads entran al mes\n11. Preguntar quién los atiende\n12. Preguntar cuánto tardan en responder\n13. Preguntar qué pasa con los leads que no se atienden\n14. Confirmar el problema con sus palabras\n15. Preguntar quién más participa en la decisión\n16. Preguntar cuándo quieren resolverlo\n17. Proponer una videollamada de 20 minutos\n18. Ofrecer dos huecos concretos\n19. Confirmar día y hora y enviar la invitación\n20. Registrar la llamada y el siguiente paso en el CRM",
+    "expect": {
+      "min_steps": 5,
+      "max_steps": 7,
+      "reason": "grouped",
+      "language": "es"
+    }
+  },
+  {
+    "id": "p01_product_brochure_no_process",
+    "note": "Folleto de producto: no hay proceso, no hay que inventarlo.",
+    "motion_key": "discovery",
+    "lang": "es",
+    "source": "Vocify. La plataforma de inteligencia comercial para equipos de ventas.\n\nGraba cada llamada y cada reunión, extrae los datos que importan y los sube a tu CRM sin que nadie los teclee. Integración nativa con HubSpot, Pipedrive y Salesforce. Cumple RGPD y almacena los datos en la UE.\n\nPlanes: Starter desde 29 € al mes por usuario. Team desde 49 € al mes por usuario, con coaching y adherencia al playbook. Enterprise a medida, con SSO y soporte dedicado.\n\nMás de 300 equipos comerciales ya ahorran cinco horas por semana y por comercial. Pide tu demo en vocify.com.",
+    "expect": {
+      "min_steps": 0,
+      "max_steps": 0,
+      "reason": "no_process"
+    }
+  },
+  {
+    "id": "p01_script_with_literal_phrases",
+    "note": "Guion con frases entre comillas en cada paso: deben salir como example, tal cual.",
+    "motion_key": "closing",
+    "lang": "es",
+    "source": "Guion de demo (AE)\n\nAgenda: \"Hoy quiero enseñarte solo lo que resuelve lo que hablamos y al final decidimos juntos el siguiente paso, ¿te parece?\"\nRepaso del dolor: \"La última vez me dijiste que tardáis tres días en cerrar un presupuesto. ¿Sigue siendo así?\"\nDemo: enseñar únicamente el generador de presupuestos y la firma electrónica.\nDudas: \"¿Hay algo que te haga dudar y que prefieras aclarar ahora?\"\nSiguiente paso: \"¿Te mando la propuesta el jueves y la revisamos el viernes a las 12?\"\n",
+    "expect": {
+      "min_steps": 4,
+      "max_steps": 6,
+      "reason": null,
+      "min_examples": 3,
+      "language": "es"
+    }
+  },
+  {
+    "id": "p01_source_contradicts_template",
+    "note": "El equipo no sigue la plantilla (no pide permiso, no cualifica en la primera llamada): manda la fuente.",
+    "motion_key": "discovery",
+    "lang": "es",
+    "source": "Cómo llamamos en Logística Ágil.\nNo pedimos permiso ni preguntamos si es buen momento: eso invita a que te digan que no. Empezamos directamente con un dato de su almacén, por ejemplo cuántas referencias tienen publicadas en su web.\nNo cualificamos en la primera llamada, no preguntamos por presupuesto ni por quién decide.\nHacemos una sola pregunta: cuánto tiempo pasan a la semana preparando pedidos a mano. Con la respuesta, ofrecemos una visita al almacén.\nLa llamada termina cuando tenemos una visita con fecha.\n",
+    "expect": {
+      "min_steps": 2,
+      "max_steps": 4,
+      "reason": null,
+      "must_not_contain": [
+        "pide permiso",
+        "pedir permiso",
+        "cualifica quién decide",
+        "presupuesto disponible"
+      ],
+      "must_contain_any": [
+        "visita",
+        "almacén"
+      ],
+      "language": "es"
+    }
+  },
+  {
+    "id": "p01_very_short_text",
+    "note": "Texto de tres palabras: uno o dos pasos y reason too_short.",
+    "motion_key": "discovery",
+    "lang": "es",
+    "source": "llamamos y agendamos",
+    "expect": {
+      "min_steps": 1,
+      "max_steps": 2,
+      "reason": "too_short"
+    }
+  },
+  {
+    "id": "p01_mixed_sdr_and_ae_document",
+    "note": "Un documento con dos partes: para el tipo llamada en frío solo cuenta la parte SDR.",
+    "motion_key": "discovery",
+    "lang": "es",
+    "source": "MANUAL COMERCIAL 2026\n\nPARTE 1 · LLAMADA EN FRÍO (SDR)\n1. Nos presentamos y pedimos un minuto.\n2. Explicamos que llamamos porque su empresa publica ofertas de comerciales y eso suele indicar que necesitan ordenar el proceso.\n3. Preguntamos cómo registran hoy las llamadas de los comerciales.\n4. Cerramos una demo con el AE con día y hora.\n\nPARTE 2 · DEMO Y CIERRE (AE)\n1. Empezamos con la agenda de la reunión.\n2. Repasamos el dolor confirmado por el SDR.\n3. Demo técnica de 25 minutos con el entorno de pruebas.\n4. Presentamos el presupuesto y negociamos el descuento por volumen.\n5. Acordamos la fecha de firma del contrato.\n",
+    "expect": {
+      "min_steps": 3,
+      "max_steps": 5,
+      "reason": null,
+      "must_not_contain": [
+        "demo técnica",
+        "firma del contrato",
+        "fecha de firma",
+        "descuento por volumen",
+        "entorno de pruebas"
+      ],
+      "language": "es"
+    }
+  },
+  {
+    "id": "p01_industry_jargon",
+    "note": "Jerga de correduría de seguros: el vocabulario del sector se conserva.",
+    "motion_key": "discovery",
+    "lang": "es",
+    "source": "Llamada a corredurías (equipo Mediadores)\n- Saludo y aviso de que llamamos de Aseguralia, pedir dos minutos.\n- Preguntar por su cartera: cuántas pólizas gestionan y de qué ramos (auto, hogar, comercio).\n- Preguntar cómo llevan las renovaciones y la siniestralidad de la cartera; cuántas renovaciones se les escapan al mes.\n- Preguntar si trabajan con comparador o con las compañías directamente.\n- Ofrecer una demo de la herramienta de renovaciones con día y hora.\n",
+    "expect": {
+      "min_steps": 4,
+      "max_steps": 6,
+      "reason": null,
+      "must_contain_any": [
+        "cartera",
+        "póliza",
+        "renovaci",
+        "siniestralidad",
+        "ramo"
+      ],
+      "language": "es"
+    }
+  }
+]

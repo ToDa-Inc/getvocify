@@ -1,0 +1,226 @@
+[
+  {
+    "id": "p03_script_only_es",
+    "note": "Solo un guion de llamada en frío: ni cualificación, ni objeciones, ni nada de la empresa. Todo lo demás debe quedar vacío (nada inventado).",
+    "routing": false,
+    "lang": "es",
+    "source": "GUION SDR · llamada en frío\n1. Me presento y pregunto si tiene 30 segundos.\n2. Digo por qué llamo: vi que han abierto una sede nueva y eso suele complicar las nóminas.\n3. Pregunto cómo llevan hoy el cierre de nómina y dejo que lo cuente.\n4. Si hay dolor, propongo una demo de 20 minutos y cierro día y hora.",
+    "expect": {
+      "only_types": [
+        "discovery"
+      ],
+      "types": {
+        "discovery": {
+          "min_steps": 3,
+          "max_steps": 5,
+          "max_qualification": 0,
+          "max_custom": 0,
+          "must_contain_any": [
+            "30 segundos",
+            "sede",
+            "demo"
+          ]
+        }
+      },
+      "company": {
+        "empty": true
+      },
+      "language": "es"
+    }
+  },
+  {
+    "id": "p03_product_deck_only_es",
+    "note": "Solo un deck de producto, sin ningún paso de llamada. Decisión: no hay tipo de llamada, así que reason sigue siendo no_process (la UI lo lee junto con company); lo que el deck dice de la empresa se rellena. Sin competidores ni personas porque el deck no los nombra.",
+    "routing": false,
+    "lang": "es",
+    "source": "NOMINIA · Presentación comercial 2026\nQué es: la plataforma de nóminas para gestorías y pymes de 5 a 200 empleados.\nPara quién: gestorías de 5 a 30 personas que llevan las nóminas de sus clientes y pymes con una sola persona en RRHH.\nNo es para: empresas de más de 500 empleados ni convenios con turnos complejos en hostelería.\nPor qué Nominia: cierre de nómina en 2 días en lugar de 6; importa los datos del programa anterior sin coste; soporte en español con respuesta en menos de 1 hora.\nCaso: Gestoría Ríos (12 personas) pasó de 6 días a 2 días de cierre mensual y dejó de pagar horas extra en la última semana.\nPrecios: Básico 4 € por empleado y mes, Pro 7 € por empleado y mes con integración con HubSpot; descuento del 10 % en pago anual.",
+    "expect": {
+      "only_types": [],
+      "reason": "no_process",
+      "types": {},
+      "company": {
+        "sections_include": [
+          "icp",
+          "bad_fit",
+          "differentiators",
+          "proofs",
+          "pricing"
+        ],
+        "sections_exclude": [
+          "competitors",
+          "personas"
+        ],
+        "must_not_contain": [
+          "Holded",
+          "Factorial",
+          "Sage"
+        ]
+      },
+      "language": "es"
+    }
+  },
+  {
+    "id": "p03_meddic_named_es",
+    "note": "El documento dice «cualificamos con MEDDIC» sin listar criterios: la cualificación sale con los 6 de la plantilla, y los pasos solo con lo que el documento cuenta.",
+    "routing": false,
+    "lang": "es",
+    "source": "MANUAL DEL AE · Nominia\nCualificamos todas las oportunidades con MEDDIC.\nPrimera reunión con el prospecto:\n1. Abro con la agenda y digo qué quiero decidir al final de la reunión.\n2. Repaso lo que nos contó el SDR y pido que lo corrija.\n3. Exploro el problema hasta que aparece un número: horas perdidas, errores, multas.\n4. Cierro acordando quién más tiene que estar en la siguiente reunión y en qué fecha.",
+    "expect": {
+      "only_types": [
+        "closing"
+      ],
+      "types": {
+        "closing": {
+          "min_steps": 3,
+          "max_steps": 5,
+          "min_qualification": 6,
+          "max_qualification": 6,
+          "criterion_ids": [
+            "metrics",
+            "economic_buyer",
+            "decision_criteria",
+            "decision_process",
+            "identify_pain",
+            "champion"
+          ]
+        }
+      },
+      "language": "es"
+    }
+  },
+  {
+    "id": "p03_competitor_battlecard_es",
+    "note": "Solo un battlecard: ningún paso, todo va a competidores con lo que dice de cada uno. Los campos que el documento no da (Factorial) quedan vacíos.",
+    "routing": false,
+    "lang": "es",
+    "source": "BATTLECARD · Competidores (uso interno)\nHOLDED\n- Ganamos cuando el cliente es una gestoría y necesita conciliación bancaria automática y multicliente.\n- Perdemos cuando quieren un ERP completo con facturación y contabilidad en el mismo sitio.\n- Lo que le gusta al cliente: la interfaz y que ya lo conocen de otras empresas.\n- Ojo: nunca decir que es caro ni que es lento; el cliente lo defiende.\n- Cómo hablar: reconocer que es buen producto y preguntar qué parte de la nómina resuelven hoy.\nFACTORIAL\n- Ganamos cuando el cliente tiene convenios complejos.\n- Perdemos cuando RRHH quiere fichaje y vacaciones en la misma herramienta.",
+    "expect": {
+      "only_types": [],
+      "reason": "no_process",
+      "types": {},
+      "company": {
+        "sections_include": [
+          "competitors"
+        ],
+        "sections_exclude": [
+          "proofs",
+          "pricing",
+          "personas"
+        ],
+        "competitor_names": [
+          "Holded",
+          "Factorial"
+        ],
+        "competitor_empty_fields": {
+          "Factorial": [
+            "how_to_talk"
+          ]
+        },
+        "must_not_contain": [
+          "Sage",
+          "Cegid",
+          "Personio"
+        ]
+      },
+      "language": "es"
+    }
+  },
+  {
+    "id": "p03_custom_objections_es",
+    "note": "Un guion SDR con las objeciones que la empresa recibe: las que no encajan en las 6 fijas salen como propias con su etiqueta y cómo las dice el cliente. «Ya lo hacemos con Excel» puede salir como status_quo o como propia (las dos valen); las otras tres son propias. Significado, pregunta y prueba solo donde el documento los dice.",
+    "routing": false,
+    "lang": "es",
+    "source": "GUION SDR + OBJECIONES · Nominia\nLlamada en frío: 1. Me presento y pido 30 segundos. 2. Cuento por qué llamo: vi que abrieron sede nueva. 3. Pregunto cómo hacen hoy la nómina. 4. Propongo una demo con día y hora.\n\nLas objeciones que más nos frenan y cómo las contestamos:\n- «Es caro»: comparamos con lo que cuesta cada error de nómina, una multa media de 300 €.\n- «¿Y qué pasa con mis datos históricos?» (nos lo dicen siempre): preguntamos cuántos años necesitan y decimos que los importamos nosotros sin coste. Lo que quieren decir: tienen miedo a perder el histórico y a quedarse sin auditoría.\n- «Mi equipo no lo va a usar»: preguntamos quién lleva hoy la nómina y proponemos que esa persona haga la prueba de 15 días.\n- «Ya lo hacemos con Excel»: preguntamos cuántas horas al mes le dedican.\n- «Tenemos que pasarlo por legal»: enviamos el documento de RGPD y el DPA firmado. Prueba: ya lo han pasado por legal más de 40 clientes.",
+    "expect": {
+      "only_types": [
+        "discovery"
+      ],
+      "types": {
+        "discovery": {
+          "min_steps": 3,
+          "max_steps": 5,
+          "categories": [
+            "price"
+          ],
+          "min_custom": 3,
+          "must_contain_any": [
+            "histórico",
+            "legal"
+          ]
+        }
+      },
+      "language": "es"
+    }
+  },
+  {
+    "id": "p03_full_foundation_es",
+    "note": "Un documento de fundamentos completo: dos procesos, lo que tiene que salir de la discovery del AE (sin nombrar un marco), objeciones fijas y propias, y toda la empresa. Cada cosa a su capa.",
+    "routing": false,
+    "lang": "es",
+    "source": "PLAYBOOK COMERCIAL · Nominia (2026)\n\nQUIÉNES SOMOS\nVendemos nóminas a gestorías de 5 a 30 personas y a pymes de hasta 200 empleados. No vendemos a empresas de más de 500 empleados. Nos compran el responsable de la gestoría y, en pymes, el director financiero, que se mide por el tiempo de cierre.\nEn 30 segundos: Nominia cierra la nómina en 2 días en lugar de 6 y sin errores de convenio. Nos diferencia que importamos el histórico sin coste y el soporte en español en menos de 1 hora.\nCaso: Gestoría Ríos pasó de 6 días a 2 de cierre mensual.\nCompetidor: Holded. Ganamos cuando necesitan conciliación bancaria automática; perdemos cuando quieren un ERP completo.\nPrecio: Básico 4 € por empleado y mes, Pro 7 €; descuento del 10 % en pago anual, nunca más.\n\nSDR · LLAMADA EN FRÍO\n1. Me presento y pido 30 segundos.\n2. Digo por qué llamo: vi que abrieron sede nueva.\n3. Pregunto cómo llevan hoy el cierre de nómina.\n4. Propongo una demo con día y hora.\n\nAE · DEMO Y CIERRE\n1. Abro con la agenda y lo que quiero decidir al final.\n2. Enseño solo lo que resuelve el problema que me contaron.\n3. Cierro con un siguiente paso con fecha: propuesta, prueba o firma.\nEn la reunión tengo que salir sabiendo: con qué herramienta llevan hoy la nómina y cuántas horas pierden al mes (si dicen «no lo sé» es mala señal, hay que ayudarles a estimarlo); quién firma; y para cuándo necesitan estar operativos.\n\nOBJECIONES\n- «Es caro»: comparamos con lo que cuesta cada error de nómina.\n- «¿Y mis datos históricos?»: los importamos nosotros sin coste.",
+    "expect": {
+      "only_types": [
+        "discovery",
+        "closing"
+      ],
+      "types": {
+        "discovery": {
+          "min_steps": 3,
+          "max_steps": 5,
+          "max_qualification": 0
+        },
+        "closing": {
+          "min_steps": 3,
+          "max_steps": 6,
+          "min_qualification": 3,
+          "max_qualification": 8
+        }
+      },
+      "company": {
+        "sections_include": [
+          "icp",
+          "bad_fit",
+          "value_short",
+          "differentiators",
+          "proofs",
+          "competitors",
+          "pricing"
+        ],
+        "competitor_names": [
+          "Holded"
+        ]
+      },
+      "language": "es"
+    }
+  },
+  {
+    "id": "p03_bant_named_en",
+    "note": "English source that names BANT: the criteria come out from the BANT template, in English, and the demo steps only from what the document says.",
+    "routing": false,
+    "lang": "en",
+    "source": "Our AE playbook. We qualify every deal with BANT.\nDemo call, step by step:\n1. Open with the agenda and what we want to decide by the end.\n2. Recap the problem the customer told us in discovery and ask what changed.\n3. Show only the features that solve that problem.\n4. Close with a next step and a date: proposal, trial or signature.\nIf they say it is too expensive, we compare it with the cost of one payroll error.",
+    "expect": {
+      "only_types": [
+        "closing"
+      ],
+      "types": {
+        "closing": {
+          "min_steps": 3,
+          "max_steps": 5,
+          "min_qualification": 4,
+          "max_qualification": 4,
+          "criterion_ids": [
+            "budget",
+            "authority",
+            "need",
+            "timeline"
+          ],
+          "categories": [
+            "price"
+          ]
+        }
+      },
+      "language": "en"
+    }
+  }
+]

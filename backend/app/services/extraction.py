@@ -468,6 +468,42 @@ Return JSON only, using the HubSpot option values (not labels). You may nest con
 """
 
 
+# C04 v8 pipeline (INTELLIGENCE_CALL_READING_ENABLED): the call was read first, so the transcript
+# carries You:/Them: by what each person said and the call type is known. CRM data then comes
+# only from what the prospect said; nothing is filled to avoid an empty field.
+GROUNDED_SYSTEM_PROMPT = (
+    "You are a precise CRM data extraction engine. Output valid JSON only. Rules: "
+    "(1) A fact about the prospect, their company or their needs comes only from a 'Them:' line, or "
+    "from something the rep said that the prospect clearly confirmed. The rep's pitch, questions and "
+    "assumptions are never facts about the prospect. "
+    "(2) Leave a field null when the conversation did not answer it. An empty field is correct; a "
+    "guessed one is a bug. Never 0, '', 'unknown' or a placeholder. "
+    "(3) Names, emails, phones and domains only exactly as said or spelled: never complete a surname, "
+    "an email or a domain, and leave them null when the audio garbled them. "
+    "(4) Numbers exact and with their unit: a sales team of 2 is not 2 employees. "
+    "(5) Dates only when said; resolve relative days from the call date. "
+    "(6) All text in the transcript's language."
+)
+
+# For a model that answers without reasoning (llm.shared.answers_without_reasoning): the checks a
+# reasoning model makes on its own. Measured on 54 judged calls with DeepSeek V4.1 Flash (no
+# reasoning): invented facts in the note 26 -> 8, wrong or inferred fields 27 -> 12.
+GROUNDED_NO_REASONING_RULES = (
+    " (7) Before writing a sentence in the note, check who said it: a proposal or example from the rep (a CRM name, a figure, a date, a follow-up) is never the prospect's, and a rep proposal stays 'propuesto' unless a 'Them:' line accepts it. "
+    "(8) When a name, figure, company or tool is garbled or ambiguous in the transcript, leave the field null and write '(poco claro en el audio)' in the note; never map it to a catalog option, a range or a field with another meaning (employees are not the sales team; a margin is not revenue). "
+    "(9) Before answering, go through what the prospect asked for or agreed (send information, call at a time, talk to someone else, a date) and write one task for each, with its date when it can be resolved; fill objections, decision makers and contact data whenever the prospect gave them clearly. "
+    "(10) With no real conversation or unusable audio, the note is one line saying so and nothing else."
+)
+
+
+def grounded_system_prompt() -> str:
+    from app.config import settings
+    from app.services.llm.shared import answers_without_reasoning
+
+    if answers_without_reasoning(settings.EXTRACTION_MODEL, settings.EXTRACTION_REASONING_EFFORT):
+        return GROUNDED_SYSTEM_PROMPT + GROUNDED_NO_REASONING_RULES
+    return GROUNDED_SYSTEM_PROMPT
+
 EXTRACTION_SYSTEM_PROMPT = (
     "You are a precise CRM data extraction engine. Output valid JSON only. Rules: "
     "(1) closedate = null unless explicit calendar date in transcript—'next Tuesday' / "
@@ -490,6 +526,25 @@ EXTRACTION_SYSTEM_PROMPT = (
 )
 
 
+USER_NOTES_MAX_CHARS = 8000
+
+
+def user_notes_block(user_notes: Optional[str]) -> str:
+    """The rep's own notes steer the summary; the transcript stays the source of truth."""
+    notes = (user_notes or "").strip()[:USER_NOTES_MAX_CHARS]
+    if not notes:
+        return ""
+    return f"""
+### REP'S OWN NOTES (typed by the rep during the meeting)
+\"\"\"
+{notes}
+\"\"\"
+- These are what the rep cares about. The **summary** must cover every point in them, keeping their wording where it fits, and add the specifics from the transcript.
+- Facts the rep typed (names, numbers, dates) count as stated and may fill CRM fields.
+- If a note contradicts the transcript, follow the transcript. Never invent beyond notes + transcript.
+"""
+
+
 def build_extraction_prompt(
     transcript: str,
     field_specs: Optional[list[dict]] = None,
@@ -498,6 +553,7 @@ def build_extraction_prompt(
     product_context: str = "",
     existing_values: Optional[dict] = None,
     call_date: Optional[str] = None,
+    user_notes: Optional[str] = None,
 ) -> str:
     """Build the extraction user prompt without constructing an LLM client."""
     return ExtractionService._build_prompt(
@@ -509,7 +565,388 @@ def build_extraction_prompt(
         product_context,
         existing_values,
         call_date,
+        user_notes=user_notes,
     )
+
+
+
+_CALL_TYPE_ES = {
+    "cold_first_contact": "primera conversación con este prospecto",
+    "follow_up": "seguimiento de un contacto anterior",
+    "meeting_confirmation": "confirmación de una reunión ya agendada",
+    "meeting_reschedule": "reagendar una reunión",
+    "discovery_meeting": "reunión agendada",
+    "bad_moment": "el prospecto no podía hablar",
+    "gatekeeper": "solo habló con recepción o un asistente",
+    "wrong_person": "no era la persona adecuada",
+    "dictated_note": "nota dictada por el comercial",
+    "other": "otra",
+}
+# The call reading says nothing was said worth a CRM write: one line, no fields, no tasks.
+NO_CRM_CALL_TYPES = frozenset({"no_conversation", "not_a_sales_call"})
+# Past this length a "no conversation" reading may be wrong: the CRM pass still runs, in short-note
+# mode, so a real call is never left without its note.
+NO_CRM_MAX_CHARS = 400
+# Where the deal stands is the rep's to declare after the call (with lead status), not inferred.
+REP_DECLARED_FIELDS = frozenset({"dealstage"})
+SHORT_NOTE_CALL_TYPES = frozenset({"bad_moment", "gatekeeper", "wrong_person"})
+
+
+_ROLE_TOKENS = frozenset({"you", "them", "rep", "prospect", "s1", "s2"})
+_PLACEHOLDER = re.compile(r"^(?:desconocid[oa]s?|unknown|n/?a|no especificad[oa]|sin especificar|ninguno|none|null)\b", re.I)
+_EMAIL = re.compile(r"^[^@\s]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$", re.I)
+_DOMAIN = re.compile(r"^(?:[a-z0-9-]+\.)+[a-z]{2,}$", re.I)
+
+
+def grounded_cleanup(extracted: dict) -> dict:
+    """What the grounded prompt asks for and a model still slips on, enforced: no transcript role
+    token ("Them") as a person, no all-empty schedule list."""
+    out = dict(extracted or {})
+
+    def is_role(value) -> bool:
+        if not isinstance(value, str):
+            return False
+        text = value.strip()
+        return text.strip(".:").lower() in _ROLE_TOKENS or bool(_PLACEHOLDER.match(text)) or "desconocid" in text.lower()
+
+    def bad_identity(key: str, value) -> bool:
+        if not isinstance(value, str) or not value.strip():
+            return False
+        if "email" in key.lower():
+            return not _EMAIL.match(value.strip())  # a garbled address is worse than none
+        if "domain" in key.lower():
+            return not _DOMAIN.match(value.strip().removeprefix("www."))
+        return False
+
+    for key in ("contactName", "companyName"):
+        if is_role(out.get(key)):
+            out[key] = None
+    if bad_identity("contactEmail", out.get("contactEmail")):
+        out["contactEmail"] = None
+    if isinstance(out.get("decisionMakers"), list):
+        out["decisionMakers"] = [v for v in out["decisionMakers"] if not is_role(v)]
+    for nested in ("contact_properties", "company_properties"):
+        props = out.get(nested)
+        if isinstance(props, dict):
+            out[nested] = {k: (None if is_role(v) or bad_identity(k, v) else v) for k, v in props.items()}
+    schedules = out.get("nextStepSchedules")
+    if isinstance(schedules, list) and not any(str(v or "").strip() for v in schedules):
+        out["nextStepSchedules"] = []
+    _mirror_identity(out)
+    return out
+
+
+def _mirror_identity(out: dict) -> None:
+    """The contact's name and the company's name the pass already wrote at the top level also
+    fill the CRM's own empty name fields, when the schema asked for them."""
+    contact = out.get("contact_properties")
+    name = str(out.get("contactName") or "").strip()
+    if isinstance(contact, dict) and name:
+        first, _, last = name.partition(" ")
+        if "firstname" in contact and not contact.get("firstname"):
+            contact["firstname"] = first
+        if "lastname" in contact and not contact.get("lastname") and last:
+            contact["lastname"] = last
+    company = out.get("company_properties")
+    company_name = str(out.get("companyName") or "").strip()
+    if isinstance(company, dict) and company_name and "name" in company and not company.get("name"):
+        company["name"] = company_name
+
+
+# Fields the grounded pass may fill without a prospect quote: the note, the tasks, and who the
+# contact is (identity is checked as spoken by grounded_cleanup instead).
+_NO_EVIDENCE_NEEDED = frozenset({
+    "summary", "nextSteps", "nextStepSchedules", "next_step_schedules", "confidence", "evidence",
+    "contactName", "contactEmail", "contactPhone", "companyName", "customerPresent", "dealname",
+    "contact_properties.firstname", "contact_properties.lastname", "contact_properties.email",
+    "contact_properties.phone", "contact_properties.mobilephone", "company_properties.name",
+    "company_properties.domain", "company_properties.website", "description",
+})
+
+
+# A prospect's answer that confirms what the salesperson just said ("sois de Shopify, ¿verdad?" "Sí.").
+_YES = re.compile(r"^(?:si|sí|exacto|exactamente|correcto|eso es|asi es|efectivamente|claro|yes|right|exactly|correct)\b")
+# "Sí, más o menos" confirms nothing.
+_HEDGE = re.compile(r"\b(?:mas o menos|no del todo|no exactamente|no se|en parte|sort of|kind of|not exactly)\b")
+
+
+_YES_WORDS = frozenset({"si", "exacto", "exactamente", "correcto", "claro", "efectivamente", "eso", "es",
+                        "asi", "vale", "yes", "right", "exactly", "correct"})
+
+
+def _plain_yes(reply: str) -> bool:
+    return bool(_YES.match(reply)) and not _HEDGE.search(reply[:60])
+
+
+def _fold_text(text) -> str:
+    from app.services.intelligence.extract import _fold
+
+    return _fold(str(text or ""))[0]
+
+
+def _bare_yes(quote: str) -> bool:
+    """Nothing but a yes ("Sí, sí, correcto.", "Sí, más o menos [a lo que preguntó]"): it says
+    nothing on its own, unlike "Sí, HubSpot"."""
+    from app.services.intelligence.extract import _fold
+
+    words = _fold(re.sub(r"\[[^\]]*\]", " ", str(quote or "")))[0].split()
+    rest = " ".join(word for word in words if word not in _YES_WORDS)
+    return bool(words) and words[0] in _YES_WORDS and (not rest or bool(_HEDGE.fullmatch(rest)))
+
+
+def _quote_parts(quote: str) -> list[str]:
+    """A model's quote cut back to the stretches it copied: no "[...]" notes, no role marks, and
+    split where it joined two places with an ellipsis."""
+    text = re.sub(r"\[[^\]]*\]", "|", str(quote or ""))
+    text = re.sub(r"\b(?:You|Them)\s*:", "|", text)
+    parts = re.split(r"\.{3,}|…|\|", text)
+    return [part.strip(" ,;") for part in parts if part.strip(" ,;.")]
+
+
+def _prospect_said(quote: str, turns: list[tuple[str, str]]) -> bool:
+    """The quote is the prospect's: most of it falls in a "Them:" turn (a sentence the audio split
+    across two turns still counts), or it is the salesperson's sentence the prospect answered
+    with a plain yes."""
+    from app.services.intelligence.extract import _fold
+
+    folded_quote, _ = _fold(" ".join(quote.split()))
+    if len(folded_quote.split()) < 3:
+        return False
+    texts = [" ".join(text.split()) for _, text in turns]
+    flat = " ".join(texts)
+    owner: list[int] = []
+    for index, text in enumerate(texts):
+        owner.extend([index] * (len(text) + 1))
+    folded, where = _fold(flat)
+    at = folded.find(folded_quote)
+    if at < 0:
+        return False
+    span = [owner[where[i]] for i in range(at, at + len(folded_quote)) if folded[i] != " "]
+    if sum(turns[i][0] == "Them" for i in span) * 2 > len(span):
+        return True
+    last = span[-1]
+    if turns[last][0] != "You" or last + 1 >= len(turns) or turns[last + 1][0] != "Them":
+        return False
+    asked = "?" in flat[where[at]:sum(len(t) + 1 for t in texts[:last + 1])]
+    return asked and _plain_yes(_fold(texts[last + 1])[0])
+
+
+def _answered(value, quote: str, turns: list[tuple[str, str]]) -> bool:
+    """A short answer the model quoted alone ("Sí.", "10.") backs the field only next to the
+    question it answered: a yes to a salesperson question that carries the value's own words, or
+    the value itself said as the answer to a question."""
+    from app.services.intelligence.extract import _fold
+
+    answer = _fold(" ".join(str(quote or "").split()))[0]
+    if not answer:
+        return False
+    for index in range(1, len(turns)):
+        (asker, question), (who, reply) = turns[index - 1], turns[index]
+        if asker != "You" or who != "Them" or "?" not in question:
+            continue
+        said = _fold(reply)[0]
+        if not said.startswith(answer):
+            continue
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if answer.split()[0] == f"{value:g}":
+                return True
+        elif isinstance(value, str) and _plain_yes(said):
+            words = [w for w in _fold(value)[0].split() if len(w) > 3]
+            asked = _fold(question)[0]
+            if words and sum(w in asked for w in words) * 10 >= len(words) * 7:
+                return True
+    return False
+
+
+# Words that put someone in a decision ("lo decide mi socio", "tengo que hablarlo con mi jefe").
+_DECIDES = re.compile(
+    r"decid|decis|aprob|aprueb|firm|socio|socia|jefe|jefa|director|responsable|dueno|duena|"
+    r"consultarlo|hablarlo con|approv|decide|sign off|boss|partner|owner"
+)
+
+
+def require_prospect_evidence(extracted: dict, transcript: str, *, roles_marked: bool = True) -> dict:
+    """Every CRM fact the grounded pass fills needs the prospect's own words behind it: its
+    `evidence` quote must be found (ignoring case, accents and punctuation) in a "Them:" turn, or be
+    the salesperson's question the prospect answered yes to. A field without one is emptied; what
+    only the salesperson said never becomes the prospect's."""
+    from app.services.intelligence.extract import _locate, _turns
+
+    out = dict(extracted or {})
+    raw_evidence = out.pop("evidence", None)
+    # Paths come back as "objections", "objections[0]", "objections.0" or "company_properties.crm":
+    # group every quote under its field path, without list indexes.
+    evidence: dict[str, list] = {}
+    for key, value in (raw_evidence.items() if isinstance(raw_evidence, dict) else []):
+        path = re.sub(r"\[\d+\]|\.\d+(?=\.|$)", "", str(key)).strip(". ")
+        evidence.setdefault(path, []).extend(value if isinstance(value, list) else [value])
+    turns = _turns(transcript) if roles_marked else None
+    prospect_text = (
+        " ".join(" ".join(text.split()) for who, text in turns if who == "Them") if turns else transcript
+    )
+
+    def said(text) -> bool:
+        if not isinstance(text, str):
+            return False
+        if _bare_yes(text):
+            return False  # it proves something only next to its question (_answered)
+        if len(text.split()) >= 2 and _locate(text, prospect_text):
+            return True
+        # Long enough stretches of it carry the quote; short bits ("Sí.") prove nothing on their own.
+        parts = [part for part in _quote_parts(text) if len(part.split()) >= 3]
+        if not parts:
+            return False
+        if turns:
+            return all(_prospect_said(part, turns) for part in parts)
+        return all(_locate(part, prospect_text) for part in parts)
+
+    def backed(path: str, value=None) -> bool:
+        quotes = evidence.get(path) or evidence.get(path.split(".")[-1]) or []
+        return any(said(q) or (turns and _answered(value, q, turns)) for q in quotes)
+
+    def empty(value) -> bool:
+        return value in (None, "", [], {})
+
+    for key in list(out):
+        value = out[key]
+        if key in _NO_EVIDENCE_NEEDED or empty(value):
+            continue
+        if isinstance(value, dict) and key in ("contact_properties", "company_properties"):
+            out[key] = {
+                k: (v if empty(v) or f"{key}.{k}" in _NO_EVIDENCE_NEEDED or backed(f"{key}.{k}", v) else None)
+                for k, v in value.items()
+            }
+        elif isinstance(value, (dict, list)) and key == "line_items":
+            out[key] = value if backed(key) else []
+        elif not backed(key, value):
+            if isinstance(value, list):
+                # An item the prospect said in so many words ("no me interesa") backs itself.
+                out[key] = [item for item in value if said(item)]
+            else:
+                out[key] = None
+    # Being on the call or founding the company does not put someone in the decision: the quote has to.
+    if out.get("decisionMakers"):
+        quotes = [q for q in evidence.get("decisionMakers") or [] if said(q) or (turns and _answered(None, q, turns))]
+        if not any(_DECIDES.search(_fold_text(q)) for q in quotes):
+            out["decisionMakers"] = []
+    return out
+
+
+def _grounded_source_hint(call_reading: dict) -> str:
+    kind = str(call_reading.get("call_type") or "other")
+    marked = call_reading.get("roles_marked", True)
+    roles = (
+        'Each line starts with "You:" (the salesperson, the Vocify user) or "Them:" (the prospect '
+        "or anyone on their side). Those roles were worked out from what each person says: trust them."
+        if marked else
+        "The transcript has no speaker marks: tell who speaks from what is said. A dictated note is "
+        "the salesperson telling what happened in an earlier conversation."
+    )
+    short = (
+        "\nThis call never became a sales conversation: the note is 1–3 bullets with what happened (why "
+        "they could not talk, what they asked for). Still fill the contact's name and company when they "
+        "said or confirmed them, and any email or referral they gave. A callback or anything else agreed "
+        "goes in nextSteps with what was said about when (\"a las 12:30\", \"el lunes\"). Never leave "
+        "the note empty when someone answered."
+        if kind in SHORT_NOTE_CALL_TYPES | NO_CRM_CALL_TYPES else ""
+    )
+    seller = str(call_reading.get("rep_company") or "").strip()
+    seller_line = (
+        f"\nThe salesperson sells for {seller}: that company, its people and its prices are never the prospect's data."
+        if seller else ""
+    )
+    return f"""
+### THIS CALL
+Type: {_CALL_TYPE_ES.get(kind, kind)} ({kind}). Furthest point reached: {call_reading.get("phase_reached") or "unknown"}.
+{roles}{seller_line}{short}
+"""
+
+
+def _grounded_rules(json_structure: str) -> str:
+    return f"""### EXTRACTION RULES:
+1. **Only what the prospect said**: a CRM field is filled only when a "Them:" line answers it (or the
+   prospect clearly confirmed what the salesperson said). The salesperson's pitch, examples, prices and
+   assumptions are never facts about the prospect. When the conversation did not answer a field, null.
+2. **Strict types**: Output MUST match schema exactly. `number` → numeric only (500, not "500€"), in the
+   field's own unit (a sales team of 2 is not numberofemployees 2). `enumeration` → exact allowed value.
+   `date` → YYYY-MM-DD only. Never 0, "", "unknown" or a placeholder for "not said".
+3. **Enumerations and lists**: choose an option only when the prospect clearly described it; a vague
+   hint, the salesperson's own framing or a topic that never came up is null.
+   - pains / painPoints: only a difficulty, cost or frustration the prospect says THEY have, in words
+     that name it as a problem ("nos cuesta", "perdemos", "no llegamos", "es un lío"). How they work
+     today (referrals, a channel, a tool, "el 80% nos viene por boca a boca") is not a pain, nor is a
+     problem the salesperson described and the prospect only heard; if they say it is not a problem, null.
+   - objections: the prospect's reasons not to move forward. "Estoy en una reunión" or "no soy yo" are
+     not objections (they go in the note).
+   - products/services offered: what the prospect says their company sells, never the salesperson's
+     reading of it, nor partners or tools they use.
+   - competitors: only alternatives to what the salesperson sells that the prospect names.
+   - An option only when its name or a clear synonym was said: "Drive" is not Pipedrive, "Excel" or
+     "no tenemos CRM" is not any CRM option. A catch-all option ("Otros", "Other", "Interno") only
+     when they named a tool that is not in the list; "lo hacemos internamente" or "tenemos nuestro
+     sistema" without naming it is null.
+   - Numbers whose unit was not said (thousands? clients? employees?) stay null, and so does a range
+     ("entre 1 y 2 millones"): never pick one end of it. A different thing is not the field's thing
+     (an ERP is not a CRM; "solo estoy yo" is not a headcount of the company unless they say so).
+   - products/services offered is never the prospect's sector ("foodtech") or the contact's own job.
+4. **People and identity**: names, emails, phones and domains exactly as said or spelled; never complete
+   a surname, email or domain, null when garbled. When the prospect's name was said, fill it in every
+   name field the schema has for the contact (contactName and the contact's first/last name fields).
+   The contact is the prospect on the call: the salesperson is never the contact, and a person or
+   address they were referred to goes in the note and tasks, not in the contact fields. If the
+   prospect no longer works at the company the salesperson called about, do not write that company
+   as theirs. The company is the one the prospect works for, said in that sense ("soy de X", "en X
+   hacemos"); a shop they are in, a client, a supplier or a brand they mention is not their company,
+   and an email or domain is never built from it. decisionMakers only when someone's role in the
+   decision was said ("lo decide mi socio", "yo decido", "lo tengo que hablar con mi jefe"); being
+   on the call, a founder, or joining a meeting is not enough. Identity fields with a CURRENT VALUE →
+   null if the spoken person is different.
+5. **summary**: the CRM note a colleague reads before the next touch. Same language as the transcript.
+   Markdown. First line: `**Resultado:** <how the call ended, decision first, max 20 words>`.
+   Then only headings that carry concrete facts the prospect gave: their situation, figures with units,
+   tools, who decides, objections in their words, history with us, the agreed meeting with day and
+   time, and what the prospect said THEY will do ("reenviará el correo a su socia"). Every bullet a
+   fact (numbers, dates, times, names, roles); no heading without facts, no "se habló de", never the
+   salesperson's pitch, never next steps (that is nextSteps). Do not dress the outcome up ("tras
+   superar fuertes objeciones"): say what was agreed, as tentatively as it was agreed. A meeting is
+   "agreed" only when the prospect said yes to it; one the salesperson proposed and the prospect did
+   not confirm is "propuesta, sin confirmar". Keep the prospect's hedges ("creo que", "puede que",
+   "más adelante"): a maybe is not a yes, and "no tenemos ese problema" is not "no le interesa".
+   Never leave out what the next touch needs: an email or phone they dictated, who calls or writes to
+   whom and when, a condition they set ("si bajáis el precio", "después de Black Friday"), a price
+   they asked about or accepted, figures with their unit exactly as said (441 comerciales is not 441
+   empleados), and what they said they will do (and who does it: "te envío la invitación" is the
+   salesperson's task, not the prospect's).
+   No line without a fact: never "apertura exitosa", "se presentó", "confirma que se llama X",
+   "se habló de", and never repeat the Resultado below it. A short call or a plain no is the
+   Resultado line plus at most two bullets. Words the audio garbled are not facts: leave them out.
+6. **nextSteps**: only actions the SALESPERSON (or their team) must do, promised or agreed in this
+   call: send X, prepare the proposal, send the calendar invite, call back (also when the salesperson
+   said "te vuelvo a llamar" without a day), contact the person they were referred to. Never the prospect's own actions (those go in the note) and never "Reunión"
+   as a task. Short task titles without dates; timing goes in nextStepSchedules, one item per task: the
+   words that were said for that action, copied as said ("mañana", "el viernes", "en tres meses",
+   "a partir del 15 de enero"), or YYYY-MM-DD only when a full date was said. Never compute a date and
+   never use the call date. "" when no day was said for that task. [] when nothing was agreed.
+6b. **Deal amounts and line items**: only a price or volume the prospect accepted or proposed; a price the
+   salesperson quoted and the prospect rejected or did not answer goes in the note, never in a field.
+7. **contactEmail**: only a real address spoken or spelled; never invented.
+7a. **customerPresent**: true only if someone outside the salesperson's team spoke or is clearly the
+   counterpart (a prospect, customer or partner); false only when everyone speaking is on the same team
+   (a team meeting, an internal brief); null if unsure, and null for a note the salesperson dictates alone.
+7b. **Fields agree with the note**: whatever the note states about the agreed meeting or callback day,
+   the objection, the company's name, its revenue or a pain the prospect owned also goes in its
+   field (nextStepSchedules, objections, the company and contact fields); a field never contradicts the note.
+7c. **evidence**: for every field you fill except the note, the tasks, their schedules and the
+   contact's own name, email, phone and company name, add to "evidence" the prospect's exact words
+   that back it, copied from a "Them:" line: {{"field path": "exact words"}}, with the same path as
+   the field ("painPoints", "company_properties.annualrevenue", "dealstage"…). A field with no
+   prospect words to back it is not filled: what only the salesperson said never counts.
+8. **Format**: Return JSON in this structure:
+
+{json_structure}
+Add one more top-level key: "evidence": {{"field path": "the prospect's exact words"}}.
+
+9. **Confidence**: Provide overall (0-1) and per-field scores."""
 
 
 class ExtractionService:
@@ -532,6 +969,8 @@ class ExtractionService:
         product_context: str = "",
         existing_values: Optional[dict] = None,
         call_date: Optional[str] = None,
+        call_reading: Optional[dict] = None,
+        user_notes: Optional[str] = None,
     ) -> str:
         """Build the extraction prompt dynamically based on HubSpot CRM schema.
         
@@ -598,6 +1037,7 @@ class ExtractionService:
             "competitors": ("string[]", "Competing vendors/products being evaluated."),
             "objections": ("string[]", "Objections raised."),
             "decisionMakers": ("string[]", "Decision makers involved."),
+            "customerPresent": ("boolean | null", "Whether anyone outside the rep's team took part."),
         }
         standard_fields = {k: v for k, v in all_standard.items() if k not in schema_field_names}
 
@@ -728,12 +1168,15 @@ class ExtractionService:
 
         # Source-specific context hints to guide the LLM
         source_hint = ""
-        if source_context == "meeting_transcript":
+        if call_reading:
+            source_hint = _grounded_source_hint(call_reading)
+        elif source_context == "meeting_transcript":
             source_hint = """
 ### SOURCE CONTEXT
 This transcript is from a meeting recording (e.g. Zoom, Google Meet, Fireflies, Otter).
 It may include speaker labels ("John:", "Sarah:"), timestamps, or action-item formatting.
 Extract semantic content as usual—ignore formatting artifacts. Use speaker labels to disambiguate if helpful.
+A speaker labelled "You" is the sales rep (the Vocify user); other names are the customer side. Attribute what was said to who said it.
 **summary**: structured markdown (headings + bullets). Do NOT recap the pitch. Do NOT include next steps in the note. **nextSteps**: fill when the call created a real follow-up; prefer [] only if nothing actionable. Never invent.
 """
         elif source_context == "hubspot_call":
@@ -743,9 +1186,11 @@ This transcript is from a short phone or VoIP call logged in HubSpot CRM.
 It was transcribed by Speechmatics with speaker diarization enabled.
 
 Speaker labels:
-- **S1** = typically the sales rep (the Vocify user who owns this account).
-- **S2** = typically the prospect or customer.
-- If more than 2 speakers appear, treat S1 as the rep and all others as the customer side.
+- **You** = the sales rep (the Vocify user who owns this account). Lines Vocify already named keep this label.
+- Any other name (e.g. "Pablo:") = the prospect or customer side.
+- Unnamed labels: **S1** = typically the sales rep, **S2** = typically the prospect or customer.
+- If more than 2 speakers appear, treat You/S1 as the rep and all others as the customer side.
+- Attribute what was said to who said it: never write that the customer did something the rep said (a delay, an emergency, a request to pause).
 
 Key characteristics:
 - Typically 2–15 minutes. Many calls are brief check-ins with little extractable data.
@@ -793,30 +1238,19 @@ Do NOT copy this into summary, description, or other CRM fields. Do NOT recap th
 {product_text}
 """
         existing_block = format_existing_values_block(existing_values)
-        speaker_block = speaker_prompt_legend(
+        speaker_block = "" if call_reading else speaker_prompt_legend(
             transcript,
             prospect_name_from_existing(existing_values),
         )
         from app.services.relative_dates import call_date_header, parse_iso_date
 
         date_block = call_date_header(parse_iso_date(call_date) if call_date else None)
+        notes_block = user_notes_block(user_notes)
 
-        return f"""You are a world-class CRM analyst. Your task is to extract structured data from a sales call transcript.
-{source_hint}
-{date_block}
-{speaker_block}
-{product_section}
-{existing_block}
-{glossary_section}
-
-TRANSCRIPT:
-\"\"\"
-{transcript}
-\"\"\"
-
-{schema_text}
-
-### EXTRACTION RULES:
+        if call_reading:
+            rules_block = _grounded_rules(json_structure)
+        else:
+            rules_block = f"""### EXTRACTION RULES:
 1. **Do not invent**: names, emails, amounts, headcount, and dates must be spoken (or spelled). Do not use prior CRM knowledge or other calls.
 2. **Strict types**: Output MUST match schema exactly. `number` → numeric only (e.g. 500, not "500€"). `enumeration` → exact value from allowed list. `date` → YYYY-MM-DD only.
 3. **Language**: All text fields MUST use the SAME language as the transcript. Never translate.
@@ -826,11 +1260,29 @@ TRANSCRIPT:
 5b. **CRM fields**: Honor each field's fill policy. Pre-call / talk-track fields → null. Identity fields with a CURRENT VALUE → null if the spoken person is different. Account fit/motion fields describe the prospect, not our outreach. When CURRENT VALUE is empty and the call answered the field, you MUST set it — including mapping a description onto the closest enumeration option. ICP thresholds in a field description (e.g. "3+ reps") are scoring hints only — still store the real answer.
 5c. **contactEmail**: Only if a real address was spoken or spelled. Phone and/or name are enough to create a CRM contact. Never invent, guess, or fabricate an email (no lead.vocify / example.com placeholders). If not mentioned, null.
 5d. **Enumerations**: prefer the best-matching option over null. Use an `unknown` option only if they said they do not know. If the topic never came up, null.
+5e. **customerPresent**: true only if someone outside the rep's team spoke or is clearly the counterpart (a prospect, customer or partner). false only when everyone speaking is on the same team (a team meeting, an internal brief). null if unsure, and null for a note the rep dictates alone.
 6. **Format**: Return JSON in this structure:
 
 {json_structure}
 
 7. **Confidence**: Provide overall (0-1) and per-field scores.
+"""
+        return f"""You are a world-class CRM analyst. Your task is to extract structured data from a sales call transcript.
+{source_hint}
+{date_block}
+{speaker_block}
+{product_section}
+{existing_block}
+{glossary_section}
+{notes_block}
+TRANSCRIPT:
+\"\"\"
+{transcript}
+\"\"\"
+
+{schema_text}
+
+{rules_block}
 
 Return ONLY valid JSON. No preamble, no conversational text."""
 
@@ -843,6 +1295,8 @@ Return ONLY valid JSON. No preamble, no conversational text."""
         product_context: str = "",
         existing_values: Optional[dict] = None,
         call_date: Optional[str] = None,
+        call_reading: Optional[dict] = None,
+        user_notes: Optional[str] = None,
     ) -> MemoExtraction:
         """
         Extract structured CRM data from transcript.
@@ -858,6 +1312,13 @@ Return ONLY valid JSON. No preamble, no conversational text."""
         Returns:
             MemoExtraction with extracted data and confidence scores
         """
+        if call_reading:
+            # How the call ended (lead status, meeting booked) is the rep's to declare after the
+            # call, never read into the transcript.
+            field_specs = [
+                spec for spec in (field_specs or [])
+                if not is_lead_status_field(spec) and spec.get("name") not in REP_DECLARED_FIELDS
+            ]
         prompt = self._build_prompt(
             transcript,
             field_specs,
@@ -866,6 +1327,8 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             product_context=product_context,
             existing_values=existing_values,
             call_date=call_date,
+            call_reading=call_reading,
+            user_notes=user_notes,
         )
         schema_field_names = [s["name"] for s in (field_specs or []) if isinstance(s.get("name"), str)]
         logger.info(
@@ -891,8 +1354,19 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 confidence={"overall": 0.0, "fields": {}}
             )
         
+        if (
+            call_reading
+            and call_reading.get("call_type") in NO_CRM_CALL_TYPES
+            and len(" ".join(str(transcript or "").split())) < NO_CRM_MAX_CHARS
+        ):
+            reason = str(call_reading.get("call_type_reason") or "").strip()
+            label = "Sin conversación" if call_reading.get("call_type") == "no_conversation" else "No es una llamada de venta"
+            return MemoExtraction(
+                summary=f"**Resultado:** {label}." + (f" {reason}" if reason else ""),
+                confidence={"overall": 1.0, "fields": {}},
+            )
         messages = [
-            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "system", "content": grounded_system_prompt() if call_reading else EXTRACTION_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ]
         try:
@@ -901,7 +1375,8 @@ Return ONLY valid JSON. No preamble, no conversational text."""
 
             t0 = time.perf_counter()
             use_jev = (
-                getattr(settings, "USE_JEV_CLASSIFIER", True)
+                not call_reading  # grounded: one pass, no second guess filling enums
+                and getattr(settings, "USE_JEV_CLASSIFIER", True)
                 and getattr(self, "jev", None) is not None
                 and self.jev.is_available
             )
@@ -947,12 +1422,23 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 for name in generative_lead_status_to_drop(field_specs, jev_patch):
                     if name not in abstained:
                         abstained.append(name)
+            elif call_reading:
+                # One retry on an unparseable or empty reply: a real call must not be left without
+                # its note (a model sometimes returns {} on a long call).
+                effort = settings.EXTRACTION_REASONING_EFFORT
+                try:
+                    extracted = await self.llm.chat_json(messages, temperature=0.0, reasoning_effort=effort)
+                except ValueError:
+                    extracted = None
+                if not isinstance(extracted, dict) or not str(extracted.get("summary") or "").strip():
+                    extracted = await self.llm.chat_json(messages, temperature=0.0, reasoning_effort=effort)
             else:
                 extracted = await self.llm.chat_json(messages, temperature=0.0)
             # Post-process: coerce to schema types (number, enum value, etc.)
             extracted = _normalize_raw_extraction(extracted, field_specs)
             extracted = apply_fill_policies(extracted, field_specs, existing_values)
             extracted = drop_abstained_fields(extracted, abstained, field_specs)
+            # Numbers stay only when spoken (digits, or Jev's check), then only what the prospect said.
             extracted = await apply_number_verification(
                 extracted,
                 transcript,
@@ -960,6 +1446,10 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 self.jev,
                 jev_available=use_jev,
             )
+            if call_reading:
+                extracted = grounded_cleanup(require_prospect_evidence(
+                    extracted, transcript, roles_marked=call_reading.get("roles_marked", True),
+                ))
             abstained_names = set(abstained)
             pending_enums = [
                 spec
@@ -968,7 +1458,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 )
                 if spec.get("name") not in abstained_names
             ]
-            if pending_enums:
+            if pending_enums and not call_reading:
                 try:
                     enum_payload = await self.llm.chat_json(
                         [
@@ -1062,6 +1552,8 @@ Return ONLY valid JSON. No preamble, no conversational text."""
             deal_amount = extracted.get("amount")
             if deal_amount is not None and not isinstance(deal_amount, (int, float)):
                 deal_amount = _parse_amount(deal_amount)
+            # Not a CRM field: kept out of raw_extraction so no provider writes it.
+            customer_present = extracted.pop("customerPresent", None)
             result = MemoExtraction(
                 companyName=company or None,
                 contactName=contact or None,
@@ -1079,6 +1571,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 decisionMakers=extracted.get("decisionMakers", []),
                 confidence=extracted.get("confidence", {"overall": 0.5, "fields": {}}),
                 raw_extraction=extracted,
+                customerPresent=customer_present if isinstance(customer_present, bool) else None,
             )
             conf = result.confidence or {}
             conf_overall = conf.get("overall") if isinstance(conf, dict) else None

@@ -23,45 +23,6 @@ export function isUncertainExtractionConfidence(confidence: number | null | unde
   return confidence >= CONFIDENCE.LOW && confidence < CONFIDENCE.HIGH;
 }
 
-// Memo status display
-export const MEMO_STATUS_CONFIG = {
-  uploading: {
-    label: 'Uploading',
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-100',
-  },
-  transcribing: {
-    label: 'Transcribing',
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-100',
-  },
-  extracting: {
-    label: 'Extracting',
-    color: 'text-purple-600',
-    bgColor: 'bg-purple-100',
-  },
-  pending_review: {
-    label: 'Pending Review',
-    color: 'text-amber-600',
-    bgColor: 'bg-amber-100',
-  },
-  approved: {
-    label: 'Synced',
-    color: 'text-green-600',
-    bgColor: 'bg-green-100',
-  },
-  rejected: {
-    label: 'Rejected',
-    color: 'text-gray-600',
-    bgColor: 'bg-gray-100',
-  },
-  failed: {
-    label: 'Failed',
-    color: 'text-red-600',
-    bgColor: 'bg-red-100',
-  },
-} as const;
-
 // CRM providers
 export const CRM_PROVIDERS = {
   hubspot: {

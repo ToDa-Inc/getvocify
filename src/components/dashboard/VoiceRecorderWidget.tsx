@@ -1,16 +1,17 @@
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { 
-  Mic, 
-  Square, 
-  Upload, 
-  FileText, 
-  RotateCcw, 
-  ChevronDown, 
-  ChevronUp, 
-  X 
+import {
+  Mic,
+  Square,
+  Upload,
+  FileText,
+  RotateCcw,
+  ChevronDown,
+  ChevronUp,
+  X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconAction } from "@/components/ui/icon-action";
 import { 
   useMediaRecorder, 
   useAudioUpload, 
@@ -28,14 +29,22 @@ import { AUDIO } from "@/shared/lib/constants";
 import { isSupportedAudioType, formatFileSize } from "@/features/recording/types";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
+import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { cn } from "@/lib/utils";
+import { useDesktopMeeting } from "@/features/desktop/DesktopMeetingProvider";
+import { MeetingLiveView } from "@/features/desktop/MeetingLiveView";
+import { useDesktopPermissions } from "@/features/desktop/useDesktopPermissions";
+import { draftMinutes, meetingStartedLabel } from "@/lib/meeting-draft";
 
 export interface VoiceRecorderWidgetProps {
   /** Callback fired with the created memo ID when recording/import succeeds */
   onComplete: (memoId: string) => void;
   /** Optional container CSS class */
   className?: string;
+  /** Idle capture sits in the page flow instead of a hero card. */
+  quiet?: boolean;
 }
 
 const formatTime = (seconds: number): string => {
@@ -47,9 +56,15 @@ const formatTime = (seconds: number): string => {
 export const VoiceRecorderWidget = ({
   onComplete,
   className = "",
+  quiet = false,
 }: VoiceRecorderWidgetProps) => {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const meeting = useDesktopMeeting();
+  const desktopMeeting = meeting.available;
+  const desktopPermissions = useDesktopPermissions();
+  const desktopReady = !desktopMeeting || desktopPermissions.ready;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isSubmitLocked = useRef(false);
 
@@ -101,7 +116,8 @@ export const VoiceRecorderWidget = ({
 
     isSubmitLocked.current = true;
     try {
-      const memoId = await uploadTranscriptAndExtract(textToSubmit);
+      // Recorded on the dashboard mic: a voice note, not a call.
+      const memoId = await uploadTranscriptAndExtract(textToSubmit, { interactionKind: "voice_note" });
       resetTranscription();
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
       toast.success("AI is extracting CRM fields...");
@@ -172,7 +188,7 @@ export const VoiceRecorderWidget = ({
   const handleUploadAudio = async () => {
     if (!audio) return;
     try {
-      const memoId = await upload(audio);
+      const memoId = await upload(audio, undefined, { interactionKind: "voice_note" });
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
       toast.success("Recording uploaded! AI is extracting CRM fields...");
       onComplete(memoId);
@@ -193,7 +209,7 @@ export const VoiceRecorderWidget = ({
     isSubmitLocked.current = true;
 
     try {
-      const memoId = await uploadTranscriptAndExtract(trimmed);
+      const memoId = await uploadTranscriptAndExtract(trimmed, { sourceType: "meeting_transcript" });
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
       toast.success("AI is extracting CRM fields...");
       setPastedTranscript("");
@@ -262,6 +278,10 @@ export const VoiceRecorderWidget = ({
   const hasTranscript = Boolean(fullTranscript?.trim());
   const showAudioFallback = state === "stopped" && !hasTranscript && Boolean(audio);
 
+  if (desktopMeeting && ["live", "stopping", "uploading"].includes(meeting.phase)) {
+    return <MeetingLiveView />;
+  }
+
   // 1. Error state
   if (state === "error" && recorderError) {
     return (
@@ -280,7 +300,7 @@ export const VoiceRecorderWidget = ({
     return (
       <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-10 text-center`, className)}>
         <div className="relative w-28 h-28 mx-auto mb-6 rounded-full bg-secondary/30 flex items-center justify-center">
-          <div className="w-10 h-10 border-2 border-beige border-t-transparent rounded-full animate-spin" />
+          <VocifySpinner size={36} />
         </div>
         <h3 className="text-lg font-semibold text-foreground mb-1">
           Extracting CRM fields...
@@ -300,7 +320,7 @@ export const VoiceRecorderWidget = ({
     return (
       <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-10 text-center`, className)}>
         <div className="relative w-28 h-28 mx-auto mb-6 rounded-full bg-secondary/30 flex items-center justify-center">
-          <div className="w-10 h-10 border-2 border-beige border-t-transparent rounded-full animate-spin" />
+          <VocifySpinner size={36} />
         </div>
         <h3 className="text-lg font-semibold text-foreground mb-1">
           Extracting CRM fields...
@@ -380,6 +400,53 @@ export const VoiceRecorderWidget = ({
     );
   }
 
+  if (quiet) {
+    return (
+      <div className={cn("space-y-3", className)}>
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            size="icon"
+            onClick={handleRecordToggle}
+            disabled={state === "requesting"}
+            className="h-11 w-11"
+            aria-label="Start recording voice memo"
+          >
+            <Mic className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="quiet"
+            size="text"
+            onClick={() => setIsPasteOpen((prev) => !prev)}
+          >
+            {t.product.capturePaste}
+          </Button>
+        </div>
+        {isPasteOpen ? (
+          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-4`}>
+            <textarea
+              value={pastedTranscript}
+              onChange={(event) => setPastedTranscript(event.target.value)}
+              placeholder={t.product.capturePastePlaceholder}
+              className="mb-3 w-full min-h-[96px] rounded-lg border border-border bg-background p-3 text-sm text-foreground"
+            />
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                disabled={isUploading || !pastedTranscript.trim()}
+                onClick={handleImportPastedTranscript}
+              >
+                {t.product.captureImport}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   // 6. Idle / Default State
   return (
     <div className={cn(`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.container} p-8 md:p-10 text-center`, className)}>
@@ -387,16 +454,20 @@ export const VoiceRecorderWidget = ({
       <div className="flex flex-col items-center justify-center mb-6">
         <button
           type="button"
-          onClick={handleRecordToggle}
-          disabled={state === "requesting"}
-          aria-label="Start recording voice memo"
+          onClick={() => {
+            if (desktopMeeting) void meeting.start();
+            else void handleRecordToggle();
+          }}
+          disabled={state === "requesting" || meeting.phase === "starting" || !desktopReady}
+          aria-label={desktopMeeting ? "Record meeting" : "Start recording voice memo"}
           className={cn(
-            "group relative w-20 h-20 rounded-full glass-panel border border-white/70 shadow-lg flex items-center justify-center",
-            "hover:scale-105 hover:border-beige/40 active:scale-95 transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-beige"
+            "group relative w-20 h-20 rounded-full glass-panel flex items-center justify-center",
+            "hover:scale-105 hover:border-beige/40 active:scale-95 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-beige disabled:opacity-50",
+            desktopReady ? "cursor-pointer" : "opacity-50 cursor-not-allowed hover:scale-100"
           )}
         >
-          {state === "requesting" ? (
-            <div className="w-6 h-6 border-2 border-beige border-t-transparent rounded-full animate-spin" />
+          {state === "requesting" || meeting.phase === "starting" ? (
+            <VocifySpinner size={22} />
           ) : (
             <div className="w-7 h-7 rounded-full bg-beige group-hover:scale-110 transition-transform duration-200 shadow-xs flex items-center justify-center text-cream">
               <Mic className="h-4 w-4 text-cream" />
@@ -405,23 +476,54 @@ export const VoiceRecorderWidget = ({
         </button>
 
         <span className="text-sm font-medium text-foreground mt-3">
-          {state === "requesting" ? "Requesting microphone..." : "Record"}
+          {state === "requesting"
+            ? "Requesting microphone..."
+            : meeting.phase === "starting"
+              ? "Starting…"
+              : desktopMeeting
+                ? "Record meeting"
+                : "Record"}
         </span>
-        <span className="text-xs text-muted-foreground mt-0.5">
-          Tap to record or import transcript
-        </span>
+        {!desktopMeeting ? (
+          <span className="text-xs text-muted-foreground mt-0.5">
+            Tap to record or import transcript
+          </span>
+        ) : null}
       </div>
+      {desktopMeeting && (meeting.pending.length || meeting.error) ? (
+        <div className="mb-5 flex flex-col items-center gap-2" role="alert">
+          {meeting.pending.length ? (
+            <p className="text-sm text-muted-foreground max-w-md">
+              {meeting.pending.length === 1
+                ? `Meeting from ${meetingStartedLabel(meeting.pending[0])} · ${draftMinutes(meeting.pending[0])} min isn't sent yet.`
+                : `${meeting.pending.length} meetings aren't sent yet.`}
+              {meeting.savedOnDevice
+                ? meeting.pending.length === 1 ? " It's saved on this Mac." : " They're saved on this Mac."
+                : ""}
+            </p>
+          ) : (
+            <p className="text-sm text-destructive max-w-md">{meeting.error}</p>
+          )}
+          {meeting.pending.length ? (
+            <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={() => void meeting.retryPending()}>
+              <RotateCcw className="h-3.5 w-3.5" />
+              Retry sending
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Quick Actions Row */}
       <div className="flex items-center justify-center gap-3 mb-6">
         <button
           type="button"
           onClick={() => setIsPasteOpen((prev) => !prev)}
+          aria-pressed={isPasteOpen}
           className={cn(
             "inline-flex items-center gap-1.5 px-4 py-2 rounded-full border text-xs font-medium transition-all cursor-pointer",
             isPasteOpen
               ? "border-beige/40 bg-beige/10 text-beige"
-              : "border-border/70 bg-card hover:bg-secondary/40 text-foreground hover:border-beige/30"
+              : "border-border/70 bg-card hover:bg-secondary/60 text-foreground hover:border-beige/30"
           )}
         >
           <FileText className="h-3.5 w-3.5 text-beige" />
@@ -439,13 +541,9 @@ export const VoiceRecorderWidget = ({
         <div className="mb-6 p-5 rounded-xl bg-card border border-border/80 text-left animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-foreground">Paste Meeting Transcript</span>
-            <button
-              type="button"
-              onClick={() => setIsPasteOpen(false)}
-              className="text-muted-foreground hover:text-foreground p-1 rounded-md"
-            >
+            <IconAction label="Close" onClick={() => setIsPasteOpen(false)}>
               <X className="h-3.5 w-3.5" />
-            </button>
+            </IconAction>
           </div>
           <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
             From Zoom, Google Meet, Microsoft Teams, Fireflies, Otter, or notes.
@@ -453,7 +551,7 @@ export const VoiceRecorderWidget = ({
           <textarea
             value={pastedTranscript}
             onChange={(e) => setPastedTranscript(e.target.value)}
-            placeholder="Paste your transcript text here..."
+            placeholder={t.product.capturePastePlaceholder}
             className="w-full min-h-[140px] rounded-lg bg-secondary/30 p-3.5 border border-border/60 text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 resize-y focus:outline-none focus:ring-2 focus:ring-beige/30 focus:border-beige/40 mb-3"
           />
           <div className="flex items-center justify-end gap-2">
@@ -477,7 +575,7 @@ export const VoiceRecorderWidget = ({
               onClick={handleImportPastedTranscript}
               className="text-xs rounded-full h-8 px-4 bg-beige text-cream hover:bg-beige/90"
             >
-              {isUploading ? "Importing..." : "Import & Extract"}
+              {isUploading ? t.product.captureImporting : t.product.captureImport}
             </Button>
           </div>
         </div>
@@ -501,7 +599,7 @@ export const VoiceRecorderWidget = ({
           "border border-dashed rounded-xl p-5 transition-all duration-150 cursor-pointer flex items-center justify-center gap-4 text-left group",
           isDragging
             ? "border-beige bg-beige/5"
-            : "border-border/70 hover:border-beige/30 bg-secondary/15 hover:bg-secondary/30"
+            : "border-border/70 hover:border-beige/30 bg-secondary/15 hover:bg-secondary/60"
         )}
       >
         <div className="w-10 h-10 rounded-xl bg-beige/10 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
@@ -521,3 +619,4 @@ export const VoiceRecorderWidget = ({
 };
 
 export default VoiceRecorderWidget;
+

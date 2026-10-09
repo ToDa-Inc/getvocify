@@ -31,7 +31,9 @@ from app.services.unipile import UnipileClient, parse_unipile_webhook
 from app.services.unipile.webhook_parser import normalize_unipile_payload
 from app.services.unipile.webhook_signature import verify_unipile_webhook_signature
 from app.services.telephony.caller_id import (
+    ES_MOBILE_CALL_BLOCKED_SPOKEN,
     CallerIdNotVerified,
+    CallerIdRangeRestricted,
     mark_caller_id_failed,
     mark_caller_id_verified,
     resolve_caller_id,
@@ -55,6 +57,7 @@ from app.services.telephony.call_processor import (
     download_telnyx_recording,
     download_twilio_recording,
     initiate_vocify_call_memo,
+    log_call_engagement,
     log_missed_call_activity,
     process_vocify_call_background,
 )
@@ -650,6 +653,9 @@ async def twilio_voice(request: Request):
             default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE,
         )
         caller_id = resolve_caller_id(supabase, user_id, params.get("CallerId") or None)
+    except CallerIdRangeRestricted as e:
+        logger.warning("Twilio voice webhook rejected: %s", e)
+        return _reject_twiml(ES_MOBILE_CALL_BLOCKED_SPOKEN)
     except (InvalidPhoneNumber, CallerIdNotVerified) as e:
         logger.warning("Twilio voice webhook rejected: %s", e)
         return _reject_twiml("Número no válido o identificador no verificado.")
@@ -791,7 +797,7 @@ async def twilio_recording(request: Request):
     if not call_row:
         logger.warning("Twilio recording for unknown call_sid=%s", call_sid)
         return Response(status_code=204)
-    if call_row.get("memo_id"):
+    if call_row.get("recording_path"):
         return Response(status_code=204)  # redelivery
 
     pipeline_started_at = time.perf_counter()
@@ -838,6 +844,15 @@ async def twilio_recording(request: Request):
                 pipeline_started_at=pipeline_started_at,
             )
         )
+    elif memo_id:
+        # The desktop's live transcript already made this call's memo: it gets the recording (playback),
+        # and the call is logged in the CRM with it, as a recording-made memo would be.
+        supabase.table("memos").update(
+            {"recording_path": path, "audio_duration": duration}
+        ).eq("id", memo_id).execute()
+        memo = supabase.table("memos").select("screening_outcome").eq("id", memo_id).limit(1).execute()
+        outcome = ((memo.data or [None])[0] or {}).get("screening_outcome") or call_row.get("call_disposition") or "connected"
+        asyncio.create_task(log_call_engagement(supabase, call_sid, duration, screening_outcome=outcome))
     return Response(status_code=204)
 
 
@@ -1449,3 +1464,240 @@ async def _telnyx_recording_saved(supabase, payload: dict) -> Response:
         )
     return Response(status_code=204)
 
+
+
+# Recall.ai webhook events this endpoint acts on (T14). Names follow Recall's webhook
+# catalogue; keep this block in sync with the events enabled on the Recall endpoint.
+RECALL_COMPLETE_EVENTS = frozenset({"bot.done", "transcript.done"})
+RECALL_FAILED_MESSAGES = {
+    "bot.fatal": "El bot de Recall no pudo grabar la reunión",
+    "transcript.failed": "Recall no pudo transcribir la reunión",
+}
+RECALL_FAILED_EVENTS = frozenset(RECALL_FAILED_MESSAGES)
+RECALL_CALENDAR_EVENTS = frozenset({"calendar.sync_events", "calendar.update"})
+
+
+@router.post("/recall")
+async def recall_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Recall.ai meeting bot events (T14). `bot.done` fetches the finished transcript
+    and completes the capture reserved by POST /meetings/bot; `bot.status_change` and
+    any other event are acknowledged as a no-op - there is nothing to do until the
+    transcript is ready. A calendar bot (Calendar V2) has no capture until its meeting
+    happens: it is reserved here from the bot's metadata. `calendar.*` events
+    (re)schedule a rep's bots after the 200 is sent - Recall gives up after 15s."""
+    cid = f"rc_{uuid4().hex[:8]}"
+    set_correlation_id(cid)
+    raw_body = await request.body()
+
+    from app.services.recall_webhook_signature import verify_recall_webhook_signature
+
+    secret = settings.RECALL_WEBHOOK_SECRET or ""
+    if secret:
+        ok = verify_recall_webhook_signature(
+            webhook_id=request.headers.get("webhook-id") or "",
+            webhook_timestamp=request.headers.get("webhook-timestamp") or "",
+            signature_header=request.headers.get("webhook-signature") or "",
+            body=raw_body,
+            secret=secret,
+        )
+        if not ok:
+            inc_webhook_message("recall", "error")
+            return PlainTextResponse("Forbidden", status_code=403)
+    elif not settings.RECALL_API_KEY:
+        logger.warning(
+            "Recall webhook rejected: neither RECALL_WEBHOOK_SECRET nor RECALL_API_KEY is set",
+            extra=log_domain(DOMAIN_WEBHOOK, "recall_no_secret_rejected"),
+        )
+        inc_webhook_message("recall", "error")
+        return PlainTextResponse("Forbidden", status_code=403)
+    # Without a signing secret the payload is only a hint: everything acted on is read
+    # back from Recall's API with our key (the bot, its metadata and status, the
+    # transcript, the calendar events), so a forged request can't inject data.
+    signed = bool(secret)
+
+    try:
+        payload = json.loads(raw_body.decode("utf-8") or "null") or {}
+    except Exception:
+        inc_webhook_message("recall", "error")
+        return JSONResponse(content={"status": "error", "message": "Invalid JSON"}, status_code=400)
+
+    event = str(payload.get("event") or "")
+
+    if event in RECALL_CALENDAR_EVENTS:
+        data = payload.get("data") or {}
+        calendar_id = str(data.get("calendar_id") or "")
+        if not calendar_id:
+            inc_webhook_message("recall", "skipped")
+            return JSONResponse(content={"status": "ok"}, status_code=200)
+        from app.services.meetings.calendar_bots import handle_calendar_webhook
+
+        background_tasks.add_task(
+            handle_calendar_webhook, get_supabase(), event, calendar_id, data.get("last_updated_ts")
+        )
+        inc_webhook_message("recall", "processed")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    bot = ((payload.get("data") or {}).get("bot")) or {}
+    bot_id = str(bot.get("id") or "")
+
+    # bot.done and transcript.done both mean "the transcript may be ready": whichever
+    # arrives with a download_url completes the capture, the other is a no-op replay.
+    # bot.fatal / transcript.failed are terminal: the reserved capture is marked failed
+    # instead of staying "recording" forever (the bot was refused, the meeting ended
+    # before it joined, or transcription failed). Anything else is acknowledged.
+    completing = event in RECALL_COMPLETE_EVENTS
+    failing = event in RECALL_FAILED_EVENTS
+    if not bot_id or not (completing or failing):
+        inc_webhook_message("recall", "skipped")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    from app.integrations.recall_client import (
+        RecallClient,
+        transcript_download_url_from_bot,
+        turns_from_recall_transcript,
+    )
+    from app.services.meetings.calendar_bots import rep_calendar_email
+    from app.services.meetings.recall_bot import (
+        complete_recall_capture,
+        find_capture_by_bot_id,
+        rep_full_name,
+        reserve_calendar_bot_capture,
+    )
+
+    supabase = get_supabase()
+    memo_row = find_capture_by_bot_id(supabase, bot_id)
+    if not memo_row and completing and (bot.get("metadata") or {}).get("source") == "calendar":
+        memo_row = await reserve_calendar_bot_capture(supabase, RecallClient(), bot_id)
+    if not memo_row:
+        logger.warning(
+            "Recall webhook: no capture reserved for bot %s", bot_id,
+            extra=log_domain(DOMAIN_WEBHOOK, "recall_capture_missing", bot_id=bot_id),
+        )
+        inc_webhook_message("recall", "skipped")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    if failing:
+        if memo_row.get("transcript_complete") or memo_row.get("capture_content_fingerprint"):
+            inc_webhook_message("recall", "skipped")
+            return JSONResponse(content={"status": "ok"}, status_code=200)
+        if not signed:
+            from app.integrations.recall_client import bot_failure_confirmed
+
+            try:
+                confirmed = bot_failure_confirmed(await RecallClient().get_bot(bot_id), event)
+            except Exception:
+                confirmed = False
+            if not confirmed:
+                inc_webhook_message("recall", "skipped")
+                return JSONResponse(content={"status": "ok"}, status_code=200)
+        logger.warning(
+            "Recall webhook: %s for bot %s", event, bot_id,
+            extra=log_domain(DOMAIN_WEBHOOK, "recall_bot_failed", bot_id=bot_id, event=event),
+        )
+        supabase.table("memos").update(
+            {"capture_status": "failed", "status": "failed", "error_message": RECALL_FAILED_MESSAGES[event]}
+        ).eq("id", memo_row["id"]).execute()
+        inc_webhook_message("recall", "processed")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    if memo_row.get("transcript_complete") or memo_row.get("capture_content_fingerprint"):
+        # A replayed bot.done (Recall retries on a non-2xx, or a duplicate delivery):
+        # this capture already has its transcript, so re-downloading and re-completing
+        # would either no-op (complete_capture's own fingerprint check) or, worse, race
+        # a later edit. Ack without doing the work again.
+        logger.info(
+            "Recall webhook: bot %s already completed, skipping replay", bot_id,
+            extra=log_domain(DOMAIN_WEBHOOK, "recall_already_complete", bot_id=bot_id),
+        )
+        inc_webhook_message("recall", "skipped")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    try:
+        client = RecallClient()
+        bot_detail = await client.get_bot(bot_id)
+        download_url = transcript_download_url_from_bot(bot_detail)
+        if not download_url:
+            # Transcription can finish after the bot leaves: not a failure. The
+            # transcript.done event (or a later retry) completes the capture.
+            logger.info(
+                "Recall webhook: %s for bot %s before the transcript is ready; waiting", event, bot_id,
+                extra=log_domain(DOMAIN_WEBHOOK, "recall_transcript_pending", bot_id=bot_id, event=event),
+            )
+            inc_webhook_message("recall", "skipped")
+            return JSONResponse(content={"status": "ok"}, status_code=200)
+        segments = await client.download_transcript(download_url)
+        rep_name = rep_full_name(supabase, memo_row["user_id"])
+        rep_email = rep_calendar_email(supabase, memo_row["user_id"])
+        transcript, turns = turns_from_recall_transcript(segments, rep_name=rep_name, rep_email=rep_email)
+
+        # Fetch attendees for calendar-bot meetings
+        attendees: list[dict] = []
+        metadata = bot_detail.get("metadata") or {}
+        if metadata.get("source") == "calendar":
+            calendar_event_id = metadata.get("calendar_event_id")
+            if calendar_event_id:
+                from app.services.meetings.attendees import extract_attendees, enrich_attendees_with_hubspot
+                try:
+                    calendar_event = await client.get_calendar_event(calendar_event_id)
+                    if calendar_event and calendar_event.get("raw"):
+                        attendees = extract_attendees(calendar_event["raw"], rep_email=rep_email)
+                        attendees = await enrich_attendees_with_hubspot(
+                            supabase,
+                            attendees,
+                            memo_row.get("company_id"),
+                            linked_contact_id=memo_row.get("hubspot_contact_id"),
+                        )
+                except Exception as exc:
+                    # Event fetch failure must not block the capture (log and store [])
+                    logger.warning(
+                        "Recall webhook: attendee fetch failed for calendar event %s: %s",
+                        calendar_event_id, exc,
+                        extra=log_domain(DOMAIN_WEBHOOK, "recall_attendee_fetch_failed", bot_id=bot_id, error=str(exc)),
+                    )
+    except Exception as exc:
+        logger.exception(
+            "Recall webhook: transcript fetch failed for bot %s", bot_id,
+            extra=log_domain(DOMAIN_WEBHOOK, "recall_transcript_failed", bot_id=bot_id, error=str(exc)),
+        )
+        supabase.table("memos").update(
+            {"capture_status": "failed", "status": "failed", "error_message": "Recall transcript fetch failed"}
+        ).eq("id", memo_row["id"]).execute()
+        inc_webhook_message("recall", "error")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    from app.services.captures import CaptureContentConflict
+
+    try:
+        identity = complete_recall_capture(supabase, memo_row, transcript=transcript, turns=turns)
+        if attendees:
+            try:
+                supabase.table("memos").update({"attendees": attendees}).eq("id", memo_row["id"]).execute()
+            except Exception as exc:
+                # Attendees only decorate the row: never fail a completed capture over them.
+                logger.warning(
+                    "Recall webhook: could not store attendees for bot %s: %s", bot_id, exc,
+                    extra=log_domain(DOMAIN_WEBHOOK, "recall_attendee_store_failed", bot_id=bot_id, error=str(exc)),
+                )
+    except CaptureContentConflict:
+        # A second bot.done (or a manual re-run) with different content than what was
+        # already reviewed - same "needs a new review" rule complete_capture enforces
+        # for a desktop capture. Ack; nothing here overwrites a finalized review.
+        logger.warning(
+            "Recall webhook: bot %s transcript conflicts with an already-reviewed capture",
+            bot_id, extra=log_domain(DOMAIN_WEBHOOK, "recall_content_conflict", bot_id=bot_id),
+        )
+        inc_webhook_message("recall", "skipped")
+        return JSONResponse(content={"status": "ok"}, status_code=200)
+
+    if identity.should_start_pipeline and transcript.strip():
+        from app.api.memos import start_extraction_from_transcript
+
+        await start_extraction_from_transcript(
+            identity.memo_id,
+            memo_row["user_id"],
+            transcript,
+            supabase,
+            source_type="meeting_transcript",
+        )
+    inc_webhook_message("recall", "processed")
+    return JSONResponse(content={"status": "ok"}, status_code=200)

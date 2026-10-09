@@ -101,6 +101,8 @@ class PipedriveCRMProvider:
         lost_reason_deal_property: Optional[str] = None,
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
+        stage_confirm: bool = False,
+        commitment_tasks: Optional[list] = None,
     ) -> SyncResult:
         del lost_reason, lost_reason_deal_property, lost_lead_status_value, on_hold_lead_status_value
         if call_outcome:
@@ -131,6 +133,8 @@ class PipedriveCRMProvider:
             contact_id=contact_id,
             company_id=company_id,
             skip_deal=skip_deal,
+            stage_confirm=stage_confirm,
+            commitment_tasks=commitment_tasks,
         )
 
     async def build_preview(
@@ -152,6 +156,9 @@ class PipedriveCRMProvider:
         create_new_deal: bool = False,
         include_unchanged: bool = False,
         skip_deal: bool = False,
+        stage_confirm: bool = False,
+        meeting_booked_stage: Optional[dict[str, str]] = None,
+        commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview:
         del create_new_deal
         return await self._preview_service().build_preview(
@@ -170,6 +177,9 @@ class PipedriveCRMProvider:
             selected_contact=selected_contact,
             contact_candidates=contact_candidates,
             skip_deal=skip_deal,
+            stage_confirm=stage_confirm,
+            meeting_booked_stage=meeting_booked_stage,
+            commitment_tasks=commitment_tasks,
             include_unchanged=include_unchanged,
         )
 

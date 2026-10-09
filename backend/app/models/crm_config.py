@@ -3,8 +3,11 @@ CRM configuration models for user preferences and settings.
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
+
+
+DealCreationRule = Literal["always", "meeting_booked", "follow_up_or_meeting", "never"]
 
 
 class CRMConfigurationRequest(BaseModel):
@@ -73,6 +76,24 @@ class CRMConfigurationRequest(BaseModel):
             "waiting for approve. Lead status is not changed. Off by default."
         ),
     )
+    meeting_booked_pipeline_id: Optional[str] = Field(
+        None, description="Pipeline of meeting_booked_stage_id."
+    )
+    meeting_booked_stage_id: Optional[str] = Field(
+        None,
+        description=(
+            "Stage a deal moves to when an accepted booked meeting is saved. "
+            "None: no stage moves. Never a won/lost stage change."
+        ),
+    )
+    deal_creation_rule: Optional[DealCreationRule] = Field(
+        None,
+        description=(
+            "Lista 4 E11: when Vocify creates a deal for a contact without one (always, "
+            "meeting_booked, follow_up_or_meeting, never). None keeps the stored rule, so a "
+            "client that doesn't know the field (or a database before migration 063) is unaffected."
+        ),
+    )
 
 
 class CRMConfigurationResponse(BaseModel):
@@ -98,6 +119,10 @@ class CRMConfigurationResponse(BaseModel):
     lost_lead_status_value: Optional[str] = None
     on_hold_lead_status_value: Optional[str] = None
     auto_sync_hubspot_calls: bool = False
+    meeting_booked_pipeline_id: Optional[str] = None
+    meeting_booked_stage_id: Optional[str] = None
+    # None only before migration 063; the column's own default is "always".
+    deal_creation_rule: Optional[str] = None
     is_configured: bool = True
     created_at: str
     updated_at: str

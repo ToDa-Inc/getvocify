@@ -4,8 +4,20 @@
     {
       "name": "vocify-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 8080
+    },
+    {
+      "name": "vocify-api",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd backend && exec ~/.venvs/vocify-backend/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8888"
+      ],
+      "port": 8888
     }
   ]
 }

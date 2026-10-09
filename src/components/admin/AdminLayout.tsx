@@ -98,7 +98,7 @@ const AdminLayout = () => {
               autoComplete="off"
             />
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit" className="w-full bg-beige text-cream hover:bg-beige-dark" disabled={checking}>
+            <Button type="submit" className="w-full bg-beige text-cream hover:bg-beige/90" disabled={checking}>
               {checking ? "Checking…" : "Unlock"}
             </Button>
           </form>

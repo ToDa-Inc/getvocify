@@ -1,0 +1,145 @@
+[
+  {
+    "id": "p02_sdr_and_ae_with_shared_objections_es",
+    "note": "Un solo documento de la empresa: guion SDR en frío, guion AE de demo y cierre, y un apartado de objeciones que vale para los dos.",
+    "routing": false,
+    "lang": "es",
+    "source": "PLAYBOOK COMERCIAL · Nominia\n\nPARTE 1 · SDR (llamada en frío)\n1. Apertura: nos presentamos y preguntamos si tiene 30 segundos.\n2. Motivo: decimos que hemos visto que tienen varias sedes y por eso llamamos.\n3. Dolor: preguntamos cómo gestionan hoy las incidencias de nómina entre sedes.\n4. Cita: proponemos una videollamada de 20 minutos con día y hora y la dejamos en el calendario.\n\nPARTE 2 · AE (demo y cierre)\n1. Agenda: abrimos la reunión diciendo qué vamos a ver y qué queremos decidir al final.\n2. Repaso del dolor: confirmamos con el cliente el problema que contó al SDR.\n3. Demo: enseñamos solo los módulos que resuelven ese problema, nada más.\n4. Siguiente paso: cerramos con propuesta o prueba y una fecha concreta.\n\nOBJECIONES (para todo el equipo)\nPrecio: comparamos el coste con las horas que pierden al mes en corregir nóminas. No hablamos de descuento hasta la segunda reunión.\nAhora no: proponemos volver a hablar en dos semanas y dejamos la fecha fijada.\nYa usan otra herramienta: preguntamos qué es lo que menos les convence de ella.\n",
+    "expect": {
+      "types": {
+        "discovery": {
+          "min_steps": 3,
+          "max_steps": 6,
+          "must_contain_any": [
+            "30 segundos",
+            "sedes",
+            "apertura",
+            "Apertura"
+          ],
+          "must_not_contain": [
+            "módulos",
+            "demo enfocada"
+          ]
+        },
+        "closing": {
+          "min_steps": 3,
+          "max_steps": 6,
+          "must_contain_any": [
+            "demo",
+            "Demo",
+            "agenda",
+            "Agenda"
+          ],
+          "must_not_contain": [
+            "30 segundos"
+          ]
+        }
+      },
+      "only_types": [
+        "discovery",
+        "closing"
+      ],
+      "categories_in_each": [
+        "price|timing|status_quo|competitor"
+      ],
+      "language": "es"
+    }
+  },
+  {
+    "id": "p02_five_call_types_routing_on_es",
+    "note": "Con el enrutado activo: cold call, inbound, discovery de AE, demo y cierre, y negociación en un mismo documento.",
+    "routing": true,
+    "lang": "es",
+    "source": "MANUAL DE VENTAS · Reformas Levante\n\nLLAMADA EN FRÍO (SDR)\nNos presentamos y pedimos permiso. Explicamos en una frase por qué llamamos a esa constructora. Preguntamos cómo hacen hoy los presupuestos. Proponemos una reunión con día y hora.\n\nLEAD INBOUND (SDR)\nCuando alguien rellena el formulario de la web, llamamos en menos de 10 minutos y lo primero que decimos es que hemos visto su solicitud. Preguntamos qué le llevó a pedir información. Confirmamos quién decide y para cuándo lo necesitan. Cerramos una reunión con día y hora.\n\nPRIMERA REUNIÓN (AE)\nAbrimos con la agenda. Dejamos que nos cuenten cómo trabajan hoy y qué herramientas usan. Buscamos el coste del problema en horas o en dinero. Identificamos quién más interviene en la decisión. Acordamos fecha de la demo.\n\nDEMO Y CIERRE (AE)\nRepasamos el problema confirmado, enseñamos solo lo que lo resuelve y resolvemos dudas hasta que queden claras. Acordamos el siguiente paso con fecha.\n\nPROPUESTA Y NEGOCIACIÓN (AE)\nRepasamos la propuesta y el precio con el cliente. Confirmamos quién más tiene que aprobarla. Si piden descuento no cedemos antes de entender el motivo. Fijamos fecha de firma.\n",
+    "expect": {
+      "types": {
+        "discovery": {
+          "min_steps": 3,
+          "max_steps": 6
+        },
+        "inbound": {
+          "min_steps": 3,
+          "max_steps": 6,
+          "must_contain_any": [
+            "solicitud",
+            "formulario",
+            "pedir información"
+          ]
+        },
+        "ae_discovery": {
+          "min_steps": 3,
+          "max_steps": 6,
+          "must_contain_any": [
+            "agenda",
+            "Agenda"
+          ]
+        },
+        "closing": {
+          "min_steps": 3,
+          "max_steps": 6,
+          "must_contain_any": [
+            "demo",
+            "Demo"
+          ]
+        },
+        "negotiation": {
+          "min_steps": 3,
+          "max_steps": 6,
+          "must_contain_any": [
+            "propuesta",
+            "Propuesta",
+            "firma"
+          ]
+        }
+      },
+      "only_types": [
+        "discovery",
+        "inbound",
+        "ae_discovery",
+        "closing",
+        "negotiation"
+      ],
+      "language": "es"
+    }
+  },
+  {
+    "id": "p02_single_ae_process_en",
+    "note": "Un documento con un solo proceso (AE, en inglés): va a un solo tipo, sin repartirlo.",
+    "routing": false,
+    "lang": "en",
+    "source": "Our demo call, step by step. We open the meeting with the agenda and say what we want to decide by the end. Then we recap the problem the customer told us about in the first meeting and confirm it is still the priority. We show only the parts of the product that solve that problem. If they raise a concern we answer it and check that it is settled before moving on. We finish by agreeing on the next step with a date: a proposal, a trial or a signature. If they say it is too expensive we compare the price with what the problem costs them each month.",
+    "expect": {
+      "types": {
+        "closing": {
+          "min_steps": 3,
+          "max_steps": 6,
+          "must_contain_any": [
+            "agenda",
+            "Agenda",
+            "demo",
+            "Demo"
+          ],
+          "categories": [
+            "price"
+          ]
+        }
+      },
+      "only_types": [
+        "closing"
+      ],
+      "language": "en"
+    }
+  },
+  {
+    "id": "p02_brochure_no_process_es",
+    "note": "Folleto de producto y tarifas: no hay proceso de venta, no debe salir ningún tipo.",
+    "routing": false,
+    "lang": "es",
+    "source": "NOMINIA PRO · Todo lo que necesitas para tus nóminas\nPlan Básico: 4 € por empleado y mes. Plan Pro: 7 € por empleado y mes, incluye integración con el registro horario. Plan Enterprise: precio a medida.\nMódulos: nóminas, contratos, vacaciones, portal del empleado. Disponible en web y móvil. Cumple con el RGPD. Servidores en la Unión Europea.\nContacto: hola@nominia.example · 900 000 000\n",
+    "expect": {
+      "types": {},
+      "only_types": [],
+      "reason": "no_process"
+    }
+  }
+]

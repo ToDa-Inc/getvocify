@@ -9,6 +9,7 @@ written. New deals are never created. Off by default.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -16,6 +17,7 @@ from supabase import Client
 
 from app.logging_config import DOMAIN_MEMO, log_domain
 from app.models.memo import ApproveMemoRequest
+from app.services.playbooks.catalog import INTERNAL_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +143,24 @@ def auto_sync_enabled_for_connection(supabase: Client, connection_id: str) -> bo
     return should_start_auto_sync(rows[0].get("auto_sync_hubspot_calls"))
 
 
+def read_crm_call_recordings_preference(supabase: Client, user_id: str) -> bool:
+    """Whether this rep's dialer recordings in the CRM are processed. Off by default: a rep
+    records with the Vocify app, so a call is never processed twice. Before migration 075
+    (no column) nothing changes and the company switch alone decides."""
+    try:
+        rows = (
+            supabase.table("user_profiles").select("process_crm_call_recordings").eq("id", user_id).limit(1).execute().data
+            or []
+        )
+    except Exception:
+        return True
+    return (rows[0] if rows else {}).get("process_crm_call_recordings") is True
+
+
+def write_crm_call_recordings_preference(supabase: Client, user_id: str, process: bool) -> None:
+    supabase.table("user_profiles").update({"process_crm_call_recordings": bool(process)}).eq("id", user_id).execute()
+
+
 async def resolve_user_for_hubspot_call(
     supabase: Client,
     connection: dict[str, Any],
@@ -204,6 +224,10 @@ async def handle_hubspot_recording_events(
         if not user_id:
             skipped += 1
             continue
+        if not read_crm_call_recordings_preference(supabase, user_id):
+            # This rep records calls with the island: the call is already a memo, live.
+            skipped += 1
+            continue
         try:
             result = await enqueue_hubspot_call_process(
                 supabase, user_id, call_id, access_token
@@ -228,6 +252,21 @@ async def handle_hubspot_recording_events(
     return started, skipped
 
 
+_C04_READERS = ("COMMITMENT_TASKS_ENABLED", "HOY_CONFIRMATIONS_ENABLED")
+
+
+async def _await_running_c04(supabase: Client, memo_id: str, company_id: str) -> None:
+    """Commitment tasks and the Hoy confirmation read C04; approving before it lands writes neither."""
+    from app.services.feature_flags import is_enabled
+    from app.services.followup import C04_WAIT_S, _c04_task
+
+    if not any(is_enabled(supabase, company_id or None, flag) for flag in _C04_READERS):
+        return
+    task = _c04_task(memo_id)
+    if task is not None:
+        await asyncio.wait({task}, timeout=C04_WAIT_S)
+
+
 async def maybe_auto_approve_hubspot_call(
     supabase: Client,
     memo_id: str,
@@ -240,8 +279,8 @@ async def maybe_auto_approve_hubspot_call(
     fetched = (
         supabase.table("memos")
         .select(
-            "id,status,source,hubspot_contact_id,hubspot_deal_id,"
-            "matched_deal_id,screening_outcome"
+            "id,status,source,company_id,hubspot_contact_id,hubspot_deal_id,"
+            "matched_deal_id,screening_outcome,sales_motion_key"
         )
         .eq("id", memo_id)
         .limit(1)
@@ -252,6 +291,8 @@ async def maybe_auto_approve_hubspot_call(
         return False
     if data.get("status") != "pending_review":
         return False
+    if data.get("sales_motion_key") == INTERNAL_KEY:
+        return False  # no customer in the conversation: never proposed to the CRM
 
     config = await CRMConfigurationService(supabase).get_configuration(user_id)
     enabled = bool(config and getattr(config, "auto_sync_hubspot_calls", False))
@@ -265,6 +306,7 @@ async def maybe_auto_approve_hubspot_call(
     ):
         return False
 
+    await _await_running_c04(supabase, memo_id, str(data.get("company_id") or ""))
     payload = approval_payload_for_auto_sync(contact_id=contact_id, deal_id=deal_id)
     try:
         await approve_memo_core(supabase, memo_id, user_id, payload)
@@ -278,4 +320,17 @@ async def maybe_auto_approve_hubspot_call(
         "CRM auto-approved",
         extra=log_domain(DOMAIN_MEMO, "crm_auto_approved", memo_id=memo_id),
     )
+    company_id = str(data.get("company_id") or "")
+    if company_id:
+        from app.services.hoy.confirmations import materialize_confirm_after_auto_approve
+
+        try:
+            await materialize_confirm_after_auto_approve(
+                supabase, memo_id=memo_id, user_id=user_id, company_id=company_id
+            )
+        except Exception:
+            logger.exception(
+                "confirm_pending materialize failed",
+                extra=log_domain(DOMAIN_MEMO, "confirm_materialize_failed", memo_id=memo_id),
+            )
     return True

@@ -1,0 +1,596 @@
+// The rep's home in one pure pass: six reads in, the sections to paint out.
+// A read still loading arrives as undefined; one that failed arrives as null and only its own
+// section goes missing. No state is claimed until the reads that decide it have answered.
+// A local action result never beats a newer /today version: nothing is invented.
+import { queueReducer } from "./queue.js";
+
+export const HOME_CAP = 7;
+export const NEEDS_OK_VISIBLE = 3;
+export const REVIEW_LIMIT = 5;
+export const CONFIRM_GROUP_AT = 3;
+export const FOLLOWUP_POLL_MS = 5000;
+export const FOLLOWUP_POLL_FOR_MS = 120_000;
+export const HOME_WIDE_PX = 1280;
+// Lista 4 T2 (E7): /today caps Tareas and Seguimiento itself; Nuevos also takes the
+// never-called contacts from /contact-priorities, so the home caps it once merged.
+export const SDR_NEW_CAP = 10;
+
+const MEETING = "meeting_today";
+const CONFIRM = "confirm_pending";
+const TASK = "manual_task";
+const FOLLOWUP = "followup_due";
+const NEVER_CONTACTED = "never_contacted";
+const SDR_SECTIONS = ["tasks", "followups", "new"];
+const PRIORITY_TYPES = { pain_agree_next_step: "pain_confirmed", no_calls_logged: "uncalled" };
+const DONE_KINDS = new Set(["call", "followup", "signal", "confirmation"]);
+const MANAGERS = new Set(["owner", "admin"]);
+
+export function composeHome(input) {
+  const { today, now } = input;
+  const canManage = MANAGERS.has(input.role);
+  if (today === undefined) {
+    return { state: "loading", canManage, incompleteAt: null, pulse: null, folded: null, sections: [] };
+  }
+
+  // HOY_SDR_SECTIONS_ENABLED with /today's own split: Tareas / Seguimiento / Nuevos for the
+  // SDR, plus Demos de hoy for the AE (no Nuevos) and the General.
+  if (input.sdrSections && Array.isArray(today?.sections?.tasks)) return composeSectionedHome(input, canManage);
+
+  const items = today ? mergeActed(today.items || [], input.acted || [], now) : [];
+  const meetings = items.filter((item) => item.type === MEETING && !item.memo_id);
+  const confirms = items.filter((item) => item.type === CONFIRM);
+  const todayCalls = items.filter((item) => ![MEETING, CONFIRM, TASK].includes(item.type));
+  const calls = [
+    ...todayCalls.map((item) => ({ source: "today", item })),
+    ...priorityCalls(input.priorities, items),
+  ];
+
+  let budget = HOME_CAP;
+  const shownMeetings = meetings.slice(0, budget);
+  budget -= shownMeetings.length;
+  const confirmRows = confirmationRows(confirms, budget);
+  budget -= confirmRows.cost;
+  const shownCalls = calls.slice(0, budget);
+  const tasksShown = (today?.items || []).some((item) => item.type === TASK);
+  const foldedCount = (meetings.length - shownMeetings.length)
+    + confirmRows.folded
+    + (calls.length - shownCalls.length)
+    + (tasksShown ? 0 : today?.folded_count || 0);
+  const lastHoy = shownCalls.length ? "calls" : confirmRows.rows.length ? "needs_ok" : shownMeetings.length ? "meetings" : null;
+
+  const needsOk = [...confirmRows.rows, ...followupRows(input.followups), ...reviewRows(input.reviews)];
+
+  const sections = [];
+  if (shownMeetings.length) {
+    sections.push({ id: "meetings", items: shownMeetings.map((item) => meetingEntry(item, input)) });
+  }
+  if (needsOk.length) sections.push(needsOkSection(needsOk));
+  if (shownCalls.length) sections.push({ id: "calls", items: shownCalls });
+  sections.push(...tailSections(input));
+
+  const pending = shownMeetings.length + needsOk.length + shownCalls.length > 0;
+  const todayCards = meetings.length + confirms.length + todayCalls.length > 0;
+  return {
+    ...homeState(input, { pending, todayCards }),
+    canManage,
+    folded: foldedCount > 0 ? { count: foldedCount, after: lastHoy } : null,
+    sections,
+  };
+}
+
+/**
+ * Hoy por bloques (Lista 4 T2/T8, E7, E13, E16), built from the keys /today sent:
+ * Demos de hoy (AE, General), meetings (SDR), Tareas, Falta tu OK, Seguimiento, Nuevos
+ * (SDR, General). Each block keeps what /today sent (it caps each one on its own), so new
+ * leads never vanish behind hot contacts. Falta tu OK sits under Tareas: its follow-up
+ * emails to send are tasks too. Coming up and done stay as they are. Only the sectioned
+ * keys are read: a `calls`/`meetings`/`deals` key sent next to them is not painted.
+ */
+function composeSectionedHome(input, canManage) {
+  const { today, now } = input;
+  const served = today.sections;
+  const hasDemos = Array.isArray(served.demos);
+  const hasNew = Array.isArray(served.new);
+  const demoItems = hasDemos ? mergeActed(served.demos, input.acted || [], now) : [];
+  const items = mergeActed([...served.tasks, ...(served.followups || []), ...(served.new || [])], input.acted || [], now);
+  const demos = demoItems.filter((item) => item.type === MEETING);
+  const meetings = items.filter((item) => item.type === MEETING && !item.memo_id);
+  const confirms = items.filter((item) => item.type === CONFIRM);
+  const tasks = items.filter(
+    (item) => !(item.type === MEETING && !item.memo_id) && ![CONFIRM, TASK, FOLLOWUP, NEVER_CONTACTED].includes(item.type),
+  );
+  const followups = items.filter((item) => item.type === FOLLOWUP);
+  // Only never-called contacts join Nuevos: a hot contact comes back on its cadence date,
+  // not every day from /contact-priorities.
+  // An AE's Hoy has no Nuevos (/today sends no `new`): it never prospects.
+  const freshAll = hasNew ? [
+    ...items.filter((item) => item.type === NEVER_CONTACTED).map((item) => ({ source: "today", item })),
+    ...priorityCalls(input.priorities, [...demos, ...items]).filter((entry) => entry.item.type === "uncalled"),
+  ] : [];
+  const fresh = freshAll.slice(0, SDR_NEW_CAP);
+  const confirmRows = confirmationRows(confirms, Infinity);
+  const needsOk = [...confirmRows.rows, ...followupRows(input.followups), ...reviewRows(input.reviews)];
+  const blocks = {
+    tasks: tasks.map((item) => ({ source: "today", item })),
+    followups: followups.map((item) => ({ source: "today", item })),
+    new: fresh,
+  };
+
+  const sections = [];
+  if (demos.length) sections.push({ id: "demos", items: demos.map((item) => meetingEntry(item, input)) });
+  if (meetings.length) sections.push({ id: "meetings", items: meetings.map((item) => meetingEntry(item, input)) });
+  if (blocks.tasks.length) sections.push({ id: "tasks", items: blocks.tasks });
+  if (needsOk.length) sections.push(needsOkSection(needsOk));
+  if (blocks.followups.length) sections.push({ id: "followups", items: blocks.followups });
+  if (blocks.new.length) sections.push({ id: "new", items: blocks.new });
+  sections.push(...tailSections(input));
+
+  const servedFolded = Object.values(today.sections_folded || {}).reduce((sum, count) => sum + (Number(count) || 0), 0);
+  const foldedCount = servedFolded + (freshAll.length - fresh.length);
+  const painted = ["demos", "tasks", "needs_ok", "followups", "new"].filter((id) => sections.some((entry) => entry.id === id));
+  const pending = demos.length + meetings.length + needsOk.length + tasks.length + followups.length + fresh.length > 0;
+  const todayCards = demos.length + meetings.length + confirms.length + tasks.length + followups.length
+    + items.filter((item) => item.type === NEVER_CONTACTED).length > 0;
+  return {
+    ...homeState(input, { pending, todayCards }),
+    canManage,
+    folded: foldedCount > 0 ? { count: foldedCount, after: painted.at(-1) ?? null } : null,
+    sections,
+  };
+}
+
+function needsOkSection(rows) {
+  return { id: "needs_ok", rows, shown: rows.slice(0, NEEDS_OK_VISIBLE), more: Math.max(0, rows.length - NEEDS_OK_VISIBLE) };
+}
+
+/** Coming up and done today: the same for every home. */
+function tailSections(input) {
+  const upcoming = (input.upcoming || []).map((row) => ({
+    ...row,
+    inCrm: Boolean(row.crm_task_id),
+    when: dayLabel(row.due_at, input.now, input),
+  }));
+  const done = doneRows(input.done, input);
+  const out = [];
+  if (upcoming.length) out.push({ id: "upcoming", rows: upcoming });
+  if (done.length) out.push({ id: "done", rows: done, count: done.length });
+  return out;
+}
+
+function homeState(input, { pending, todayCards }) {
+  const { today } = input;
+  const done = doneRows(input.done, input);
+  const deciding = [input.priorities, input.followups, input.reviews];
+  const settled = deciding.every((read) => read !== undefined) && input.connected !== undefined;
+  const sideFailed = deciding.some((read) => read === null);
+  const incomplete = Boolean(today) && (input.todayStale || sideFailed || !sourcesComplete(today.coverage));
+  let state = "day";
+  if (today === null) state = "error";
+  else if (input.connected === false && !todayCards) state = "connect";
+  else if (!pending && !incomplete && settled) {
+    state = input.priorities?.title === "title_no_assigned" ? "no_assigned" : "clear";
+  }
+  return {
+    state,
+    incompleteAt: incomplete ? clock(today.generated_at, input) : null,
+    pulse: pulse(done, input),
+  };
+}
+
+/** The key a Hoy card or priority card keeps across reads. */
+export function itemKey(item) {
+  return item.id ? `hoy:${item.id}` : String(item.dedupe_key ?? item.reason);
+}
+
+export function needsOkKey(entry) {
+  if (entry.kind === "confirm") return itemKey(entry.item);
+  if (entry.kind === "confirm_group") return "confirm-group";
+  return `${entry.kind}:${entry.memoId}`;
+}
+
+const settledItem = (item) => item.status != null && item.status !== "pending";
+
+/**
+ * Every selectable row, in the order it is painted: meetings, Falta tu OK, calls - or, on
+ * Hoy por bloques, Demos de hoy, meetings, Tareas, Falta tu OK, Seguimiento, Nuevos.
+ * The confirmation group is not a contact and a card waiting on its undo is not a row.
+ */
+export function homeRows(view, { needsOkOpen = false, groupOpen = false } = {}) {
+  const rows = [];
+  for (const section of view.sections) {
+    if (section.id === "meetings" || section.id === "demos") {
+      for (const entry of section.items) {
+        if (settledItem(entry.item)) continue;
+        rows.push({ key: itemKey(entry.item), kind: "meeting", contactId: entry.item.contact_id ?? null, name: entry.item.contact_name ?? null, item: entry.item, time: entry.time });
+      }
+    } else if (section.id === "needs_ok") {
+      for (const entry of (needsOkOpen ? section.rows : section.shown) || []) {
+        const confirms = entry.kind === "confirm" ? [entry.item] : entry.kind === "confirm_group" && groupOpen ? entry.items : [];
+        for (const item of confirms) {
+          if (!settledItem(item)) rows.push({ key: itemKey(item), kind: "confirm", contactId: item.contact_id ?? null, name: item.contact_name ?? null, item });
+        }
+        if (entry.kind === "followup" || entry.kind === "review") {
+          rows.push({ key: needsOkKey(entry), kind: entry.kind, contactId: entry.contactId ?? null, name: entry.name, entry });
+        }
+      }
+    } else if (section.id === "calls" || SDR_SECTIONS.includes(section.id)) {
+      // Tareas, Seguimiento and Nuevos are all people to call: the same row as "calls".
+      for (const { source, item } of section.items) {
+        if (settledItem(item)) continue;
+        rows.push({ key: itemKey(item), kind: "call", source, contactId: item.contact_id ?? null, name: item.contact_name ?? null, item });
+      }
+    }
+  }
+  return rows;
+}
+
+/** No selection yet; untouched, so a wide screen may still pick the first call. */
+export const initialHomeSelection = { mode: "idle", items: [], touched: false };
+
+const NO_CONVERSATION = new Set(["voicemail", "no_response"]);
+
+/**
+ * The home is the F06 queue: its items are the row keys and its index is the selected row.
+ * Idle or done means nothing is selected. Calling locks the selection; review keeps n from F06.
+ * The lock follows the dialer: `call` names the row of the contact actually being called.
+ */
+export function homeSelection(state, event) {
+  const items = state.items || [];
+  const at = (index, touched = true, extra = {}) => ({ mode: "queue", items, index, touched, ...extra });
+  const locked = state.mode === "calling";
+  const onRow = state.mode === "queue" || state.mode === "review";
+  const finish = (outcome, callSid = state.callSid) => {
+    const extra = { lastOutcome: outcome, lastCall: { key: items[state.index], outcome }, callSid };
+    if (outcome === "failed") return at(state.index, true, extra);
+    const next = queueReducer({ mode: "queue", items, index: state.index }, { type: "skip" });
+    return next.mode === "queue" ? at(next.index, true, extra) : { mode: "done", items, touched: true, ...extra };
+  };
+  switch (event.type) {
+    case "rows":
+      return refreshSelection(state, event.rows, event.wide);
+    case "select": {
+      if (locked) return state;
+      const index = items.indexOf(event.key);
+      return index < 0 ? state : at(index);
+    }
+    case "next":
+      if (locked) return state;
+      if (onRow) return at(Math.min(state.index + 1, items.length - 1));
+      return items.length ? at(0) : { ...state, touched: true };
+    case "prev":
+      if (locked) return state;
+      if (onRow) return at(Math.max(state.index - 1, 0));
+      return items.length ? at(items.length - 1) : { ...state, touched: true };
+    case "skip":
+      if (locked) return state;
+      if (state.mode !== "queue") return { ...state, touched: true };
+      return { ...queueReducer(state, { type: "skip" }), items, touched: true };
+    case "exit": {
+      if (locked) return state;
+      if (state.mode !== "queue") return { ...state, touched: true };
+      return { ...queueReducer(state, { type: "exit" }), items, touched: true };
+    }
+    case "call": {
+      if (locked) return state;
+      if (event.key == null) {
+        return state.mode === "queue" ? { mode: "calling", items, index: state.index, touched: true } : state;
+      }
+      const index = items.indexOf(event.key);
+      return index < 0 ? state : { mode: "calling", items, index, touched: true };
+    }
+    case "call_ended": {
+      // Not answered means it never connected, carrier no-answer included: the row stays.
+      if (!locked) return state;
+      const callSid = event.callSid ?? state.callSid;
+      if (event.callStatus === "failed") return finish("failed", callSid);
+      if (NO_CONVERSATION.has(event.screeningOutcome)) return finish("no_answer", callSid);
+      if (!event.answered && !event.memoId) return finish("failed", callSid);
+      return { mode: "review", items, index: state.index, touched: true, memoId: event.memoId ?? undefined, callSid };
+    }
+    case "call_resolved": {
+      if (state.mode !== "review") return state;
+      if (event.callSid && state.callSid && event.callSid !== state.callSid) return state;
+      return event.outcome === "no_answer" || event.outcome === "failed" ? finish(event.outcome) : state;
+    }
+    case "reviewed": {
+      if (state.mode !== "review") return state;
+      const next = queueReducer({ mode: "review", items, index: state.index }, { type: "reviewed" });
+      return next.mode === "queue" ? at(next.index) : { mode: "done", items, touched: true };
+    }
+    default:
+      return state;
+  }
+}
+
+export function homeSelectionLocked(state) {
+  return state.mode === "calling";
+}
+
+export function homeSelectionInReview(state) {
+  return state.mode === "review";
+}
+
+function refreshSelection(state, rows, wide) {
+  const keys = rows.map((row) => row.key);
+  const touched = Boolean(state.touched);
+  const idle = { mode: "idle", items: keys, touched };
+  if (state.mode === "calling" || state.mode === "review") {
+    const same = keys.indexOf(state.items[state.index]);
+    if (same >= 0) return { ...state, items: keys, index: same };
+    // The call belongs to its contact: never move the lock or the review onto another row.
+    if (state.mode === "calling") return state;
+    const index = followingKey(state.items, state.index, keys);
+    return index < 0 ? { mode: "done", items: keys, touched: true } : { mode: "queue", items: keys, index, touched: true };
+  }
+  if (state.mode === "queue") {
+    if (!touched && !wide) return idle;
+    const index = followingKey(state.items, state.index, keys);
+    return index < 0 ? idle : { mode: "queue", items: keys, index, touched, lastOutcome: state.lastOutcome };
+  }
+  if (touched || !wide || !keys.length) return { ...idle, mode: state.mode === "done" ? "done" : "idle" };
+  const firstCall = rows.findIndex((row) => row.kind === "call");
+  return { mode: "queue", items: keys, index: Math.max(firstCall, 0), touched };
+}
+
+/** The same row if it is still there; else the next one that survived; else the previous one. */
+function followingKey(previous, index, keys) {
+  const current = keys.indexOf(previous[index]);
+  if (current >= 0) return current;
+  const present = new Set(keys);
+  const after = previous.slice(index + 1).find((key) => present.has(key));
+  if (after) return keys.indexOf(after);
+  const before = previous.slice(0, index).reverse().find((key) => present.has(key));
+  if (before) return Math.min(keys.indexOf(before) + 1, keys.length - 1);
+  return keys.length ? 0 : -1;
+}
+
+export function selectedRow(state, rows) {
+  if (!["queue", "calling", "review"].includes(state.mode)) return null;
+  const key = state.items[state.index];
+  return rows.find((row) => row.key === key) ?? null;
+}
+
+/**
+ * What was on screen keeps its place when a read reorders it; new rows join the end of their section.
+ * `order` is what the previous call returned.
+ */
+export function holdOrder(order, view) {
+  const lists = {
+    meetings: (section) => [section.items, (entry) => itemKey(entry.item)],
+    demos: (section) => [section.items, (entry) => itemKey(entry.item)],
+    needs_ok: (section) => [section.rows, needsOkKey],
+    calls: (section) => [section.items, (entry) => itemKey(entry.item)],
+    tasks: (section) => [section.items, (entry) => itemKey(entry.item)],
+    followups: (section) => [section.items, (entry) => itemKey(entry.item)],
+    new: (section) => [section.items, (entry) => itemKey(entry.item)],
+  };
+  const nextOrder = {};
+  const sections = view.sections.map((section) => {
+    const pick = lists[section.id];
+    if (!pick) return section;
+    const [entries, keyOf] = pick(section);
+    const held = order ? keepPlaces(order[section.id] || [], entries, keyOf) : entries;
+    nextOrder[section.id] = held.map(keyOf);
+    if (!order) return section;
+    if (section.id === "needs_ok") return { ...section, rows: held, shown: held.slice(0, NEEDS_OK_VISIBLE) };
+    return { ...section, items: held };
+  });
+  return { view: order ? { ...view, sections } : view, order: nextOrder };
+}
+
+function keepPlaces(previousKeys, entries, keyOf) {
+  const rank = new Map(previousKeys.map((key, index) => [key, index]));
+  const known = entries.filter((entry) => rank.has(keyOf(entry))).sort((a, b) => rank.get(keyOf(a)) - rank.get(keyOf(b)));
+  return [...known, ...entries.filter((entry) => !rank.has(keyOf(entry)))];
+}
+
+/** 00:00 tomorrow in the given zone, as an ISO instant. */
+export function snoozeUntil(now, timeZone) {
+  const tomorrow = calendarDay(now, timeZone) + 86_400_000;
+  let guess = tomorrow;
+  for (let pass = 0; pass < 2; pass += 1) {
+    guess = tomorrow - zoneOffset(guess, timeZone);
+  }
+  return new Date(guess).toISOString();
+}
+
+function zoneOffset(ms, timeZone) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+      .formatToParts(new Date(ms))
+      .map((part) => [part.type, part.value]),
+  );
+  const local = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return local - Math.floor(ms / 1000) * 1000;
+}
+
+/** Poll drafts being written every few seconds, but give up after a while so a stuck one does not poll forever. */
+export function followupPoll(rows, since, now) {
+  if (!(rows || []).some((row) => row.status === "generating")) return { interval: false, since: null };
+  const start = since ?? now;
+  return { interval: now - start < FOLLOWUP_POLL_FOR_MS ? FOLLOWUP_POLL_MS : false, since: start };
+}
+
+/** A 409 on resolve or undo carries the real row: forget the local result and read /today again. */
+export function afterActionError(error) {
+  if (!error || error.status !== 409) return null;
+  const row = error.data?.detail;
+  const id = row && typeof row === "object" && row.id ? String(row.id) : null;
+  return { forget: id, refetch: true };
+}
+
+function mergeActed(serverItems, acted, now) {
+  const byId = new Map(acted.filter((item) => item.id).map((item) => [item.id, item]));
+  const undoOpen = (item) => item.undo_deadline != null && Date.parse(item.undo_deadline) >= now;
+  const seen = new Set();
+  const out = [];
+  for (const item of serverItems) {
+    if (item.id) seen.add(item.id);
+    const local = item.id ? byId.get(item.id) : null;
+    if (!local || (local.version ?? -1) <= (item.version ?? -1)) {
+      out.push(item);
+    } else if (local.status === "pending" || undoOpen(local)) {
+      out.push(local);
+    }
+  }
+  for (const local of acted) {
+    if (local.id && !seen.has(local.id) && local.status !== "pending" && undoOpen(local)) out.push(local);
+  }
+  return out;
+}
+
+function priorityCalls(view, todayItems) {
+  const known = new Set(todayItems.filter((item) => item.type !== TASK && item.contact_id).map((item) => item.contact_id));
+  const out = [];
+  for (const candidate of view?.items || []) {
+    const type = PRIORITY_TYPES[candidate.reason];
+    if (!type || known.has(candidate.contact_id)) continue;
+    known.add(candidate.contact_id);
+    out.push({
+      source: "priority",
+      item: {
+        type,
+        id: null,
+        dedupe_key: `priority:${candidate.id}`,
+        contact_id: candidate.contact_id,
+        contact_name: candidate.contact_name ?? null,
+        company_name: null,
+        reason: candidate.reason,
+        detail: null,
+        origins: ["priority"],
+        supporting: [],
+      },
+    });
+  }
+  return out;
+}
+
+function confirmationRows(confirms, budget) {
+  if (!confirms.length) return { rows: [], cost: 0, folded: 0 };
+  if (confirms.length >= CONFIRM_GROUP_AT) {
+    if (budget < 1) return { rows: [], cost: 0, folded: confirms.length };
+    return { rows: [{ kind: "confirm_group", count: confirms.length, items: confirms, action: "expand" }], cost: 1, folded: 0 };
+  }
+  const shown = confirms.slice(0, Math.max(0, budget));
+  return {
+    rows: shown.map((item) => ({ kind: "confirm", item, action: "confirm" })),
+    cost: shown.length,
+    folded: confirms.length - shown.length,
+  };
+}
+
+function followupRows(rows) {
+  return (rows || []).map((row) => ({
+    kind: "followup",
+    memoId: row.memo_id,
+    contactId: row.contact_id ?? null,
+    name: row.contact_name ?? null,
+    subject: row.status === "ready" ? row.subject ?? null : null,
+    status: row.status,
+    action: row.status === "generating" ? null : "open",
+  }));
+}
+
+function reviewRows(memos) {
+  return (memos || []).map((memo) => ({
+    kind: "review",
+    memoId: memo.id,
+    contactId: memo.hubspotContactId ?? null,
+    name: memo.extraction?.contactName ?? null,
+    action: "review",
+  }));
+}
+
+function doneRows(rows, fmt) {
+  const known = (rows || []).filter((row) => DONE_KINDS.has(row.kind));
+  const calls = known.filter((row) => row.kind === "call");
+  return known
+    .filter((row) => !(row.kind === "signal" && calls.some((call) => sameContact(row, call))))
+    .map((row) => ({
+      kind: row.kind,
+      name: row.contact_name ?? null,
+      contactId: row.contact_id ?? null,
+      at: row.at,
+      memoId: row.memo_id ?? null,
+      time: clock(row.at, fmt),
+    }));
+}
+
+function pulse(done, input) {
+  const calls = done.filter((row) => row.kind === "call");
+  if (!calls.length) return null;
+  const reviews = input.reviews;
+  const pendingIds = new Set((reviews || []).map((memo) => memo.id));
+  const saved = Boolean(input.connected && input.crm)
+    && Array.isArray(reviews)
+    && reviews.length < REVIEW_LIMIT
+    && calls.every((row) => row.memoId && !pendingIds.has(row.memoId));
+  return { calls: calls.length, savedTo: saved ? input.crm : null };
+}
+
+/** A meeting row's hour, in the rep zone /today decided "today" with when it sends one. */
+export function meetingEntry(item, fmt) {
+  const timed = item.precision !== "date" && Boolean(item.due_at);
+  const at = timed ? Date.parse(item.due_at) : NaN;
+  return {
+    item,
+    time: timed ? clock(item.due_at, { locale: fmt.locale, timeZone: item.timezone || fmt.timeZone }) : null,
+    past: timed && !Number.isNaN(at) && at < fmt.now,
+  };
+}
+
+function sourcesComplete(coverage) {
+  const values = Object.values(coverage || {});
+  return values.length > 0 && values.every((value) => value === "complete");
+}
+
+function sameContact(a, b) {
+  if (a.contact_id && b.contact_id) return a.contact_id === b.contact_id;
+  const name = nameKey(a.contact_name);
+  return Boolean(name) && name === nameKey(b.contact_name);
+}
+
+function nameKey(name) {
+  return String(name || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function clock(iso, { locale, timeZone }) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone }).format(date);
+}
+
+function calendarDay(ms, timeZone) {
+  const [year, month, day] = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date(ms))
+    .split("-")
+    .map(Number);
+  return Date.UTC(year, month - 1, day);
+}
+
+function capitalize(text) {
+  return text ? text.charAt(0).toLocaleUpperCase() + text.slice(1) : text;
+}
+
+function dayLabel(iso, now, { locale, timeZone }) {
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return null;
+  const offset = Math.round((calendarDay(at, timeZone) - calendarDay(now, timeZone)) / 86_400_000);
+  if (offset === 1) {
+    return capitalize(new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(1, "day"));
+  }
+  const parts = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", timeZone })
+    .formatToParts(new Date(at))
+    .filter((part) => part.type !== "literal")
+    .map((part) => part.value);
+  return capitalize(parts.join(" "));
+}

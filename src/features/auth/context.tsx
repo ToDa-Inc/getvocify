@@ -15,6 +15,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getTokenExpiryMs, isAccessTokenFresh, shouldClearAuthOnMeStatus } from '@/lib/auth-session';
 import { api, ApiError } from '@/shared/lib/api-client';
+import { getDesktopBridge } from '@/lib/desktop-host';
 import { authApi, authKeys } from './api';
 import type { 
   User, 
@@ -85,6 +86,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
     return () => api.setOnAuthCleared(null);
   }, [queryClient]);
+
+  // The island offers Record while a session is stored, so a slow profile fetch or a page
+  // outside the dashboard doesn't read as signed out; only a real logout or a 401 does.
+  useEffect(() => {
+    getDesktopBridge()?.shell.setState({ recorderReady: hasStoredSession });
+  }, [hasStoredSession]);
 
   const { data: user, isLoading, refetch } = useQuery({
     queryKey: authKeys.me(),

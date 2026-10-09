@@ -82,3 +82,43 @@ def speechmatics_audio_channel(data: dict[str, Any]) -> Optional[str]:
 def accepts_client_pcm_bytes(mode: str) -> bool:
     """Channel sessions must not mix raw PCM into AddChannelAudio streams."""
     return mode != COPILOT_CHANNEL_MODE
+
+
+def _offset_ms(value: Any, offset_s: float = 0.0) -> int | None:
+    if value is None:
+        return None
+    return int(round((float(value) + offset_s) * 1000))
+
+
+def speechmatics_words(data: dict, offset_s: float = 0.0) -> list[dict[str, Any]]:
+    """Pull word-level content + speaker from Speechmatics results[]; times shifted by `offset_s`."""
+    words: list[dict[str, Any]] = []
+    for item in data.get("results") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") not in (None, "word"):
+            # Keep punctuation attached as text without speaker votes
+            if item.get("type") == "punctuation":
+                alts = item.get("alternatives") or []
+                content = (alts[0] or {}).get("content") if alts else None
+                if content:
+                    words.append({"text": str(content), "speaker": None, "is_punct": True})
+            continue
+        alts = item.get("alternatives") or []
+        if not alts:
+            continue
+        alt = alts[0] if isinstance(alts[0], dict) else {}
+        content = alt.get("content")
+        if not content:
+            continue
+        speaker = alt.get("speaker")
+        words.append(
+            {
+                "text": str(content),
+                "speaker": str(speaker) if speaker else None,
+                "is_punct": False,
+                "start_ms": _offset_ms(item.get("start_time"), offset_s),
+                "end_ms": _offset_ms(item.get("end_time"), offset_s),
+            }
+        )
+    return words

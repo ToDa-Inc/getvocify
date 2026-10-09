@@ -8,19 +8,24 @@
  * - File upload support
  */
 
+import { resolveApiBase } from '@/lib/app-url';
 import {
   createRefreshGate,
   isAccessTokenFresh,
   shouldClearAuthOnRefreshStatus,
 } from '@/lib/auth-session';
+import { acceptLanguageRequestHeader } from './api-request-language';
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8888/api/v1';
+const API_BASE = resolveApiBase();
 const REFRESH_KEY = 'vocify_refresh';
 const REFRESH_LOCK = 'vocify-auth-refresh';
 const REQUEST_TIMEOUT_MS = 20_000;
 
-function requestSignal(existing?: AbortSignal | null): AbortSignal {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+/** RequestInit plus a per-call timeout, for the few calls that wait on a model or a transcription. */
+export type RequestOptions = RequestInit & { timeoutMs?: number };
+
+function requestSignal(existing?: AbortSignal | null, timeoutMs = REQUEST_TIMEOUT_MS): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
   if (existing && typeof AbortSignal.any === 'function') {
     return AbortSignal.any([existing, timeout]);
   }
@@ -261,15 +266,16 @@ class ApiClient {
    */
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {},
+    options: RequestOptions = {},
     isRetry = false
   ): Promise<T> {
     const url = `${API_BASE}${endpoint}`;
     const token = this.getAuthToken();
 
-    const { signal: userSignal, ...rest } = options;
+    const { signal: userSignal, timeoutMs, ...rest } = options;
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
+      ...acceptLanguageRequestHeader(),
       ...(token && { Authorization: `Bearer ${token}` }),
       ...rest.headers,
     };
@@ -279,7 +285,7 @@ class ApiClient {
       response = await fetch(url, {
         ...rest,
         headers,
-        signal: requestSignal(userSignal),
+        signal: requestSignal(userSignal, timeoutMs),
       });
     } catch (error) {
       if (isAbortError(error)) {
@@ -302,6 +308,7 @@ class ApiClient {
             headers: {
               ...options.headers,
               'Content-Type': 'application/json',
+              ...acceptLanguageRequestHeader(),
               Authorization: `Bearer ${newToken}`,
             },
           }, true);
@@ -338,7 +345,7 @@ class ApiClient {
   /**
    * POST request with JSON body
    */
-  post<T>(endpoint: string, data?: unknown, options: RequestInit = {}): Promise<T> {
+  post<T>(endpoint: string, data?: unknown, options: RequestOptions = {}): Promise<T> {
     return this.request<T>(endpoint, {
       method: 'POST',
       body: data ? JSON.stringify(data) : undefined,
@@ -376,6 +383,44 @@ class ApiClient {
   }
 
   /**
+   * POST that returns the raw Response so the caller can read a server-sent event stream.
+   * Same auth and one refresh retry as `request`, but no fixed timeout: a turn can run for a while.
+   */
+  async openStream(
+    endpoint: string,
+    body: unknown,
+    signal?: AbortSignal,
+    isRetry = false,
+  ): Promise<Response> {
+    const token = this.getAuthToken();
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...acceptLanguageRequestHeader(),
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (response.status === 401 && !isRetry && shouldAttemptRefreshForEndpoint(endpoint)) {
+      const newToken = await this.tryRefreshToken();
+      if (newToken) return this.openStream(endpoint, body, signal, true);
+    }
+    if (!response.ok) {
+      let data: unknown = {};
+      try {
+        data = await response.json();
+      } catch {
+        // Body was not JSON
+      }
+      throw new ApiError(response.status, data);
+    }
+    return response;
+  }
+
+  /**
    * Upload file (multipart/form-data)
    * 
    * Usage:
@@ -398,6 +443,7 @@ class ApiClient {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
+        ...acceptLanguageRequestHeader(),
         ...(token && { Authorization: `Bearer ${token}` }),
         // Note: Don't set Content-Type for FormData, browser sets it with boundary
       },
@@ -483,6 +529,10 @@ class ApiClient {
 
         xhr.open('POST', url);
         const token = this.getAuthToken();
+        const acceptLanguage = acceptLanguageRequestHeader()['Accept-Language'];
+        if (acceptLanguage) {
+          xhr.setRequestHeader('Accept-Language', acceptLanguage);
+        }
         if (token) {
           xhr.setRequestHeader('Authorization', `Bearer ${token}`);
         }

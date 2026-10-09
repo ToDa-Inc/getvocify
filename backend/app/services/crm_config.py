@@ -13,6 +13,15 @@ from app.models.crm_config import (
 )
 
 
+def _meeting_booked_stage(config: CRMConfigurationRequest) -> dict:
+    """A stage without its pipeline cannot be applied safely, so neither is stored."""
+    pipeline = (config.meeting_booked_pipeline_id or "").strip() or None
+    stage = (config.meeting_booked_stage_id or "").strip() or None
+    if not (pipeline and stage):
+        pipeline = stage = None
+    return {"meeting_booked_pipeline_id": pipeline, "meeting_booked_stage_id": stage}
+
+
 class CRMConfigurationService:
     """
     Service for managing CRM configurations.
@@ -31,6 +40,9 @@ class CRMConfigurationService:
         user_id: str,
         connection_id: Optional[str] = None,
         provider: Optional[str] = None,
+        *,
+        fields_for: Optional[str] = None,
+        company_fields_only: bool = False,
     ) -> Optional[CRMConfigurationResponse]:
         """
         Get user's CRM configuration for a connection.
@@ -38,6 +50,12 @@ class CRMConfigurationService:
         Resolution when connection_id is omitted:
         - If provider is set (e.g. \"hubspot\"): first connected row for that provider.
         - Else: primary/single connection via resolve_sync_connection (memo pipeline).
+
+        The allowed_*_fields lists are the ones that apply to `fields_for` (default: user_id):
+        that person's own lists, else their sales role's, else the company's
+        (crm_field_permissions, migration 065). Everything else is company-wide.
+        `company_fields_only` returns the company's lists untouched - the Head of Sales'
+        editor reads and saves those.
         """
         if not connection_id:
             if provider:
@@ -87,8 +105,17 @@ class CRMConfigurationService:
             raise
         
         config_data = result.data
-        
-        return CRMConfigurationResponse(
+        field_overrides: dict = {}
+        if not company_fields_only:
+            from app.services.crm_field_permissions import field_overrides_for
+
+            field_overrides = field_overrides_for(
+                self.supabase,
+                connection_id=str(config_data["connection_id"]),
+                user_id=str(fields_for or user_id),
+            )
+
+        response = CRMConfigurationResponse(
             id=UUID(config_data["id"]),
             connection_id=UUID(config_data["connection_id"]),
             default_pipeline_id=config_data.get("default_pipeline_id") or "",
@@ -108,9 +135,15 @@ class CRMConfigurationService:
             lost_lead_status_value=config_data.get("lost_lead_status_value"),
             on_hold_lead_status_value=config_data.get("on_hold_lead_status_value"),
             auto_sync_hubspot_calls=bool(config_data.get("auto_sync_hubspot_calls", False)),
+            meeting_booked_pipeline_id=config_data.get("meeting_booked_pipeline_id"),
+            meeting_booked_stage_id=config_data.get("meeting_booked_stage_id"),
+            deal_creation_rule=config_data.get("deal_creation_rule"),
             created_at=config_data.get("created_at") or "",
             updated_at=config_data.get("updated_at") or "",
         )
+        # An override replaces the company list as is - an empty list means "none", it does
+        # not fall back to the defaults the way an empty company list does above.
+        return response.model_copy(update=field_overrides) if field_overrides else response
     
     async def save_configuration(
         self,
@@ -171,7 +204,12 @@ class CRMConfigurationService:
             "lost_lead_status_value": config.lost_lead_status_value,
             "on_hold_lead_status_value": config.on_hold_lead_status_value,
             "auto_sync_hubspot_calls": config.auto_sync_hubspot_calls,
+            **_meeting_booked_stage(config),
         }
+        # Lista 4 T4: only written when sent, so saving from an older client (or before
+        # migration 063 adds the column) never fails or resets the Head of Sales' choice.
+        if config.deal_creation_rule is not None:
+            config_data["deal_creation_rule"] = config.deal_creation_rule
         
         # Upsert configuration
         result = self.supabase.table("crm_configurations").upsert(
@@ -208,6 +246,9 @@ class CRMConfigurationService:
             lost_lead_status_value=saved_config.get("lost_lead_status_value"),
             on_hold_lead_status_value=saved_config.get("on_hold_lead_status_value"),
             auto_sync_hubspot_calls=bool(saved_config.get("auto_sync_hubspot_calls", False)),
+            meeting_booked_pipeline_id=saved_config.get("meeting_booked_pipeline_id"),
+            meeting_booked_stage_id=saved_config.get("meeting_booked_stage_id"),
+            deal_creation_rule=saved_config.get("deal_creation_rule"),
             created_at=saved_config["created_at"],
             updated_at=saved_config["updated_at"],
         )

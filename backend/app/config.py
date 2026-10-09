@@ -5,6 +5,7 @@ Application configuration from environment variables
 import json
 import os
 import tempfile
+from datetime import date
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 from typing import Optional
@@ -49,25 +50,64 @@ class Settings(BaseSettings):
     # Realtime language when the client sends `multi`. Must be an ISO code (`es`, `en`, …).
     # `auto` is batch-only — eu2 rejects wss://…/v2/auto with HTTP 404.
     SPEECHMATICS_RT_LANGUAGE: Optional[str] = None
+    # Live calls also stream to the other provider (Speechmatics or Deepgram) in parallel; both
+    # transcripts and their speed go to the logs to compare.
+    LIVE_COMPARE_STT: bool = False
+    # Tries one provider (speechmatics, deepgram, mai) on every live call instead of the profile's rule.
+    LIVE_STT_PROVIDER: Optional[str] = None
+    # Vercel AI Gateway: MAI-Transcribe-2-Streaming for live calls.
+    AI_GATEWAY_API_KEY: Optional[str] = None
 
     # LLM provider routing: openrouter | vertex_ai
     LLM_PROVIDER: str = "openrouter"
     OPENROUTER_API_KEY: Optional[str] = None
     # CRM note, field extraction, fill/update decisions, transcript repair.
     # Not used for live copilot (COPILOT_MODEL) or the STT engine.
-    EXTRACTION_MODEL: str = "google/gemini-3.5-flash-lite"
+    # DeepSeek V4.1 Flash on Together AI, without reasoning (see TOGETHER_* below).
+    EXTRACTION_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
     # Live call objection copilot (OpenRouter chat; abortable stream)
     # Note: gemini-3.6-flash has mandatory reasoning (~4s TTFT) — too slow for live coaching.
     # Gemini Live (3.1 Flash Live) is Google Live API only (not OpenRouter) and needs AI Studio key.
-    COPILOT_MODEL: str = "google/gemini-3.5-flash-lite"
+    # DeepSeek V4.1 Flash thinks by default (~540 hidden tokens); suggest.py turns that off.
+    COPILOT_MODEL: str = "deepseek/deepseek-v4.1-flash"
+    # Live help's reasoning effort. Empty means "minimal" (Gemini Flash-Lite refuses "none");
+    # "none" for models that think before their first word even at "minimal" (GPT-6 Luna).
+    COPILOT_REASONING_EFFORT: Optional[str] = None
+    # OpenRouter provider pinned for COPILOT_MODEL (e.g. "Cerebras"); unset, OpenRouter picks the fastest.
+    COPILOT_PROVIDER: Optional[str] = None
+    # Live help's line from an OpenAI-compatible provider directly (e.g. Together), with OpenRouter
+    # (COPILOT_MODEL) as the backup: it starts when the direct one has not written in COPILOT_HEDGE_MS, or fails.
+    COPILOT_DIRECT_URL: Optional[str] = None
+    COPILOT_DIRECT_API_KEY: Optional[str] = None
+    COPILOT_DIRECT_MODEL: Optional[str] = None
+    COPILOT_HEDGE_MS: int = 600
     # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
     CRM_COPILOT_MODEL: str = "google/gemini-3.8-flash"
     CRM_COPILOT_MAX_ROUNDS: int = 8
+    # Ask (web + WhatsApp): team metrics, conversations, objections, priorities and Pipedrive reads.
+    ASK_VOCIFY_DATA_TOOLS_ENABLED: bool = False
+    # Team view: weekly playbook adherence per rep (GET /team/adherence/trend). Owner/admin only.
+    TEAM_ADHERENCE_TREND_ENABLED: bool = False
+    # Team view: named competitor mentions in objections card and team weekly report. Owner/admin only.
+    TEAM_COMPETITORS_ENABLED: bool = False
+    # Web Ask: «¿a quién llamo hoy?» returns the priority contacts with a Call action. Needs the data tools.
+    ASK_CALL_ACTIONS_ENABLED: bool = False
+    # Web Ask keeps going until the question is answered; the last round is always a plain answer.
+    ASK_MAX_ROUNDS: int = 32
+    # Effort per question (crm_copilot/effort.py): lookups run at low, analysis at high. Off means always low.
+    ASK_EFFORT_ROUTING: bool = True
+    # Web Ask only (see crm_copilot/model_profile.py). Empty ASK_MODEL means CRM_COPILOT_MODEL; the fallback runs
+    # once if the first call fails. DeepSeek V4.1 Flash runs with low-effort reasoning (model_profile).
+    ASK_MODEL: Optional[str] = "deepseek/deepseek-v4.1-flash"
+    ASK_FALLBACK_MODEL: Optional[str] = "google/gemini-3.8-flash"
     # Cheap second pass after deterministic name repair. Not the CRM extractor.
+    # The LLM repair of a transcript lists only the misheard words (app/services/transcript_patch.py).
     TRANSCRIPT_SANITIZE_LLM: bool = True
-    TRANSCRIPT_SANITIZE_MODEL: str = "google/gemini-3.5-flash-lite"
+    # Real names it must never "correct", on top of the built-in tools (HubSpot, Pipedrive...).
+    TRANSCRIPT_SANITIZE_PROTECTED_TERMS: list[str] = []
+    TRANSCRIPT_SANITIZE_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
     # After file STT, pick one of the user's selected languages. Lite is enough.
-    STT_LANGUAGE_DETECT_MODEL: str = "google/gemini-3.5-flash-lite"
+    STT_LANGUAGE_DETECT_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
 
     # Fast System One structured classification (CRM enums, language triage)
     USE_JEV_CLASSIFIER: bool = True
@@ -143,6 +183,9 @@ class Settings(BaseSettings):
     HUBSPOT_CLIENT_ID: Optional[str] = None
     HUBSPOT_CLIENT_SECRET: Optional[str] = None
     HUBSPOT_REDIRECT_URI: Optional[str] = None
+    # Never write to HubSpot from this backend (staging on a customer's real portal):
+    # app/services/hubspot/read_only.py answers every non-read request with a 423.
+    HUBSPOT_READ_ONLY: bool = False
     HUBSPOT_APP_ID: Optional[str] = None
 
     # Salesforce Connected App (OAuth Web Server flow)
@@ -194,8 +237,144 @@ class Settings(BaseSettings):
     # Play the AEPD recording disclosure to the called party before bridging.
     # Off by default; flip on per environment. The whisper route stays mounted.
     CALLING_RECORDING_ANNOUNCEMENT_ENABLED: bool = False
+    # Spain: Orden TDF/149/2025 art. 9 bars +34 6/7 mobiles for commercial
+    # calls; +34 400 cannot receive the verification call. Global because it is
+    # law for every tenant, not a plan feature. See docs/telephony/DECISION.md.
+    CALLING_ES_CLI_GATE_ENABLED: bool = True
+    # Already-verified Spanish mobiles stop dialing from this Europe/Madrid date
+    # (Resolución SETID 14-04-2026, apartado sexto).
+    CALLING_ES_MOBILE_CALL_BLOCK_FROM: date = date(2026, 10, 17)
     # Lifetime of the signed recording URL handed to HubSpot.
     CALL_RECORDING_URL_TTL_SECONDS: int = 3600
+    # Follow-up drafts; overridable per company (company_feature_flags). Off does not block
+    # extraction; sent means mail-client handoff.
+    FOLLOWUP_ENABLED: bool = True
+    # Daily report email, per company. The report is still generated and listed in the bell when off.
+    REPORTING_DAILY_EMAIL_ENABLED: bool = False
+    # Deal stage chosen by the rep on memo review; accepting a meeting no longer moves it. Per company.
+    DEAL_STAGE_CONFIRM_ENABLED: bool = False
+    # CRM tasks from C04 commitments, with Hoy's text and due date. Per company.
+    COMMITMENT_TASKS_ENABLED: bool = False
+    # Reports (F13.04 / F15.05), per company. Weekly personal report, Friday 18:00 local.
+    REPORTING_WEEKLY_ENABLED: bool = False
+    # Weekly team report by email for owner/admin, from the same aggregate as the team panel.
+    REPORTING_TEAM_ENABLED: bool = False
+    # Bell also lists what Vocify did on its own (CRM writes, meeting stage moves) and why.
+    NOTIFICATIONS_ACTIVITY_ENABLED: bool = False
+    INTELLIGENCE_WORKER_PUBLISH: bool = False
+    # Interest, objections and commitments from the transcript, once per extraction.
+    INTELLIGENCE_EXTRACT_ENABLED: bool = False
+    # C04 v4: named competitors + one observation per playbook step (coaching, adherence,
+    # missed steps, checklist). Per company via company_feature_flags; off until its evals pass.
+    PLAYBOOK_OBSERVATIONS_ENABLED: bool = False
+    # Hoy card «no te ha respondido»: reads the rep's CRM emails. HubSpot needs sales-email-read.
+    HOY_NO_REPLY_ENABLED: bool = False
+    # One-click confirm in Hoy after CRM auto-approve (stage and/or meeting). Per company.
+    HOY_CONFIRMATIONS_ENABLED: bool = False
+    # Accepted F14 meetings with starts_at today in Hoy. Per company.
+    HOY_MEETINGS_ENABLED: bool = False
+    # Rep workspace (F16): /dashboard becomes the rep's home. Per company.
+    REP_WORKSPACE_ENABLED: bool = False
+    # Pre-call brief v2: hook, why, say and playbook progress label from C04. Per company.
+    BRIEF_V2_ENABLED: bool = False
+    # Lista 3 (roles, flujos SDR/AE y Head of Sales). All per company, off by default.
+    # T1: company_members.sales_role/handoff_ae_user_id/visibility, exposed via /company and /auth/me.
+    SALES_ROLES_ENABLED: bool = False
+    # The AI tags a memo `internal` when extraction reports customerPresent=false. Per company,
+    # off until real transcripts are checked; a manual retag to `internal` works either way.
+    INTERNAL_DETECTION_ENABLED: bool = False
+    # T3: SDR->AE handoff on meeting booked (deal_handoffs).
+    HANDOFF_ENABLED: bool = False
+    # T3: writes the CRM owner (deal/contact) to the AE on handoff.
+    HANDOFF_CRM_OWNER_ENABLED: bool = False
+    # T5: Hoy lead tiers (callback_no_answer, stale_hot, never_contacted) and heat score.
+    HOY_LEAD_TIERS_ENABLED: bool = False
+    # T6: Hoy AE section (deals in progress) with pre-meeting brief.
+    HOY_AE_DEALS_ENABLED: bool = False
+    # T8: follow-up sent from Vocify via Resend instead of mailto.
+    FOLLOWUP_SEND_ENABLED: bool = False
+    # T8: follow-up instructions tailored per flow (discovery/closing) plus sales_strategy.
+    FOLLOWUP_BY_FLOW_ENABLED: bool = False
+    # T9: Head of Sales onboarding wizard on first login.
+    ONBOARDING_WIZARD_ENABLED: bool = False
+    # T10: scoring credit for objections handled (objection_handling criterion).
+    SCORING_OBJECTION_CREDIT_ENABLED: bool = False
+    # T10: debrief v2 (flow, missed steps, phrases, highlights, progress).
+    DEBRIEF_V2_ENABLED: bool = False
+    # Coaching v1: one-line coaching message (focus) in the rep's own daily/weekly reports.
+    COACHING_MESSAGES_ENABLED: bool = False
+    # T11: Playbook tab with the week's best interactions per flow.
+    PLAYBOOK_TAB_ENABLED: bool = False
+    # T12: daily/weekly reports split by sales_role section.
+    REPORTING_BY_FLOW_ENABLED: bool = False
+    # T12: bell adds tasks (Hoy) and feedback (ready briefs) sections.
+    BELL_TASKS_ENABLED: bool = False
+    # T13: /dashboard becomes the Head of Sales' team home.
+    MANAGER_HOME_ENABLED: bool = False
+    # T14: Recall.ai meeting bot (needs RECALL_API_KEY).
+    RECALL_BOT_ENABLED: bool = False
+    # Lista 4 T2: SDR's Hoy in Tareas/Seguimiento/Nuevos, follow-ups on a cadence per stopper.
+    HOY_SDR_SECTIONS_ENABLED: bool = False
+    # Lista 4 T3: the brief adds a «gancho de empresa» line from another contact of the same company.
+    BRIEF_COMPANY_HOOK_ENABLED: bool = False
+    # Lista 4 T4: after the call, Hoy's panel walks proposal -> outcome -> follow-up -> next,
+    # and the company's deal_creation_rule decides when a contact without a deal gets one.
+    AFTER_CALL_FLOW_ENABLED: bool = False
+    # Playbooks v2, per company. V2: the new list/document/single-box UI. ROUTING: the call-type
+    # catalog, the "when it applies" rules, rule-based pinning and "change type" on a recording.
+    PLAYBOOK_V2_ENABLED: bool = False
+    PLAYBOOK_ROUTING_ENABLED: bool = False
+    # Types by channel (spec 2026-10-07): a recording's type is one of its channel's types (call or
+    # meeting), never decided by the member's sales role, and needs no playbook. Only takes effect
+    # with INTELLIGENCE_CALL_READING_ENABLED, which makes the final call after the call.
+    TYPE_BY_CHANNEL_ENABLED: bool = False
+    # Playbooks v2, per company. QUALIFICATION: C04 v7 reads "what has to come out of the call"
+    # criteria and the company's own objections, and the score is built from three blocks
+    # (steps, qualification, objections) instead of steps alone.
+    PLAYBOOK_QUALIFICATION_ENABLED: bool = False
+    # Recall.ai dashboard > API keys. Unset -> POST /meetings/bot returns 503.
+    RECALL_API_KEY: Optional[str] = None
+    # Recall's per-region API host (https://{region}.recall.ai). Our workspace is in the EU
+    # region (Frankfurt); regions are separate accounts, so the key only works there.
+    RECALL_REGION: str = "eu-central-1"
+    # Recall webhook signing secret (Svix-style, prefixed "whsec_"), from the Recall
+    # dashboard's webhook settings. Unset -> POST /webhooks/recall accepts unsigned
+    # requests with a warning (dev only), same as UNIPILE_WEBHOOK_SECRET.
+    RECALL_WEBHOOK_SECRET: Optional[str] = None
+    # OAuth clients for connecting a rep's calendar (Recall Calendar V2). Our own apps: the
+    # refresh token is handed to Recall, which keeps the calendar synced. Unset -> that
+    # provider is not offered. Redirect URI: {BACKEND_PUBLIC_URL}/api/v1/calendar/{provider}/callback
+    GOOGLE_CALENDAR_CLIENT_ID: Optional[str] = None
+    GOOGLE_CALENDAR_CLIENT_SECRET: Optional[str] = None
+    MICROSOFT_CALENDAR_CLIENT_ID: Optional[str] = None
+    MICROSOFT_CALENDAR_CLIENT_SECRET: Optional[str] = None
+    INTELLIGENCE_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
+    # Output cap on every OpenRouter call (see providers/openrouter.py). A long call reading
+    # (every rep turn listed) plus a v8 verdict stays well under it.
+    LLM_MAX_OUTPUT_TOKENS: int = 16000
+    # C04 v8: how much each pass may reason ("low" | "medium" | "high"; None = the model's
+    # default). Reasoning tokens are most of a Gemini call's cost.
+    INTELLIGENCE_READING_EFFORT: Optional[str] = None
+    INTELLIGENCE_JUDGE_EFFORT: Optional[str] = None
+    # Step 1 (CRM note and fields): how much the model reasons before writing. None = the model's
+    # default. A reasoning model left at its default makes the rep wait for the note.
+    EXTRACTION_REASONING_EFFORT: Optional[str] = None
+    # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
+    FOLLOWUP_MODEL: Optional[str] = "together/deepseek-ai/DeepSeek-V4.1-Flash"
+    FOLLOWUP_REASONING_EFFORT: Optional[str] = None
+
+    # Together AI (OpenAI-compatible). A model id "together/<id>" is served there instead of
+    # OpenRouter; with no reasoning effort set it answers without reasoning ("none"), the way it
+    # was measured (C04 151 calls, step 1 54 calls, F02). Together reports no cost: it is priced
+    # here (USD per million tokens, in/out) so memos.cost_breakdown stays complete.
+    TOGETHER_API_KEY: Optional[str] = None
+    TOGETHER_PRICES: dict[str, tuple[float, float]] = {"deepseek-ai/DeepSeek-V4.1-Flash": (0.30, 1.20)}
+    # Together answers or the call fails: no other provider stands in by default. A model id mapped
+    # here ({"deepseek-ai/...": "deepseek/..."}) is retried through OpenRouter after Together fails.
+    TOGETHER_FALLBACKS: dict[str, str] = {}
+    # Jev (OpenRouter System One) decides follow-up email / callback / meeting on top of the C04
+    # verdict: 36 calls with a wrong next action vs 38 for the DeepSeek verdict alone (151 calls).
+    JEV_DECISIONS_ENABLED: bool = False
 
     CALLING_PROVIDER: str = "twilio"
     TELNYX_API_KEY: Optional[str] = None
@@ -217,6 +396,18 @@ class Settings(BaseSettings):
     # only genuine Unipile events are processed - without it, anyone who finds
     # the webhook URL can POST fake WhatsApp messages.
     UNIPILE_WEBHOOK_SECRET: Optional[str] = None
+
+    # Cost ledger (usage_events). STT is billed by audio time, so cost = seconds x rate.
+    # Rates are list prices (speechmatics.com/pricing); override here if the contract differs.
+    # A provider/mode with no rate is recorded unpriced (NULL), never guessed.
+    USAGE_LEDGER_ENABLED: bool = True
+    STT_RATE_SPEECHMATICS_REALTIME_ENHANCED_USD_HR: Optional[float] = 0.43
+    STT_RATE_SPEECHMATICS_REALTIME_STANDARD_USD_HR: Optional[float] = 0.24
+    STT_RATE_SPEECHMATICS_BATCH_ENHANCED_USD_HR: Optional[float] = 0.40
+    STT_RATE_SPEECHMATICS_BATCH_STANDARD_USD_HR: Optional[float] = 0.24
+    STT_RATE_DEEPGRAM_BATCH_USD_HR: Optional[float] = None
+    # Unverified whether Speechmatics bills each channel of a multi-channel session separately.
+    STT_BILL_PER_CHANNEL: bool = False
 
     # Metrics (optional - required for Grafana Cloud Metrics Endpoint integration)
     METRICS_TOKEN: Optional[str] = None  # Bearer token; if set, /metrics requires Authorization

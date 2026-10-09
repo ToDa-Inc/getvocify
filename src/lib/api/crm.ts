@@ -54,6 +54,12 @@ export interface CRMConfiguration {
    * historical — not HubSpot-only.
    */
   auto_sync_hubspot_calls?: boolean;
+  /** Stage an accepted booked meeting moves the deal to (forward only). null: no move. */
+  meeting_booked_pipeline_id?: string | null;
+  meeting_booked_stage_id?: string | null;
+  /** Lista 4 E11 (AFTER_CALL_FLOW_ENABLED): when Vocify creates a deal for a contact without
+   * one. null only before migration 063; the backend keeps the stored rule when it is unset. */
+  deal_creation_rule?: "always" | "meeting_booked" | "follow_up_or_meeting" | "never" | null;
 }
 
 /** Keep fetched settings/dashboard data for the whole login session. Invalidate on mutate. */
@@ -66,9 +72,59 @@ export const crmKeys = {
   hubspotSetup: () => [...crmKeys.all, "hubspot", "setup"] as const,
   salesforceSetup: () => [...crmKeys.all, "salesforce", "setup"] as const,
   pipedriveSetup: () => [...crmKeys.all, "pipedrive", "setup"] as const,
+  fieldPermissions: () => [...crmKeys.all, "field-permissions"] as const,
+};
+
+export type FieldListKey =
+  | "allowed_deal_fields"
+  | "allowed_contact_fields"
+  | "allowed_company_fields"
+  | "allowed_line_item_fields";
+
+/** null = inherits (a person from their role, a role from the company). */
+export type FieldLists = Record<FieldListKey, string[] | null>;
+
+export type FieldPermissionRole = "sdr" | "ae" | "general";
+
+export interface FieldPermissionMember {
+  user_id: string;
+  email: string;
+  full_name: string | null;
+  role: string;
+  sales_role: FieldPermissionRole | null;
+  fields: FieldLists | null;
+}
+
+export interface FieldPermissions {
+  sales_roles_enabled: boolean;
+  roles: Record<FieldPermissionRole, FieldLists | null>;
+  members: FieldPermissionMember[];
+}
+
+export const fieldPermissionsApi = {
+  get(): Promise<FieldPermissions> {
+    return api.get("/crm/field-permissions?provider=hubspot");
+  },
+  saveRole(role: FieldPermissionRole, fields: FieldLists) {
+    return api.put(`/crm/field-permissions/roles/${role}?provider=hubspot`, fields);
+  },
+  resetRole(role: FieldPermissionRole) {
+    return api.delete(`/crm/field-permissions/roles/${role}?provider=hubspot`);
+  },
+  saveMember(userId: string, fields: FieldLists) {
+    return api.put(`/crm/field-permissions/members/${userId}?provider=hubspot`, fields);
+  },
+  resetMember(userId: string) {
+    return api.delete(`/crm/field-permissions/members/${userId}?provider=hubspot`);
+  },
 };
 
 export const crmApi = {
+  /** Whether the rep's own dialer recordings in the CRM (HubSpot calling, Aircall...) become memos. */
+  callRecordingsPreference: (): Promise<{ process: boolean }> =>
+    api.get<{ process: boolean }>("/crm/call-recordings-preference"),
+  setCallRecordingsPreference: (process: boolean): Promise<{ process: boolean }> =>
+    api.put<{ process: boolean }>("/crm/call-recordings-preference", { process }),
   async listConnections(): Promise<{
     connections: { id: string; provider: string; status: string; created_at?: string }[];
   }> {
@@ -287,7 +343,14 @@ export const crmApi = {
     dealId?: string,
     isNewDeal: boolean = false,
     extraction?: any,
-    opts?: { contactId?: string; companyId?: string; skipDeal?: boolean; createCompany?: boolean }
+    opts?: {
+      contactId?: string;
+      companyId?: string;
+      skipDeal?: boolean;
+      createCompany?: boolean;
+      /** Lista 4 T4: the after-call outcome fields (rep_outcome, followup_at, ...). */
+      extra?: Record<string, unknown> | null;
+    }
   ) {
     return api.post(`/memos/${memoId}/approve`, {
       deal_id: dealId,
@@ -297,6 +360,7 @@ export const crmApi = {
       company_id: opts?.companyId,
       skip_deal: opts?.skipDeal || false,
       ...(opts?.createCompany ? { create_company: true } : {}),
+      ...(opts?.extra ?? {}),
     });
   },
 };

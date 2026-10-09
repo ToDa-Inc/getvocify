@@ -1,20 +1,31 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Play, Pause, Check, ExternalLink, AlertCircle, RefreshCw } from "lucide-react";
+import { MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
+import { ArrowLeft, Play, Pause, ExternalLink, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { AuthorLabel } from "@/components/dashboard/AuthorLabel";
 import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
 import { authorChipLabel, canViewCompanyActivity } from "@/lib/activity-authors";
 import { HubSpotSyncPreview } from "@/components/dashboard/hubspot/HubSpotSyncPreview";
+import { FollowupCard } from "@/components/dashboard/FollowupCard";
+import { DoneMark } from "@/components/dashboard/DoneMark";
+import { CoachingScore } from "@/components/dashboard/memos/CoachingScore";
+import { MemoTypePill } from "@/features/playbooks/components/MemoTypePill";
+import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
+import { InteractionObjections } from "@/components/dashboard/memos/InteractionObjections";
+import { MeetingProposalReview } from "@/components/dashboard/memos/MeetingProposalReview";
+import { PostInteractionBrief } from "@/components/dashboard/memos/PostInteractionBrief";
+import { ReviewPanel, ReviewTabBar, useReviewTabs } from "@/components/dashboard/memos/ReviewTabs";
 import { TranscriptConversation } from "@/components/dashboard/memos/TranscriptConversation";
 import { memoListSubtitle, memoListTitle } from "@/lib/copilot-note";
 import { shouldPollMemo } from "@/lib/memo-poll";
-import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
+import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { clearCachedPreview } from "@/lib/preview-cache";
 import { api } from "@/shared/lib/api-client";
 import { useAuth } from "@/features/auth";
 import { memosApi } from "@/features/memos/api";
+import { AnimIcon } from "@/components/ui/anim-icon";
 
 /** Infer CRM from sync result URL (HubSpot vs Salesforce REST patterns). */
 function labelsFromDealUrl(dealUrl: string | undefined | null): {
@@ -70,6 +81,7 @@ const MemoDetail = () => {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const dealIdFromUrl = searchParams.get("deal_id");
+  const tabFromUrl = searchParams.get("tab");
   const [memo, setMemo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +95,24 @@ const MemoDetail = () => {
   const [isReTranscribing, setIsReTranscribing] = useState(false);
   const [isConfirmingTranscript, setIsConfirmingTranscript] = useState(false);
   const [reviewContactName, setReviewContactName] = useState<string | null>(null);
+  const [reviewContactEmail, setReviewContactEmail] = useState<string | null>(null);
+  const review = useReviewTabs({
+    memoId: id ?? "",
+    own: Boolean(memo) && (!memo.userId || memo.userId === user?.id),
+    role: user?.company?.role ?? "member",
+    initialTab: tabFromUrl,
+  });
+
+  // Approved or skipped from the Mac island while this page was open: show what is true now.
+  useEffect(() => {
+    if (!id) return;
+    const onChanged = (event: Event) => {
+      if ((event as CustomEvent<{ memoId?: string }>).detail?.memoId !== id) return;
+      api.get<any>(`/memos/${id}`).then(setMemo).catch(() => {});
+    };
+    window.addEventListener(MEMO_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(MEMO_CHANGED_EVENT, onChanged);
+  }, [id]);
 
   /** Session keep-alive when extraction exists (long review sessions) */
   useEffect(() => {
@@ -167,6 +197,13 @@ const MemoDetail = () => {
       audio.play().catch(console.error);
     }
     setIsPlaying(!isPlaying);
+  };
+
+  const playMemoAtOffset = (offsetMs: number) => {
+    if (!memo?.audioUrl) return;
+    audio.currentTime = offsetMs / 1000;
+    audio.play().catch(console.error);
+    setIsPlaying(true);
   };
 
   const formatDuration = (seconds: number) => {
@@ -324,8 +361,8 @@ const MemoDetail = () => {
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.container} p-16 relative overflow-hidden group`}>
           <div className="absolute inset-0 bg-gradient-to-br from-success/10 to-transparent" />
           <div className="relative z-10">
-            <div className={`w-20 h-20 mx-auto mb-8 ${THEME_TOKENS.radius.card} bg-success/10 flex items-center justify-center`}>
-              <Check className="h-10 w-10 text-success shadow-[0_0_15px_rgba(34,197,94,0.3)]" />
+            <div className="mb-8 flex justify-center">
+              <DoneMark size={80} label={`Synced to ${crmName}`} />
             </div>
             <h2 className="text-3xl font-normal tracking-tight text-foreground mb-4">Sync Successful</h2>
             <p className="text-muted-foreground mb-10 leading-relaxed mx-auto max-w-sm">
@@ -363,18 +400,21 @@ const MemoDetail = () => {
     );
   }
 
+  // With a review on screen (lg+) the page is a fixed two-pane workspace: the page never scrolls,
+  // the transcript and the review each scroll inside their own card.
   return (
-    <div className={`max-w-6xl mx-auto ${THEME_TOKENS.motion.fadeIn}`}>
+    <div className={`max-w-6xl mx-auto ${THEME_TOKENS.motion.fadeIn} ${canSeeReview ? "lg:flex lg:h-full lg:flex-col" : ""}`}>
+      <div className={canSeeReview ? "mb-4 flex shrink-0 items-start gap-3" : undefined}>
         <Link
           to="/dashboard/memos"
           aria-label="Back to memos"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground/60 hover:text-beige hover:bg-beige/10 mb-10 transition-colors"
+          className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 hover:text-beige hover:bg-beige/10 transition-colors ${canSeeReview ? "mt-0.5" : "mb-10"}`}
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
 
-      <div className={V_PATTERNS.dashboardHeader}>
-        <h1 className={THEME_TOKENS.typography.pageTitle}>
+      <div className={canSeeReview ? "min-w-0 flex-1 space-y-1" : V_PATTERNS.dashboardHeader}>
+        <h1 className={canSeeReview ? "text-xl font-normal leading-tight tracking-tight text-foreground" : THEME_TOKENS.typography.pageTitle}>
           {memoListTitle(memo)}
           {memoListSubtitle(memo) ? (
             <span className={THEME_TOKENS.typography.accentTitle}> {memoListSubtitle(memo)}</span>
@@ -382,12 +422,11 @@ const MemoDetail = () => {
             <span className={THEME_TOKENS.typography.accentTitle}> Details</span>
           )}
         </h1>
-        {!isOwnMemo && authorName ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <AuthorLabel name={authorName} />
-          </div>
-        ) : null}
-        <p className={THEME_TOKENS.typography.body}>
+        <div className="flex flex-wrap items-center gap-2">
+          {id ? <MemoTypePill memoId={id} /> : null}
+          {!isOwnMemo && authorName ? <AuthorLabel name={authorName} /> : null}
+        </div>
+        <p className={canSeeReview ? "text-[12.5px] text-muted-foreground" : THEME_TOKENS.typography.body}>
           {isProcessing
             ? "AI is extracting CRM fields..."
             : extractionFailed
@@ -402,6 +441,15 @@ const MemoDetail = () => {
                 ? `Attached to ${attachedContact}${attachedDeal ? ` · ${attachedDeal}` : ""}. Review and sync to CRM.`
                 : "Review and sync to CRM."}
         </p>
+      </div>
+        {canSeeReview && memo.status === "approved" && crmViewUrl ? (
+          <Button variant="outline" asChild className="shrink-0 rounded-full">
+            <a href={crmViewUrl} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-4 w-4 mr-2" />
+              {labelsFromDealUrl(crmViewUrl).viewInCrm}
+            </a>
+          </Button>
+        ) : null}
       </div>
 
       {extractionFailed && isOwnMemo && (
@@ -428,25 +476,15 @@ const MemoDetail = () => {
             variant="outline"
             className="rounded-full border-beige/40 hover:bg-beige/10 shrink-0"
           >
-            {isReExtracting ? (
-              <VocifySpinner size={16} className="mr-2" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
+            <AnimIcon name="refresh" state={isReExtracting && "busy"} className="mr-2" />
             {isReExtracting ? "Re-extracting..." : "Re-extract"}
           </Button>
         </div>
       )}
 
-      <div className={`grid gap-8 ${canSeeReview ? "lg:grid-cols-5 items-start" : ""}`}>
+      <div className={`grid gap-5 ${canSeeReview ? "lg:min-h-0 lg:flex-1 lg:grid-cols-5" : "gap-8"}`}>
         {/* Left: Transcript (full width when pending/extracting, col-span-2 when has extraction) */}
-        <div
-          className={
-            canSeeReview
-              ? "lg:col-span-2 sticky top-20 max-h-[calc(100vh-6rem)] flex flex-col gap-4 self-start overflow-y-auto pr-1 scrollbar-thin"
-              : "space-y-6"
-          }
-        >
+        <div className={canSeeReview ? "flex min-w-0 flex-col gap-4 lg:col-span-2 lg:min-h-0" : "space-y-6"}>
           {memo.audioUrl && (
             <div className={`${THEME_TOKENS.cards.premium} ${THEME_TOKENS.radius.card} p-5 shrink-0`}>
               <div className="flex items-center gap-4">
@@ -461,7 +499,7 @@ const MemoDetail = () => {
                 <div className="flex-1 space-y-1.5 min-w-0">
                   <div className="h-1.5 bg-foreground/5 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-beige rounded-full shadow-[0_0_10px_rgba(245,215,176,0.3)] transition-all duration-100"
+                      className="h-full bg-beige rounded-full transition-all duration-100"
                       style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
                     />
                   </div>
@@ -478,8 +516,15 @@ const MemoDetail = () => {
             </div>
           )}
 
-          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 flex flex-col ${canSeeReview ? "flex-1 min-h-0" : ""}`}>
-            <div className="flex items-center justify-between gap-3 mb-6 shrink-0">
+          {memo.userNotes?.trim() ? (
+            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-7 shrink-0 max-h-[18vh] overflow-y-auto scrollbar-thin`}>
+              <h3 className={`${THEME_TOKENS.typography.capsLabel} mb-4`}>Your notes</h3>
+              <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-foreground">{memo.userNotes}</p>
+            </div>
+          ) : null}
+
+          <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} flex flex-col overflow-hidden ${canSeeReview ? "lg:min-h-0 lg:flex-1" : "p-6 sm:p-8"}`}>
+            <div className={`flex items-center justify-between gap-3 shrink-0 ${canSeeReview ? "px-5 pt-5 pb-3" : "mb-6"}`}>
               <h3 className={THEME_TOKENS.typography.capsLabel}>Transcript</h3>
               <div className="flex items-center gap-2">
                 {canReTranscribe ? (
@@ -493,16 +538,12 @@ const MemoDetail = () => {
                     title="Re-transcribe from recording"
                     className="rounded-full border-beige/40 hover:bg-beige/10 h-8 w-8 shrink-0"
                   >
-                    {isReTranscribing ? (
-                      <VocifySpinner size={14} />
-                    ) : (
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    )}
+                    <AnimIcon name="refresh" size={14} state={isReTranscribing && "busy"} />
                   </Button>
                 ) : null}
                 {memo.transcriptConfidence ? (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-medium bg-success/10 text-success">
-                    <span className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-success" />
                     {Math.round(memo.transcriptConfidence * 100)}% accuracy
                   </span>
                 ) : null}
@@ -514,10 +555,8 @@ const MemoDetail = () => {
                 contactName={reviewContactName || extraction.contactName}
                 className={
                   canSeeReview
-                    ? (memo.audioUrl
-                        ? "max-h-[calc(100vh-22rem)] overflow-y-auto pr-2 scrollbar-thin"
-                        : "max-h-[calc(100vh-16rem)] overflow-y-auto pr-2 scrollbar-thin")
-                    : "max-h-[500px] overflow-y-auto pr-2 scrollbar-thin"
+                    ? "max-h-[60vh] overscroll-contain px-5 pb-5 lg:max-h-none lg:min-h-0 lg:flex-1"
+                    : undefined
                 }
               />
             ) : (
@@ -530,29 +569,64 @@ const MemoDetail = () => {
 
         {/* Right: HubSpotSyncPreview (only when extraction ready) */}
         {canSeeReview && (
-          <div className="lg:col-span-3 min-w-0">
-            {memo.status === "approved" && crmViewUrl ? (
-              <div className="mb-4 flex justify-end">
-                <Button variant="outline" asChild className="rounded-full">
-                  <a href={crmViewUrl} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    {labelsFromDealUrl(crmViewUrl).viewInCrm}
-                  </a>
-                </Button>
-              </div>
-            ) : null}
-            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 sm:p-8 md:p-10`}>
+          <div className="min-w-0 lg:col-span-3 lg:min-h-0">
+            <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} overflow-hidden lg:h-full`}>
               <HubSpotSyncPreview
+                paneled
                 key={id || ""}
                 memoId={id || ""}
                 initialDealId={dealIdFromUrl}
                 initialContactId={memo?.hubspotContactId || memo?.hubspot_contact_id}
                 fallbackContactName={extraction.contactName || extraction.contact_name}
                 previewRefreshKey={previewRefreshKey}
-                callSummary={extraction.summary}
                 alreadyWritten={memo.status === "approved"}
                 onSuccess={handleSyncSuccess}
                 onContactName={setReviewContactName}
+                onContactEmail={setReviewContactEmail}
+                activeTab={review.active}
+                tabBar={<ReviewTabBar tabs={review.tabs} active={review.active} onSelect={review.select} />}
+                onTabCounts={review.onTabCounts}
+                noteLead={
+                  isOwnMemo && id ? (
+                    <InteractionObjections
+                      memoId={id}
+                      canPlaySpan={false}
+                      offsetMs={Math.round(currentTime * 1000)}
+                    />
+                  ) : null
+                }
+                noteExtra={
+                  <>
+                    {memo?.hubspotContactId || memo?.hubspot_contact_id ? (
+                      <ContactBrief contactId={String(memo.hubspotContactId || memo.hubspot_contact_id)} afterCall />
+                    ) : null}
+                  </>
+                }
+                tasksLead={
+                  isOwnMemo && id ? (
+                    <MeetingProposalReview
+                      memoId={id}
+                      extractionPending={memo.status === "extracting" || memo.status === "transcribing"}
+                    />
+                  ) : null
+                }
+                tabPanels={
+                  isOwnMemo && id ? (
+                    <>
+                      <ReviewPanel id="email" active={review.active}>
+                        <FollowupCard memoId={id} onStatus={review.onFollowupStatus} fallbackTo={reviewContactEmail} />
+                      </ReviewPanel>
+                      <ReviewPanel id="coaching" active={review.active}>
+                        <PostInteractionBrief
+                          memoId={id}
+                          onPlay={memo.audioUrl ? playMemoAtOffset : undefined}
+                          markSeen={Boolean(user?.id && memo.userId === user.id) && review.active === "coaching"}
+                        />
+                        <CoachingScore memoId={id} />
+                      </ReviewPanel>
+                    </>
+                  ) : null
+                }
               />
             </div>
           </div>

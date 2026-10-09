@@ -88,3 +88,22 @@ class TestFindContactsByPhone:
         hits = await svc.find_contacts_by_phone("+34648739267")
 
         assert [c.id for c in hits] == ["keep"]
+
+
+class TestSearchByContactId:
+    @pytest.mark.asyncio
+    async def test_a_bare_contact_id_returns_that_contact(self):
+        client = MagicMock()
+        client.get = AsyncMock(return_value=_contact("864354397380", firstname="Andrea", phone="+34647149645"))
+        client.post = AsyncMock(return_value={"results": []})
+        hits = await HubSpotSearchService(client).search_contacts_by_query("864354397380")
+        assert [hit.id for hit in hits] == ["864354397380"]
+        assert client.get.await_args.args[0] == "/crm/v3/objects/contacts/864354397380"
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_id_falls_back_to_the_text_search(self):
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=Exception("404"))
+        client.post = AsyncMock(return_value={"results": [_contact("7", firstname="Otro")]})
+        hits = await HubSpotSearchService(client).search_contacts_by_query("864354397380")
+        assert [hit.id for hit in hits] == ["7"]

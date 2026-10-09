@@ -4,8 +4,9 @@
   "name": "Vocify - Voice to CRM",
   "version": "1.0.23",
   "description": "Update your CRM by speaking. Press Alt+Shift+V to open Vocify.",
-  "permissions": ["storage", "tabs", "activeTab", "tabCapture", "offscreen", "notifications", "sidePanel"],
+  "permissions": ["storage", "tabs", "activeTab", "tabCapture", "offscreen", "notifications", "sidePanel", "nativeMessaging"],
   "host_permissions": [
+    "https://meet.google.com/*",
     "https://*.hubspot.com/*",
     "https://*.pipedrive.com/*",
     "https://api.getvocify.com/*",
@@ -23,6 +24,13 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["meet-content.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "side_panel": {
     "default_path": "popup/index.html"
   },
@@ -52,6 +60,10 @@
     {
       "resources": ["audio-processor.js"],
       "matches": ["<all_urls>"]
+    },
+    {
+      "resources": ["lib/meet-speakers.js"],
+      "matches": ["https://meet.google.com/*"]
     }
   ]
 }

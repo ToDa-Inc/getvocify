@@ -4,6 +4,8 @@
  * Voice recording, audio capture, and upload handling.
  */
 
+import type { Channel } from "@/lib/interactions";
+
 // ============================================
 // RECORDING STATE
 // ============================================
@@ -140,19 +142,26 @@ export interface UseMediaRecorderReturn {
   reset: () => void;
 }
 
+/** The channel stored on the memo; the dashboard recorder sends voice_note, absent = derived. */
+export type UploadKindOptions = {
+  interactionKind?: Channel;
+  /** A pasted meeting transcript rather than a voice memo. */
+  sourceType?: 'voice_memo' | 'meeting_transcript';
+};
+
 /**
  * Return type for useAudioUpload hook
  */
 export interface UseAudioUploadReturn {
   /** Upload audio (or transcript when provided - transcript-only, no audio sent) */
-  upload: (audio: RecordedAudio, transcript?: string) => Promise<string>;
+  upload: (audio: RecordedAudio, transcript?: string, options?: UploadKindOptions) => Promise<string>;
   /** Upload transcript only - use when real-time transcription or meeting transcript paste */
   uploadTranscriptOnly: (
     transcript: string,
     options?: { sourceType?: 'voice_memo' | 'meeting_transcript' },
   ) => Promise<string>;
   /** Upload transcript and start extraction in one call - use when user already reviewed */
-  uploadTranscriptAndExtract: (transcript: string) => Promise<string>;
+  uploadTranscriptAndExtract: (transcript: string, options?: UploadKindOptions) => Promise<string>;
   /** Current upload progress */
   progress: UploadProgress | null;
   /** Whether upload is in progress */

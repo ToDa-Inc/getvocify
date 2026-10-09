@@ -40,38 +40,32 @@ export function TranscriptConversation({
     );
   }
 
+  // Same reading as the desktop meeting pill: you on the right in warm paper, them on the left
+  // in grey, a name only where the speaker changes.
   return (
-    <div className={cn("flex flex-col gap-3 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin", className)}>
+    <div className={cn("flex flex-col max-h-[500px] overflow-y-auto overflow-x-hidden pr-2 scrollbar-thin", className)}>
       {turns.map((turn, i) => {
         const side = speakerSide(turn.speaker);
         const isYou = side === "s1";
-        const isThem = side === "s2";
+        const changed = i === 0 || speakerSide(turns[i - 1].speaker) !== side;
         return (
           <div
             key={`${turn.speaker}-${i}`}
             className={cn(
-              "flex max-w-[92%] flex-col gap-1",
-              isYou && "self-start",
-              isThem && "self-end items-end",
-              side === "other" && "self-stretch max-w-full",
+              "flex max-w-[82%] min-w-0 flex-col gap-1",
+              isYou ? "self-end items-end" : "self-start items-start",
+              changed && i > 0 ? "mt-3" : i > 0 ? "mt-1" : "",
             )}
           >
-            {turn.speaker && (
-              <span
-                className={cn(
-                  "px-1 text-[11px] font-normal text-muted-foreground",
-                  isThem && "text-beige",
-                )}
-              >
+            {!isYou && changed && turn.speaker ? (
+              <span className="px-1 text-[11px] font-medium leading-none text-beige">
                 {speakerDisplayLabel(turn.speaker, labels)}
               </span>
-            )}
+            ) : null}
             <div
               className={cn(
-                "whitespace-pre-wrap break-words rounded-[14px] border px-3.5 py-2.5 text-[13.5px] leading-relaxed text-foreground",
-                isYou && "rounded-bl-sm border-border/60 bg-[#f3f0eb]",
-                isThem && "rounded-br-sm border-beige/20 bg-beige/10",
-                side === "other" && "border-border bg-background",
+                "whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-[14px] px-3 py-1.5 text-[12.5px] leading-normal text-foreground",
+                isYou ? "bg-beige/15 dark:bg-beige/20" : "bg-foreground/[0.05]",
               )}
             >
               {turn.text}

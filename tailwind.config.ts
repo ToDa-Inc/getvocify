@@ -100,10 +100,18 @@ export default {
         "3xl": "1.5rem",
         "4xl": "1.75rem",
       },
+      // One elevation scale: rest (soft), raised (medium), floating (large). Tailwind's own names
+      // point at it, so a stray shadow-md or shadow-xl can never be a different shadow.
       boxShadow: {
-        soft: "0 2px 8px rgba(0, 0, 0, 0.04)",
-        medium: "0 4px 16px rgba(0, 0, 0, 0.06)",
-        large: "0 8px 32px rgba(0, 0, 0, 0.08)",
+        soft: "var(--shadow-soft)",
+        medium: "var(--shadow-medium)",
+        large: "var(--shadow-large)",
+        sm: "var(--shadow-soft)",
+        DEFAULT: "var(--shadow-soft)",
+        md: "var(--shadow-medium)",
+        lg: "var(--shadow-large)",
+        xl: "var(--shadow-large)",
+        "2xl": "var(--shadow-large)",
         card: "var(--shadow-card)",
         float: "var(--shadow-float)",
         glow: "var(--shadow-glow)",

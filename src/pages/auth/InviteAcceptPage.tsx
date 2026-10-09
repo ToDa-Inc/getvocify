@@ -8,12 +8,21 @@ import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { useAuth } from "@/features/auth";
 import { companyApi } from "@/features/company/api";
 import { CRM_EMAIL_MATCH_HINT } from "@/lib/identity-hints";
+import { useLanguage } from "@/lib/i18n";
+import { commercialRoleLabel } from "@/lib/role-labels";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+
+const SALES_ROLE_LABEL_KEYS = {
+  sdr: "teamMemberTypeSdr",
+  ae: "teamMemberTypeAe",
+  general: "teamMemberTypeGeneral",
+} as const;
 
 const InviteAcceptPage = () => {
   const { token = "" } = useParams();
   const navigate = useNavigate();
   const { applySession } = useAuth();
+  const { t } = useLanguage();
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
 
@@ -56,7 +65,10 @@ const InviteAcceptPage = () => {
           <Logo size="sm" className="mx-auto mb-4" />
           <h1 className={THEME_TOKENS.typography.sectionTitle}>Join {preview.companyName ?? "Vocify"}</h1>
           <p className="text-sm text-muted-foreground mt-2">
-            {preview.email} · {preview.role}
+            {preview.email} ·{" "}
+            {preview.role === "owner" || preview.role === "admin"
+              ? commercialRoleLabel(preview.role, t.product)
+              : `${commercialRoleLabel(preview.role, t.product)} (${t.product[SALES_ROLE_LABEL_KEYS[preview.salesRole ?? "general"]]})`}
           </p>
           <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
             {CRM_EMAIL_MATCH_HINT}

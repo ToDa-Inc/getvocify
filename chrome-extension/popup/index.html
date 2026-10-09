@@ -4,10 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vocify</title>
+  <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="type.css">
   <link rel="stylesheet" href="copilot.css">
   <link rel="stylesheet" href="work.css">
+  <link rel="stylesheet" href="../shared/ui/vocify-ui.css">
 </head>
 <body>
   <div id="app">
@@ -24,13 +26,20 @@
         </div>
       </div>
 
+      <div id="contact-brief" hidden></div>
+
       <div class="main-actions">
         <div class="record-container">
           <button id="record-button" class="record-btn" aria-label="Record a voice memo">
             <div class="record-icon"></div>
           </button>
-          <p id="record-status-label" class="record-label">Record</p>
+          <p id="record-status-label" class="record-label" data-i18n="listenIdleStatus"></p>
         </div>
+
+        <button type="button" id="listen-tab-button" class="btn-secondary-hero" aria-pressed="false">
+          <span id="listen-tab-label"></span>
+        </button>
+        <p id="listen-status" class="listen-status" hidden></p>
 
         <div class="idle-tools">
           <button id="paste-transcript-toggle" type="button" class="tool-btn">
@@ -39,7 +48,7 @@
           </button>
           <div id="call-cta-row" class="call-cta-row" hidden>
             <button id="call-contact" type="button" class="tool-btn" hidden data-tip-align="start">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+              <span data-v-icon="phone" data-v-size="14" data-v-stroke="1.5"></span>
               <span id="call-contact-label">Llamar a este contacto</span>
             </button>
             <button id="open-calling-settings" type="button" class="tool-btn tool-btn-icon" hidden aria-label="Open Calling settings" data-tip="Calling settings" data-tip-align="end">
@@ -69,6 +78,7 @@
         </p>
 
         <div id="call-live" class="dialer-live" hidden>
+          <span id="call-ring" data-v-icon="phone" data-v-size="12" data-v-stroke="1.5" hidden></span>
           <span id="call-state-label"></span>
           <span id="call-timer" class="dialer-timer">0:00</span>
           <button id="call-mute" type="button" class="dialer-icon-btn" aria-label="Silenciar" aria-pressed="false" data-tip="Silenciar">
@@ -95,17 +105,21 @@
       </section>
 
       <div id="live-transcript-container" class="transcript-container" style="display: none;">
-        <p class="transcript-label">Transcribing live...</p>
+        <p class="transcript-label" data-i18n="transcribing"></p>
         <div id="live-transcript-text" class="transcript-text"></div>
       </div>
 
-      <div id="copilot-card" class="copilot-card" style="display: none;">
-        <p class="caps-label copilot-kicker">Say this</p>
-        <p id="copilot-say-this" class="copilot-say-this">Waiting for the other side to finish speaking…</p>
-        <p id="copilot-heard" class="copilot-heard" style="display: none;"></p>
-        <p id="copilot-next" class="copilot-next" style="display: none;"></p>
-        <p id="copilot-error" class="copilot-error" style="display: none;"></p>
+      <div id="copilot-assist-wrap" class="copilot-assist-wrap" style="display: none;">
+        <div id="copilot-card" class="copilot-card" style="display: none;">
+          <p class="caps-label copilot-kicker" data-i18n="sayThis"></p>
+          <p id="copilot-say-this" class="copilot-say-this" data-i18n="waitingForThem"></p>
+          <p id="copilot-heard" class="copilot-heard" style="display: none;"></p>
+          <p id="copilot-next" class="copilot-next" style="display: none;"></p>
+          <p id="copilot-error" class="copilot-error" style="display: none;"></p>
+        </div>
+        <button type="button" id="copilot-assist-toggle" class="copilot-assist-toggle" data-i18n="helpOn"></button>
       </div>
+      <div id="copilot-checklist" class="copilot-checklist-host" style="display: none;" hidden></div>
 
       <div id="paste-transcript-section" class="paste-transcript-section" style="display: none;">
         <textarea id="paste-transcript-input" class="transcript-textarea" rows="5" placeholder="Paste your transcript here..."></textarea>
@@ -278,39 +292,56 @@
           </div>
         </div>
 
+        <v-review-tabs id="review-tabs" class="review-tabs"></v-review-tabs>
+
         <section id="call-insights-section" class="call-insights">
           <div class="copilot-note">
-            <div id="copilot-note-view" class="copilot-note-view is-empty" contenteditable="true" role="textbox" aria-multiline="true"></div>
-            <textarea id="review-summary" class="review-summary-input" rows="6" hidden placeholder="What mattered on this call…"></textarea>
-            <div class="section-rail">
-              <p class="section-rail-label" id="next-steps-heading">Próximos pasos</p>
-              <button type="button" id="btn-add-action-item" class="btn-add">
-                <span class="btn-add-plus" aria-hidden="true">+</span>
-                Add task
-              </button>
+            <div id="review-panel-note" data-review-panel="note" role="tabpanel" aria-labelledby="review-tab-note">
+              <div id="copilot-note-view" class="copilot-note-view is-empty" contenteditable="true" role="textbox" aria-multiline="true"></div>
+              <textarea id="review-summary" class="review-summary-input" rows="6" hidden placeholder="What mattered on this call…"></textarea>
+              <details id="transcript-collapsible" class="transcript-collapsible">
+                <summary>Transcript</summary>
+                <div id="review-transcript-conversation" class="transcript-conversation transcript-conversation--compact"></div>
+                <div id="transcript-expanded" class="transcript-expanded" style="display: none;"></div>
+              </details>
             </div>
-            <div id="action-items-list" class="action-items-list"></div>
 
-            <div id="crm-fields-section">
-              <div class="section-rail">
-                <p class="section-rail-label" id="crm-fields-heading">Fields</p>
-                <button id="btn-add-field" class="btn-add" type="button" style="display: none;">
+            <div id="review-panel-tasks" data-review-panel="tasks" role="tabpanel" aria-labelledby="review-tab-tasks" hidden>
+              <div class="section-rail section-rail--tab">
+                <p class="section-rail-label v-sr" id="next-steps-heading">Próximos pasos</p>
+                <button type="button" id="btn-add-action-item" class="btn-add">
                   <span class="btn-add-plus" aria-hidden="true">+</span>
-                  Add field
+                  Add task
                 </button>
               </div>
-              <div id="proposed-updates-list" class="updates-list"></div>
-              <div id="add-field-dropdown" class="add-field-dropdown" style="display: none;"></div>
+              <div id="action-items-list" class="action-items-list"></div>
+              <p id="review-tasks-empty" class="review-panel-empty" data-i18n="reviewEmptyTasks" hidden></p>
+            </div>
+
+            <div id="review-panel-fields" data-review-panel="fields" role="tabpanel" aria-labelledby="review-tab-fields" hidden>
+              <div id="crm-fields-section">
+                <div class="section-rail section-rail--tab">
+                  <p class="section-rail-label v-sr" id="crm-fields-heading">Fields</p>
+                  <button id="btn-add-field" class="btn-add" type="button" style="display: none;">
+                    <span class="btn-add-plus" aria-hidden="true">+</span>
+                    Add field
+                  </button>
+                </div>
+                <div id="proposed-updates-list" class="updates-list"></div>
+                <div id="add-field-dropdown" class="add-field-dropdown" style="display: none;"></div>
+              </div>
+              <p id="review-fields-empty" class="review-panel-empty" data-i18n="reviewEmptyFields" hidden></p>
+            </div>
+
+            <div id="review-panel-email" data-review-panel="email" role="tabpanel" aria-labelledby="review-tab-email" hidden>
+              <v-followup id="review-followup" hidden></v-followup>
+            </div>
+
+            <div id="review-panel-coaching" data-review-panel="coaching" role="tabpanel" aria-labelledby="review-tab-coaching" hidden>
+              <v-debrief id="review-debrief"></v-debrief>
             </div>
           </div>
-
         </section>
-
-        <details id="transcript-collapsible" class="transcript-collapsible">
-          <summary>Transcript</summary>
-          <div id="review-transcript-conversation" class="transcript-conversation transcript-conversation--compact"></div>
-          <div id="transcript-expanded" class="transcript-expanded" style="display: none;"></div>
-        </details>
       </div>
 
       <div class="actions-fixed" id="review-actions" style="display: none;">
@@ -324,9 +355,7 @@
     <!-- 4. SUCCESS SCREEN -->
     <div id="screen-success" class="screen" style="display: none;">
       <div class="center-content">
-        <div class="success-icon-container">
-          <div class="success-checkmark">✓</div>
-        </div>
+        <div id="success-mark" class="success-mark"></div>
         <h2 class="title-large">Sync Successful</h2>
         <p id="success-message" class="body-muted">Updated deal in HubSpot.</p>
         <p id="success-outcome-warning" class="outcome-warning-banner" style="display: none;"></p>

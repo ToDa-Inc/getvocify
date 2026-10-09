@@ -8,11 +8,13 @@ import { integrationKeys } from "@/features/integrations/api";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { crmApi, crmKeys, SESSION_QUERY_STALE_MS } from "@/lib/api/crm";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { IconAction } from "@/components/ui/icon-action";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConfiguration";
+import { HubSpotFieldPermissions } from "@/components/dashboard/hubspot/HubSpotFieldPermissions";
 import { HubSpotConnection } from "@/components/dashboard/hubspot/HubSpotConnection";
 import { SalesforceConfiguration } from "@/components/dashboard/salesforce/SalesforceConfiguration";
 import { SalesforceConnection } from "@/components/dashboard/salesforce/SalesforceConnection";
@@ -178,12 +180,33 @@ const SettingsPage = () => {
       else if (id === "salesforce") await crmApi.disconnectSalesforce();
       else await crmApi.disconnectPipedrive();
     },
-    onSuccess: (_, id) => {
-      toast.success(`Disconnected from ${CRM_LABEL[id]}`);
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: crmKeys.connections() });
+      const previous = queryClient.getQueryData(crmKeys.connections());
+      queryClient.setQueryData(
+        crmKeys.connections(),
+        (rows: { provider: string }[] | undefined) => (rows || []).filter((row) => row.provider !== id),
+      );
+      const setupKey =
+        id === "hubspot"
+          ? crmKeys.hubspotSetup()
+          : id === "salesforce"
+            ? crmKeys.salesforceSetup()
+            : crmKeys.pipedriveSetup();
+      await queryClient.cancelQueries({ queryKey: setupKey });
+      queryClient.removeQueries({ queryKey: setupKey });
       setDisconnectId(null);
-      refreshCrm();
+      return { previous };
     },
-    onError: () => toast.error("Failed to disconnect"),
+    onSuccess: () => {
+      toast.success("Disconnected");
+      queryClient.invalidateQueries({ queryKey: crmKeys.connections() });
+      queryClient.invalidateQueries({ queryKey: crmKeys.preferences() });
+    },
+    onError: (_error, _id, context) => {
+      if (context?.previous) queryClient.setQueryData(crmKeys.connections(), context.previous);
+      toast.error("Failed to disconnect");
+    },
   });
 
   const refreshPermissions = useMutation({
@@ -223,26 +246,16 @@ const SettingsPage = () => {
         {canManage && connections.length > 1 && (
           <div className="mb-6">
             <p className={`${THEME_TOKENS.typography.capsLabel} mb-2`}>Primary for memo sync</p>
-            <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-              {connections.map((c) => {
-                const selected = primaryConnectionId === c.id;
-                const label = CRM_LABEL[c.provider as LiveCrmId] ?? c.provider;
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    aria-pressed={selected}
-                    disabled={primaryMutation.isPending}
-                    onClick={() => primaryMutation.mutate(c.id)}
-                    className={`rounded-full px-4 h-8 text-xs transition-colors ${
-                      selected ? "bg-beige text-cream" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
+            <Segmented<string>
+              value={primaryConnectionId ?? ""}
+              onValueChange={(id) => primaryMutation.mutate(id)}
+              options={connections.map((c) => ({
+                value: c.id,
+                label: CRM_LABEL[c.provider as LiveCrmId] ?? c.provider,
+              }))}
+              aria-label="Primary CRM"
+              className={primaryMutation.isPending ? "opacity-50" : ""}
+            />
           </div>
         )}
 
@@ -324,6 +337,11 @@ const SettingsPage = () => {
             </p>
           </div>
           <HubSpotConfiguration readOnly={!canManage} />
+          {canManage && (
+            <div className="mt-10 pt-8 border-t border-border/20">
+              <HubSpotFieldPermissions />
+            </div>
+          )}
         </div>
       )}
 

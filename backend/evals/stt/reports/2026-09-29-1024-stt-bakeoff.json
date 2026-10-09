@@ -1,0 +1,100 @@
+{
+  "generated_at": "2026-09-29T10:24:46.461396+00:00",
+  "memo_count": 1,
+  "summary": {
+    "deepgram_nova3": {
+      "attempts": 1,
+      "success": 1,
+      "errors": 0,
+      "avg_latency_sec": 12.11,
+      "avg_similarity_to_raw": 1.0,
+      "avg_similarity_to_sanitized": 1.0,
+      "avg_word_count": 161.0
+    },
+    "speechmatics_batch": {
+      "attempts": 1,
+      "success": 1,
+      "errors": 0,
+      "avg_latency_sec": 13.07,
+      "avg_similarity_to_raw": 0.0378,
+      "avg_similarity_to_sanitized": 0.0378,
+      "avg_word_count": 129.0
+    },
+    "speechmatics_rt": {
+      "attempts": 1,
+      "success": 1,
+      "errors": 0,
+      "avg_latency_sec": 16.12,
+      "avg_similarity_to_raw": 0.1071,
+      "avg_similarity_to_sanitized": 0.1071,
+      "avg_word_count": 131.0
+    },
+    "gemini_3_5_transcribe": {
+      "attempts": 1,
+      "success": 0,
+      "errors": 1,
+      "avg_latency_sec": 0.0,
+      "avg_similarity_to_raw": 0.0,
+      "avg_similarity_to_sanitized": 0.0,
+      "avg_word_count": 0.0
+    }
+  },
+  "memos": [
+    {
+      "memo_id": "5f929843-e44f-435f-8134-5f6536a03ce7",
+      "source": "vocify_call",
+      "duration_sec": 59.0,
+      "language": "ca (profile=es,ca)",
+      "channels": 2,
+      "reference_raw_len": 899,
+      "reference_sanitized_len": 1040,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Sí, hola?\nS1: Toni, bon bon dia.\nS2: Bon dia.\nS1: Escoltes bé?\nS2: Sí, t'escolto perfecte.\nS1: Ok.\nS1: Toni, de les consultes interessades\nS1: em vas comentar que era al menjador el que interessava, veritat?\nS2: Sí.\nS1: D'acord, d'acord,\nS1: d'acord. I el preu per alumne, quant quants euros estàveu?\nS2: Trentacinc.\nS1: Trentacinc euros per alumne.\nS1: D'acord, hi ha algú més que que t'interessi?\nS2: M'agradaria\nS2: rebre una miqueta d'informació per la vostra part de de què què és la que oferiu.\nS1: Ok, ok, ok, d'acord. Per partir.\nS2: I també, bé, com com que sóc bastant despistat, m'agradaria que em truquegis I em fes una un followup dintre de dues setmanes.\nS1: Ok, si ho puc ho podem fer. I vosaltres tot treballant en primària, no ara mateix?\nS2: Sí, primària bàsicament.\nS1: Val, ok. Ok d'acord. Doncs moltíssimes gràcies.\nS2: De res, adeu siau.\nS1: A veure, molt bon dia, ausiau.",
+          "latency_sec": 12.107801208003366,
+          "error": null,
+          "confidence": 0.8659730695652175,
+          "char_count": 898,
+          "word_count": 161,
+          "similarity_to_raw": 1.0,
+          "similarity_to_sanitized": 1.0
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nToni, bon bon dia, m'escoltes bé. OK Toni, De les funcionalitats interessades em vas comentar que era el menjador el que interessava, veritat? D'acord. D'acord, d'acord, d'acord. I el preu per alumne? Quant a quants euros estàveu? 35 euros per alumne? D'acord. I hi ha algú més que t'interessi? D'acord. Si ho podem fer i vosaltres heu treballat en primària ara mateix? Vale, ok? OK, d'acord. Moltíssimes gràcies. Adeu. Molt bon dia. Adéu siau!\nSPEAKER: channel_2\nHola! Bon dia! Si t'escolto, perfecte. És sí. 35. Bé, m'agradaria rebre una miqueta d'informació per la vostra part de què és el que oferiu. També. Bé, com que sóc bastant despistat, m'agradaria que em truqués i em fes unfollow. Dintre de dues setmanes. Si, primària bàsicament. De res, adéu siau.",
+          "latency_sec": 13.071884750002937,
+          "error": null,
+          "confidence": null,
+          "char_count": 780,
+          "word_count": 129,
+          "similarity_to_raw": 0.03781228899392303,
+          "similarity_to_sanitized": 0.03781228899392303
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Si . Hola Toni! Bon dia ! Bon dia! M'escoltes bé . Sí, t'escolto, perfecte. OK ? Toni! De les funcionalitats interessades vas comentar que era el menjador el que interessa de veritat és si . D'acord, D'acord, d'acord, d'acord. I el preu per alumne? Quants € estàveu ? 35 35 euros per alumne . D'acord. Hi ha algú més que t'interessi ? Bé, m'agradaria rebre una miqueta d'informació per la vostra part de què és el que oferiu ? OK, OK? OK? D'acord. També com que sóc bastant despistat, m'agradaria que em truqués i em fessis unfollow app dintre de dues setmanes. OK? Si ho podem fer i nosaltres treballant en primària ara mateix si primària bàsicament vale. OK, ok? D'acord. Moltíssimes gràcies . De res. Adéu siau. Adéu siau.",
+          "latency_sec": 16.1160518329998,
+          "error": null,
+          "confidence": null,
+          "char_count": 725,
+          "word_count": 131,
+          "similarity_to_raw": 0.10706932052161977,
+          "similarity_to_sanitized": 0.10706932052161977
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.3924668749968987,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    }
+  ]
+}

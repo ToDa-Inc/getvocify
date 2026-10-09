@@ -5,8 +5,8 @@ export type {
   SuggestRequest,
 } from "./types";
 export {
-  DEFAULT_PRODUCT_CONTEXT,
   PRODUCT_CONTEXT_STORAGE_KEY,
+  normalizeStoredProductContext,
 } from "./types";
 export { streamObjectionSuggestion } from "./api/suggest";
 export { useTurnDetector } from "./hooks/useTurnDetector";

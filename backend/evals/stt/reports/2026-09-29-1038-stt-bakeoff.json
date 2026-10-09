@@ -1,0 +1,1444 @@
+{
+  "generated_at": "2026-09-29T10:38:14.487389+00:00",
+  "memo_count": 25,
+  "summary": {
+    "deepgram_nova3": {
+      "attempts": 25,
+      "success": 25,
+      "errors": 0,
+      "avg_latency_sec": 4.59,
+      "avg_similarity_to_raw": 0.9096,
+      "avg_similarity_to_sanitized": 0.8669,
+      "avg_word_count": 322.9
+    },
+    "speechmatics_batch": {
+      "attempts": 25,
+      "success": 25,
+      "errors": 0,
+      "avg_latency_sec": 14.91,
+      "avg_similarity_to_raw": 0.1846,
+      "avg_similarity_to_sanitized": 0.1838,
+      "avg_word_count": 291.0
+    },
+    "speechmatics_rt": {
+      "attempts": 25,
+      "success": 25,
+      "errors": 0,
+      "avg_latency_sec": 29.14,
+      "avg_similarity_to_raw": 0.3758,
+      "avg_similarity_to_sanitized": 0.3757,
+      "avg_word_count": 268.7
+    },
+    "gemini_3_5_transcribe": {
+      "attempts": 25,
+      "success": 0,
+      "errors": 25,
+      "avg_latency_sec": 0.0,
+      "avg_similarity_to_raw": 0.0,
+      "avg_similarity_to_sanitized": 0.0,
+      "avg_word_count": 0.0
+    }
+  },
+  "memos": [
+    {
+      "memo_id": "5f929843-e44f-435f-8134-5f6536a03ce7",
+      "source": "vocify_call",
+      "duration_sec": 59.0,
+      "language": "ca (profile=es,ca)",
+      "channels": 2,
+      "reference_raw_len": 899,
+      "reference_sanitized_len": 1040,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Sí, hola?\nS1: Toni, bon bon dia.\nS2: Bon dia.\nS1: Escoltes bé?\nS2: Sí, t'escolto perfecte.\nS1: Ok.\nS1: Toni, de les consultes interessades\nS1: em vas comentar que era al menjador el que interessava, veritat?\nS2: Sí.\nS1: D'acord, d'acord,\nS1: d'acord. I el preu per alumne, quant quants euros estàveu?\nS2: Trentacinc.\nS1: Trentacinc euros per alumne.\nS1: D'acord, hi ha algú més que que t'interessi?\nS2: Bueno, m'agradaria rebre una miqueta d'informació per la vostra part de de què de què és la que oferiu.\nS1: Ok, ok, ok, d'acord. Per partir.\nS2: I també, bé, com com que sóc bastant despistat, m'agradaria que em truquegis I em fes una un followup dintre de dues setmanes.\nS1: Ok, si ho puc ho podem fer. I vosaltres tot treballant en primària, no ara mateix?\nS2: Sí, primària bàsicament.\nS1: Val, ok. Ok d'acord. Doncs moltíssimes gràcies.\nS2: De res, adeu, siau.\nS1: A veure, molt bon dia, ausiau.",
+          "latency_sec": 7.065977375001239,
+          "error": null,
+          "confidence": 0.8778881554545456,
+          "char_count": 905,
+          "word_count": 162,
+          "similarity_to_raw": 0.9941747572815534,
+          "similarity_to_sanitized": 0.9941747572815534
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nToni, Bon dia, m'escoltes bé. OK Toni, De les funcionalitats interessades em vas comentar que era el menjador el que interessava de veritat. D'acord. D'acord, d'acord, d'acord. I el preu per alumne? Quant a quants euros estàveu? 35 euros per alumne? D'acord. I hi ha algú més que t'interessi? D'acord. OK? Si ho podem fer i vosaltres heu treballat en primària ara mateix? Vale, ok? OK, d'acord. Moltíssimes gràcies. Adeu. Molt bon dia. Adeu-siau.\nSPEAKER: channel_2\nHola! Bon dia! Si t'escolto, perfecte. És sí. 35. Bé, m'agradaria rebre una miqueta d'informació per la vostra part de què és el que oferiu. També. Bé, com que sóc bastant despistat, m'agradaria que em truqués i em fes unfollow. Dintre de dues setmanes. Sí, primària bàsicament. De res, adéu siau.",
+          "latency_sec": 9.63901108400023,
+          "error": null,
+          "confidence": null,
+          "char_count": 782,
+          "word_count": 129,
+          "similarity_to_raw": 0.037786774628879895,
+          "similarity_to_sanitized": 0.037786774628879895
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Si . Hola Toni! Bon dia ! Bon dia! M'escoltes bé . Sí, t'escolto, perfecte. OK ? Toni! De les funcionalitats interessades vas comentar que era el menjador el que interessa de veritat és si . D'acord, D'acord, d'acord, d'acord. I el preu per alumne? Quants € estàveu ? 35 35 euros per alumne . D'acord, hi ha algú més que t'interessi ? Bé, m'agradaria rebre una miqueta d'informació per la vostra part de que és el que oferiu . OK? OK? OK? D'acord. També com que sóc bastant despistat, m'agradaria que em truques i em fessis unfollow app dintre de dues setmanes. OK, si ho podem fer. I vosaltres treballant en primària ara mateix , si a primària bàsicament vale. OK, ok? D'acord. Moltíssimes gràcies . De res. Adéu siau. Adéu siau.",
+          "latency_sec": 16.17990420800197,
+          "error": null,
+          "confidence": null,
+          "char_count": 730,
+          "word_count": 133,
+          "similarity_to_raw": 0.10699588477366255,
+          "similarity_to_sanitized": 0.10699588477366255
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.3836910419995547,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "41739657-2ea8-4787-9be7-ebb239e95ac6",
+      "source": "hubspot_call",
+      "duration_sec": 200.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 3480,
+      "reference_sanitized_len": 3951,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Sí, mami.\nS1: Sergi.\nS2: Sí.\nS1: Muy buenos días, ¿qué tal? ¿Cómo estamos?\nS2: Muy bien, ¿y tú? ¿Quién eres?\nS1: Me alegro, soy Alvaro Granado, te llamo de Motor de Ventas, que he visto que habéis conectado ahí con Montalolíveros,\nS1: con el tío de la...\nS2: Ah, sí.\nS1: ¿Qué tal estás?\nS2: Dime, Alvaro.\nS2: Si me enganchas con poco tiempo, si si si me puedes es... Sí.\nS1: ¿Qué estás?\nS1: Sí, es es rápido, es\nS1: rápido, he visto que estás en Creantun Talent, ¿verdad? He estado mirando ahí, pues me queda curiosidad de de cómo estás\nS2: Sí.\nS1: captando esos nuevos clientes\nS1: Sergib.\nS2: Mira, es que yo, bueno, yo estoy, Gonzalo, nosotros a nivel de ventas, más o menos lo que él estuvo explicando lo...\nS1: Ajá, ¿tú eres Gonzalo?\nS1: ¿Tú eres Gonzalo?\nS2: ¿Tú eres Gonzalo?\nS1: No, yo soy Alvaro.\nS2: Sí, por eso digo que te le estoy explicando a Gonzalo que a nivel de ventas, nosotros ya, o sea, lo que es el funnel, captación,\nS1: Ajá.\nS2: seguimiento,\nS2: lo tenemos bastante\nS2: bien trabajado. O nosotros a día de hoy no no tenemos necesidad de de contratar\nS1: Vale.\nS2: un tema de prospección o llamadas, porque lo tenemos bastante cubierto, o lo nuestro era un tema de automatización.\nS2: Yo lo que le comenté a él es que lo que me me interesaba era que nos explicara todo el tema de la automatización,\nS1: ¿Vale?\nS2: y me comentó que lo teníais integrado dentro de vuestra empresa con 2 técnicos que tenéis a nivel interno.\nS1: Sí, que lo podemos dejar internamente en en Creante un Talent, te lo podemos hacer un staff de prospección a través de LinkedIn.\nS2: Sí.\nS2: Sí.\nS1: Sí.\nS2: Correcto, pues.\nS1: ¿Crees? ¿Cuándo te viene bien que te lo?\nS1: Una breve regua, así\nS1: te lo enseño rápido, creo que tiene más valor que en una llamada que ahora veo que tienes un poquito de prisa.\nS2: Pero explícame cómo lo hacéis de forma rápida, es decir, ¿vosotros instaláis\nS2: una herramienta dentro de LinkedIn o tenéis un sistema de optimización o cómo lo hacéis?\nS1: Eso es.\nS1: Sí, son varios son varios, este, son varias herramientas, las cuales van todas a través de de Cloud\nS1: para que automáticamente conecte\nS2: ¿Vale?\nS2: Vale, no, pues...\nS1: a través de LinkedIn, le mande mensaje a través de LinkedIn,\nS1: para luego, obviamente, directamente ese esa base de datos vaya directamente al CRM para que el SDR le les llame, ¿vale? A través de unas señales, pues que eso es lo que más ahora mismo es el el boom del mercado,\nS2: Vale, vale.\nS1: que es lo que más ha sido, porque al final, pues ves lo que está haciendo tu tu mercado.\nS2: Vale.\nS1: ¿Vale?\nS2: Vale, bueno, nosotros con Cloud trabajamos, pero, bueno, a mí me interesa ver cómo lo hacéis vosotros.\nS1: Sí, este este es este es el cerebro.\nS2: Sí, vale, a ver.\nS1: Va todo va, son herramientas son herramientas que van a través de de de Cloud para que todo esté conectado\nS1: y y\nS1: sea automático.\nS2: Vale, mira, el viernes 9,\nS1: Sí.\nS2: si podemos hacer esta demo...\nS1: Vale, ¿no te no tienes hueco esta semanita?\nS2: No, no, imposible.\nS1: Vale.\nS2: Mira, viernes tendría que ser 9 30.\nS1: Venga, súper.\nS2: Vale.\nS1: Tu correo...\nS2: Sí, Sergi\nS2: arroba\nS2: crean en punto com.\nS1: Peapton punto talent.\nS2: No, no, crean tu talento punto com.\nS1: Vale, venga, genial. Pues te mando...\nS2: ¿Me convocas?\nS1: Sí.\nS2: Venga, perfecto.\nS1: Venga, genial, Sergio, pues nos vemos el el viernes, ¿vale?\nS2: Vale, gracias.\nS1: Venga, un saludo, chao, chao, gracias a ti, chao.\nS2: Hasta luego, hasta luego.",
+          "latency_sec": 10.301500834000763,
+          "error": null,
+          "confidence": 0.9233322543902439,
+          "char_count": 3497,
+          "word_count": 657,
+          "similarity_to_raw": 0.9899156885435609,
+          "similarity_to_sanitized": 0.8958091767434156
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nSergi. Muy buenos días. Qué tal? Cómo estamos? Me alegro. Soy Álvaro Granado. Te llamo del motor de ventas que he visto que has conectado ahí con Gonzalo Oliveros, con el CEO de la empresa. Qué tal estás? Aquí estás. Sí. Es rápido. Es rápido. He visto que estás en un talent. Verdad? Está mirando ahí. Pues me he quedado curiosidad de cómo estás. Captando esos nuevos clientes. Sergi. Ajá. Tú eres Gonzalo. Tú eres Gonzalo? No, yo soy Álvaro. Ajá. Vale. Vale. Sí que lo podemos dejar internamente en crearte un talento, lo podemos hacer un staff de prospección a través de LinkedIn. Si crees cuando te viene bien, que te lo. Una breve regla si te lo enseño rápido y creo que tiene más valor que en una llamada cara. Veo que tienes un poquito de prisa. Eso es. Si, son varios, son varios. Son varias herramientas, las cuales van todas a través de Cloud para que automáticamente conecte a través de LinkedIn, le mande mensaje a través de LinkedIn para luego obviamente directamente esa base de datos vaya directamente al CRM para que el SDR les llame, vale? A través de unas señales, Pues que eso es lo que más Ahora vemos, el boom del mercado, que es lo que más acierta, porque al final pues es lo que está haciendo tú, tu mercado. Vale. Ahí está. Ese es. Este es el cerebro. Va, todo va. Son herramientas. Son herramientas que van a través de Cloud para que todo esté conectado y sea automático. Sí. Vale. No te. No tienes hueco esta semanita? Vale. Er. Venga. Súper. Tu correo. Capta un puto talento. Vale. Venga. Genial. Pues te mando. Sí. Venga. Genial, Sergi. Pues nos vemos el viernes. Vale. Venga. Un saludo a todos. Gracias a ti. Chao.\nSPEAKER: channel_2\nSí, Manny. Sí. Muy bien. Y tú quién eres? Ah, sí. Dime, Alvaro. Si me enganchas con poco tiempo. Sí, sí, sí. Me puedes Eso. Sí. Sí. Um. Es que yo. Bueno, yo soy Gonzalo. Nosotros. A nivel de ventas. Más o menos lo que él estuvo explicando. Er. Tú eres Gonzalo? Eh? Sí. Por eso digo que le estuve explicando a Gonzalo que a nivel de ventas nosotros. Ya. O sea, lo que es el funnel de captación seguimiento lo tenemos bastante bien trabajado, O sea, nosotros a día de hoy no tenemos necesidad de de contratar un tema de prospección o llamadas porque o lo tenemos bastante cubierto. O sea, lo nuestro era un tema de automatización. Yo lo que le comenté a él es lo que me interesa. Me interesaba era que nos explicara todo el tema de la automatización y me comentó que lo teníais integrado dentro de vuestra empresa con dos técnicos que tenéis a nivel interno. Sí. Sí. Um. Vale, pues. Explícame cómo lo hacéis de forma rápida. Es decir, vosotros instaléis una herramienta dentro de LinkedIn. O tenéis un sistema de automatización o. Cómo lo hacéis. Vale. Vale. No, pero. Vale, vale, Vale. Vale. Um. Um. Vale. Um. Vale, bueno, nosotros con Cloud, trabajamos, pero. Bueno, a mí me interesa ver cómo lo hacéis vosotros. Um. Sí. Vale, a ver. Um. Vale, mira, el viernes nueve, si podemos hacer esta demo. No, no, imposible. Era viernes. Tendría que ser nueve 30. Vale. Sí. Sergi Arroba mediante un talent punto com. No, no crean un talent. Punto com. Me convocas. Um. Venga. Perfecto. Vale. Gracias. Hasta luego. Hasta luego.",
+          "latency_sec": 9.755392291001044,
+          "error": null,
+          "confidence": null,
+          "char_count": 3197,
+          "word_count": 580,
+          "similarity_to_raw": 0.1053152855727963,
+          "similarity_to_sanitized": 0.10122394971882236
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Muchísimas . Sergi. Sí. Muy buenos días. Qué tal? Cómo estamos? Muy bien. Y tú quién eres? Me alegro. Soy Álvaro Granado. Te llamo de motor de ventas que he visto que has conectado ahí con Gonzalo Oliveros, Con el. CEO? Sí. Qué tal estás? Dime, Álvaro . Si estás con poco tiempo. Sí, sí, Si es rápido , si es rápido. He visto que estas en crearte un talent, verdad? Está mirando ahí. Pues me quedado curiosidad de cómo estás captando esos nuevos clientes . Sergi . Mira, es que yo. Bueno, yo se lo dije a Gonzalo. Nosotros a nivel de ventas más o menos lo que él , Gonzalo lo he es Gonzalo eh? No, yo soy Álvaro. Sí, por eso digo que le estoy explicando. Gonzalo, que a nivel de ventas nosotros ya. O sea, lo que es el funnel de captación seguimiento lo tenemos bastante bien trabajado, O sea, nosotros no tenemos necesidad de de contratar por un tema de prospección o llamadas, porque lo tenemos bastante cubierto, o sea, no es un tema de automatización. Yo lo que le comenté a él es que a mí lo que me interesa me interesaba era que nos explicara todo el tema de la automatización y me comentó que lo teníais dentro de vuestra empresa con dos técnicos que tenéis a nivel interno. Sí que lo podemos dejar internamente en en creantum talento lo podemos hacer un staff de prospección a través de LinkedIn. Sí . Y crees que cuando te viene bien que te . Lo que. Una breve regla te lo enseño rápido y creo que tiene más valor que en una llamada que ahora veo que tienes un poquito de prisa. Mmm . Pero explícame cómo lo hacéis de forma rápida. Es decir, vosotros instaláis una herramienta dentro de LinkedIn o tenéis un sistema de automatización o cómo lo hacéis? Si son varios, son varios , son varias herramientas, las cuales van todas a través de cloud para que automáticamente conecte a través de LinkedIn, le mande mensaje a través de LinkedIn para luego obviamente directamente esa base de datos vaya directamente al CRM para que le se de les llame , vale? A través de unas señales. Pues que eso es lo que más ahora vemos el boom del mercado, que es lo que más acierta, porque al final pues ves lo que está haciendo tu tu mercado . Vale. Vale, vale. Bueno, nosotros con Cloud trabajamos, pero bueno, a mí me interesa ver ese es, este es el cerebro. Ummm, si va todo va. Son herramientas, son herramientas que van a través de de de cloud para que todo esté conectado y sea automático. Vale? Mira, el viernes nueve. Sí, sí, podemos hacer esta demo . Vale. No te. No tienes hueco esta semanita? No, no, imposible . Vale, Viernes tendría que ser nueve 30. Venga. Súper . Un correo . Sergi Arroba Creando un talent punto com . Crearte un punto. Talent . No, no, creantum Talent punto com. Vale, Venga. Genial. Pues me convoca. Si , venga. Genial. Sergi Pues nos vemos el el viernes. Vale, vale. Gracias. Venga, hasta luego. Chao. Chao. Gracias a ti. Chao.",
+          "latency_sec": 54.7055435000002,
+          "error": null,
+          "confidence": null,
+          "char_count": 2853,
+          "word_count": 537,
+          "similarity_to_raw": 0.06844106463878327,
+          "similarity_to_sanitized": 0.06685140284031867
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.5833695409965003,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "259697d8-2b8c-4592-848a-acb9fd8b2e43",
+      "source": "hubspot_call",
+      "duration_sec": 37.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 938,
+      "reference_sanitized_len": 1038,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Dígame.\nS1: ¿Álvaro?\nS2: ¿Sí?\nS1: ¿Qué tal, Alvaro? ¿Cómo estamos?\nS2: Hola, me me pillas fatal, no sé quién eres, pero es que me pillas fatal, macho.\nS1: Te te pillo fatal.\nS2: Sí, estoy hasta arriba, estoy hasta arriba.\nS1: Bueno,\nS1: imagino que estarás hasta arriba. Te cuento rápido, que estoy...\nS2: Sí, además de que daba a la una, a la una tengo una reunión, pero ¿quién eres?\nS1: ¿A la una? Va, me sobra, me sobra mucho tiempo. Era por si habías visto el correo, soy Alvaro, soy, que estuvimos hablando el otro día, te mandé un correíto.\nS2: ¿Quién eres? ¿Quién eres?\nS2: Ah, sí, tío, no puedo estar 20 minutos hoy, de verdad, lo siento. Además que es que no no me interesa, de verdad, ¿vale? El otro día me pillaste un poco de buenas y tal, y en 20 minutos te dediqué, no puedo más. Gracias, tío.\nS1: Va, genial.\nS1: Súper, vale.\nS1: Vale, venga, ánimo. Chao, hasta luego, igualmente. Chao.\nS2: Venga, buen día. Hasta luego.",
+          "latency_sec": 1.8784861249951064,
+          "error": null,
+          "confidence": 0.9516947194117646,
+          "char_count": 938,
+          "word_count": 177,
+          "similarity_to_raw": 1.0,
+          "similarity_to_sanitized": 1.0
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nÁlvaro. Qué tal, Álvaro? Cómo estamos? Te pillo fatal. Bueno, imagino que estarás hasta arriba. Te cuento rápido que estoy a la una. Buah, me sobra. Me sobra mucho tiempo. Era por si había visto el correo. Soy Álvaro. Soy. Estuvimos hablando el otro día. Te mandé un correo. Vale, genial. Súper. Vale, vale. Venga, ánimo. Chao. Hasta luego. Igualmente. Chao.\nSPEAKER: channel_2\nDígame. Sí. Hola. Me pillas fatal. No sé quién eres, pero es que me pillas fatal, macho. Sí, estoy hasta arriba. Estoy hasta arriba. Sí. Además, te quedaba la una a la una. Tengo una reunión. Pero Quién eres? Quién es? Quién es? Ah, sí, tío. No puedo estar 20 minutos hoy. De verdad lo siento. Además, que Es que. No, no me interesa de verdad. Vale. El otro día me pillaste un poco de buenas y tal y 20 minutos. Te dije No puedo más. Gracias, tío. Venga. Buen día. Hasta luego. Chao.",
+          "latency_sec": 5.3183592919958755,
+          "error": null,
+          "confidence": null,
+          "char_count": 880,
+          "word_count": 159,
+          "similarity_to_raw": 0.2564734895191122,
+          "similarity_to_sanitized": 0.2564734895191122
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Dígame , Álvaro, Sí. Qué tal, Álvaro? Cómo estamos? Hola. Me pillas fatal. No sé quién eres, pero es que me pillas fatal, macho. Te. Te pillo fatal. Sí, estoy hasta arriba. Imagino que estarás hasta arriba. Te cuento. Ahora tengo una reunión. Pero quién eres? A la una me sobra. Me sobra mucho tiempo. Era por si había visto el correo. Soy Álvaro. Soy. Estuvimos hablando el otro día. Te mando un correito. Tío, no puedo estar 20 minutos hoy. De verdad lo siento. Además, que Es que. No, no me interesa de verdad. Vale. El otro día me tenías un poco de buenas y tal y 20 minutos. Vale, no puedo más. Gracias. Vale, Venga, ánimo. Buen día. Hasta luego. Chao.",
+          "latency_sec": 10.72406312500243,
+          "error": null,
+          "confidence": null,
+          "char_count": 657,
+          "word_count": 123,
+          "similarity_to_raw": 0.4209799861973775,
+          "similarity_to_sanitized": 0.4209799861973775
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.2537837909985683,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "c522563a-9b32-47a4-9100-40c45e35ef08",
+      "source": "hubspot_call",
+      "duration_sec": 101.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 1545,
+      "reference_sanitized_len": 1744,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Sí.\nS1: ¿Valentín?\nS2: Sí.\nS1: ¿Cómo estamos, Valentín? Buenos días. ¿Qué tal?\nS2: Dime qué eres, por favor, que no te reconozco la voz.\nS1: Estuvimos\nS1: hablando el otro día,\nS1: No sé si reenviaste el correo a María Eugenia.\nS2: Sí, pero dime, ¿quién eres?\nS1: De Motor de Ventas soy.\nS1: Álvaro, Álvaro, Álvaro.\nS2: Sí, sí, sí, se lo envié a María Eugenia, sí.\nS1: ¿Y qué tal?\nS2: No sé, yo no estoy, no estoy en la oficina, no no he hablado con ella.\nS1: ¿No estás con no estás con ella ahora?\nS2: No, hoy hoy estoy estoy trabajando, no.\nS1: Vale.\nS2: Pero ella tiene tu correo.\nS1: Bueno, y...\nS2: Encabas en copia,\nS1: Que yo haya visto, no, por eso te te llamaba, para ver si habíais\nS1: mirado alguna cosilla, si teníais dudas o si lo tenéis todo claro.\nS2: No, déjame ver un momento.\nS2: Tú me enviaste el correo como quien eres.\nS1: Yo soy Alvaro Granado,\nS1: de Motor de Ventas.\nS1: Que al final los correos es mucho tiempo\nS1: perdido.\nS2: Sí, sí, ya, bueno, pero...\nS1: No sé si crees,\nS1: no sé si crees que tiene más sentido, me pongo con, me das el contacto de María Eugenia, me, le hago una llamadita rápida,\nS1: vemos en qué punto estáis,\nS1: qué puntos ponemos en una varilla,\nS1: más más efectivo, más más rápido.\nS2: Bueno, déjame que hable, déjame que hable con ella y te lo digo, y te paso su contacto, ¿vale? Por para no hacer para no hacer lo que no debo.\nS1: Vale,\nS1: estamos en el mismo en el mismo punto que la otra vez.\nS2: No, ya.\nS1: Venga,\nS2: Pero, bueno, venga, claro. Vale, a ti.\nS1: hasta luego, gracias.",
+          "latency_sec": 1.8987080000006245,
+          "error": null,
+          "confidence": 0.9223325168292683,
+          "char_count": 1546,
+          "word_count": 306,
+          "similarity_to_raw": 0.9882084442753899,
+          "similarity_to_sanitized": 0.9882084442753899
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nValentín. Cómo estamos? Valentín? Buenos días. Qué tal? Estoy. Estuvimos hablando el otro día que no sé si enviaste el correo a María Eugenia. El motor de ventas. Soy Álvaro. Álvaro. Álvaro. Y qué tal? No estás con. No estás con ella ahora. Vale. Bueno. Y. Que yo haya visto? No. Por eso te. Te llamaba para ver si habíais mirado alguna cosilla, si teníais dudas o si lo tenéis todo claro. Yo soy Álvaro Granado, el motor de ventas. Que al final los correos es mucho tiempo perdido. No sé si crees. No sé si crees que tiene más sentido. Me pongo con el contacto de María Eugenia, me hago una llamadita rápida, vemos en qué punto estáis en punto. Os podemos echar una manilla más. Más efectivo. Más. Más rápido. Vale, estamos en el mismo. En el mismo punto que la otra vez. Venga. Hasta luego. Gracias.\nSPEAKER: channel_2\nSí. Sí. Dime qué es, por favor. No te reconozco la voz. Sí, pero dime quién eres. Sí. Sí, Sí, Sí. Soy. Me llamo María Eugenia. Sí. No lo sé. Yo no estoy. No estoy en la oficina. No, no he hablado con ella. No, yo estoy teletrabajando. No. Pero ya tiene tu correo. Estabas en copia? No. No. Déjame ver un momento. Er. Tú me enviaste el correo como quien eres de ver. Sí. Sí. Ya. Bueno. Pero. Bueno, déjame que hable. Déjame que hable con ella y te lo digo y te paso su contacto. Vale. Conocer. Para no hacerlo. Ya no digo nada. Ya, pero. Bueno. Venga. Hasta ahora, nada de.",
+          "latency_sec": 9.432727958002943,
+          "error": null,
+          "confidence": null,
+          "char_count": 1412,
+          "word_count": 267,
+          "similarity_to_raw": 0.40775960441232406,
+          "similarity_to_sanitized": 0.40775960441232406
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Si . Maletín. Sí. Cómo estamos, Valentín? Buenos días. Qué tal ? Dime quién eres, por favor. No te reconozco . Estuvimos hablando el otro día. Que no sé si enviaste el correo a María Eugenia . Eh? Sí. El motor de ventas. Soy Álvaro. Álvaro. Álvaro ! Sí, sí, sí. Soy María. María Eugenia. Sí. Y qué tal ? No sé. Yo no estoy. No estoy en la oficina. No, no he hablado con ella. No estás con ella ahora? No, yo estoy teletrabajando. No. Vale , ya tiene tu correo . Estabas en copia? No que yo haya visto. No. Por eso te. Te llamaba para ver si habíais mirado alguna cosilla. Si teníais dudas o si lo tenéis todo claro . No. Déjame ver un momento . A . Tú enviaste el correo. Cómo? Quién eres ? Yo soy Álvaro Granado, de motor de ventas . Que al final los correos es mucho tiempo perdido. Sí, sí, ya sé. Si quieres , no sé si crees que tiene más sentido. Me pongo. Me das el contacto de María Eugenia? Me le hago una llamadita rápida. Vemos en qué punto estáis , qué puntos os podemos echar, una manilla más, más efectivo, más, más rápido. Que hable. Déjame que hable con ella y te lo digo y te paso el contacto. Estamos en el mismo, en el mismo punto que la otra vez . Ah, ya. Venga, Hasta luego. Gracias. Nada de.",
+          "latency_sec": 27.87191179200454,
+          "error": null,
+          "confidence": null,
+          "char_count": 1211,
+          "word_count": 244,
+          "similarity_to_raw": 0.6569224522939505,
+          "similarity_to_sanitized": 0.6569224522939505
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.3684798749964102,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "37f8ad8c-96d2-4da1-a0b4-8dfe963542b7",
+      "source": "hubspot_call",
+      "duration_sec": 43.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 927,
+      "reference_sanitized_len": 1005,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: ¿Sí?\nS1: ¿Marc?\nS2: Hola.\nS1: ¿Qué tal, Marc? Buenos días, ¿cómo estamos?\nS2: Bien. ¿De dónde me llamas?\nS1: Te llamo, soy Alvaro, te llamo de Motor de Ventas, que estuvimos hablando ahí a finales de junio, que estabas de vacaciones,\nS1: y me dijiste, llámame a finales de septiembre que vuelvo, y aquí está la llamada, Mark.\nS2: Vale, pero es que es es buen momento ahora, Envías tú el correo tal como te dije.\nS1: Sí, pero porque tenga más sentido que el correo, para que no pierdas tu tiempo en leértelo, en contestarme...\nS2: Vale, pues...\nS2: Sí,\nS2: pasa que igualmente como te... Sí, pero esto es mucho más tiempo. Entonces, te tengo una llamada ahora importante, ¿vale? Si te da bien, envío el correo ese y lo revisamos allí.\nS1: Vale, y si te sale alguna duda, me vuelves a contestar y te vuelvo a enviar otro... Venga, genial. Vale, gracias, Marc.\nS2: Vale.\nS2: Perfecto, ya te llamo yo.\nS2: Sí, ok, gracias, adiós.",
+          "latency_sec": 1.9001026249970892,
+          "error": null,
+          "confidence": 0.917896016875,
+          "char_count": 929,
+          "word_count": 172,
+          "similarity_to_raw": 0.3506172839506173,
+          "similarity_to_sanitized": 0.3506172839506173
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nMark. Qué tal, Mark? Buenos días. Cómo estamos? Te llamo. Soy Álvaro. Te llamo del motor de ventas que estuvimos hablando ahí a finales de junio. Que estabas de vacaciones y me dijiste ya a finales de septiembre que vuelvo. Y aquí está la llamada. Mark. Sí, pero porque tenga más sentido que el correo para que no pierdas tu tiempo en leértelo, en contestarme. Vale, y si te sale alguna duda, me vuelves a contestar y te vuelvo a enviar. Venga. Genial. Vale. Gracias, Mark.\nSPEAKER: channel_2\nSí. Hola? Bien. De dónde me llamas? Um. Um. Vale, pero es momento ahora. Enviaste el correo tal como te dije. Vale, pues si pasa, es que. Igualmente. Sí, pero esto es mucho más tiempo. Entonces te tengo la llamada ahora. Importante. Vale, Si te va bien, envía el correo ese y lo revisamos allí. Vale. Perfecto. Ya te llamo yo. Sí. Ok. Adiós. Adiós.",
+          "latency_sec": 4.370564541000931,
+          "error": null,
+          "confidence": null,
+          "char_count": 860,
+          "word_count": 155,
+          "similarity_to_raw": 0.003766478342749529,
+          "similarity_to_sanitized": 0.003766478342749529
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Si , Mark. Hola. Qué tal, Mark? Buenos días. Cómo estamos ? Bien. De dónde me llamas? Te llamo. Soy Álvaro. Te llamo de motor de ventas. Que estuvimos hablando ahí a finales de junio. Que estabas de vacaciones y me dijiste. Llámame a finales de septiembre que vuelvo. Y aquí está la llamada. Mark. Vale, Creo que es buen momento ahora. Enviaste el correo tal como te dije. Sí, pero porque tenga más sentido que el correo para que no pierdas tu tiempo en leértelo, en contestarme. Sí, eso es mucho más tiempo. Entonces te tengo una llamada importante. Vale. Si te va bien , enviar el correo ese y lo revisamos allí. Vale. Y si te sale alguna duda, me vuelves a contestar y te vuelvo a enviar. Venga. Genial. Vale. Gracias, Mark.",
+          "latency_sec": 11.819584207994922,
+          "error": null,
+          "confidence": null,
+          "char_count": 727,
+          "word_count": 135,
+          "similarity_to_raw": 0.011960132890365448,
+          "similarity_to_sanitized": 0.011960132890365448
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.2749770419977722,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "a943f3b7-a7e3-4780-b795-71ad0dfc9f26",
+      "source": "vocify_call",
+      "duration_sec": 71.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 729,
+      "reference_sanitized_len": 836,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: ¿Aló?\nS1: ¿Aló? Hola.\nS2: Hola.\nS2: A ver, vete moviéndote por ahí, que hable.\nS1: ¿Me oyes?\nS2: Sí, sí.\nS1: A mí sí, ¿no? Vale.\nS1: ¿Habla?\nS1: Hola, ¿qué tal? ¿Más alto?\nS2: Sí, se escucha todo de fondo.\nS1: 17 notas de.\nS2: Pero no está cogiendo este, está está cogiendo ese, pero no funciona bien.\nS2: ¿Sabes?\nS2: O sea, está cogiendo ese, pero no funciona bien.\nS1: Me hiciste el cambiazo.\nS2: Ese micrófono no está, está cogiendo el de el normal.\nS2: Sí.\nS2: Lo del Crisp, no es mala idea.\nS1: Ok.\nS2: Lo bueno es que no se corta, ¿sabes?\nS1: Sí. Cobee.\nS1: No, pon una prueba, una prueba, porque igual te pasa lo mismo que a mí, Jorge. Por Crispy. ¿Crispy?\nS1: Sí, Crispy, Crispy.\nS1: Ya vamos. Hola,\nS2: Además que...",
+          "latency_sec": 2.139049541001441,
+          "error": null,
+          "confidence": 0.8954628816,
+          "char_count": 729,
+          "word_count": 144,
+          "similarity_to_raw": 1.0,
+          "similarity_to_sanitized": 1.0
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nAló? Hola? Me oyes? A mí? Sí. No vale hablar. Hola. Qué tal? Más alto. 17 notas de voz A. Castellano. Me hiciste el cambiazo. De Crispi. Estoy mejor. Así, chiquita. Si. A ti no va para ti no pone una prueba. Una prueba? Porque igual te pasa lo mismo que a mí. Jorge. Crispi. Crispi. Sí. Ya vámonos ya. Hola. Me.\nSPEAKER: channel_2\nTarde. No. Aló? Hola. A ver, vete moviéndote por ahí. Que hable? Sí, Sí. Hola. Hola. Sí. Se escucha todo de forma que se nota. Pero no está cogiendo este micro. Está cogido. Está cogiendo ese. Pero no funciona bien, ya sabes. Se está cogiendo ese micro, pero no funciona bien. Ese micrófono no está cogiendo el el normal de Crispi. Si lo del Cristo no es mala idea. Lo bueno es que no se corta. Sabes, Chicken? Bien. El código que tengamos por aquí ya no va a haber más. Ya no va bien. Vale. La pena, cariño. Porque. Si te. Llama más de una vez que ya no. Hay más que.",
+          "latency_sec": 34.25335316699784,
+          "error": null,
+          "confidence": null,
+          "char_count": 918,
+          "word_count": 179,
+          "similarity_to_raw": 0.10450966356478167,
+          "similarity_to_sanitized": 0.10450966356478167
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Tarde. No. Aló? Hola . A ver. Me moviéndote por ahí. Que hable. Me oyes? Sí. Sí, A mí? Sí. No. Vale . Hablar. Hola. Qué tal ? Más alto. Se escucha todo de forma. 17 notas de voz, pero no está cogiendo este . Está cogiendo ese. Pero no funciona bien . Ya sabes, está cogiendo ese micro, pero no funciona el cambiazo por ese micrófono. No está cogiendo el El normal . Sí, sí . Lo del Cris no es mala idea. Pero bueno, es que no se corta. Sabes ? Chica , si . Quiere que ya no va a haber una aquí . No va a haber nada que sea. No. Pon una prueba. Una prueba? Porque igual te pasa lo mismo que a mí. Jorge Crispi. Sí, Crispi . Ya va más de . Además. Hola. Me.",
+          "latency_sec": 18.661277458006225,
+          "error": null,
+          "confidence": null,
+          "char_count": 655,
+          "word_count": 142,
+          "similarity_to_raw": 0.23781009409751924,
+          "similarity_to_sanitized": 0.23781009409751924
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.2875509170044097,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "9b064ffc-6085-4044-8492-5dc377a5b2ef",
+      "source": "hubspot_call",
+      "duration_sec": 308.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 4574,
+      "reference_sanitized_len": 4798,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Buenos días.\nS1: Buenos días, Tony, ¿qué tal? ¿Cómo estamos?\nS2: ¿David?\nS1: No, soy Alvaro Granado,\nS1: de Motor de Ventas.\nS2: Muy buenas, Salvador.\nS1: ¿Cómo\nS1: estás? Que estuvimos hablando ahí por marzo.\nS2: Sí, sí, sí.\nS1: ¿Qué tal? ¿Cómo vais?\nS2: Bueno, ahora ahora un poquito más tranquilo.\nS1: Qué bueno, eso eso es buena eso es buena señal, ¿no?\nS2: Bueno,\nS2: ¿qué quieres que te diga? Yo, ¿me quejo cuando estoy tranquilo o me quejo cuando estoy\nS1: La cuestión la cuestión es quejarse, ¿no?\nS2: liado?\nS2: Cuéntame.\nS1: Nada, te te contaba por por haber si habéis planteado el la empresa externa, la externa que cogisteis,\nS2: Sí.\nS1: qué tal os ibais por por, como estamos creciendo ahora tanto,\nS1: Tony, pues por ver si si hubiese algún punto que se os bloquea más en en las en las ventas, si tuvieses algún punto de dolor.\nS2: Sí.\nS2: Pues, de momento,\nS2: yo quiero seguir, quiero darle\nS2: los 3 meses de confianza después de una entrada tan fuerte\nS2: de contactos como ha sido la feria de Madrid,\nS1: Ajá.\nS1: Vale.\nS2: ¿vale? Porque\nS2: durante la feria ha conseguido 120\nS2: contactos de nuestro sector,\nS2: contactos directos,\nS2: que para mí es un número brutal,\nS1: Vale.\nS2: ¿vale? Entonces,\nS2: con algunos de ellos ya he hablado y es un contacto\nS2: que es, son nuestro objetivo\nS2: puro y duro, ¿vale? Entonces, quiero ver cómo se comporta\nS2: con con esto. Si es, si un 20 por 100\nS2: de estos contactos\nS2: llegaran a convertirse en reuniones\nS2: y\nS2: tiran para adelante, esas reuniones estoy seguro que son proyectos ejecutivos,\nS2: ¿vale? Entonces,\nS2: realmente hay mucha, mucha, mucho\nS2: faena donde trabajar,\nS2: ¿vale?\nS2: De todas formas,\nS2: mi socio,\nS2: ¿vale? Que él es el CEO de Ainet,\nS2: ¿vale?\nS2: Xavi Báez,\nS2: es\nS2: el que lidera todo el de, todo este tema. Entonces, yo te agradecería que siguiéramos para adelante, ¿vale? O sea, yo no cierro ninguna puerta, ya lo sabes, lo mismo que te dije hace unos meses,\nS1: Vale.\nS1: Sí.\nS2: ¿vale? Pero quiero quiero ver cómo cómo se comporta ahora el mercado con esa\nS1: Nueva importación.\nS2: con esa entrada, con esa entrada brutal,\nS2: ¿vale?\nS2: De posibilidades.\nS2: Quiero ver esos leads cómo se desarrollan.\nS1: Es\nS1: es que lo que nos está pasando, Tony, con esta, no solo con con lo que me cuentas de esta de este sector, en en otros sectores han han incorporado, pues nuevos leads, nuevas\nS1: nuevos nuevos números, nueva importación,\nS2: Ajá.\nS1: y luego a la hora de de resultados,\nS1: pues no\nS1: no han tenido buena aceptación.\nS2: Estoy de acuerdo contigo,\nS2: ¿vale? Entonces, por eso yo lo que digo es que necesito mis 3 meses para\nS2: ver si los primeros de esos contactos se hacen efectivos.\nS1: ¿Vale?\nS2: O sea, yo yo no soy una persona que diga, no, oye, has conseguido un contacto y en 15 días tenemos que tener un proyecto firmado.\nS2: No, sé que los proyectos son\nS2: organismos vivos,\nS2: ¿vale? Y que su ciclo\nS2: empieza\nS2: de los 3 meses hacia adelante.\nS2: Entonces, yo lo que quiero ver es cómo se\nS1: Ya.\nS2: desarrollan esos proyectos,\nS2: que la 1º parte\nS2: ya me ha respondido el comercial, me ha conseguido esos contactos.\nS1: Vale, porque tu socio tu socio entiendo que si viese una\nS2: ¿Bueno?\nS1: 1 forma clara, una manera clara de acelerar las ventas y de gestionar todo eso, ¿tiene tiene poder de decisión o habría que volver a?\nS2: Naturalmente,\nS2: o sea, si si ya te digo, cualquiera de los 2, pero sobre todo él dentro de 10 meses,\nS1: Naturalmente.\nS1: Sí, es en casa. Venga, súper.\nS2: ¿vale?\nS1: Vale, genial. Pues estamos en contacto, Tony. Cualquier cosita...\nS1: ¿La importación de leads ahora la habéis hecho recientemente o la hiciste lo o la hicisteis en marzo? Creo recordar.\nS2: Ajá.\nS2: La,\nS2: en marzo\nS2: él llevó, trajo una cartera, ¿vale? Que como venía de un sector diferente, esa cartera\nS2: no ha sido lo que esperábamos,\nS2: pero ahora sí que se ha desarrollado en nuestro propio sector, porque la feria que hemos expuesto,\nS2: ¿vale? Este,\nS2: ha estado, ha sido Pharma Forum, que acabó la semana pasada en Madrid,\nS1: Vale.\nS2: ¿vale? Entonces,\nS2: todos los contactos son de nuestro sector directo,\nS1: ¿Vale?\nS2: ¿vale? Entonces, quiero ver cómo se mueve eso.\nS1: Venga, genial.\nS1: Vale, ¿su nombre era, perdona?\nS2: ¿Perdón?\nS2: ¿El nombre de?\nS1: El nombre de tu socio, de tu socio.\nS2: Sí,\nS2: Xavier Vice.\nS1: Xavier Weiss, venga, genial, pues.\nS2: Pero ya te digo,\nS2: ya hablaremos.\nS1: Vale, súper. Muchísimas gracias, Tony, por tu tiempo.\nS2: Venga, David, un saludo.\nS1: Hasta luego, chao, chao.",
+          "latency_sec": 11.945863665998331,
+          "error": null,
+          "confidence": 0.9588076705833333,
+          "char_count": 4581,
+          "word_count": 846,
+          "similarity_to_raw": 0.6474195196729688,
+          "similarity_to_sanitized": 0.5683241723124122
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nBuenos días, Toni. Qué tal? Cómo estamos? No soy Alvaro Granado, de motor de ventas. Cómo estás? Que estuvimos hablando ahí por marzo. Qué tal? Cómo vais? Qué bueno. Eso es buena. Eso es buena señal. No. La cuestión. La cuestión es quejarse. No. Nada. Te. Te contaba por. Por haber. Si habéis planteado el la empresa, la externa que cogisteis. Qué tal? Os ibais por. Por como estamos creciendo ahora tan tanto Toni. Pues por ver si hubiese algún punto que se desbloquea más en las en las ventas. Si tuvieses algún punto de dolor. Ajá. Vale. Vale. Um. Vale. Sí. Nueva importación. Um. Sí. Es que lo que nos está pasando. Tony con está. No solo con con lo que me cuentas de esta de este sector. En otros sectores han incorporado pues, nuevos leads. Nuevas. Nuevos. Nuevos números. Nueva importación. Y luego, a la hora de resultados. Pues no, no han tenido buena aceptación. Vale. Ya. Vale. Porque tu socio, tu socio. Entiendo que si hubiese una. Una forma clara, una manera clara de acelerar las ventas y de gestionar todo. Tiene. Tiene poder de decisión o habría que volver a. Naturalmente. Si es en casa. Venga. Súper. Vale, genial. Pues estamos en contacto, Tony. Cualquier cosita. La importación de ahora. La habéis hecho recientemente o la la hicisteis en marzo, creo recordar. Vale. Vale. Venga. Genial. Vale. Su nombre era. Perdona. El nombre de tu socio. De tu socio? Xavier Boix. Venga. Genial. Pues. Vale. Súper. Muchísimas gracias, Toni, por tu tiempo. Hasta luego. Chao. Chao.\nSPEAKER: channel_2\nBuenos días. David. Muy buenas, Álvaro. Sí, sí, sí. Bueno, ahora anda un poquito más tranquilo. Eh? Bueno. Qué quieres que te diga? Yo me quejo cuando estoy tranquilo. Me quejo cuando estoy liado. Cuéntame. Sí. Sí, sí, sí. Sí. Pues de momento yo quiero seguir. Quiero darle los tres meses de confianza después de una entrada tan fuerte de contactos como ha sido la Feria de Madrid. Vale, porque durante la feria ha conseguido 120 contactos de nuestro sector, contactos directos, que para mí es un número brutal. Vale, entonces con algunos de ellos ya he hablado y es un contacto que es nuestro objetivo puro y duro. Vale, entonces quiero ver cómo se comporta con con esto. Si es si un 20% de estos contactos llegaran a convertirse en reuniones y. Tiran para adelante esas reuniones. Estoy seguro que son proyectos ejecutivos. Vale, entonces realmente hay mucha, mucha, mucho faena donde trabajar. Vale. De todas formas, mi socio vale que él es el CEO de Internet. Vale. Xavi Valls. Él es el que lidera todo el. De todo este tema. Entonces yo te agradecería que siguiéramos para adelante. Vale. O sea, yo no cierro ninguna puerta, ya lo sabes. Lo mismo que te dije hace unos meses. Vale, pero quiero. Quiero ver cómo. Cómo se comporta ahora el mercado con esa. Con esa entrada, con esa entrada brutal de posibilidades. Quiero ver esos leads como se desarrollan. Hum. Hum. Estoy de acuerdo contigo. Vale, entonces por eso yo lo que digo es que necesito mis tres meses para ver si los primeros de esos contactos se hacen efectivos. O sea, yo no soy una persona que diga no. Oye, has conseguido un contacto y en 15 días tenemos que tener un proyecto firmado, no? Sé que los proyectos son organismos vivos y que su ciclo empieza de los tres meses hacia adelante. Entonces yo lo que quiero ver es cómo se desarrollan esos proyectos, que 1/1 ya me ha respondido, el comercial me ha conseguido esos contactos. Bueno. Nada, nada, nada, naturalmente. O sea, sí, sí, ya te digo, cualquiera de los dos. Pero sobre todo él dentro de eso. CEO Vale. Ajá. La. En marzo, eh, él llevó trajo una cartera. Vale que como venía de un sector diferente, esa cartera no ha sido lo que esperábamos, pero ahora sí que se ha desarrollado en nuestro propio sector, porque la feria que hemos expuesto vale, es ha estado, ha sido Pharma Forum, que acabó la semana pasada en Madrid. Vale, entonces todos los contactos son de nuestro sector directo. Vale, entonces quiero ver cómo se mueve eso. Eh, perdón. El nombre de, eh. Sí, Xavier Boix. Pero ya te digo, ya hablaremos. Venga, David. Un saludo.",
+          "latency_sec": 14.197302916996705,
+          "error": null,
+          "confidence": null,
+          "char_count": 4091,
+          "word_count": 723,
+          "similarity_to_raw": 0.5115921608812604,
+          "similarity_to_sanitized": 0.4944885926685465
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Buenos días. Buenos días, Toni. Qué tal? Cómo estamos ? David. No, soy Álvaro Granado, de motor de ventas. Ah, muy buenas, Álvaro. Cómo estás? Estuvimos hablando ahí por marzo. Sí, sí, sí. Qué tal? Cómo ahora? Ahora, un poquito más tranquilo. Qué bueno. Eso es buena. Eso es buena señal. No. Bueno. Qué quieres que te diga? Yo me quejo . Cuando estoy tranquilo. Me quejo cuando estoy liado. La cuestión es quejarse. No . Cuéntame , Nate. Te contaba por. Por. A ver si habéis planteado el la empresa externa que cogisteis el . Qué tal? Os ibais por. Por como estamos creciendo ahora. Tanto, Toni. Pues por ver si si hubiese algún punto que se os bloquea más en las. En las ventas. Si tuvieses algún punto de dolor, Pues de momento yo quiero seguir. Quiero darle los tres meses de confianza después de una entrada tan fuerte de contactos como ha sido la Feria de Madrid. Vale, vale, porque durante la feria ha conseguido 120 contactos de nuestro sector , contactos directos, que para mí es un número brutal. Vale, vale, entonces, ER , Con algunos de ellos ya he hablado y es un contacto que es son nuestro objetivo puro y duro. Vale, entonces quiero ver cómo se comporta con con esto. Si es si un 20% de estos contactos llegarán a convertirse en reuniones y, er er, tiran para adelante. Esas reuniones. Estoy seguro que son proyectos ejecutivos. Vale, entonces realmente hay mucha, mucha, mucho faena donde trabajar . Mmm. Vale. De todas formas, eh, mi socio . Vale que él es el CEO de Airnet . Vale. Er, Xavi Baez . Y es el que lidera todo el de todo este tema. Entonces yo te agradecería que siguiéramos para adelante. Vale. O sea, yo no cierro ninguna puerta, ya lo sabes. Lo mismo que te dije hace unos meses. Vale, pero quiero. Quiero ver cómo. Cómo se comporta ahora el mercado con esa , er. Nueva . Importar esa entrada, con esa entrada brutal . Vale, de posibilidades. Quiero ver esos leads como se desarrollan. Es es que lo que nos está pasando Toni con esta, no solo con con lo que me cuentas de esta, de este sector en en otros sectores han han incorporado pues nuevos leads, nuevas, nuevos, nuevos números, nueva importación y luego a la hora de de resultados, pues no, no han tenido buena aceptación. Estoy de acuerdo contigo. Vale, entonces por eso yo lo que digo es que necesito mis tres meses para ver si los primeros de esos contactos se hacen efectivos . Vale? Yo no soy una persona que diga no, oye, has conseguido un contacto y en 15 días tenemos que tener un proyecto firmado. No sé que los proyectos son . Er , organismos vivos. Vale. Y que su ciclo empieza de los tres meses hacia adelante. Entonces yo lo que quiero ver es cómo se desarrollan esos proyectos , que 1/1 ya me ha respondido. El comercial me ha conseguido esos contactos, vale, porque tu socio, tu socio, entiendo que si hubiese una una forma clara, una manera clara de acelerar las ventas y de gestionar todo eso tiene, tiene poder de decisión o habría que volver a Naturalmente. Naturalmente. Sí, ya te digo, cualquiera de los dos. Pero sobre todo el dentro de esos tres. Venga, súper . Vale. Vale, genial. Pues estamos en contacto, Toni. Cualquier cosita. La importación de leads ahora la habéis hecho recientemente o la hiciste o la hicisteis en marzo. Creo recordar. En marzo. Y él llevó. Trajo una cartera. Vale que como venía de un sector diferente, esa cartera no ha sido lo que esperábamos, pero ahora sí que se ha desarrollado en nuestro propio sector, porque la feria que hemos expuesto vale es todo. Ha sido farmaforum, que acabó la semana pasada en Madrid. Vale, entonces todos los contactos son de nuestro sector directo. Vale. Vale, entonces genial. Quiero ver cómo se mueve eso. Vale, Su nombre era. Perdonad y perdón . El nombre de tu socio. De tu socio? Si, Xavier. Veis, Xavier? Veis? Venga ya te digo. Ya hablaremos. Vale. Súper. Muchísimas gracias, Toni, por tu tiempo, David. Hasta luego. Chao. Chao.",
+          "latency_sec": 81.20330883299903,
+          "error": null,
+          "confidence": null,
+          "char_count": 3907,
+          "word_count": 710,
+          "similarity_to_raw": 0.4096008348552048,
+          "similarity_to_sanitized": 0.4098681634251403
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.6995697499951348,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "02f2890b-a5bf-43cb-9e01-7009a6b521dd",
+      "source": "vocify_call",
+      "duration_sec": 93.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 1530,
+      "reference_sanitized_len": 1650,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Hola, hola.\nS1: Hola, ¿me oyes?\nS2: Sí, de momento, sí.\nS1: Vale.\nS2: Cuéntame.\nS1: A ver, quiero que es que hable alguien.\nS2: Mira,\nS2: te voy enseñar una propuesta de.\nS2: ¿Quieres\nS1: Necesito que hables. Más rato. ¿Quieres que hable más? Sí. Hemos\nS2: que hable más alto? Sí, sí, se lo escucha. Eso es que no está puesto el micrófono bien, eso es tema de esto, espérate.\nS2: Pero, a ver, siga hablando.\nS1: recuperado una inversión completa en la 1º semana en un caso real de diagnóstico. El sistema queda documentado.\nS2: La completa la 1º semana en un caso real de diagnóstico.\nS2: El sistema ha quedado trimestral y transferido tipo su independencia de.\nS2: Siguiente paso, ¿vale?\nS1: He rehecho la propuesta, cambiando todo por HubSpot.\nS1: Muy bien. Se la he mandado. Acceso a HubSpot.\nS2: Muy bien.\nS2: Acceso aparte.\nS1: Se lo he mandado, Ya. Visto en el chat.\nS1: No hay información.\nS2: Nueva importación.\nS1: ¿Le escuchas a Álvaro?\nS1: Joder,\nS2: Sí, todo.\nS1: va peor.\nS2: Espera.\nS1: Sí, es que lo que nos está pasando, Tony, con esta, no solo, en cuenta de esta de este sector, el otro otro es algo que.\nS2: Sí, es es que lo que nos está pasando, Tony, con esta, no solo con con lo que me cuentas de esta, de este sector, en el otro sector que han han incorporado, pues, nuevos leads, nuevos\nS2: nuevos nuevos números, nueva importación,\nS2: y luego a la vez ya han resultado, pues no\nS2: he tenido\nS2: buena aceptación.\nS2: Tomado por culo. ¿Tú\nS2: me sigues escuchando?\nS2: No.\nS2: Vale. No me escuchas, ¿no?",
+          "latency_sec": 2.1625880830033566,
+          "error": null,
+          "confidence": 0.8382726792105263,
+          "char_count": 1532,
+          "word_count": 288,
+          "similarity_to_raw": 0.9977116704805492,
+          "similarity_to_sanitized": 0.9977116704805492
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nHola. Me oyes? Vale. A ver, quiero que hable alguien que me escuche. Alto! Vale. Necesito que hables más alto. Quieres que hable más? Sí. Vale. Hemos recuperado la inversión completa en la primera semana. En un caso real de diagnóstico, el sistema queda documentado y transferido a independencia de puntos de venta a futuro. El siguiente paso. Es, de hecho, la propuesta. Cambiando todo por spot. Se la ha mandado. Acceso a. General Motors. Se lo ha mandado? Eh? Ya has visto el aviso? No hay información. Le escuchas a Álvaro? Joder, La peor. Si es que lo que nos está pasando. Tony, con esta no solo tenemos en cuenta de que este sector en otros sectores han tenido otros leads más o menos información. Luego, a la hora de tener resultados, pues no han tenido buena.\nSPEAKER: channel_2\nHola. Sí, de momento, sí. Cuéntame. Sí. Sí. Mira, te voy a enseñar la propuesta de comercio que tengo. Bueno, no tanto. Quieres que hable más alto? Así? Sí se lo escucha. Eso es que no está puesto el micrófono. Bien. Eso es tema de escaparate. Pero a ver, sigue hablando. La primera semana, en un caso real de diagnóstico, el sistema que ha documentado y transferido al tipo sin independencia de los antecedentes artísticos. Siguiente paso. Muy bien. Fíjate en lo que cuesta. Muy bien. Acceso a. La venta. No, importación. Sí, todo. Pero si es. Es que lo que nos está pasando, Tony. Con esta. No solo con. Con lo que me cuentas de estas de este sector. En otros sectores también han incorporado nuevos leads. O en los últimos números con la importación y luego la de resultados. No ha tenido buena aceptación. Vamos a tomar por culo. Tú me sigues escuchando? No. Vale. No me escuchas? No.",
+          "latency_sec": 17.77452070799336,
+          "error": null,
+          "confidence": null,
+          "char_count": 1695,
+          "word_count": 303,
+          "similarity_to_raw": 0.07364074328974536,
+          "similarity_to_sanitized": 0.07364074328974536
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Hola? Hola? Hola? Me oyes? Sí, de momento , sí. Vale. Cuéntame. A ver. Quiero que. Que hable alguien. Habla. Habla. Alto . Mira, te voy a enseñar la propuesta de Cobra Security que tengo . Necesito que hables más alto. Quieres que hable? Sí, sí, sí, sí. Se lo escucha. Eso es que no está puesto el micrófono. Bien, eso es tema de esto. Pero te . Pero, a ver, sigue hablando. La inversión completa la primera semana. En mi caso, fue al diagnóstico. El sistema que me recomendado por su de futuro . Siguiente paso. Muy bien. Vale . He rehecho la propuesta cambiando todo por HubSpot . Se la mandado acceso a . Se lo he mandado, eh. Ya . Prueba importación. Le escuchas, Álvaro? Si , todo. Joder, La peor. Espera . Si es que lo que lo que me está pasando con esta . No solo con con lo que me cuentas, está han controlado. Pues no, no , no, el número importación de resultados. Pues no he tenido buena aceptación . A tomar por culo . Tú me sigues escuchando ? Vale. No me escuchas? No.",
+          "latency_sec": 27.115744250004354,
+          "error": null,
+          "confidence": null,
+          "char_count": 981,
+          "word_count": 192,
+          "similarity_to_raw": 0.10261026102610261,
+          "similarity_to_sanitized": 0.10261026102610261
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.46204341600241605,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "7af0c513-371f-4b60-a25d-aa10fd14b5f6",
+      "source": "vocify_call",
+      "duration_sec": 210.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 2848,
+      "reference_sanitized_len": 2734,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: ¿Aló, aló?\nS2: ¿Hola?\nS2: ¿Me? ¿No me oyes?\nS1: Escucho.\nS2: Yo a ti sí. Yo te escucho perfectamente. Mira a ver que estén conectados bien los cascos.\nS1: Sí.\nS2: No, no bien los cascos, que viene el sonido, la salida de sonido.\nS2: Ahí en...\nS2: No, dale configuración del sitio,\nS2: porque lo tienes puesto en automático.\nS2: ¿Tú a mí no me escuchas?\nS2: Es lo que está mal puesto.\nS2: Espera, ahí, te doy.\nS1: Ah, Nora,\nS2: No, sí, pero...\nS1: estaba silenciado.\nS2: Ah, que estaba silenciada.\nS2: Vale, ¿me escuchas bien? Hola, hola, hola. Mira que este viene al micrófono porque me estaba escuchando cuando estaba cerca.\nS2: Estoy.\nS2: ¿Me\nS2: escuchas bien? Y no se está cortando, parece.\nS2: No. Hello, hello.\nS2: ¿Más alto?\nS2: Hola, ¿qué tal? Hola, ¿qué tal? Hola, ¿qué tal? Con presentación,. Yo, no, pero yo no. Lo estás escuchando porque me lo estás escuchando a mí en el teléfono, que lo cogí desde allí.\nS2: Yo no estoy escuchando nada, por, ¿tú me estás escuchando ahora mismo, por los cascos?\nS2: ¿Qué tal? Hola, tal? Hola,\nS2: tal? Hola, ¿qué Yo no escucho nada, será que está cogiendo el sonido desde aquí.\nS2: Mira. Vale.\nS2: Hablas alto\nS2: y no se están cortando, parece.\nS2: Estás escuchándole a él desde aquí, no...\nS2: No, aquí aquí no has visto, habla tú ahora.\nS2: Hola, hola. Hola.\nS2: Ahora no se escucha, te se te escucha a ti. Esa es la lo que está. ¿El qué?\nS2: ¿La llamada? No. Es que sí corta la llamada, es que me deja descansar.\nS2: Claro, pero hay que, vamos a ver esto. Vale, vale, Álvaro, ya está.\nS2: A ver, hola. Hola.\nS2: Ajá. ¿Hola? Hola. ¿Y por qué se empieza? Es que no no tiene ningún sentido, que se empieza escuchando y que de repente se se deje de escuchar el micrófono. No tiene ningún tipo de sentido. Mira a ver qué micrófono es, a ver si es que se cambia a mitad de llamada. Vamos a dejar\nS2: la llamada aquí.\nS2: Vete AAA\nS2: ver, habla ahora.\nS2: Vale, ¿no? Dale a. Dale a micrófono, pero a la flecha.\nS2: Hola, hola, hola. Mira.\nS2: Porque no, es como si estuviera silenciado, porque no no escucho nada,\nS2: ¿sabes?\nS2: ¿Hola?\nS2: No, o sea, no escucho nada, pero nada de nada, no como si funcionara mal, sino como si como si estuvieras silenciado,\nS2: como si se te silenciara,\nS2: que te pusieras la función de silencio sola.\nS2: ¿Sabes? Es rarísimo.\nS2: A ver. Porque ahora sí, ahora escucho como...\nS2: Ghosting, ¿no? Ghosting.\nS2: GH0STIN\nS2: ¿Hola?\nS2: Hola, hola. Sí. No, no escucho con ninguno ahora.\nS2: No.\nS2: Problema de los cascos.\nS2: No, no, Caro, si los cascos luego funcionan.\nS2: Pues, bloquea la salida, es que eso, bloquea la salida de audio, no tiene ningún sentido, ¿sabes? ¿Tú me estás escuchando a mí?\nS2: Sí.\nS2: ¿Sabes? Que es solo el.\nS2: Claro, ¿por qué coño se bloquea el\nS2: el micro? ¿Ves? Y ahora ha intentado como reconectarse y como...\nS2: ¿Has escuchado?",
+          "latency_sec": 3.477885291002167,
+          "error": null,
+          "confidence": 0.91468315265625,
+          "char_count": 2848,
+          "word_count": 540,
+          "similarity_to_raw": 1.0,
+          "similarity_to_sanitized": 0.16029900332225913
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nHola. Escucho eso? Sí. No. No. No. Ah, Ahora estaba silenciado.\nSPEAKER: channel_2\nAló? Aló? Hola? No me oyes? Yo a ti sí. Yo te escucho perfectamente. Mira a ver que estén conectados en los ojos. No, no. Bien. Los cascos. Que viene el sonido. La salida de sonido. Ahí no. Dale configuración del sitio. Porque lo tienes puesto en automático. Tú a mí no me escuchas. Eso es que está mal puesto. Espera Ahí. Ahí vamos. No. Sí, pero aquí estaba silenciada. Hola. Me escuchan? Bien. Hola. Hola. Hola. Mira que esté bien el micrófono, porque me estaba escuchando cuando estaba cerca. Estoy escuchando. Me escuchas? Bien. Y no se está cortando. Parece. No lo. Más alto. Hola. Qué tal? Hola. Qué tal? Hola. Qué tal tu presentación? No, pero yo no te estoy escuchando. Porque me lo estás escuchando a mí en el teléfono que lo coge desde allí. Yo no estoy escuchando nada. Porque tú me estás escuchando ahora mismo. Por los cascos. Hola. Qué tal? Hola. Qué tal? Hola. Qué tal? Hola. Qué tal? Yo no escucho nada. Será que está cogiendo el sonido desde aquí? Mira. Vale, Habla alto y no se están cortando. Parece que estás escuchándole a él desde aquí. No, a mí no. Aquí. Aquí no has visto? Habla tú ahora. Hola. Hola. Hola. Hola. Hola. Ahora no se escucha. Sí, te escucho a ti. Eso es lo que está. Por qué? La llamada No es que si corta la llamada, es que me dejan de escuchar. Claro, pero hay que. Vamos a ver esto. Vale, Vale. Álvaro. Ya está. Hola. Hola. Hola. Ah, Ajá. Hola. Hola. Y por qué se empieza? Es que. No, no tiene ningún sentido. Que se empieza escuchando y que de repente se deje de escuchar el micrófono. No tiene ningún tipo de sentido. Mira a ver qué micrófono se ve. Si es que se cambia a mitad de llamada. Vamos a dejar la llamada de aquí. Vete a ver, a ver, Habla ahora. Vale. No, dale al micro. Dale al micrófono para la flecha. Hola. Hola. Hola. Mira. Y por qué no es como si estuviera silenciada porque no escucho nada. Sabes? Hola? No. O sea, no escucho nada, pero nada de nada. No como si funcionara mal, sino como si. Como si estuviera silenciado. Como si se te silenciará. Que te pusiera la función de silencio o sola. Sabes? Es rarísimo. A ver. Porque ahora sí. Ahora escucho cómo. Castigo 25GH o s t i n. Hola. Hola. Hola. Hola. Si no escucho con ninguno ahora, no espero nada de los cascos. No, no, Claro. Si los cascos. Luego funciona. El Spotify? Claro. Porque bloquea la salida. Es que eso bloquea la salida de audio. No tiene ningún sentido. Esto. Me estás escuchando a mí? Si Sabes que solo el micro. Claro. Por qué coño se bloquean el micro? Y ahora a intentar como reconectarse. Como has escuchado.",
+          "latency_sec": 23.185115291998954,
+          "error": null,
+          "confidence": null,
+          "char_count": 2645,
+          "word_count": 495,
+          "similarity_to_raw": 0.009844134536505332,
+          "similarity_to_sanitized": 0.009844134536505332
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Aló? Aló ? Hola ? No me oyes? Escucho . Yo a ti sí. Yo te escucho perfectamente. Mira a ver qué esté conectado en los bajos. Sí . No, no. Los cascos. Que viene el sonido. La salida de sonido . Ahí en. No. Dale configuración del sitio . Porque lo tienes puesto en automático. Tú a mí no me escuchas. No . Eso es que está mal puesto . Espera. Ahí, Voy a. Ahora no estamos silenciado. Ah, que estaba silenciada . Vale. Me escuchas? Bien. Hola. Hola. Hola. Mira, que esté bien el micrófono, porque me estaba escuchando cuando estaba cerca . Me escuchas? Bien. Y no se está cortando. Parece . No lo . Más alto . Hola. Qué tal? Hola. Qué tal? Hola. Qué tal? Muchas gracias. Yo no, pero yo no lo estoy escuchando. Porque me lo estás escuchando a mí en el teléfono que lo coge desde allí . Yo no estoy escuchando nada. Porque tú me estás escuchando ahora mismo. Por los cascos . Hola. Qué tal? Hola. Qué tal? Hola. Qué tal? Hola. Qué tal? Yo no escucho nada. Será que está cogiendo el sonido desde aquí ? Mira. Vale. Habla alto Y no se están cortando. Parece . Estás escuchándole a él desde aquí? No a no. Aquí. Aquí. No has visto? Habla tú ahora . Hola. Hola. Hola . A ver . Hola. Ahora no se escucha. Se te escucha a ti. Esa es la Lo que está. El qué? La llamada. No , la llamada. Es que me dejan de escuchar. Claro, pero hay que. Vamos a ver esto. Vale, vale. Álvaro. Ya está . Ahora. Hola. Hola a a. Hola. Hola. Y por qué se empieza? Es que. No, no tiene ningún sentido que se empiece a escuchando y que de repente se se deje de escuchar el micrófono. No tiene ningún tipo de sentido. Mira a ver qué micrófono es. A ver si es que se cambia a mitad de llamada. Vamos a dejar la llamada aquí . Vete a buscar a ver, habla ahora . Vale. No, dale al micro. Dale al micrófono para la flecha. Hola. Hola. Hola. Mira . Y por qué no es como si estuviera silenciado? Porque no. No escucho nada . Sabes ? Hola. No. O sea, no escucho nada, pero nada de nada. No como si funcionara mal, sino como si. Como si estuviera silenciado. Como si se te silenciara que te pusieras la función de silencio sola . Sabes? Es rarísimo . A ver. Porque ahora sí, ahora escucho cómo . Consti No ghosting g h o s t i n s. Hola. Hola. Hola. Hola. Sí. No escucho con ninguno Ahora no . Problema de los cascos ? No, no, claro. Si los cascos luego funcionan . Es Spotify? Claro . Por qué a la salida? Es que bloquea la salida de audio. No tiene ningún sentido. Sabes? Tú me estás escuchando a mí ? Sí. Sabes que solo el micro . Pero por qué coño se bloquea el micro? Es. Y ahora ha intentado como reconectarse y como has escuchado .",
+          "latency_sec": 54.704947917001846,
+          "error": null,
+          "confidence": null,
+          "char_count": 2593,
+          "word_count": 525,
+          "similarity_to_raw": 0.046819970996478145,
+          "similarity_to_sanitized": 0.046819970996478145
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.5948524170016753,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "0f547bf0-0dde-4f2f-883f-4b78ec842373",
+      "source": "vocify_call",
+      "duration_sec": 53.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 599,
+      "reference_sanitized_len": 684,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: ¿Hola, hola?\nS1: Hola.\nS2: Vale, se te escucha bien. Habla It.\nS2: It, habla.\nS1: Habla.\nS2: Hola, hola, hola, Te lo estoy escuchando yo.\nS2: Pero se escucha flojito. Cambia de micrófono ahí en directo.\nS2: Te escucho hasta los clicks.\nS1: No jodas.\nS2: Sí, a ver, también se le puede bajar la sensibilidad,\nS2: pero...\nS2: No, ahí, no, pero ahí no, arriba.\nS1: Este.\nS2: Bueno, vale, pones.\nS1: Hola, hola, hola.\nS2: O ahora sí te escucho mejor, pero, a ver, ¿habláis?\nS1: ¿Pizza, hola?\nS2: ¿Más fuerte? O sea, más seguido.\nS2: Sí, se escucha un montón.\nS2: Se escucha mucho. Con\nS2: los 2.",
+          "latency_sec": 2.0808502079962636,
+          "error": null,
+          "confidence": 0.8927171285714286,
+          "char_count": 595,
+          "word_count": 113,
+          "similarity_to_raw": 0.9957173447537473,
+          "similarity_to_sanitized": 0.9957173447537473
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nHola? Habla. Hola. Hola? Hola. Hola. Hola. Hola. Hola. Hola. Hola. No jodas. Este. Hola. Hola. Hola. Hola. Hola. Hola. Hola. Hola. Hola. Hola. Hola. Hola. Me gusta mucho. Mucho porque.\nSPEAKER: channel_2\nHola. Hola. Te escucho. Bien. Habla. Y habla. Hola. Hola. Hola. Hola. Hola. Hola. Lo estoy escuchando. Yo. Oye, escucha. Flojito, pero cambia de micrófono ahí en directo. Te escucho hasta los clics. Sí. A ver. También se le puede bajar la sensibilidad, pero. No, no, pero ahí no vuelvo arriba. Bueno, vale. Pones. Hola. Bueno, sí, te escucho mejor. Pero a ver. Habláis? Más fuerte. O sea, más seguido. Sí, sí, se escucha un montón. Se escucha mucho. Sale mucho con los dos. Por.",
+          "latency_sec": 14.007581833000586,
+          "error": null,
+          "confidence": null,
+          "char_count": 701,
+          "word_count": 120,
+          "similarity_to_raw": 0.016869728209934397,
+          "similarity_to_sanitized": 0.016869728209934397
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Hola. Hola. Hola . Vale. Se te escucha bien. Habla . Y habla . Hola. Hola. Hola. Hola. Hola. Hola. Hola. Hola. Lo estoy escuchando. Yo os he escuchado flojito, pero cambia de micrófono ahí en directo . Te escucho hasta los clics . No jodas . Sí. A ver. También se le puede bajar la sensibilidad, pero no , no, pero ahí no. Arriba. Este . Bueno, vale. Puede ser . Hola. Hola. Hola. Hola. Se te escucha mejor. Pero a ver, Habláis y se habla . Más fuerte. O sea, más seguido. Hola. Hola. Hola, Hola, Hola. Sí, sí, te escucho un montón. Me escucha mucho. Mucho, mucho. Con los dos. Por.",
+          "latency_sec": 14.635775457994896,
+          "error": null,
+          "confidence": null,
+          "char_count": 582,
+          "word_count": 114,
+          "similarity_to_raw": 0.5820745216515609,
+          "similarity_to_sanitized": 0.5820745216515609
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.6556888329942012,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "56a61a02-5bc5-4ba0-bab4-5a5de43c8c74",
+      "source": "vocify_call",
+      "duration_sec": 49.0,
+      "language": "ca (profile=es,ca)",
+      "channels": 2,
+      "reference_raw_len": 641,
+      "reference_sanitized_len": 754,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Hola?\nS1: Hola?\nS2: Sí, estic\nS1: Sí,\nS1: estic interessat de menjador I\nS2: interessat en menjadors\nS2: I en alguna altra funcionalitat.\nS1: amb alguna altra funcionalitat.\nS2: Ok, I què és el que devia treballar?\nS1: Ok, I què li aclararé jo a través I\nS2: I veure què és el que seria la més intel·ligent.\nS1: veure què és el que seria la més intel·ligència.\nS2: Bé, en veritat m'agradaria fer de tot.\nS1: Bé, en veritat m'agradaria veure tot.\nS2: I m'agradaria poder saber qui quina és l'opció que podem fer servir per això.\nS1: No devia poder treballar amb la funcionalitat de menjadors\nS1: I estem a deu euros per alumne ara mateix.",
+          "latency_sec": 11.26945466700272,
+          "error": null,
+          "confidence": 0.8387570105882353,
+          "char_count": 641,
+          "word_count": 120,
+          "similarity_to_raw": 1.0,
+          "similarity_to_sanitized": 1.0
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nHola. Es usted quien salta, Mayor. Y en alguna otra habitación. Ok. Y qué es lo que le haría? Otra vez? Y ahora que lo dice. Bueno. Me debía poder trabajar en la posibilidad de manejar dos. Y tema de huevos para alumna para mates.\nSPEAKER: channel_2\nHola. Sí. Estoy interesada en mayor y en alguna otra funcionalidad. Ok. Y qué es lo que daría? Otra vez? Y ahora qué? Qué sería lo más inteligente? Bueno, daría para todo. Y me lo daría. Poder saber qué y quién es la opción que podemos empezar. Bien. Por eso.",
+          "latency_sec": 37.31286637500307,
+          "error": null,
+          "confidence": null,
+          "char_count": 528,
+          "word_count": 99,
+          "similarity_to_raw": 0.04234841193455245,
+          "similarity_to_sanitized": 0.04234841193455245
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Hola! Hola ! Si estic interessat en menjadors i en alguna altra funcionalitat . Aquell que ens agradaria . Veure que és el que seria el més intel·ligent . M'agradaria fer de tot . I m'agradaria poder saber quina és l'opció que podem fer servir. Per això . M'agradaria poder treballar amb la funcionalitat de menjadors i estem a 10 euros per alumne. Ara mateix .",
+          "latency_sec": 15.378091667000263,
+          "error": null,
+          "confidence": null,
+          "char_count": 361,
+          "word_count": 66,
+          "similarity_to_raw": 0.5203073545554336,
+          "similarity_to_sanitized": 0.5203073545554336
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.8343223330011824,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "6ff935e4-6e1b-4ead-91bb-df82457e696c",
+      "source": "vocify_call",
+      "duration_sec": 69.0,
+      "language": "es (profile=es,ca)",
+      "channels": 2,
+      "reference_raw_len": 899,
+      "reference_sanitized_len": 1111,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Hola guapo.\nS1: Hola, què tal?\nS2: Malvey, tu?\nS1: Molt bé, què tal, com estàs?\nS2: T'ho bien, aquí estamos.\nS1: Molt bé.\nS2: Què fas guapo?\nS1: Doncs res, estava trucant més que res perquè estava tastajant una cosa del Vocify I t'ha trucat de fet la intel·ligència artificial.\nS2: M'ha trucat la Ye?\nS1: Sí, jo la he fet ja sola.\nS2: Whatefuck com Whatefuck?\nS2: I com ho fet?\nS1: Perjo que sí, tio, vull anar a emprotar un autobús per aquí.\nS2: Que loco, no?\nS1: Sí.\nS2: I I com és el programa o què fa?\nS1: Sí, no es problema,\nS2: Ah, bé, sí, és complicat d'explicar, no? No és per a tontos com jo.\nS1: cap problema.\nS2: Sí. Que guai, Toni.\nS2: I és una cosa nova del teu programa?\nS1: Sí.\nS1: Sí, però ja està guapa ja ja podem penjar si vols.\nS2: Molt bé, entesteado pues.\nS1: Molt bé guapa. T'estimo, gràcies.\nS2: T'estimo, adéu avíssim.\nS1: Adéu, a veure.\nS2: Adéu.",
+          "latency_sec": 9.38145125000301,
+          "error": null,
+          "confidence": 0.8622652628571429,
+          "char_count": 876,
+          "word_count": 175,
+          "similarity_to_raw": 0.7611940298507462,
+          "similarity_to_sanitized": 0.7611940298507462
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nHola. Qué tal? Qué tal? Cómo estás? Hola. Por eso estaba drogado. Más que nada porque estaba atrás en una cosa del boxeo. Y te ha tocado la inteligencia artificial? Sí, la he hecho ya sola. Pues yo qué sé. Ha empezado a sonar tu voz por aquí? Sí. Sí. Sí, sí. Pero ya está, guapa. Ya, ya puede pensarse. Voz. Más guapa. Ya estoy muy. Gracias.\nSPEAKER: channel_2\nHola, guapo. Mal. Y tú? Pues bien, aquí estamos. Quizá es guapo. Madrugar. Laia. Er. Waterfall con what the fuck? Y cómo c. Qué loco, no? Y cómo es el programa o qué? FA. Er. Bueno, sí, es complicado de explicar. No, no es para tontos como yo. Sí. Qué guay, Dani. Y es una cosa no del todo programa. Muy bien testeado. Pues. Lastimo a la bici? Eh.",
+          "latency_sec": 17.825222374995064,
+          "error": null,
+          "confidence": null,
+          "char_count": 727,
+          "word_count": 140,
+          "similarity_to_raw": 0.008626887131560028,
+          "similarity_to_sanitized": 0.008626887131560028
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Hola, guapo. Hola. Qué tal? Muy bien. Y tú? Molt bé. Qué tal? Cómo estás? Pues bien, aquí estamos. Olé ! Qué estás, guapo. Por eso estaba tocando . Más que nada es porque estaba trabajando en una cosa del shofar. Y te ha tocado hacer la inteligencia artificial . Me ha tocado la IA . Sí, tío. La ha hecho ella sola . Whatthefuck con Whatthefuck . Y cómo se . Pues yo que sé, tío. A mí me ha empezado a sonar tu voz por aquí . Qué loco, no? Sí , y. Y cómo es ese programa o qué? FA Si es programa , hermano, Sí, es complicado de explicar. No, no es para tontos como yo . Sí. Qué guay. Toni . Y es una cosa nueva del programa. Sí, pero ya está, guapa. Ya, ya. Podemos poner bots . Muy bien testeado. Pues muy guapa. Gracias, Adri. Guapísimo. Adiós.",
+          "latency_sec": 19.70279791700159,
+          "error": null,
+          "confidence": null,
+          "char_count": 746,
+          "word_count": 154,
+          "similarity_to_raw": 0.10840861709520501,
+          "similarity_to_sanitized": 0.10840861709520501
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.36664920800103573,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "436f6170-edf5-481e-ac8c-fefdd68c02f8",
+      "source": "hubspot_call",
+      "duration_sec": 70.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 1213,
+      "reference_sanitized_len": 1376,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S1: No me dejó el teléfono.\nS2: ¿Hola?\nS1: Pablo.\nS1: Hola,\nS2: Hola, buenas.\nS1: ¿qué tal? ¿Cómo estás?\nS2: Bien, ¿quién eres? Es que no te tengo aquí.\nS1: Soy soy\nS1: Alvaro, que el otro día teníamos una meeting y imagino que se te\nS1: se te pasó lo que sea, luego me volvisteis a llamar, ¿no? Estaba reunido yo, va, el perro y el gato somos.\nS2: Sí. Sí.\nS2: Te mandé por... Hablé\nS1: O el o el gato y el perro.\nS2: contigo ayer o anteayer, te mandé por por teléfono, te hablamos y te mandé por LinkedIn\nS2: el email de la persona a la que te tenías que dirigir, una Goda.\nS2: ¿No te acuerdas?\nS1: Vale, es que he visto, me he metido en su perfil y no\nS1: y no\nS2: No, pero tienes el email, yo tengo...\nS1: y no trabaja allí.\nS2: Goda, Goda es la, sí, hombre, sí que trabaja, es está,\nS1: ¿Sí?\nS2: sí, es la es la dueña además, no solo es la CEO, sí es la dueña de del grupo entero.\nS1: Vale,\nS1: venga, genial.\nS2: ¿Tienes?\nS2: Es\nS2: Goda punto no sé qué arroba LTK Grupo.\nS1: Sí, sí, sí, lo tengo, lo tengo. Lo tengo, perfect. Venga, súper.\nS2: Pues, ese, ese.\nS2: Dile que se lo he dado yo y ya está.\nS1: Vale, genial, Pablo, gracias.\nS2: ¿De acuerdo?\nS2: Venga, nada.\nS1: Hasta luego.\nS2: Hasta\nS2: luego.",
+          "latency_sec": 2.836125957997865,
+          "error": null,
+          "confidence": 0.8859297270270271,
+          "char_count": 1212,
+          "word_count": 252,
+          "similarity_to_raw": 1.0,
+          "similarity_to_sanitized": 1.0
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nNúmeros al teléfono. Pablo. Hola. Qué tal? Cómo estás? Soy. Soy Álvaro. El otro día teníamos un mitin y. Imagino que se te. Se te pasó. Lo que sea. Luego me volvisteis a llamar. No, estaba reunido yo, El perro y el gato. Somos o el gato. O el gato. Y el perro. Papá! Papá! Vale, es que he visto. Me he metido en su perfil y. No. Y no. Y no trabaja allí. Sí. Vale. Venga. Genial. Sí, sí, sí. Lo tengo, Lo tengo, Lo tengo. Perfecto. Venga. Su perro. Vale. Genial, Pablo. Gracias. Hasta luego.\nSPEAKER: channel_2\nHola. Hola. Buenas. Bien. Quién eres? Es que no te tengo aquí. Sí. Sí. Sí. Te mandé por. Hablé contigo ayer o anteayer. Te mandé por. Por teléfono. Te hablamos y te mandé por LinkedIn. El email de la persona a la que te tenías que dirigir una boda. No te acuerdas? No tienes el mes de boda gordo? Sí, hombre, sí que trabajas. Esta es la. Es la dueña. Además, no solo es la CEO. Si es la dueña del grupo entero. Tiene ese punto. No sé qué arroba RTK Grupo. Pues es ese. Dile que te lo he dado yo y ya está. De acuerdo. Venga. Nada. Luego.",
+          "latency_sec": 19.639362250003614,
+          "error": null,
+          "confidence": null,
+          "char_count": 1066,
+          "word_count": 211,
+          "similarity_to_raw": 0.130879345603272,
+          "similarity_to_sanitized": 0.130879345603272
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Hola, Pablo . Hola. Buenas. Hola. Qué tal? Cómo estás ? Bien. Quién eres? Es que no te tengo. Aquí. Soy Álvaro, que el otro día teníamos una meeting y imagino que se te. Se te pasó lo que sea. Luego me volviste a llamar. No estaba reunido . Yo, el perro y el gato. Somos . Te mandé el gato y el perro . Hablé contigo ayer o anteayer. Te mandé por. Por teléfono. Hablamos y te mandé por LinkedIn . El email de la persona a la que te tenías que dirigir una boda. Te acuerdas? Pam, pam, pam, pam. Vale, es que he visto. Me he metido en su perfil y no . Y no, no y no trabaja allí . Gola! Gola es. Sí, hombre, sí que trabaja. Ahí . Esta? Sí, es la. Es la dueña. Además, no solo es la CEO. Sí, es la dueña de del grupo entero. Venga. Genial. Es boda, punto. No sé qué arroba Ltk. Grupo es. Es ese. Venga, súper. Dile que te lo he dado yo y ya está. Vale, genial. Pablo. Gracias. Venga, hasta luego. Venga. Hasta luego.",
+          "latency_sec": 18.85295554199547,
+          "error": null,
+          "confidence": null,
+          "char_count": 913,
+          "word_count": 191,
+          "similarity_to_raw": 0.4932102118413905,
+          "similarity_to_sanitized": 0.4932102118413905
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.35634908299834933,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "27509308-3d0a-47ea-ae4c-5ceb0891cb57",
+      "source": "hubspot_call",
+      "duration_sec": 123.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 2166,
+      "reference_sanitized_len": 2325,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Mira.\nS1: José Juan.\nS2: ¿Quién eres?\nS1: Muy buenos días.\nS2: ¿Quién eres?\nS1: Soy Alvaro\nS1: Granado,\nS1: te llamo de Motor de Ventas, que soy el director de expansión de negocio, pero estuvimos hablando\nS1: hace tiempecito, que te mandaron un correo, no sé si te sitúas.\nS2: No, la verdad es que no me sitúa.\nS1: Bueno, no pasa nada, José Juan. He visto que estás en en OpenHR,\nS1: ¿verdad?\nS2: ¿Sí?\nS1: Bueno, está mirando un poquito ahí que, pues eso, que con vuestra plataforma ayudáis a las organizaciones a digitalizar todo el tema y automatizar todo el tema de procesos,\nS1: pues relacionados\nS1: con con el tema de gestión de talento, los empleados y eso, pues al final\nS1: ahorra mucho tiempo las empresas.\nS1: Y digo, joder, voy a llamar a a José Juan porque nosotros justo desde Motor de Ventas lo que hacemos es ayudar a este tipo de empresas de este sector, estamos muy enfocados en en vuestro sector, estamos ayudándoles a vender más y mejor. Hemos creado un sistema en el cual\nS1: hemos pasado de 0 a 60000000...\nS2: Yo, es que no me no me dedico a ese tema.\nS2: Tendrías que hablar con la gente de sales, de digital sales.\nS1: Vale, tú no te no te encargas de de las ventas, ¿verdad? Vale,\nS2: No, no, no.\nS1: ¿y cómo se llama la persona que se encarga de las ventas?\nS2: Te te puedo dar un correo, porque es un departamento y llevan varios temas, porque hay temas de partner, en fin. Mira, si te pones en contacto con\nS2: MKT arroba Open HR punto cloud.\nS1: Vale,\nS1: vale, la persona\nS1: que se encarga de de esto, ¿se llama?\nS2: Depende de, para lo que sea, mejor manda un correo y ya ellos te contestan, ¿vale?\nS1: ¿De qué depende?\nS1: Vale, ¿no hay una persona en concreto que se encargue de las ventas?\nS2: No, no, depende, porque tenemos para Portugal, para Inglaterra, para\nS2: Italia,\nS2: España,\nS2: es decir, este es de\nS1: Vale, para España.\nS2: partner,\nS2: hay partners,\nS2: no te lo sé decir. Mejor manda un correo y ellos se encargan.\nS1: Vale, ¿el de España me lo podrías decir?\nS2: Ese mismo, que no sé quién es el de España.\nS1: Vale,\nS1: venga, genial. Ok, gracias, hasta luego.\nS2: ¿Vale? Venga, hasta ahora, hasta ahora.",
+          "latency_sec": 2.873081874997297,
+          "error": null,
+          "confidence": 0.9296656675555555,
+          "char_count": 2164,
+          "word_count": 413,
+          "similarity_to_raw": 0.9897341405633061,
+          "similarity_to_sanitized": 0.9857594936708861
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nJosé Juan. Muy buenos días. Soy Álvaro Granado. Te llamo de Motor de Ventas, que soy el director de expansión de negocio que estuvimos hablando Hace tiempecito que te mandaron un correo, No sé si te sitúas. Bueno, no pasa nada. José Juan, he visto que estás en en Open HR verdad? Bueno, está mirando un poquito ahí que Pues eso, que con vuestra plataforma ayudáis a las organizaciones a digitalizar todo el tema y a automatizar todo el tema de procesos. Pues relacionados con el tema de gestión de talento, los empleados y eso pues al final ahorra mucho tiempo las empresas. Y digo voy a llamar a José Juan porque nosotros justo desde motor de ventas lo que hacemos es ayudar a este tipo de empresas, de este sector. Estamos muy enfocados en vuestro sector, estamos ayudándoles a vender más y mejor. Hemos creado un sistema en el cual, eh hemos pasado de 0 a 60 millones. Vale. Tú no te. No te encargas de las ventas, verdad? Ah, vale. Y cómo se llama la persona que se encarga de las ventas? Vale, vale. La persona que se encarga de de esto se llama. De qué depende? Vale, no hay una persona en concreto que se encargue de las ventas. Vale. Para España. Vale. El de España. Me lo podrías decir? Vale, vale. Venga. Genial. Ok, Gracias. Hasta luego.\nSPEAKER: channel_2\nMira. Qué eres? Quién eres? No, la verdad es que no me sitúo. Sí. Yo Es que no me. No me dedico a ese tema. Tendrías que hablar con la gente de seis de Digital Seis. Er, No, no, no. Te puedo dar un correo porque es un departamento y llevan varios temas porque hay temas de partners. En fin. Mira, si te pones en contacto con er, mkt, arroba, open hr, punto cloud. Depende de para lo que sea mejor. Manda un correo y ya ellos te contestan vale. No, no, depende, porque tenemos para Portugal, para Inglaterra, para Inglaterra, Italia, España. Es decir, el tema de partner. ER Hay partners, no te lo sé decir. Mejor manda un correo y ellos se encargan. Ese mismo tema. No sé quién es el de España. Vale, venga. Hasta ahora, Tara.",
+          "latency_sec": 19.117872959002852,
+          "error": null,
+          "confidence": null,
+          "char_count": 2013,
+          "word_count": 375,
+          "similarity_to_raw": 0.41681997371879104,
+          "similarity_to_sanitized": 0.41706161137440756
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Mira, José Juan tiene muy buenos días . Quién eres? Soy Álvaro Granado. Te llamo de Motor de ventas, que soy el director de expansión de negocio que estuvimos hablando hace tiempecito que te mandaron un correo. No sé si te sitúas, No, la verdad es que no me sitúo. Bueno, no pasa nada. José Juan, he visto que estás en en Open HR verdad? Sí, bueno, está mirando un poquito ahí que? Pues eso, que con vuestra plataforma ayudáis a las organizaciones a digitalizar todo el tema y automatizar todo el tema de procesos. Pues relacionados con el tema de gestión de talento, los empleados y eso, pues al final ahorra mucho tiempo. Las empresas. Y digo voy a llamar a José Juan porque nosotros justo desde motor de ventas lo que hacemos es ayudar a este tipo de empresas, de este sector. Estamos muy enfocados en vuestro sector, estamos ayudándoles a vender más y mejor. Hemos creado un sistema en el cual, eh hemos pasado de 0 a 60 millones. No me dedico a ese tema. Eh? Tendrías que hablar con la gente de Seur de Digital seis. Vale, no te encargas de las ventas, verdad? No, no. Um. Vale. Y cómo se llama la persona que se encarga de. Te puedo dar un correo? Porque es un departamento y llevan varios temas. Porque hay temas de partners. En fin. Mira, si te pones en contacto con , Eh. MKT. Arroba open hr , punto com , vale, La persona que se encarga de de esto se llama depende de para lo que sea mejor manda un correo y ya ellos te contestan vale. Vale, no hay una persona en concreto que se encargue de las ventas? Depende, porque tenemos para Portugal, para Inglaterra, para Inglaterra, Italia, España , PA de partners, eh? Hay partners ? No te lo sé decir. Mejor manda un correo y ellos se encargan. Vale. En España me lo podrías decir? Ese mismo. Sí, No sé quién es el de España . Más vale. Venga. Genial. Vale. Ok. Gracias. Hasta luego.",
+          "latency_sec": 33.37574187500286,
+          "error": null,
+          "confidence": null,
+          "char_count": 1839,
+          "word_count": 348,
+          "similarity_to_raw": 0.6450734893848666,
+          "similarity_to_sanitized": 0.6403054267793837
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.3532899589990848,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "affd4e92-33b4-4fbe-80f8-810865291612",
+      "source": "hubspot_call",
+      "duration_sec": 41.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 250,
+      "reference_sanitized_len": 290,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Hola,\nS2: graba tu nombre y el motivo de la llamada, y comprobaré si esta persona está disponible.\nS1: Soy Alvaro.\nS2: Gracias, Alvaro. No cuelgues, por favor.\nS1: Marco, marco, marco, marco, marco, marco.\nS2: Lo siento, pero esta persona no está",
+          "latency_sec": 3.281669124997279,
+          "error": null,
+          "confidence": 0.9500784966666668,
+          "char_count": 250,
+          "word_count": 44,
+          "similarity_to_raw": 1.0,
+          "similarity_to_sanitized": 1.0
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nSoy Álvaro. Marko! Marko! Marko! Marko! Marko! Marko!\nSPEAKER: channel_2\nHola. Graba tu nombre y el motivo de la llamada y comprobaré si esta persona está disponible. Gracias, Álvaro. No cuelgues, por favor. Lo siento, pero esta persona no está.",
+          "latency_sec": 9.422069374995772,
+          "error": null,
+          "confidence": null,
+          "char_count": 264,
+          "word_count": 42,
+          "similarity_to_raw": 0.16037735849056603,
+          "similarity_to_sanitized": 0.16037735849056603
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Hola. Graba tu nombre y el motivo de la llamada y comprobaré si esta persona está disponible. Soy Álvaro . Gracias, Álvaro. No cuelgues, por favor . Marco. Marco! Marco. Marco. Marco. Marco . Lo siento, pero esta persona no está.",
+          "latency_sec": 11.262431292001565,
+          "error": null,
+          "confidence": null,
+          "char_count": 229,
+          "word_count": 41,
+          "similarity_to_raw": 0.9952830188679245,
+          "similarity_to_sanitized": 0.9952830188679245
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.24580045900074765,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "26ef2b66-bb3a-471a-a7a2-df1496fa68ab",
+      "source": "hubspot_call",
+      "duration_sec": 147.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 2764,
+      "reference_sanitized_len": 3006,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S1: Valentín.\nS2: Sí.\nS2: Sí.\nS1: Buenos días por la mañana. Soy\nS2: ¿Quién eres?\nS1: Alvaro,\nS1: de Motor de Ventas, que te mandé un correíto el otro día que estuvimos hablando, hay una buena conversación,\nS1: y dijiste, mándame un correo que lo voy a leer y te voy a contestar. Ahí sigo esperando todavía.\nS1: Valentín, ¿cómo estamos?\nS2: Sí, sí.\nS2: Aquí un poco liado. Estoy contestado porque no sabía quién llamaba.\nS1: Imagino que estarás hasta arriba, por eso el motivo de mi llamada, porque justo ahí es donde quiero ayudarte a a ahorrar tiempo YYA\nS1: que tengas ese ese esa visión de pájaro\nS1: más amplia. ¿Qué tal qué tal estáis, Valentín?\nS2: Sí, lo que\nS2: pasa, hace un día, día que me pasa, yo me me jubilo la semana que viene, entonces, sí está, me hace falta, sí, me hace falta una visión de pájaro ya un poco.\nS1: Ostras, se jubila la semana que viene, entonces, pues, hombre, tendrás tendrás que...\nS1: Bueno, la la vista de de de Pajarín.\nS2: Sí, sí, además me he a estar a a la mierda, pero bueno, pero más al margen,\nS1: ¿Y cómo cómo vas? Ya, ya entiendo, ¿cómo vas a dejar?\nS2: Te voy a pasar el contacto de la mujer que lleva el tema de desarrollo de negocio de la compañía para que contrates con ella, ¿vale?\nS1: Qué bueno.\nS1: Vale, ¿cómo se llama?\nS2: María Eugenia.\nS1: María Eugenia, bueno, y ahora y ahora Valentín que te vas a jubilar,\nS1: para dejar todo bien atado y bien estructurado, para que no te llamen dentro de 2 meses y digas,\nS1: dejarlo bien todo estructurado y que no dependan ya de ti nunca más,\nS1: ¿tenéis ya\nS1: hecho el paso bien o con la persona que me vas a pasar el contacto o?\nS2: Sí, es razonablemente.\nS1: Vale. ¿Cómo cómo se llama?\nS2: Vale, Eugenia.\nS1: Vale, María Eugenia Monti World, ¿no? En Monti World estamos hablando, Leveltech.\nS1: ¿En cuál cuál? Vale, genial. Y su nombre, María Eugenia, ¿y su teléfono es?\nS2: El motivo...\nS2: No me lo, de mañana no lo sé, te lo tendré que buscar. Te paso te paso\nS1: No, venga, sí, mira míralo.\nS2: te paso yo el contacto, contesto algún email o sea, te digo con quién contactar.\nS1: Vale, te he pasado un email. Si quieres, me espero en la llamada y lo buscamos tranquilamente,\nS1: y si tienes alguna duda de de buscar contactos, yo soy un profesional en en todo tema de de teléfonos celulares.\nS2: Te\nS2: la, ya está, si la buscas en LinkedIn la tienes, o sea, que ella va a estar por ahí seguro, localizable.\nS1: Venga,\nS1: genial. Venga, súper, pues...\nS2: Y además tiene teléfono de empresa, o sea, que no tiene un teléfono particular que no lo sabe, no, justo.\nS2: ¿Vale?\nS1: Venga, genial.\nS2: Pero bueno, ya ahora ahora te reenvío el correo con copia allí.\nS1: Vale, súper, Valentín.\nS2: Venga.\nS1: Hasta ahora, chao, chao.\nS2: Adiós, chao.\nS1: Chao, chao.",
+          "latency_sec": 3.0508939159990405,
+          "error": null,
+          "confidence": 0.8923937283018868,
+          "char_count": 2767,
+          "word_count": 528,
+          "similarity_to_raw": 0.9829614604462474,
+          "similarity_to_sanitized": 0.9829614604462474
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nSe le pasa la factura. Valentín. Buenos días por la mañana. Soy Alvaro, de motor de ventas que te mandé un correo. El otro día estuvimos hablando de una buena conversación y dijiste Mándame un correo que lo voy a leer y te voy a contestar. Ahí sigo, esperando todavía. Valentín Cómo estamos? Imagino que estarás hasta arriba por eso el motivo de mi llamada, porque justo ahí es donde quiero ayudarte a ahorrar tiempo y a que tengas ese esa visión de pájaro más amplia. Qué tal? Qué tal estáis? Valentín. Ostras. Te jubilas la semana que viene Entonces? Pues, hombre, tendrás. Tendrás que ver la vista de pájaro. Y cómo. Cómo vas? Ya, ya entiendo. Cómo vas a dejar. Qué bueno. Vale. Cómo se llama? María Eugenia. Bueno. Y ahora ya era Valentín, que te vas a jubilar para dejar todo bien atado y bien estructurado, para que no te llamen dentro de dos meses y digas para dejarlo bien todo estructurado y que no dependan ya de ti nunca más. Tenéis ya hecho el paso bien o con la persona que me vas a pasar el contacto o. Vale, como Cómo se llama? Vale. María Eugenia Monti World No. En mi antiguo estamos hablando del Tech, el cual. Vale. Genial. Y su nombre? María Eugenia. Y su teléfono es. No. Venga. Sí. Mira, míralo. Vale. Te he pasado un email. Si quieres me espero la llamada y lo buscamos tranquilamente. Y si tienes alguna duda de de buscar contactos. Yo soy un profesional en todo tema de teléfonos celulares. Venga. Genial. Venga, súper. Pues. Venga. Genial. Vale. Súper, Valentín. Hasta ahora. Chao, Chao, Chao, Chao.\nSPEAKER: channel_2\nSí. Sí. Quién eres? Hasta aquí, un poco liado. Te he contestado porque no sabía a quién llamaba. Sí, Sí, sé lo que pasa. Muy bien. Qué pasa? Me jubilo la semana que viene. Entonces me hace falta? Sí, Me hace falta una visión de pájaro. Ya. Un poco. De cera. Mamá está hecha una mierda. Pero bueno, bromas al margen. Si te voy a pasar el contacto de la mujer que lleva el tema de desarrollo de negocio de la compañía para que contactes con ella. Vale. Er. María Eugenia. Sí, razonablemente. María Eugenia. Sí. Un auto igual. Um. Um. No me de memoria. No lo sé. Te lo tendría que buscar. Te paso. Te paso. Te paso yo al contacto. Contesta un email o si te digo con quien contacta. Ya que la buscas en LinkedIn, la tienes. O sea que ella va a estar por ahí seguro localizable y además tiene teléfono de empresa, O sea que no tiene un teléfono particular que no sabe. No te lo he visto, Punto. Vale, pero bueno. Y ahora? Ahora te reenvío el correo con copia ya. Venga, Adiós. Chao.",
+          "latency_sec": 20.36507249999704,
+          "error": null,
+          "confidence": null,
+          "char_count": 2541,
+          "word_count": 472,
+          "similarity_to_raw": 0.008988764044943821,
+          "similarity_to_sanitized": 0.008988764044943821
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Pasaba factura a este link que si Valentín si. Buenos días, por la mañana quién eres? Soy Álvaro de motor de ventas que te mandé un correíto. El otro día estuvimos hablando de una buena conversación y dijiste mándame un correo que lo voy a leer y te voy a contestar. Ahí sigo esperando todavía. Valentín. Cómo estamos aquí? Un poco liado. Te he contestado nada, imagino que estarás hasta arriba. Por eso el motivo de mi llamada, porque justo ahí es donde quiero ayudarte a ahorrar tiempo y a que tengas ese, ese esa visión de pájaro más amplia. Qué tal? Qué tal estáis? Valentín ? Muy bien. Yo me jubilo la semana que viene. Ostras! Se jubila la semana que viene. Entonces ? Si hace falta, hombre, tendrás que . Bueno, la la vista de de de Pajarín está hecha una mierda. Pero bueno. Y cómo. Cómo vas? Ya, ya. Cómo vas a dejar el contacto de la mujer que lleva el tema de desarrollo de negocio de la compañía para que contactes con ella? Vale. Vale. Cómo se llama ? Er. María Eugenia. María Eugenia. Bueno. Y ahora? Ya. Ahora. Valentín, que te vas a jubilar para dejar todo bien atado y bien estructurado . Para que no te llamen dentro de dos meses y digas eh, para dejarlo bien todo estructurado y que no dependan ya de ti nunca más. Es Tenéis ya hecho el paso bien o con la persona que me vas a pasar el contacto o si razonablemente vale, Cómo? Cómo se llama? Vale, genial. Vale. María Eugenia Monti World No estamos hablando del Level Tech . En cuál ? Vale, genial. Y su nombre? María Eugenia. Y su teléfono Es María. José. Te lo paso. Te paso yo el contacto. Contesto un email. O sea, te digo con quién contactar. Vale, Te he pasado un email. Si quieres me espero la llamada y lo buscamos tranquilamente y si tienes alguna duda de de buscar contactos. Yo soy un profesional en todo tema de teléfonos celulares . Sí, sí , te la buscas en LinkedIn, la tienes. O sea que ella va a estar por ahí seguro. Venga . Venga, Tiene teléfono de empresa? O sea que no tiene un teléfono particular que no, no lo he visto. Justo. Vale, venga. Genial. Pero bueno, Ahora. Ahora te reenvío el correo. Vale. Valentín , Venga. Hasta ahora. Chao. Chao. Adiós. Chao. Chao, Chao.",
+          "latency_sec": 38.7059105829976,
+          "error": null,
+          "confidence": null,
+          "char_count": 2159,
+          "word_count": 409,
+          "similarity_to_raw": 0.006578947368421052,
+          "similarity_to_sanitized": 0.006578947368421052
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.5839620410042698,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "b944624f-5c87-4e34-9cfd-898677045b38",
+      "source": "vocify_call",
+      "duration_sec": 58.0,
+      "language": "es (profile=es,ca)",
+      "channels": 2,
+      "reference_raw_len": 749,
+      "reference_sanitized_len": 775,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S1: Hola Marc, què tal, com està? Arnau, què tal, com estàs?\nS2: Hola, Marc del Pontano, si no m'agrada.\nS2: Hola, bon dia.\nS1: Bon dia.\nS2: Bon dia. Res, sobre la\nS2: reunió que vam tenir l'altre dia em volia quedar clar una mica\nS2: si\nS2: preferies parlar sobre la funcionalitat de transports,\nS2: una mica més de menjador, no sé què us havia convençut més.\nS1: De la de menjador, si us plau, és la que més m'agradaria parlar.\nS2: Sí, jo crec que és important per vosaltres que que pugueu començar amb això. Bé,\nS2: amb quant... Amb quina etapa educativa voleu començar? És per primària o veieu per secundària també que us quedin a dinar o ja no es queden?\nS1: Estem a primària, ara mateix.\nS2: Val,\nS2: perfecte.\nS2: Doncs\nS2: a part d'això, si necessiteu qualsevol altra cosa anem parlant.\nS1: I a preu per alumnes estem a uns trenta euros ara mateix.\nS2: Sí, perfecte.\nS2: Doncs ho fem així, us envio el pressupost.\nS1: Perfecte.\nS1: Ok, que vagi bé. Gràcies, adéu.\nS2: Adéu.",
+          "latency_sec": 11.737231833001715,
+          "error": null,
+          "confidence": 0.8857173530434782,
+          "char_count": 981,
+          "word_count": 185,
+          "similarity_to_raw": 0.0533515731874145,
+          "similarity_to_sanitized": 0.0533515731874145
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nHola Marc, que tal cosa? Arnau, Què tal? Com estàs? Bon dia! De la del menjador, si us plau, és la que més m'agradaria parlar. Estem a primària ara mateix. I a preu per alumne. Estem a uns 30 euros ara mateix. Perfecte, ok? Que vagi bé! Gràcies a Déu.\nSPEAKER: channel_2\nAparquem al costat de la seva porta al voltant. Hola, bon dia! Res. Sobre la reunió que vam tenir l'altre dia, em volia quedar clar una mica si preferies parlar sobre la funcionalitat de transports una mica més de menjador. No sé què us havia convençut més. Jo crec que és important per vosaltres que pugueu començar amb això. Bé, Amb quina etapa educativa voleu començar més per primària o veieu per secundària? També que es quedin a dinar o ja no es queden? Vale, perfecte. Doncs a part d'això, si necessiteu qualsevol altra cosa, anem parlant. Sí, perfecte. Doncs ho fem així. Us envio el pressupost. Adéu.",
+          "latency_sec": 10.410724333996768,
+          "error": null,
+          "confidence": null,
+          "char_count": 899,
+          "word_count": 162,
+          "similarity_to_raw": 0.0651872399445215,
+          "similarity_to_sanitized": 0.0651872399445215
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "No. Eh. Hola. Qué tal? Qué tal? Cómo estás? Hola. Buen día. Buen día. Buen día . Recobra la sobre la reunión que ha mantenido el otro día en cada club. Ah, sí ? Preferirías hablar sobre la funcionalidad de transporte ? Más de Menjador? No sé qué os había convencido más Menjador Sala es la que más me daría por la . Sí, yo creo que es importante para vosotros que puedo comenzar , Mayor. Bueno, eh . En cuanto a en qué etapa educativa comenzar. Es para primaria o secundaria? Es que ya nos quedan en primaria . Vale . Perfecta. Entonces , a parte de eso, si necesita cualquier otra cosa, me hablan. Y apruebo . Para alumnos. Tema unos 30 €. Sí, Perfecta. Entonces usted me envió el presupuesto. Ok, Gracias .",
+          "latency_sec": 16.08759608400578,
+          "error": null,
+          "confidence": null,
+          "char_count": 708,
+          "word_count": 136,
+          "similarity_to_raw": 0.09905660377358491,
+          "similarity_to_sanitized": 0.09905660377358491
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.34791375000349944,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "0cce3dca-dc47-4675-99d5-a1c5be010428",
+      "source": "hubspot_call",
+      "duration_sec": 204.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 4246,
+      "reference_sanitized_len": 4452,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Sí, dígame.\nS1: ¿Antonio?\nS1: ¿Qué\nS2: Muy buenas, sí.\nS1: tal, Antonio? Buenos días, ¿cómo estamos?\nS2: Buenos días, ¿quién eres? No te tengo aquí.\nS1: Soy soy Alvaro, que estuvimos hablando hace mucho tiempo, que me pasasteis el contacto de de Raúl, de Motor de Ventas, que soy el director de expansión del negocio, no sé si ahora te sitúas.\nS2: Ah, bueno, sí, sí, sí, sí, sí.\nS1: Es que estuve, perdona por la llamada, pero es que estuve hablando con Raúl,\nS1: agendamos una meeting, no se presentó, le volví a llamar el otro día y me dijo, o sea, más que nada porque creo que que que a lo mejor, no sé si... Sé que tú no te encargas de las ventas, ¿vale? Es por es por ver\nS1: si os podemos echar una mano, porque he visto, o sea, tenemos muchos casos de éxito y creo que podemos dar mucho mucho potencial a a la empresa, y, joder, no cuesta nada sentarse 10, 15 minutos,\nS2: Sí.\nS1: ver el problema, el mayor problema que tengáis y ver si tiene, si tiene solución, y, si tiene solución, pues, joder, os vamos a ahorrar mucho tiempo y mucho dinero. O sea, creo que puede tener sentido más que nada por dejar, o sea, por no alargar esto más, si queréis, ¿vale?\nS2: Sí, yo, mira, yo te te digo una cosa, yo a partir de\nS2: de junio o julio dejé de de estar en el cargo de de de administrador de la empresa. Entonces, yo ahora\nS1: Ah.\nS1: Vale.\nS2: hago otras labores, ¿sabes? De proyectos, historias\nS1: Qué bueno.\nS2: y y no llevo nada, o sea, Raúl es la persona que te tiene que dar paso o no, ¿sabes? Ahí yo sé que ya no. Si él no te ha si él no te ha dado paso,\nS1: Ya.\nS1: Ya, ya, pues nada, pues nada, como no me da como...\nS1: Pues si no me da paso, él se lo pierde. Sí, vale, genial, pues... Pues\nS2: pues poco puedo hacerte yo, viejo, ¿sabes? Como te digo, o sea, es que yo ahí ahí no no te puedo ayudar, ¿sabes? No te puedo ayudar, pero de todas maneras, al final, vosotros no no tengo el concepto claro, ¿vosotros qué hacéis? ¿Un software o qué qué es lo que tenéis vosotros?\nS1: perfecto,\nS1: Es que como...\nS1: No, nosotros nos metemos con vosotros en las ventas de la empresa, nos metemos en el barro, porque estamos dándonos cuenta que cuando nos metemos con las empresas estamos viendo muchas muchos bloqueos y muchas fugas en todo el tema de la de la venta. Entonces, en cuanto metemos, lo que hacemos es generar impacto para que esa empresa\nS1: gane dinero,\nS1: y la inversión de motor de ventas deje depender de de de de, o sea, que tengan un sistema en el cual cada comercial, cada persona sepa hacer en cada momento cada cosa, y que tengan unos objetivos y que y y, vamos, a crecer.\nS1: Es un sistema en el cual es predecible y escalable. Hemos generado de 0 a 60000000 en Traxter,\nS2: Sí.\nS1: lo estamos generando ahora mismo en en más de 60 empresas, y ahora estamos con motor de ventas ya, ya con 14 personas en la plantilla.\nS1: Vamos creando ese sistema para arriba, y lo queremos hacer con todas las empresas que creemos que puede tener sentido. Entonces, cuando estuve hablando contigo, Antonio, estuve hablando también con con Raúl, le comenté un poquito, tal, bing, bang, pues, no sé, por por por ver si queréis que os ayudemos o no, es por zanjar el tema o no. O sea, no no te voy a, no...\nS2: Yo, bueno, yo cuando le cuando le vea se lo recordaré, ¿sabes cómo te digo? Le digo yo, mira, han llamado a este chico, digo, y tal, digo, mira a ver si te interesa o no, o lo que sea, que te diga, digo, mira,\nS1: Vale.\nS1: Que que me llame que me llame, que no queremos,\nS1: no que...\nS2: que no nos interesa, ¿sabes cómo te digo? O sea...\nS1: Es importante, Antonio, que sepas que nosotros, o sea, yo no le quiero vender nada a él, yo lo que quiero es, si hay un punto en el cual le pueda ayudar y pueda ganar más dinero, que lo va a ver él, o sea, que lo va lo va lo, o lo va a notar y lo va y lo va a ver con sus propios ojos, ahí es el es el punto en el que yo quiero hacer,\nS2: Sí.\nS1: ¿vale?\nS2: Vale, vale, yo soy, cuando le veo,\nS1: Que me llame lo que sea, yo aquí le...\nS2: se lo diré, a ver si le veo bien, Y y si eso, ya te digo, ¿vale? Venga.\nS1: Venga, súper. Antonio,\nS1: que tengas buen día y buen fin de semana. Hasta luego. Chao, chao.\nS2: Igualmente,\nS2: igualmente.\nS2: Hasta luego, hasta luego.",
+          "latency_sec": 3.1462487079988932,
+          "error": null,
+          "confidence": 0.9274287642857143,
+          "char_count": 4247,
+          "word_count": 855,
+          "similarity_to_raw": 1.0,
+          "similarity_to_sanitized": 1.0
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nAntonio. Qué tal, Antonio? Buenos días. Cómo estamos? Soy. Soy Álvaro, que estuvimos hablando hace mucho tiempo que me pasaste ese contacto de Raúl de motor de ventas, que soy el director de expansión de negocio. No sé si ahora te sitúas, si es que esto te perdona por la llamada, pero es que estoy hablando con Raúl. Er. Agendamos una meeting, No se presentó. Le volví a llamar otro día y me dijo O sea, más que nada porque creo que que a lo mejor no sé si sé que tú no te encargas de las ventas. Vale, es por. Es por ver si os podemos echar una mano, porque he visto tenemos muchos casos de éxito y creo que podemos dar mucho, mucho potencial a la empresa. Y joder, no cuesta nada sentarse diez, 15 minutos, ver el problema, el mayor problema que tengáis y ver si si tiene solución y si tiene solución, pues joder, os vamos a ahorrar mucho tiempo y mucho dinero. O sea, creo que puede tener sentido, más que nada por dejar, sea por no alargar esto más, si creéis, vale. Y por eso yo voy. A. vale. Qué bueno. Ya. Ya. Pues nada. Pues nada. Como no me da de comer. Pues si no me la paso, él se lo pierde. Vale, genial. Pues. Pues perfecto. Es que como. No, nosotros nos metemos con vosotros. Las ventas de la empresa. Nos metemos en el barro porque estamos dándonos cuenta que cuando nos metemos con las empresas estamos viendo muchas, muchos bloqueos y muchas fugas en todo el tema de la de la venta. Entonces, en cuanto metemos lo que hacemos es generar impacto para que esa empresa gane dinero. Y la inversión de motor de ventas deje de depender de que tengan un sistema en el cual cada comercial, cada persona sepa hacer en cada momento cada cosa y que tengan unos objetivos y que vamos a crecer. Es un sistema en el cual es predecible y escalable. Hemos generado de 0 a 60 millones en transfer. Lo estamos generando ahora mismo en más de 60 empresas y ahora estamos con motor de ventas, ya ya con 14 personas en la plantilla vamos creando ese sistema para arriba y lo queremos hacer con todas las empresas que creemos que puede tener sentido. Todo es cuando estoy hablando contigo. Antonio Estuve hablando también con con Raúl, le comenté un poquito tal pim pam. Pues no sé, por por por ver si queréis que os ayudemos o no es por zanjar el tema o no, o sea, no, no te vea, no vale que que me llame, que me llame, que no queremos, no que es importante. Antonio, que sepas que nosotros. Yo no le quiero vender nada a él. Yo lo que quiero es si hay un punto en el cual le puedo ayudar y pueda ganar más dinero, que lo va a ver él, o sea que lo va, lo va, lo lo va a notar y lo va y lo va a ver con sus propios ojos. Ahí es en el punto en el que yo quiero hacer vale, que me llame lo que sea. Yo aquí le. Venga, Súper Antonio, Que tengas buen día y buen fin de semana. Hasta luego. Chao. Chao.\nSPEAKER: channel_2\nSí. Dígame. Muy buena. Sí. Buenos días. Quién eres? No te tengo aquí. Ah, Bueno. Sí. Sí. Sí. Sí. Sí. Sí. Sí. Sí. Yo. Mira, yo te. Te digo una cosa. Yo a partir de de junio. En julio, dejé de de estar en el cargo de de administrador de la empresa. Pues yo ahora hago otras labores, sabes de proyectos e historias y no llevo nada. O sea, Raúl es es la persona que te tiene que dar paso o no sabes ahí yo sé que ya no, si él no te ha, si él no te ha dado paso, pues poco puedo hacerte yo. Hijo, sabes cómo te digo? O sea, es que ya hay ahí. No, no te puedo ayudar, sabes? No te puedo ayudar, pero de todas maneras al final. Votos. No, no tengo el concepto claro. Vosotros que hacéis un software o qué es lo que tenéis vosotros? Si. Um. Um. Um. Yo. Bueno, yo. Cuando le. Cuando le vea, Se lo recordaré. Sabes cómo te digo? Oye, mira. Han llamado este chico y tal. Digo, mira a ver si te interesa o no o lo que sea que te diga. Digo, mira que no nos interesa. Sabes? No te digo. O sea. Si. Vale, vale. Yo cuando le veo, se lo diré. A ver si lo veo hoy y. Y si eso está bien. Vale. Venga. Igualmente. Igualmente. Hasta luego. Hasta luego.",
+          "latency_sec": 9.69802612499916,
+          "error": null,
+          "confidence": null,
+          "char_count": 3964,
+          "word_count": 795,
+          "similarity_to_raw": 0.4437181330892927,
+          "similarity_to_sanitized": 0.4437181330892927
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Sí. Dígame. Antonio. Muy buenas. Sí. Qué tal, Antonio? Buenos días. Cómo estamos? Buenos días. Quién eres? No te tengo aquí. Soy. Soy Álvaro, que estuvimos hablando hace mucho tiempo que me pasaste ese contacto de. De Raúl. De motor de ventas. Que soy el director de expansión de negocio. No sé si ahora te sitúas. Ah, bueno, sí, sí, sí, sí, sí. Es que esto te perdona por la llamada, pero es que estoy hablando con Raúl, eh? Agendamos una meeting, no se presentó. Le volví a llamar al otro día y me dijo más que nada porque creo que que que a lo mejor no sé si sé que tú no te encargas de las ventas. Vale, es por. Es por ver si os podemos echar una mano, porque he visto tenemos muchos casos de éxito y creo que podemos dar mucho, mucho potencial a la empresa y no cuesta nada sentarse diez o 15 minutos, ver el problema. El mayor problema que tengáis y ver si si tiene solución y si tiene solución, pues os vamos a ahorrar mucho tiempo y mucho dinero. Creo que puede tener sentido, más que nada por dejarse por no alargar esto más. Si creéis. Yo Mira, yo te digo una cosa, yo a partir de de junio o julio dejé de de estar en el cargo de de administrador de la empresa, entonces yo ahora hago otras labores, sabes de proyectos, historias y y no llevo nada. O sea, Raúl es es la persona que te tiene que dar paso o no sabes nada. Pues nada , como si él no te ha dado paso . Pues si no me da paso se lo puedo hacerte yo. Hijo. Vale, genial. Sabes que yo . Ahí, ahí no, no te puedo ayudar, sabes? Puedo ayudar. Perfecto. De esta manera, al final vosotros no. No tengo el concepto claro. Vosotros qué hacéis? Un software o qué? Qué es lo que tenéis? Pues nosotros nos metemos con vosotros en las ventas de la empresa. Nos metemos en el barro porque estamos dándonos cuenta que cuando nos metemos con las empresas estamos viendo muchas, muchos bloqueos y muchas fugas en todo el tema de la de la venta. Entonces en cuanto metemos lo que hacemos es generar impacto para que esa empresa gane dinero y la inversión de motor de ventas deje de depender de, de de de, o sea que tengan un sistema en el cual cada comercial, cada persona sepa hacer en cada momento cada cosa y que tengan unos objetivos y que. Y vamos a crecer. Es un sistema en el cual es predecible y escalable. Hemos generado de 0 a 60 millones en Trackster lo estamos generando ahora mismo en más de 60 empresas y ahora estamos con motor de ventas. Ya ya con 14 personas en la plantilla. Vamos creando ese sistema para arriba y lo queremos hacer con todas las empresas que creemos que puede tener sentido. Entonces, cuando estoy hablando contigo, Antonio, estoy hablando también con con Raúl. Le comenté un poquito tal pim pam. Pues no sé , por , por por ver si queréis que os ayudemos o no es por zanjar el tema o no? Yo bueno, yo cuando le vea se lo recordaré, le digo oye, mira , me han llamado que me llame, que me llame si interesa o no, o lo que sea que te digo. Mira que no nos interesa . Antonio, que sepas que nosotros, o sea, yo no le quiero vender nada a él. Yo lo que quiero es si hay un punto en el cual le puedo ayudar y pueda ganar más dinero, que lo va a ver él, o sea que lo va, lo va, lo lo va a notar y lo va y lo va a ver con sus propios ojos. Ahí , en el punto en el que yo quiero hacer. Sí, vale, vale, vale. Yo me llame lo que sea. Yo aquí le se lo diré a ver si le veo . Oye, venga, Súper Antonio. Vale. Venga, Que tengas buen día. Igualmente. Buen fin de semana. Igualmente. Hasta luego. Hasta luego.",
+          "latency_sec": 54.5114014589999,
+          "error": null,
+          "confidence": null,
+          "char_count": 3484,
+          "word_count": 698,
+          "similarity_to_raw": 0.5368144771377262,
+          "similarity_to_sanitized": 0.5368144771377262
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.8223645420002867,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "cd110e5f-6dfd-4bb3-960f-81f650bf2886",
+      "source": "hubspot_call",
+      "duration_sec": 153.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 2919,
+      "reference_sanitized_len": 3129,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Sí.\nS1: Juan Carlos.\nS2: Sí.\nS1: Muy buenos días, ¿cómo estamos?\nS2: ¿Quién eres? Me suena tu voz, pero no te conozco.\nS1: Me, ¿te suena, te suena mi voz?\nS2: Sí.\nS1: Soy el auténtico Alvaro Granado,\nS1: de motor de ventas, de, soy el director de expansión de negocio, que he visto que hemos conectado el LinkedIn,\nS1: y he visto que estás de socio fundador en en Graveset, ¿no?\nS2: No, no, estás equivocado, al final no no no entré en esa opción.\nS1: Ah, ¿ya no estás en Grafenet?\nS2: Bueno, sí, pero eso era una idea que había varios proyectos y ahora mismo, bueno, lo tengo un poco ahí, pero dime, ¿qué es?\nS1: Ajá.\nS1: No, pues, entonces no estás, si no estás en Grafenet, te imagino que tendrás...\nS2: No, no, sí, eso sí, sí, Grafenet estoy, lo que pasa es lo tenemos un poco abandonado, pues, una idea de hacer varios proyectos de inversión.\nS2: Lo que pasa es los proyectos que llevábamos ahí ahora mismo\nS2: dentro de Grafenet con algunos socios que tenía, pues, bueno, eso no\nS2: no llegamos a ningún acuerdo y\nS2: y lo de la inversión, sí, sigo estando ahí un poco, pero un poco un poco parado.\nS1: Claro, es que justo nosotros justo nosotros ayudamos a empresas de este sector a a, les ayudamos a vender más y mejor. Hemos creado un sistema, el único sistema\nS1: en España en el cual hemos generado de 0 a 60000000, lo hemos creado nosotros y lo que estamos haciendo ahora,\nS1: Juan Carlos, es es implementarlo en todo tipo de sectores, estamos creciendo muy rápido, digo, joder, voy a llamar a a Juan Carlos a ver qué tal está gestionando el equipo de ventas.\nS2: No, no, me parece bien. Lo lo que pasa es que ahora mismo no no no creamos, lo dejamos un poco aparte, aparte por alguna diferencia por los socios.\nS1: Sí.\nS2: Sí, y también por el tema de esto de inversión, ya sabes que cuando tiene cierta edad,\nS2: pues ya es como 0 a la izquierda para algunos inversores,\nS1: Ya.\nS1: ¿Qué edad qué edad qué edad tienes, Juan Carlos?\nS2: curiosamente.\nS2: Yo 60\nS2: y y alguno, de vez y cuando alguno, y entonces ya lo, y en algunos\nS1: ¿60 y alguno? Yo tengo 20 alguno.\nS2: y en algunos proyectos, cuando ya llegamos a la parte de la pasta, a la parte financiera,\nS1: Ya.\nS2: pues ya era un problema. Entonces, dijimos, oye, pues si todo esto del trono no está ahí, vamos a invertir y vamos a ver el resultado,\nS2: con lo cual ahora mismo proyectos como tal no, estoy algo, algún proyecto me guste, a lo mejor pequeñas cantidades entro como inversor, pero desarrollar\nS2: proyectos ahora mismo se me quita un poco las las ganas.\nS1: Ya, ya, entiendo, entiendo, entiendo.\nS2: Así que, pues que que os vaya bien y que y que y que funcione, que siga funcionando,\nS1: Con muchísimas\nS1: gracias, Juan Carlos, da gusto, da gusto, da gusto. Bueno,\nS2: Vale.\nS1: que tengas un buen día.\nS2: Venga, un saludo.\nS2: Y lo mismo te digo.\nS1: Hasta lueguito, chao, hasta lueguito, chao, chao.\nS2: Hasta luego, chao.",
+          "latency_sec": 3.739753791000112,
+          "error": null,
+          "confidence": 0.9272166714583333,
+          "char_count": 2919,
+          "word_count": 557,
+          "similarity_to_raw": 0.9988540870893812,
+          "similarity_to_sanitized": 0.9988540870893812
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nJuan Carlos. Muy buenos días. Cómo estamos? Me. Te suena? Te suena mi voz? Soy el auténtico Álvaro Granado de motor de ventas, de ser director de expansión de negocio que he visto que hemos conectado el LinkedIn y he visto que estás de socio fundador en grave, no? Ah, ya no estás en Graph NET? Ajá. No? Pues entonces no estás. Si no estás en la CNT. Imagino que tendrás el. Ok. Claro, es que justo nosotros, justo nosotros ayudamos a empresas de este sector a a les ayudamos a vender más y mejor. Hemos creado un sistema, el único sistema en España en el cual hemos generado de 0 a 60 millones. Lo hemos creado nosotros y lo que estamos haciendo ahora en Juan Carlos es implementarlo en todo tipo de sectores. Estamos creciendo muy rápido. Digo oye, voy a llamar a Juan Carlos a ver qué tal están gestionando el equipo de ventas. Sí. Ya. Qué? Qué edad tienes, Juan Carlos? 60 y alguno más? Yo tengo 20. Alguno? Ya. Ya, ya. Entiendo. Entiendo. Elena. Juan Muchísimas, muchísimas gracias, Juan Carlos. Da gusto. Da gusto, Da gusto. Bueno, que tengas un buen día. Hasta lueguito. Chau. Chau. Chau. Chau.\nSPEAKER: channel_2\nSí. Sí. Quién eres? Me suena tu voz, pero no te conozco. Sí. No, No. Estás equivocado. No, no, No entré en esa opción. Bueno, sí, pero eso era una idea que había varios proyectos. Y ahora mismo tengo un poco ahí. Pero dime qué es. Bueno, sí, eso. Sí. Sí. Esto es lo que pasa. Lo tenemos un poco abandonado. Fue una idea de hacer varios proyectos de inversión. Lo que pasa con los proyectos que llevábamos ahí ahora mismo dentro de Grafana, con algunos socios que tenía, pues bueno, yo no, no llegamos a ningún acuerdo y Y lo de la inversión? Sí, sigo estando ahí un poco, pero un poco, un poco parado por. Una. No, no me parece bien. Lo que pasa es que ahora mismo no. No, no creamos. Lo dejamos un poco parte aparte. Por alguna diferencia por los socios? Sí, y también por el tema de esto de inversión. Ya sabes que cuando tienes cierta edad, pues ya eres como 10A la izquierda para algunos inversores, Curiosamente. Y yo 60 y. Y algunos cuando alguno. Y entonces ya. Y en algunos precios. Y en algunos proyectos. Cuando ya llegamos a la parte de la pasta o la parte financiera, pues ya era un problema. Entonces dijimos Oye, pues si no estáis vamos a invertir y vamos a ver el resultado, con lo cual ahora mismo proyecto como tal, no? Estoy algo algún proyecto que me guste, a lo mejor pequeñas cantidades entro como inversor, pero desarrollar proyectos ahora mismo se me quitó un poco las las ganas. Así que pues que que os vaya bien y que que que funcione y que siga funcionando y. Me vale. Venga, un saludo. Y lo mismo te digo. Hasta luego yo.",
+          "latency_sec": 12.199889666997478,
+          "error": null,
+          "confidence": null,
+          "char_count": 2688,
+          "word_count": 501,
+          "similarity_to_raw": 0.21733256128160586,
+          "similarity_to_sanitized": 0.21733256128160586
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Si Juan Carlos. Sí. Muy buenos días. Cómo estamos ? Quién eres? Me suena tu voz, pero no te conozco. Te suena? Te suena mi voz? Sí. Soy el auténtico Álvaro Granado de motor de ventas de. Soy el director de expansión de negocio que he visto que hemos conectado en LinkedIn y he visto que estás de socio fundador en En grave. No, no, no estoy equivocado. Al final . No, no, no entré en esa opción. Ah, ya no estás en Grafeneck , eh? Bueno, sí, pero eso era una idea que había varios proyectos y ahora mismo lo tengo un poco ahí. Pero dime qué es ? No. Pues. Entonces no estás. Si no estás en Grafeneck, imagino que tendrás. Eso. Sí. Grafeneck. Esto es lo que ahora lo tenemos un poco abandonado. Fue una idea de hacer varios proyectos de inversión. Lo que pasa en los proyectos que llevábamos ahí ahora mismo dentro de Grafeneck, con algunos socios que tenía, pues bueno, eso no, no llegamos a ningún acuerdo y y lo de la inversión, si sigo estando ahí un poco, pero un poco un poco parado, Claro, es que justo nosotros, justo nosotros ayudamos a empresas de este sector , a al les ayudamos a vender más y mejor. Hemos creado un sistema, el único sistema en España en el cual hemos generado de 0 a 60 millones. Lo hemos creado nosotros y lo que estamos haciendo ahora. Juan Carlos es implementarlo en todo tipo de sectores. Estamos creciendo muy rápido, digo voy a llamar a a Juan Carlos, no me parece bien, lo que pasa es que ahora mismo no, no, no creamos, lo dejamos un poco aparte, aparte de por alguna diferencia por los socios. Sí, sí, y también por el tema de esto de inversión. Ya sabes que cuando tienes cierta edad, pues ya eres como 10A la izquierda. Para algunos inversores. Curiosamente, qué edad tienes? Juan Carlos Yo 60 y . Y algunos. Dónde decir cuando alguno 60 y entonces ya yo tengo alguno . Y en algunos proyectos, cuando ya llegamos a la parte de la pasta o la parte financiera, pues ya era un problema. Entonces dijimos oye, pues si esto no estáis , vamos a invertir y vamos a ver el resultado. Con lo cual ahora mismo proyectos como tal no estoy algo, algún proyecto que me guste, a lo mejor pequeñas cantidades, entro como inversor, pero desarrollar proyectos ahora mismo se me quitó un poco las las ganas . Ya entiendo. Así que pues que que os vaya bien y que y que y que funcione y que os siga funcionando . Y muchísimas gracias Juan Carlos. Da gusto , da gusto. Bueno, vale, Que tengas un buen día y lo mismo te digo. Chau, hasta luego. Chao, Chao, chao, chao.",
+          "latency_sec": 40.45594666599936,
+          "error": null,
+          "confidence": null,
+          "char_count": 2486,
+          "word_count": 474,
+          "similarity_to_raw": 0.5883054892601431,
+          "similarity_to_sanitized": 0.5883054892601431
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.4997934169950895,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "4b94647a-3f50-44de-bfde-1cd500911dba",
+      "source": "hubspot_call",
+      "duration_sec": 82.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 1728,
+      "reference_sanitized_len": 1840,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: ¿Sí?\nS1: ¿Álvaro?\nS2: ¿Sí?\nS2: ¿Sí?\nS1: ¿Qué tal, Alvaro? Buenos días. ¿Cómo estamos?\nS2: ¿Tú qué qué? ¿Qué? ¿Qué? ¿Qué? ¿Qué?\nS1: Soy Alvaro, de Motor de Ventas, soy tu tocayo. Soy el director\nS1: de espacio de negocio, de Motor de Ventas. Que he visto que estás estás\nS1: en\nS1: en MA Quad Footets, ¿verdad?\nS2: No, no, no, no, no estoy no estoy entendiendo nada, absolutamente nada, me estás diciendo. ¿Puedes repetir todo, por favor?\nS1: Sí, soy Alvaro Granado,\nS1: soy el director de expansión de negocio de Motor de Ventas, que he visto que estás en foodtech, ¿verdad? Vale,\nS2: Sí.\nS2: Sí, estoy en Follow-up Test. ¿Qué necesitas?\nS1: es que he visto que estáis todo con todo el tema de desarrollo en cuanto a a las empresas, y digo, joder, pues justo nosotros aquí podemos,\nS1: vamos, hemos ayudado a las empresas a vender más y mejor, hemos creado un sistema en el cual hemos generado de 0 a 60000000, Alvaro, y lo que hacemos ahora es implementar esto.\nS2: Vale.\nS2: Escucha, escucha, escucha, escucha, escucha, corta, corta, es que me has pillado, me me me pillas ahora mismo recogiendo a los niños y haciendo un montón de cosas y no es el momento para hablar. ¿Te importa, por favor, llamarme en otro momento?\nS1: Sí, claro. ¿Cuándo te viene mejor, Alvaro?\nS2: Si\nS2: me puedes llamar mañana, por ejemplo, a partir de las 12 y media, me vendría bien mañana.\nS1: Venga, y ya que ya que me has cogido el teléfono, dedicarle 30 segunditos más y si no desaparezco el mapa, más que nada por por aprovechar la llamada, Estás con los peques, ¿no?\nS2: Sí, sí, es que ahora mismo no te puedo atender, por cierto que no te puedo atender.\nS1: Venga, no te preocupes, Alvaro, te llamo mañana, ¿vale?\nS2: Venga.\nS2: Hasta luego.",
+          "latency_sec": 3.152078833001724,
+          "error": null,
+          "confidence": 0.9029906825925926,
+          "char_count": 1731,
+          "word_count": 321,
+          "similarity_to_raw": 0.9970731707317073,
+          "similarity_to_sanitized": 0.9970731707317073
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nÁlvaro. Qué tal, Álvaro? Buenos días. Cómo estamos? Soy Álvaro, de motos. De ventas. Soy tu tocayo. Soy el director de Espacio de negocio del motor de ventas que he visto que estás. Estás en. En EMEA, verdad? Sí. Soy Álvaro Granado. Soy el director de Expansión de negocio de Motor de ventas que he visto que estás en. Verdad? Mira. Vale, es que he visto que estáis todos con todo el tema de desarrollo en cuanto a a las empresas. Y pues justo nosotros aquí podemos. Vamos. Hemos ayudado a las empresas a vender más y mejor. Hemos creado un sistema en el cual hemos generado de 0 a 60 millones. Álvaro Y lo que hacemos ahora es implementar esto. Vale. Sí, claro, cuando te viene mejor. Álvaro. Venga y ya que ya que me has cogido el teléfono, dedicarle 30 segunditos más Y si no desaparezco el mapa más que nada por por aprovechar la llamada, Eh? Estás con los peques? No? Venga, no te preocupes. Yo te llamo mañana. Vale.\nSPEAKER: channel_2\nSí. Sí. Sí. Bien. Y tú que tienes guardado? Eh. No, no, no, no. No sé. No estoy entendiendo nada. Absolutamente nada. Me estás diciendo. Puedo repetir todo, por favor? Sí. Eh. Sí, estoy. Qué necesitas? Vale, escucha, escucha, escucha, escucha, escucha. Corta, corta. Es que me has pillado. Me. Me pillas ahora mismo recogiendo a los niños y haciendo un montón de cosas. Y no es el momento para hablar. Te importa por favor llamarme en otro momento? Sí. Me puedes llamar mañana, por ejemplo, a partir de las 12:30. Me vendría bien mañana. Sí. Sí, sí. Es que ahora mismo no te puedo decir. Lo siento, que no te puedo atender. Venga, Hasta luego.",
+          "latency_sec": 9.491125874999852,
+          "error": null,
+          "confidence": null,
+          "char_count": 1604,
+          "word_count": 293,
+          "similarity_to_raw": 0.35909240381453467,
+          "similarity_to_sanitized": 0.35909240381453467
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Sí . Álvaro. Sí, sí. Qué tal, Álvaro? Buenos días. Cómo estamos? Bien. Y tú que eres de . Yo soy Álvaro, de Moto. De ventas. Soy tu tocayo. Soy el director de Espacio en de motos de ventas que he visto que estás. Está. Estás en. En M quad Foodtech, verdad ? Eh, No, no, no, no, no estoy. No estoy entendiendo nada. Absolutamente nada Está diciendo. Puedes repetir todo, por favor? Sí. Soy Álvaro Granado. Soy el director de Expansión de negocio de motos de ventas que he visto que estás en Foodtech. Verdad ? Eh, sí, estoy en Full text. Qué necesitas? Vale, es que he visto que estáis todo con todo el tema de desarrollo. En cuanto a a las empresas y digo joder, pues justo nosotros aquí podemos. Vamos. Hemos ayudado a las empresas a vender más y mejor. Hemos creado un sistema en el cual hemos generado de 0 a 60 millones. Álvaro Lo que hacemos es escuchar. Escucha, escucha, escucha, corta, corta. Que más me me me pillas ahora mismo recogiendo los niños y haciendo un montón de cosas y no es el momento para hablar. Te importa por favor llamarme en otro momento? Sí, claro. Cuándo te viene mejor? Álvaro ? Sí. Me puedes llamar mañana, por ejemplo, a partir de las 12:30. Me vendría bien mañana. Venga. Y ya que ya que me has cogido el teléfono, dedicarle 30 segunditos más Y si no desaparezco el mapa más que nada por por aprovechar la llamada, eh? Estás con los peques, no? Sí, sí, es que ahora mismo no te puedo atender, lo siento, no te puedo atender, no te preocupes, te llamo mañana. Vale. Hasta luego.",
+          "latency_sec": 23.119291167000483,
+          "error": null,
+          "confidence": null,
+          "char_count": 1511,
+          "word_count": 285,
+          "similarity_to_raw": 0.3977272727272727,
+          "similarity_to_sanitized": 0.3977272727272727
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.30152041699329857,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "1dee85e0-2198-41ce-bd3c-6bc759e2cdd3",
+      "source": "hubspot_call",
+      "duration_sec": 79.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 1358,
+      "reference_sanitized_len": 1491,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Hola.\nS1: Jesús.\nS2: Sí, hola.\nS1: Buenos días.\nS2: Muy buenas.\nS1: ¿Te pillo bien? Que no sé si estás, que, a ver, te escucho muy muy bajito.\nS2: Dime. ¿Qué pasó?\nS1: Ah, ¿qué tal? ¿Cómo estás? Soy Alvaro, de Motor de Ventas, que estuvimos hablando el otro día, que justo te pillé ahí comprando unos billetes, y dijiste, llámame el jueves y comentamos un poco, que vi que estás en en el metrics.\nS2: ¿Quién eres? ¿Quién llama?\nS1: ¿Qué tal? ¿Cómo estáis?\nS1: ¿Funcionando?\nS2: Muy bien, todo muy bien. Perdona, no nos conocemos. ¿Verdad?\nS1: Me alegro, es que justo estamos...\nS1: No, pero es que estamos estamos, o sea, el motivo de mi llamada es porque estamos ayudando a empresas de del sector, igual que la tuya.\nS1: Tenemos muchos casos de éxito\nS1: este punto y digo, joder, voy a llamar a ver qué tal están gestionando el equipo de ventas, por si por si pudiésemos ver un punto de ayuda. ¿Qué tal estáis gestionando el equipo comercial?\nS2: Bueno, pues va todo perfecto, No estamos interesados. Muchísimas gracias.\nS1: Joder, qué bueno, pero ¿no estáis interesados\nS1: en qué?\nS1: Si no te he dicho nada.\nS2: En nada, muchísimas gracias, de verdad, muy amable.\nS1: Por por entenderlo,\nS1: Jesús, un poco, más que nada por por por darle sentido,\nS2: Venga, muy buenos días, no, no estoy interesado, mira. Buenos días,\nS1: Pero dime en qué no estás",
+          "latency_sec": 2.03674595800112,
+          "error": null,
+          "confidence": 0.9396478368,
+          "char_count": 1358,
+          "word_count": 249,
+          "similarity_to_raw": 0.9991673605328892,
+          "similarity_to_sanitized": 0.9991673605328892
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nJesús. Buenos días. Te pillo bien que no sé si estás. Eh. Te escucho muy, muy bajito. Qué tal? Cómo estás? Soy Álvaro, de motor de ventas. Estuvimos hablando el otro día que justo te pillé ahí comprando unos billetes y dijiste Llámame el jueves y comentamos un poco que vi que estás en en el Project Matrix. Qué tal? Cómo estáis funcionando? Me alegro. Es que justo estamos. No, pero es que estamos. Estamos. Er. El motivo de mi llamada es porque estamos ayudando a empresas del sector igual que la tuya. Tenemos muchos casos de éxito en este punto. Y digo, Voy a llamar a ver qué tal están gestionando el equipo de ventas por si. Por si pudiésemos ver un punto de ayuda. Qué tal estáis gestionando equipo comercial? Joder, qué bueno. Pero no estáis interesados en. En qué? Sí. No te he dicho nada. Por. Por entenderlo. Jesús. Un poco más que nada. Por. Por. Por darle sentido. Eh? Pero dime que no estás.\nSPEAKER: channel_2\nHola. Sí. Hola. Muy buenas. Perfecto. Dime qué pasó. Dime. Quién llama? Muy bien. Muy bien. Perdona. No nos conocemos, verdad? Pues nada, todo perfecto. No estamos interesados. Muchísimas gracias. En nada. Muchísimas gracias, de verdad. Señor Gold? Sí. Venga. Muy buenos días. No, no estoy interesado. Buenos días. Chao.",
+          "latency_sec": 9.40189200000168,
+          "error": null,
+          "confidence": null,
+          "char_count": 1264,
+          "word_count": 222,
+          "similarity_to_raw": 0.03942953020134228,
+          "similarity_to_sanitized": 0.03942953020134228
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Hola, Jesús . Sí. Hola. Buenos días . Buenas . Te pillo bien. Que no sé si estás . Te escucho muy, muy bajito . Dime qué pasó. Hola. Qué tal? Cómo estás? Quién llama? Soy Álvaro, de motor de ventas que estuvimos hablando el otro día. Que justo te pillé ahí comprando unos billetes y dijiste. Llame el jueves y comentamos un poco que vi que estás en. En Improving Matrix. Qué tal? Cómo estáis funcionando ? Muy bien. Todo muy bien. Me alegro. Es que justo estamos , verdad? No, pero es que estamos estamos. Es el motivo de mi llamada. Es porque estamos ayudando a empresas del sector igual que la tuya. Tenemos muchos casos de éxito en en este punto. Y digo. Voy a llamar a ver qué tal están gestionando el equipo de ventas por si por si pudiésemos ver ahí un punto de ayuda. Qué tal estáis gestionando el equipo comercial ? Pues está todo perfecto. No estamos interesados. Qué bueno! Pero no estáis interesados en en qué Sí, No te he dicho nada. Muchísimas gracias, de verdad. Muy amable. Por. Por entenderlo. Jesús. Un poco más que nada. Por. Por. Por darle el sentido. Eh? Venga. Muy buenos días. No, no estoy interesado. Pero dime en qué no estás.",
+          "latency_sec": 21.239795749999757,
+          "error": null,
+          "confidence": null,
+          "char_count": 1150,
+          "word_count": 216,
+          "similarity_to_raw": 0.2668977469670711,
+          "similarity_to_sanitized": 0.2668977469670711
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.3425808749962016,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "d064d0e5-d804-4a2b-8634-59d59327b67a",
+      "source": "hubspot_call",
+      "duration_sec": 215.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 3671,
+      "reference_sanitized_len": 3897,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Dígame.\nS1: Ahora yo creo que sí. Jorge.\nS2: Sí, buenos días. Yo te escuchaba bien todo el rato.\nS1: Buenos días. Ahora sí, es que no sé por qué no no iba. ¿Qué tal? ¿Cómo estamos? Buenos días.\nS2: Bien, dime.\nS1: Mira, soy Alvaro Granado, te llamo de Motor de Ventas, que soy el director de expansión de negocio. Que he visto que que eres el CEO en adelante, ¿verdad?\nS2: Era.\nS1: Ah,\nS1: ¿ya no estás ahí?\nS2: No, no.\nS1: ¿Habéis cerrado?\nS2: No, no, este, bueno, tenía otras inquietudes.\nS1: ¿Habéis pasado el?\nS1: Ah, otra, bueno, a quién has a quién has pasado el el cargo? ¿Jorge?\nS2: Sí, tenía otras inquietudes.\nS2: Pues no lo sé quién estará actualmente.\nS1: ¿No\nS1: lo sabes? Vale, bueno.\nS2: Entiendo que en la web lo tiene publicado.\nS1: Vale. ¿Tienes algún otro proyecto ahora en mente o o ya ahora mismo estás en otro punto?\nS2: Estoy en otra en otro momento, sí. Estoy constituyendo yo varias empresas.\nS1: Venga, pues,\nS1: Vale, pues\nS1: estamos en contacto, ¿vale?\nS2: Sí, tú... ¿Eres compañero de Ana?\nS1: Sí.\nS2: Ah, vale, es que me llamó ya el otro día, que es encantadora,\nS1: Sí.\nS2: y y luego yo tuve un problema con el teléfono,\nS2: ¿vale? Mío,\nS2: y no la no la no la podía yo llamar, porque se me colgaba cada 2 por 3. Pero, si eres tan amable, bueno, ella está al tanto de de lo que he estado haciendo en los últimos meses.\nS1: Vale.\nS1: Vale.\nS1: Vale.\nS2: Si eres tan amable, discúlpame\nS2: con ella, y comentarle, bueno, ella está un poco al tanto, hemos constituido yo 2 compañías,\nS1: Sí, unamos, ¿verdad?\nS2: y,\nS2: sí, bueno, una ya era mía hace tiempo, pero hemos constituido otra, y\nS2: y hemos comprado y adquirido un par de ellas más. Entonces, mismo...\nS1: Vale, y...\nS1: Vale, ¿y y ahora tienes tienes equipo comercial en esas empresas 000\nS2: Mi socio y yo,\nS1: no tienes nada?\nS1: Vale. ¿Y y cómo lo tenéis, cómo cómo venden tu equipo comercial?\nS2: mi socio y yo.\nS2: Pues es\nS2: que de momento estamos con temas de al\nS2: al hacer adquisiciones de compañías,\nS2: bueno, pues, temas de registros de\nS2: de abogados y de historia. Entonces, de momento, tenemos la estructura,\nS2: el holding que hemos montado, pero la parte comercial sí que hemos hecho algo, porque nos vienen oportunidades,\nS2: pero las estamos parando.\nS1: ¿Vale?\nS2: Que es un poco lo que le comenté a tu compañera,\nS2: que, en principio, de momento, bueno, pues, la verdad que la mujer es encantadora.\nS2: Pero no necesitamos a día de hoy\nS2: vuestros servicios,\nS2: porque, pues, de alguna manera, la parte comercial la tenemos parada hasta que hasta que tengamos todo,\nS2: bueno, pues, sobre todo con una de las empresas,\nS2: pues es\nS2: es grande y y, claro, no,\nS2: hay que hacer las cosas bien.\nS1: Ya, ya, entiendo, entiendo.\nS1: Bueno, ¿y qué qué qué te hace falta?\nS1: Imagino que\nS1: te hace falta tiempo para para ver eso,\nS1: ¿no?\nS2: Sí, a ver, empecemos, ya hay cosas que tampoco dependen de mí solo, ¿sabes? Son, hay más personas involucradas.\nS1: Vale, súper.\nS1: Vale.\nS2: Pero, insisto, reitérame las disculpas con tu compañera, porque me estuvo llamando la última vez y no, yo qué sé qué coño me ha pasado a mí al, bueno, de hecho, lo tuve que cambiar en teléfono,\nS1: Vale, sí, no te...\nS2: porque me pasó con más personas que decían que no, que luego me llamaban y que estaba pagado, y es verdad que, bueno, ya estaba\nS2: ya estaba trillado el teléfono.\nS2: Entonces, ahora, en principio, pues,\nS2: no debería tener en\nS2: contacto conmigo, ¿vale?\nS1: Vale, tranquilo, yo se lo comunico, ¿vale?\nS2: Muy bien. Pues muchas gracias. Que tengas buen día. Chao.\nS1: Venga, hasta luego. Gracias a ti, Jorge, igualmente. Chao, chao.\nS2: Luego.",
+          "latency_sec": 2.45826979100093,
+          "error": null,
+          "confidence": 0.937328521585366,
+          "char_count": 3673,
+          "word_count": 691,
+          "similarity_to_raw": 0.9976366787458641,
+          "similarity_to_sanitized": 0.9493930316884754
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nAhora? Yo creo que sí. Jorge. Buenos días. Ahora sí. Es que no sé por qué no nos iba. Qué tal? Cómo estamos? Buenos días. Mira, soy Álvaro Granado. Te llamo de Motor de ventas, que soy el director de expansión de negocio que he visto que Que eres el CEO en adelante, Verdad? Ah, ya no estás ahí. Habéis cerrado. Habéis pasado a otra. Bueno, ya que aquí no has pasado el cargo, Jorge. No lo sabes. Vale, bueno, vale. Tienes algún otro proyecto ahora en mente o ya ahora mismo estás en otro punto. Bueno, pues. Vale, pues estamos en contacto. Vale. Sí. Sí. Vale. Vale. Vale. Sí. Unamos. Verdad? Vale, y. Vale. Y. Y ahora tienes. Tienes equipo comercial en esas empresas o no tienes nada? Vale. Y cómo lo tenéis? Cómo? Cómo venden tu equipo comercial? Vale. Ya no entiendo. Bueno. Y qué? Qué? Qué te hace falta? Eh? Imagino que te hace falta tiempo para. Para ver. Eso no vale. Bueno. Vale. Vale. Sí. No te. Preocupes. Vale. Tranquilo. Yo se lo comunico. Vale. Venga. Hasta luego. Gracias a ti, Jorge. Igualmente. Chau. Chau. Chau.\nSPEAKER: channel_2\nDígame. Sí. Buenos días. Yo te escuchaba bien todo el rato. Bien, bien. Dime. Era. No, no. No, no es bueno. Tenía otras inquietudes. Sí, tenía otras inquietudes. Pues no lo sé. Quién estará actualmente? Entiendo que en la web lo tiene publicado. Estoy en otra. En otro momento. Sí. Estoy constituyendo yo varias empresas. Sí. Tú eres compañero de Ana. Ah, vale. Es que me llamó ya el otro día, que es encantadora. Y luego yo tuve un problema con el teléfono mío y no, la. No, la. No la podía yo llamar porque se me colgaba cada dos por tres. Si eres tan amable. Bueno, ya está al tanto de lo que he estado haciendo en los últimos meses. Si eres tan amable, discúlpame con ella y coméntale. Bueno, ya está un poco al tanto. Hemos constituido yo dos compañías y si, bueno, una ya era mía hace tiempo, pero ha constituido otra y y hemos comprado y adquirido un par de ellas más. Entonces, ahora mismo. Mi socio y yo. Mi socio. Pues es que de momento estamos con el tema de las adquisiciones de compañías. Son muchos temas de registros, de de abogados y de historia. Entonces de momento tenemos la estructura, el el holding que hemos montado, pero la parte comercial sí que hemos hecho algo, porque nos vienen oportunidades, pero las estamos parando, que es un poco lo que le comenté a tu compañera, que en principio de momento bueno, pues la verdad que la mujer es encantadora, pero no necesitamos. A día de hoy vuestros servicios, porque todo de una manera. La parte comercial la tenemos parada hasta que hasta que tengamos todo. Bueno, pues sobre todo con una de las empresas pues es una grande. Y claro, no hay que hacer las cosas bien y. Sí, hay cosas que tampoco dependen de mí, solo son. Hay más personas involucradas. Pero insisto, reiteramos las disculpas con tu compañera porque me estuvo llamando la última vez y no yo que sé qué coño me ha pasado a mí. De hecho, lo tuve que cambiar el teléfono porque me pasó con más personas que estén que no, que luego me llamaban y que estaba apagado. Y es verdad que ya estaba, ya estaba trillado el teléfono. Entonces ahora en principio, pues no debería tener que encontrarte conmigo. Vale. Muy bien, pues muchas gracias. Que tengas buen día. Chao. Hasta luego.",
+          "latency_sec": 9.774605124999653,
+          "error": null,
+          "confidence": null,
+          "char_count": 3275,
+          "word_count": 599,
+          "similarity_to_raw": 0.09028771260530917,
+          "similarity_to_sanitized": 0.0903451566724988
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Dígame ahora. Yo creo que si. Jorge . Sí. Buenos días. Buenos días. Ahora sí. Es que no sé por qué no. No iba. Qué tal? Cómo estamos? Buenos días. Bien, bien. Dime. Mira, soy Álvaro Granado. Te llamo de Motor de ventas, que soy el director de Expansión de negocio que he visto que eres el CEO en adelante. Verdad? Era. Ah, ya no estás ahí? No. No habéis cerrado? No, no es . Bueno, tenía otras inquietudes . Ah , bueno, ya que . A quién has pasado el el cargo? Eh, Jorge? Pues no lo sé. Quién estará? No lo sabes? Vale. Entiendo que en la web lo tiene publicado. Vale. Tienes algún otro proyecto en mente o. O Ya. Ahora mismo estás en otro punto. Estoy en otra. En otro momento. Sí . Constituyendo yo varias empresas. Vale, pues . Er. Estamos en contacto. Vale. Sí. Tú eres compañero de Ana. Er, sí . Ah, vale. Es que me llamó ella el otro día, que es encantadora. Sí . Y luego yo tuve un problema con el teléfono. Mío y no, la. No, la. No la podía yo llamar. Vale. Porque se me colgaba cada dos por tres. Entonces, si eres tan amable. Bueno, ya está al tanto de de lo que he estado haciendo en los últimos meses. Vale. Eh , si eres tan amable, discúlpame con ella y coméntale. Bueno, ya está un poco al tanto . Constituido. Yo. Dos compañías. Sí. Verdad? Sí. Bueno, unamos ya hace tiempo, pero constituido otra y y comprado y adquirido un par de ellas más. Vale. Ahora mismo. Y ahora tienes. Tienes equipo comercial en esas empresas o o. No, yo. Vale. Y cómo lo tenéis? Cómo? Cómo venden tu equipo comercial ? Pues. Er. Es que de momento estamos con el tema de Al. Al hacer adquisiciones de compañías, son. Bueno, pues mucha temas de registros de de abogados y de historia. Entonces de momento tenemos la estructura, el el holding que hemos montado, pero la parte comercial sí que hemos hecho algo , porque nos vienen oportunidades, pero las estamos parando , que es un poco lo que le comenté a tu compañera , que en principio, de momento bueno, pues la verdad que la mujer es encantadora, pero no necesitamos a día de hoy vuestros servicios , porque por decirlo de una manera, la parte comercial la tenemos parada hasta que hasta que tengamos todo bueno, sobre todo con una de las empresas, pues es grande y claro, no hay que hacer las cosas bien . Ya, ya, ya entiendo, entiendo. Bueno, y qué? Qué? Qué te hace falta ? Er, Imagino que te hace falta tiempo para para ver eso. No. Sí. A ver, hay cosas que tampoco dependen de mí. Solo . Sabes. Vale. Hay más personas involucradas, Pero insisto. Reiterarle las disculpas junto. Compañera, porque me estuve llamando la última vez y no , yo que sé que coño me ha pasado a mí. Bueno, de hecho lo tuve que cambiar. El teléfono porque me pasó con más personas que están que no, que luego me llamaban y que estaba apagado. Y es verdad que ya estaba, ya estaba trillado el teléfono . Entonces ahora en principio, pues no debería tener más en en contacto conmigo. Vale, vale, tranquilo, yo se lo comunico. Vale. Muy bien. Venga, Hasta luego. Gracias a ti, Jorge. Igualmente. Chao. Chao .",
+          "latency_sec": 60.37404645799688,
+          "error": null,
+          "confidence": null,
+          "char_count": 3028,
+          "word_count": 576,
+          "similarity_to_raw": 0.29029062087186264,
+          "similarity_to_sanitized": 0.29048248512888303
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.49075245799758704,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "4950439f-5baf-4fbb-9fd0-48f619ce1cd1",
+      "source": "hubspot_call",
+      "duration_sec": 99.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 726,
+      "reference_sanitized_len": 776,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Hola, ¿qué tal?\nS2: Oigo más ruido.\nS2: Ahora, hola.\nS2: Hola, ¿qué tal?\nS2: Hola, ¿me oyes?\nS2: Sí, sí, me estás oyendo.\nS2: Hola, buenas.\nS2: ¿Quién es?\nS2: Yo\nS2: no te oigo la mierda.\nS1: Está puesto...\nS1: ¿Hola?\nS2: Sí,\nS2: hola.\nS1: Hola, ¿qué tal?\nS2: El principio no te lo coge.\nS1: ¿Hola?\nS2: ¿Hola?\nS1: Ahora sí.\nS1: Sí, Miguel, no me lo coge.\nS2: Escucho la mitad de tus frases, solo la parte final.\nS2: Vale.\nS2: Fatal.\nS2: Súper.\nS2: Ah.\nS2: Ah, pues estaba pidiendo el ordenador, ¿o qué?\nS2: Ahora nada.\nS1: Ahora sí.\nS2: Ahora sí.\nS1: Ahora sí.\nS2: Ahora sí.\nS2: Yes, every everyday in the moment.\nS1: Every day in the morning at at\nS1: behind the most go.\nS1: Venga, hasta luego.\nS2: Sí, obvio. Chao.",
+          "latency_sec": 4.9992695420005475,
+          "error": null,
+          "confidence": 0.8905953794444444,
+          "char_count": 721,
+          "word_count": 144,
+          "similarity_to_raw": 0.9952061361457335,
+          "similarity_to_sanitized": 0.9952061361457335
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nHola. No estás apuesto. Hola. Hola. Qué tal? Hola. Ahora, si me quedo, no me lo coge. Hola. Qué tal? Ahora? Sí. Ahora Sí. Adiós. Tommy Every day in the morning a hat behind the musgo. Venga. Hasta luego.\nSPEAKER: channel_2\nHola. Qué tal? Oigo más ruido. Ahora. Hola. Hola. Qué tal? Hola. Me oyes? Sí, Sí. Me estás oyendo? Hola. Buenas. Quién es? Qué malo. Yo no te debo una mierda. No, está bien. Hola? Sí. Hola. Bueno, el principio no te lo coge. Hola. No te escucho. La mitad de tus frases. Sólo la parte final. Vale. Fatal. Súper. Ah, bueno. Está pidiendo el ordenador o qué? Ahora nada. Ahora Sí. Ahora sí. Yes. Every every day in the moment. Ah. Sí. Adiós. Chao.",
+          "latency_sec": 19.850017791999562,
+          "error": null,
+          "confidence": null,
+          "char_count": 686,
+          "word_count": 128,
+          "similarity_to_raw": 0.12153708668453976,
+          "similarity_to_sanitized": 0.12153708668453976
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Hola. Qué tal ? Oye. Cómo haces ruido ? Ahora. Hola . Hola. Qué tal ? Hola. Me oyes ? Sí, Sí. Me estás oyendo ? Sí . Hola. Buenas . Quién es ? Yo no tengo una mierda . No ha puesto . Hola? Sí, Hola. Hola. Qué tal? Buah. El principio no te lo coge . Hola . Hola. Ahora sí . Sí. Micro No me lo coge . Escucho la mitad de tus frases. Solo la parte final . Hola . Qué tal ? Muchas gracias. Vale, Vale . Súper . Er , a estar repitiendo el ordenador o qué ? Ahora nada. Ahora Sí, Ahora Sí, Ahora Sí. Ahora. Sí. Ahora . You listen to me. Yes. Every day in every day in the morning at behind the musgo . Venga. Hasta luego. Chao.",
+          "latency_sec": 28.830534792003164,
+          "error": null,
+          "confidence": null,
+          "char_count": 621,
+          "word_count": 138,
+          "similarity_to_raw": 0.04668534080298786,
+          "similarity_to_sanitized": 0.04668534080298786
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 1.0456642919962178,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "03bb75b3-e1a9-4424-a508-caab13b95b4b",
+      "source": "hubspot_call",
+      "duration_sec": 51.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 526,
+      "reference_sanitized_len": 633,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Dígame.\nS1: Jorge.\nS2: ¿De parte de quién?\nS1: Soy Alvaro,\nS1: de Motor de Ventas. ¿Me escuchas bien?\nS2: Te escucho, te escucho.\nS1: ¿Me escuchas, Jorge?\nS2: Te escucho.\nS1: Ya te di superbajo, dame un segundito, a ver, a ver, a ver ahora.\nS2: Te escucho, te escucho bien.\nS1: No, todo fatal.\nS2: ¿Ahora?\nS1: Problema de de la cobertura, espera, que me voy mover un poquito.\nS1: A ver, ahora, Jorge, ¿ahora sí?\nS2: Te escucho bien desde todo el rato, sí.\nS1: Voy a volver AAA\nS1: llamarte, yo no te escucho del código.",
+          "latency_sec": 2.3177358749962877,
+          "error": null,
+          "confidence": 0.9604355182352942,
+          "char_count": 523,
+          "word_count": 101,
+          "similarity_to_raw": 1.0,
+          "similarity_to_sanitized": 0.9976190476190476
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nJorge. Soy Álvaro. De motor de ventas. Me escuchas? Bien? Me escuchas, Jorge? Escucha, ya tienes súper bajo. Dame un segundito. Ves? A ver. A ver. Ahora. No puedo sacar. Ningún problema de de la cobertura. Para que me voy a mover un poquito. A ver, ahora, Jorge. Ahora Sí. Um. Voy a volver a A a llamarte. Yo no te escucho del todo.\nSPEAKER: channel_2\nDígame. De parte de quién? Te escucho. Te escucho. Te escucho. Te escucho. Te escucho. Bien. Ahora. Te escucho bien todo el rato? Si.",
+          "latency_sec": 13.523891040997114,
+          "error": null,
+          "confidence": null,
+          "char_count": 504,
+          "word_count": 92,
+          "similarity_to_raw": 0.17736289381563594,
+          "similarity_to_sanitized": 0.17777777777777778
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Dígame , Jorge , de parte de quién ? Soy Álvaro, de motor de ventas. Me escuchas bien ? Te escucho, te escucho. Me escuchas? Jorge? Te escucho . Ya tienes súper bajo. Dame un segundito . A ver. A ver. Ahora . Te escucho, Te escucho bien . No te oigo fatal. Ahora . Un problema de. De la cobertura. Para que me voy a mover un poquito . A ver ahora, Jorge. Ahora sí te escucho bien desde. Todo el rato. Sí . Um. Voy a volver a A a llamarte. Que No te escucho. El poder.",
+          "latency_sec": 15.107953917002305,
+          "error": null,
+          "confidence": null,
+          "char_count": 467,
+          "word_count": 99,
+          "similarity_to_raw": 0.7703180212014135,
+          "similarity_to_sanitized": 0.7744982290436836
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.3254995829993277,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    },
+    {
+      "memo_id": "102108c1-7474-43b1-bda9-da0fa4a6c6bc",
+      "source": "hubspot_call",
+      "duration_sec": 31.0,
+      "language": "es (profile=es)",
+      "channels": 2,
+      "reference_raw_len": 166,
+      "reference_sanitized_len": 188,
+      "production_provider": "deepgram",
+      "results": {
+        "deepgram_nova3": {
+          "provider": "deepgram_nova3",
+          "text": "S2: Graba tu nombre y el motivo de la llamada, y comprobaré si esta persona está disponible.\nS1: No sé por qué no suena, tío.\nS2: Gracias.\nS2: No cuelgues, por favor.",
+          "latency_sec": 3.6292506669997238,
+          "error": null,
+          "confidence": 0.9583418674999999,
+          "char_count": 166,
+          "word_count": 32,
+          "similarity_to_raw": 1.0,
+          "similarity_to_sanitized": 1.0
+        },
+        "speechmatics_batch": {
+          "provider": "speechmatics_batch",
+          "text": "SPEAKER: channel_1\nNo sé por qué no suena a ti.\nSPEAKER: channel_2\nGraba tu nombre y el motivo de la llamada y comprobaré si esta persona está disponible. Gracias. No cuelgues, por favor.",
+          "latency_sec": 12.723495542006276,
+          "error": null,
+          "confidence": null,
+          "char_count": 187,
+          "word_count": 33,
+          "similarity_to_raw": 0.8055555555555556,
+          "similarity_to_sanitized": 0.8055555555555556
+        },
+        "speechmatics_rt": {
+          "provider": "speechmatics_rt",
+          "text": "Graba tu nombre y el motivo de la llamada y comprobaré si esta persona está disponible . No sé por qué no suena a ti . Gracias. No cuelgues, por favor .",
+          "latency_sec": 13.941243125002075,
+          "error": null,
+          "confidence": null,
+          "char_count": 152,
+          "word_count": 32,
+          "similarity_to_raw": 0.9861111111111112,
+          "similarity_to_sanitized": 0.9861111111111112
+        },
+        "gemini_3_5_transcribe": {
+          "provider": "gemini_3_5_transcribe",
+          "text": "",
+          "latency_sec": 0.5788629579983535,
+          "error": "OpenRouter 402: {\"error\":{\"message\":\"This request requires at least $0.50 in balance for audio\",\"code\":402,\"metadata\":{\"limit_source\":\"openrouter_credits\",\"remedy_hint\":\"Add credits at https://openrouter.ai/settings/credits, or lower max_tokens / prompt size to fit your remaining balance.\"}}}",
+          "confidence": null,
+          "char_count": 0,
+          "word_count": 0,
+          "similarity_to_raw": null,
+          "similarity_to_sanitized": null
+        }
+      }
+    }
+  ]
+}

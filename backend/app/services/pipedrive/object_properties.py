@@ -18,6 +18,9 @@ def _nonempty_props(props: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+_RESOLVED_IDS = {"stage_id", "pipeline_id", "org_id", "person_id"}
+
+
 def deal_properties_from_extraction(
     extraction: MemoExtraction,
     mapped: dict[str, Any],
@@ -27,6 +30,10 @@ def deal_properties_from_extraction(
     props = dict(mapped)
     for key, value in raw.items():
         if key in {"contact_properties", "company_properties", "line_items", "confidence", "summary", "nextSteps"}:
+            continue
+        # A stage, pipeline, person or organization already resolved to its Pipedrive id keeps that id
+        # (the review's raw value is its text form, e.g. the stage the rep confirmed).
+        if key in _RESOLVED_IDS and key in mapped:
             continue
         if value is not None and value != "":
             props[key] = value

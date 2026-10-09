@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { CALL_STATES } from "./dial-target.ts";
+import { productCatalog } from "./product-catalog.ts";
 import {
   fetchVoiceTokenAfterRingback,
   mapTelnyxCallState,
@@ -18,11 +19,10 @@ import {
   isVoiceSdkGeneralError,
   isVoiceAccessTokenError,
   userFacingCallError,
-  connectWithVoiceTokenRecovery,
-  applyVoiceTokenRefresh,
-  CALL_ERROR_TOKEN_STALE,
-  CALL_ERROR_EXTENSION_RESTARTED,
+  callErrorStart,
 } from "./dial-session.ts";
+
+const callCopy = productCatalog.ES;
 
 describe("voiceClientFromToken", () => {
   it("uses Telnyx when the token says telnyx", () => {
@@ -91,11 +91,18 @@ describe("telnyxNewCallOptions", () => {
 
 describe("dispositionMessage", () => {
   it("maps carrier dispositions to the dialer toast copy", () => {
-    assert.equal(dispositionMessage("busy"), "Ocupado");
-    assert.equal(dispositionMessage("no_answer"), "Sin respuesta");
-    assert.equal(dispositionMessage("canceled"), "Llamada cancelada");
-    assert.equal(dispositionMessage("failed"), "Llamada fallida");
-    assert.equal(dispositionMessage("connected"), null);
+    assert.equal(dispositionMessage("busy", callCopy), callCopy.callBusy);
+    assert.equal(dispositionMessage("no_answer", callCopy), callCopy.callNoAnswer);
+    assert.equal(dispositionMessage("canceled", callCopy), callCopy.callCanceled);
+    assert.equal(dispositionMessage("failed", callCopy), callCopy.callFailed);
+    assert.equal(dispositionMessage("connected", callCopy), null);
+  });
+});
+
+describe("callErrorStart", () => {
+  it("returns the catalog start-call message", () => {
+    assert.equal(callErrorStart(callCopy), callCopy.callStartFailed);
+    assert.equal(callErrorStart(productCatalog.EN), productCatalog.EN.callStartFailed);
   });
 });
 
@@ -115,109 +122,16 @@ describe("isCarrierHangupError", () => {
   });
 });
 
-function tokenExpired() {
-  const error = Object.assign(new Error("AccessTokenExpired"), { code: 20104 });
-  return error;
-}
-
-describe("connectWithVoiceTokenRecovery", () => {
-  it("retries 20104 with a freshly minted JWT and a new Device", async () => {
-    const attempts: { token: string; forceNew: boolean }[] = [];
-    const call = await connectWithVoiceTokenRecovery({
-      token: "stale",
-      connect: async (token, forceNew) => {
-        attempts.push({ token, forceNew });
-        if (attempts.length === 1) throw tokenExpired();
-        return { sid: "CA1" };
-      },
-      remint: async () => "fresh",
-    });
-    assert.equal(call.sid, "CA1");
-    assert.deepEqual(attempts, [
-      { token: "stale", forceNew: false },
-      { token: "fresh", forceNew: true },
-    ]);
-  });
-
-  it("does not remint a carrier hangup", async () => {
-    let reminted = 0;
-    await assert.rejects(
-      connectWithVoiceTokenRecovery({
-        token: "ok",
-        connect: async () => {
-          throw Object.assign(new Error("hangup"), { code: 31005 });
-        },
-        remint: async () => {
-          reminted += 1;
-          return "fresh";
-        },
-      }),
-      /hangup/,
-    );
-    assert.equal(reminted, 0);
-  });
-
-  it("does not remint twice when the fresh JWT also expires", async () => {
-    let reminted = 0;
-    await assert.rejects(
-      connectWithVoiceTokenRecovery({
-        token: "stale",
-        connect: async () => {
-          throw tokenExpired();
-        },
-        remint: async () => {
-          reminted += 1;
-          return "still-stale";
-        },
-      }),
-      /AccessTokenExpired/,
-    );
-    assert.equal(reminted, 1);
-  });
-});
-
-describe("applyVoiceTokenRefresh", () => {
-  it("pushes a new JWT onto the live Device", async () => {
-    const applied: string[] = [];
-    let destroyed = false;
-    await applyVoiceTokenRefresh({
-      remint: async () => "fresh",
-      apply: (token) => applied.push(token),
-      onFailure: () => {
-        destroyed = true;
-      },
-    });
-    assert.deepEqual(applied, ["fresh"]);
-    assert.equal(destroyed, false);
-  });
-
-  it("destroys the Device when minting fails so the next click starts clean", async () => {
-    const applied: string[] = [];
-    let destroyed = false;
-    await applyVoiceTokenRefresh({
-      remint: async () => {
-        throw new Error("session expired");
-      },
-      apply: (token) => applied.push(token),
-      onFailure: () => {
-        destroyed = true;
-      },
-    });
-    assert.deepEqual(applied, []);
-    assert.equal(destroyed, true);
-  });
-});
-
 describe("userFacingCallError", () => {
   it("rewrites Twilio AccessTokenExpired instead of showing the SDK string", () => {
     assert.equal(isVoiceAccessTokenError({ code: 20104, message: "AccessTokenExpired" }), true);
     assert.equal(
-      userFacingCallError({ code: 20104, message: "AccessTokenExpired" }),
-      CALL_ERROR_TOKEN_STALE,
+      userFacingCallError({ code: 20104, message: "AccessTokenExpired" }, callCopy),
+      callCopy.callTokenStale,
     );
     assert.equal(
-      userFacingCallError("worker service not working"),
-      CALL_ERROR_EXTENSION_RESTARTED,
+      userFacingCallError("worker service not working", callCopy),
+      callCopy.callExtensionRestarted,
     );
   });
 });
@@ -239,15 +153,15 @@ describe("isVoiceSdkGeneralError", () => {
 
 describe("telnyxHangupMessage", () => {
   it("maps SIP 486 / Q.850 17 to Ocupado", () => {
-    assert.equal(telnyxHangupMessage({ sipCode: 486 }), "Ocupado");
-    assert.equal(telnyxHangupMessage({ causeCode: 17 }), "Ocupado");
-    assert.equal(telnyxHangupMessage({ cause: "USER_BUSY" }), "Ocupado");
-    assert.equal(telnyxHangupMessage({ hangupCause: "USER_BUSY" }), "Ocupado");
+    assert.equal(telnyxHangupMessage({ sipCode: 486 }, callCopy), callCopy.callBusy);
+    assert.equal(telnyxHangupMessage({ causeCode: 17 }, callCopy), callCopy.callBusy);
+    assert.equal(telnyxHangupMessage({ cause: "USER_BUSY" }, callCopy), callCopy.callBusy);
+    assert.equal(telnyxHangupMessage({ hangupCause: "USER_BUSY" }, callCopy), callCopy.callBusy);
   });
 
   it("returns null for a normal hangup", () => {
-    assert.equal(telnyxHangupMessage({ sipCode: 200, causeCode: 16 }), null);
-    assert.equal(telnyxHangupMessage(null), null);
+    assert.equal(telnyxHangupMessage({ sipCode: 200, causeCode: 16 }, callCopy), null);
+    assert.equal(telnyxHangupMessage(null, callCopy), null);
   });
 });
 

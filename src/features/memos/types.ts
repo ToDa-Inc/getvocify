@@ -5,6 +5,7 @@
  */
 
 import type { ID, ISODateString, Nullable } from '@/shared/types/common';
+import type { Channel } from '@/lib/interactions';
 
 // ============================================
 // STATUS TYPES
@@ -193,9 +194,17 @@ export interface Memo {
   hubspotDealId?: Nullable<string>;
   /** Dialer screening result for vocify_call memos */
   screeningOutcome?: Nullable<ScreeningOutcome>;
+  /** Capture channel: call, meeting or visit */
+  interactionKind?: Nullable<string>;
+  /** Interaction type: a playbook key, a custom key or the reserved `internal` */
+  salesMotionKey?: Nullable<string>;
+  /** What the rep typed while the meeting recorded (desktop). */
+  userNotes?: Nullable<string>;
 
   /** Per-run STT / sanitize / extract timings and LLM prompt snapshots */
   pipelineMeta?: Nullable<PipelineMeta>;
+  /** Attendees of a meeting (when interactionKind is "meeting") */
+  attendees?: Array<{ name: string | null; email: string | null }>;
 }
 
 export interface PipelineMeta {
@@ -242,6 +251,10 @@ export interface MemoFilters {
   scope?: 'me' | 'company';
   /** When scope is company, limit to this teammate */
   authorUserId?: string;
+  /** Limit to one channel */
+  interactionKind?: Channel;
+  /** Limit to one interaction type */
+  salesMotionKey?: string;
 }
 
 /**
@@ -307,6 +320,34 @@ export interface FieldEditState {
   isDirty: boolean;
   /** Confidence score for this field */
   confidence: number;
+}
+
+/** skipped: the rep chose not to send it; it leaves every pending list. */
+export type FollowupStatus = "generating" | "ready" | "sent" | "unavailable" | "skipped";
+
+export interface FollowupView {
+  status: FollowupStatus;
+  recipientName?: string | null;
+  to?: string;
+  phone?: string;
+  subject?: string;
+  body?: string;
+  /** "vocify_email" is D9: sent from Vocify via Resend (FOLLOWUP_SEND_ENABLED). */
+  channel?: "email" | "whatsapp" | "vocify_email";
+}
+
+export interface FollowupActionPayload {
+  action: "sent" | "copied";
+  channel: "email" | "whatsapp";
+  subject: string;
+  body: string;
+}
+
+/** D9: send the reviewed draft from Vocify (FOLLOWUP_SEND_ENABLED). */
+export interface FollowupSendPayload {
+  to: string;
+  subject: string;
+  body: string;
 }
 
 

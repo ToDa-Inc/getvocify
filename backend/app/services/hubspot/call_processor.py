@@ -25,8 +25,11 @@ from app.services.hubspot.calls import (
     download_recording,
     get_call_associations,
     get_call_engagement,
+    parse_call_summary,
     parse_hubspot_timestamp_ms,
 )
+from app.services.captures import interaction_kind_for, pin_playbook_on_row, with_author_company
+from app.services.live_calls.linking import link_desktop_call
 from app.services.hubspot.client import HubSpotClient
 from app.services.session_entities import build_page_terms
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
@@ -81,6 +84,20 @@ async def initiate_hubspot_call_memo(
     d = deals[0] if deals else None
     ct = contacts[0] if contacts else None
 
+    if contacts:
+        # The rep may have recorded this call on the desktop already: reuse that
+        # memo instead of transcribing the same conversation twice.
+        try:
+            engagement = await get_call_engagement(client, cid)
+        except Exception as e:
+            logger.warning("Desktop call linking skipped for %s: %s", cid, e)
+            engagement = None
+        if engagement:
+            summary = parse_call_summary(engagement)
+            linked = link_desktop_call(supabase, user_id, summary, [str(c) for c in contacts])
+            if linked:
+                return linked, False
+
     logger.info(
         "HubSpot call associations resolved",
         extra=log_domain(DOMAIN_MEMO, "hubspot_call_associations",
@@ -93,13 +110,14 @@ async def initiate_hubspot_call_memo(
         "audio_duration": 0.0,
         "status": "transcribing",
         "source": "hubspot_call",
+        "interaction_kind": interaction_kind_for("hubspot_call", None, None),
         "hubspot_engagement_id": cid,
         "hubspot_deal_id": str(d) if d else None,
         "hubspot_contact_id": str(ct) if ct else None,
         "processing_started_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
-        ins = supabase.table("memos").insert(row).execute()
+        ins = supabase.table("memos").insert(pin_playbook_on_row(supabase, with_author_company(supabase, row))).execute()
     except Exception as insert_exc:
         # Lost a race against a redelivered HubSpot webhook for the same
         # call_id (unique index from migration 009) - the other request

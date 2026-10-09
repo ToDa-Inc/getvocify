@@ -46,6 +46,7 @@ import {
 import {
   applyTranscriptUpdate,
   canStartTabCapture,
+  classifyTabCaptureUrl,
   isListenEpochCurrent,
   listenFailureReason,
   listenReasonFromOffscreenError,
@@ -55,13 +56,9 @@ import {
   tabCaptureOffscreenReasons,
 } from './lib/tab-capture.js';
 import { TurnDetector } from './lib/turn-detector.js';
-import {
-  DEFAULT_PRODUCT_CONTEXT,
-  PRODUCT_CONTEXT_STORAGE_KEY,
-} from './lib/copilot-sse.js';
 import { COPILOT_CHANNEL_MODE, isCoachableChannel } from './lib/stt-channels.js';
 import { mergeSessionVocab } from './lib/session-vocab.js';
-import { apiBaseToWsOrigin } from './lib/api-base.js';
+import { apiBaseToWsOrigin, isUnpackedExtension, resolveApiBase } from './lib/api-base.js';
 import { actionsForCommand } from './lib/hotkey.js';
 import { reviewMemoIfCurrent, slimReviewMemo } from './lib/review-screen.js';
 import { reviewIdsFromMemo } from './lib/memo-identity.js';
@@ -74,8 +71,25 @@ import {
   setCachedPreview,
   setInflightPreview,
 } from './lib/preview-cache.js';
+import { liveAssistGateFromSuggestPayload } from './lib/live-assist-gate.js';
+import { strings } from './shared/ui/i18n.js';
+import {
+  buildCopilotChecklistRequestBody,
+  fetchCopilotChecklist,
+} from './lib/copilot-checklist.js';
+import { buildCopilotSuggestRequestBody, shouldRunCopilotSuggest } from './lib/copilot-suggest-body.js';
+import { PRODUCT_CONTEXT_STORAGE_KEY } from './shared/ui/copilot/product-context.js';
+import {
+  ensureSuggestProfileProductContext,
+  primeSuggestProfileProductContext,
+  resetSuggestProfileProductContextCache,
+} from './lib/suggest-profile-product-context.js';
+import { MEET_SPEAKERS } from './lib/meet-speakers.js';
+import { createIslandRelay } from './lib/island-relay.js';
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
+/** Who Google Meet shows speaking, passed to the Vocify Mac app (it names the other side's lines). */
+const islandRelay = createIslandRelay({ connectNative: (name) => chrome.runtime.connectNative(name) });
 
 // ============================================
 // CENTRAL STATE (Source of Truth)
@@ -104,6 +118,13 @@ let state = {
   copilotLatencyMs: null,
   copilotTabTitle: null,
   captureTabId: null,
+  captureTabUrl: null,
+  kind: null,
+  callMode: null,
+  playbookReady: false,
+  evidenceRefs: [],
+  assistEnabled: false,
+  copilotChecklist: null,
   listenPhase: 'idle',
   reviewMemo: null,
   call: {
@@ -509,11 +530,11 @@ async function loadPageSessionContext(tab, user) {
 async function startRecording() {
   if (state.isRecording) return;
   if (state.call?.state && state.call.state !== CALL_STATES.IDLE) {
-    showNotification('Vocify Copilot', 'Hang up the call before recording a memo.');
+    showNotification('Vocify Copilot', strings(listenUiLang).memoHangUpFirst);
     return;
   }
   if (state.isCopilotListening) {
-    showNotification('Vocify Copilot', 'Stop listening to the tab before recording a memo.');
+    showNotification('Vocify Copilot', strings(listenUiLang).memoStopListeningFirst);
     return;
   }
   clearCallWatch();
@@ -576,7 +597,7 @@ async function stopRecording() {
 
 async function handleToggleRecording() {
   if (state.isCopilotListening) {
-    showNotification('Vocify Copilot', 'Stop listening to the tab before recording a memo.');
+    showNotification('Vocify Copilot', strings(listenUiLang).memoStopListeningFirst);
     return;
   }
   if (state.isRecording) {
@@ -617,6 +638,7 @@ function prefetchCopilotWsBits(tab) {
     .then((user) => {
       if (!user) return null;
       cachedCopilotUserId = user.id || '';
+      primeSuggestProfileProductContext(user);
       return loadPageSessionContext(tab, user);
     })
     .then((result) => {
@@ -652,17 +674,87 @@ function emptyCopilotUi() {
     copilotError: null,
     copilotLatencyMs: null,
     copilotTabTitle: null,
+    playbookReady: false,
+    evidenceRefs: [],
   };
 }
 
 let copilotAbort = null;
+let copilotChecklistAbort = null;
 
 function abortCopilotSuggest() {
   copilotAbort?.abort();
   copilotAbort = null;
 }
 
+function abortCopilotChecklist() {
+  copilotChecklistAbort?.abort();
+  copilotChecklistAbort = null;
+}
+
+async function resolveBgApiBase() {
+  const r = await chrome.storage.local.get(['api_base']);
+  return resolveApiBase({
+    unpacked: isUnpackedExtension(chrome.runtime.getManifest()),
+    override: r.api_base,
+  });
+}
+
+async function requestCopilotChecklist() {
+  if (state.callMode !== 'meeting') return;
+  if (!state.isCopilotListening && state.listenPhase !== 'live' && state.listenPhase !== 'starting') {
+    return;
+  }
+
+  const { accessToken } = await api.getTokens().catch(() => ({ accessToken: null }));
+  if (!accessToken) return;
+
+  abortCopilotChecklist();
+  const controller = new AbortController();
+  copilotChecklistAbort = controller;
+  try {
+    const session = {};
+    const captureId = String(state.captureId ?? state.capture_id ?? '').trim();
+    if (captureId) session.capture_id = captureId;
+    const result = await fetchCopilotChecklist(fetch, {
+      apiBase: await resolveBgApiBase(),
+      token: accessToken,
+      body: buildCopilotChecklistRequestBody({ session }),
+      signal: controller.signal,
+    });
+    if (controller.signal.aborted) return;
+    if (result?.ok && result.data) {
+      updateState({ copilotChecklist: result.data });
+    }
+  } catch {
+    /* keep previous checklist on failure */
+  } finally {
+    if (copilotChecklistAbort === controller) copilotChecklistAbort = null;
+  }
+}
+
 async function requestCopilotSuggestion(latestTurn, transcriptWindow, speakerRole = 'prospect') {
+  if (!shouldRunCopilotSuggest({ assistEnabled: state.assistEnabled, callMode: state.callMode })) {
+    return;
+  }
+  const stored = await chrome.storage.local.get([PRODUCT_CONTEXT_STORAGE_KEY]);
+  const productContext = stored[PRODUCT_CONTEXT_STORAGE_KEY] ?? '';
+  const profileProductContext = await ensureSuggestProfileProductContext(
+    productContext,
+    () => api.getCurrentUser(),
+  );
+
+  const suggestBody = buildCopilotSuggestRequestBody({
+    callMode: state.callMode,
+    context: state.context,
+    latestTurn,
+    transcriptWindow,
+    speakerRole,
+    productContext,
+    profileProductContext,
+  });
+  if (!suggestBody) return;
+
   abortCopilotSuggest();
   const controller = new AbortController();
   copilotAbort = controller;
@@ -673,31 +765,25 @@ async function requestCopilotSuggestion(latestTurn, transcriptWindow, speakerRol
     copilotLastTurn: latestTurn,
     copilotError: null,
     copilotLatencyMs: null,
+    playbookReady: false,
+    evidenceRefs: [],
   });
-
-  const stored = await chrome.storage.local.get([PRODUCT_CONTEXT_STORAGE_KEY]);
-  const productContext = stored[PRODUCT_CONTEXT_STORAGE_KEY] || DEFAULT_PRODUCT_CONTEXT;
 
   try {
     await api.streamCopilotSuggest(
-      {
-        transcript_window: String(transcriptWindow || '').slice(-6000),
-        latest_turn: latestTurn,
-        product_context: productContext,
-        language: 'auto',
-        call_mode: 'meeting',
-        speaker_role:
-          speakerRole === 'rep' || speakerRole === 'unknown' ? speakerRole : 'prospect',
-      },
+      suggestBody,
       (event) => {
         if (controller.signal.aborted) return;
         if (event.type === 'token') {
           updateState({ copilotRawStream: `${state.copilotRawStream || ''}${event.text}` });
         } else if (event.type === 'result') {
+          const { playbookReady, evidenceRefs } = liveAssistGateFromSuggestPayload(event);
           updateState({
             copilotSuggestion: event.suggestion,
             copilotIsLoading: false,
             copilotLatencyMs: event.latency_ms ?? null,
+            playbookReady,
+            evidenceRefs,
           });
         } else if (event.type === 'error') {
           updateState({ copilotError: event.message, copilotIsLoading: false });
@@ -724,6 +810,7 @@ const copilotDetector = new TurnDetector({
   clearTimer: (id) => clearTimeout(id),
   onTurn: (turn, _full, meta) => {
     requestCopilotSuggestion(turn, state.finalTranscript, meta?.speakerRole || 'prospect');
+    void requestCopilotChecklist();
   },
 });
 
@@ -732,6 +819,8 @@ let listenStartTimerId = null;
 let listenEpoch = 0;
 /** Popup click generation — a Stop click invalidates an in-flight Start. */
 let listenCommandSeq = 0;
+/** UI language from the popup for listen deny copy and transcript tags. */
+let listenUiLang = null;
 
 function acceptListenCommandSeq(commandSeq) {
   if (commandSeq == null || !Number.isFinite(Number(commandSeq))) return true;
@@ -763,6 +852,8 @@ function failListen(reason) {
   copilotDetector.setEnabled(false);
   copilotDetector.reset();
   abortCopilotSuggest();
+  abortCopilotChecklist();
+  resetSuggestProfileProductContextCache();
   listenEpoch += 1;
   chrome.runtime.sendMessage({
     target: 'offscreen',
@@ -770,12 +861,14 @@ function failListen(reason) {
     minEpoch: listenEpoch,
   });
   chrome.offscreen.closeDocument().catch(() => {});
-  const message = startDeniedMessage(reason);
+  const message = startDeniedMessage(reason, listenUiLang);
   updateState({
     isCopilotListening: false,
     status: 'idle',
     listenPhase: 'error',
     ...emptyCopilotUi(),
+    copilotChecklist: null,
+    assistEnabled: false,
     copilotError: message,
   });
   showNotification('Vocify Copilot', message);
@@ -838,6 +931,7 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
 
   abortCopilotSuggest();
   copilotDetector.reset();
+  resetSuggestProfileProductContextCache();
 
   await getOffscreenDocument({ recreate: false });
   const wsUrl = await wsUrlPromise;
@@ -855,6 +949,13 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
   rememberTab(tab);
   prefetchCopilotWsBits(tab);
   const context = tab?.url ? parseCrmPageUrl(tab.url) : state.context;
+  const captureTabUrl = tab?.url || null;
+  const captureTabKind = classifyTabCaptureUrl(captureTabUrl).kind;
+  const captureIsMeetingApp = captureTabKind === 'meeting_app';
+  const callMode =
+    captureTabKind === 'hubspot' || captureTabKind === 'pipedrive' || captureIsMeetingApp
+      ? 'meeting'
+      : 'call';
 
   updateState({
     isCopilotListening: false,
@@ -869,6 +970,11 @@ async function startTabCapture(requestedTabId, streamIdFromUi = null, commandSeq
     ...emptyCopilotUi(),
     copilotTabTitle: tab?.title || 'This tab',
     copilotError: null,
+    captureTabUrl,
+    kind: captureIsMeetingApp ? 'meeting' : 'call',
+    callMode,
+    assistEnabled: false,
+    copilotChecklist: null,
   });
   armListenStartTimeout();
 
@@ -882,6 +988,8 @@ async function stopTabCapture(commandSeq = null) {
   copilotDetector.setEnabled(false);
   copilotDetector.reset();
   abortCopilotSuggest();
+  abortCopilotChecklist();
+  resetSuggestProfileProductContextCache();
   chrome.runtime.sendMessage({
     target: 'offscreen',
     type: 'STOP_TAB_CAPTURE',
@@ -897,6 +1005,11 @@ async function stopTabCapture(commandSeq = null) {
     prospectInterim: '',
     finalWords: [],
     ...emptyCopilotUi(),
+    copilotChecklist: null,
+    assistEnabled: false,
+    captureTabUrl: null,
+    kind: null,
+    callMode: null,
   });
   chrome.offscreen.closeDocument().catch(() => {});
   return { ok: true };
@@ -1253,6 +1366,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target === 'offscreen') return;
 
   switch (message.type) {
+    case MEET_SPEAKERS:
+      if (sender.url?.startsWith('https://meet.google.com/') && Array.isArray(message.speaking)) {
+        islandRelay.send(message.speaking);
+      }
+      return;
+
     // State queries
     case 'GET_STATE': {
       (async () => {
@@ -1306,6 +1425,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case 'START_TAB_CAPTURE':
+      if (message.uiLang != null) listenUiLang = message.uiLang;
       startTabCapture(message.tabId, message.streamId, message.commandSeq)
         .then(sendResponse)
         .catch((e) => sendResponse({ error: e.message }));
@@ -1316,6 +1436,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .then(sendResponse)
         .catch((e) => sendResponse({ error: e.message }));
       return true;
+
+    case 'TOGGLE_COPILOT_ASSIST': {
+      updateState({ assistEnabled: !state.assistEnabled });
+      sendResponse({ ok: true, assistEnabled: state.assistEnabled });
+      return true;
+    }
 
     case 'RECORDING_STARTED':
       updateState({ isRecording: true, status: 'recording' });
@@ -1353,6 +1479,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       clearListenStartTimeout();
       copilotDetector.setEnabled(true);
       updateState({ isCopilotListening: true, listenPhase: 'live', status: 'copilot' });
+      void requestCopilotChecklist();
       break;
 
     case 'TAB_CAPTURE_STOPPED':
@@ -1360,11 +1487,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         clearListenStartTimeout();
         copilotDetector.setEnabled(false);
         abortCopilotSuggest();
+        abortCopilotChecklist();
         updateState({
           isCopilotListening: false,
           listenPhase: 'idle',
           status: 'idle',
           ...emptyCopilotUi(),
+          copilotChecklist: null,
+          assistEnabled: false,
         });
       }
       break;
@@ -1382,6 +1512,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         isFinal: message.isFinal,
         words: message.words,
         audioChannel: message.audioChannel,
+        lang: listenUiLang,
       });
       updateState(next);
       if (state.isCopilotListening) {

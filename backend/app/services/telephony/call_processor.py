@@ -24,8 +24,11 @@ from app.metrics import (
     record_hubspot_log_duration,
     record_transcription_duration,
 )
+from app.services.captures import interaction_kind_for, playbook_fields_for_capture, with_author_company
+from app.services.company import sales_role_for_user
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run, record_stage
 from app.services.stt_batch import transcribe_audio
+from app.services.telephony.call_memo_claim import claim_call_memo
 from app.services.telephony.call_screening import classify_call_outcome
 from app.services.telephony.telnyx_client import telnyx_rest
 from app.services.transcript_sanitize import raw_speaker_count, sanitize_user_transcript
@@ -103,19 +106,36 @@ async def initiate_vocify_call_memo(
         "audio_duration": float(call_row.get("recording_duration") or 0.0),
         "status": "transcribing",
         "source": "vocify_call",
+        "interaction_kind": interaction_kind_for("vocify_call", None, None),
         "recording_path": (call_row.get("recording_path") or "").strip() or None,
         "hubspot_contact_id": call_row.get("hubspot_contact_id"),
         "hubspot_deal_id": call_row.get("hubspot_deal_id"),
         "processing_started_at": datetime.now(timezone.utc).isoformat(),
     }
+    row = with_author_company(supabase, row)
+    company_id = row.get("company_id")
+    if company_id:
+        row.update(playbook_fields_for_capture(
+            supabase,
+            str(company_id),
+            default_when_unspecified=True,
+            sales_role=sales_role_for_user(supabase, call_row["user_id"]),
+            interaction_kind=row["interaction_kind"],
+            hubspot_contact_id=row.get("hubspot_contact_id"),
+            hubspot_deal_id=row.get("hubspot_deal_id"),
+        ))
     ins = supabase.table("memos").insert(row).execute()
     if not ins.data:
         return None, False
 
     memo_id = str(ins.data[0]["id"])
-    supabase.table("outbound_calls").update(
-        {"memo_id": memo_id, "status": "recorded"}
-    ).eq("carrier_call_id", call_row["carrier_call_id"]).execute()
+    # The desktop's live transcript may have made the call's memo meanwhile: one memo per call.
+    winner = claim_call_memo(supabase, call_row["carrier_call_id"], memo_id)
+    supabase.table("outbound_calls").update({"status": "recorded"}).eq(
+        "carrier_call_id", call_row["carrier_call_id"]
+    ).execute()
+    if winner and winner != memo_id:
+        return winner, False
     return memo_id, True
 
 
@@ -569,6 +589,7 @@ async def log_call_engagement(
     reviewable in Vocify.
     """
     from app.api.crm import get_hubspot_client_from_connection
+    from app.services.hubspot import call_entry
     from app.services.hubspot.call_log import (
         build_call_properties,
         hubspot_call_body_for_disposition,
@@ -621,6 +642,8 @@ async def log_call_engagement(
             row.get("hubspot_contact_id"),
             row.get("to_number") or "",
         )
+        # The rep approved before the call was logged: the call carries the write-up (summary, updates, transcript).
+        pending = call_entry.pending_call_body(supabase, row.get("memo_id"))
         properties = build_call_properties(
             occurred_at=datetime.now(timezone.utc)
             .isoformat()
@@ -633,7 +656,7 @@ async def log_call_engagement(
             app_id=str(settings.HUBSPOT_APP_ID or ""),
             owner_id=owner_id,
             title=call_title,
-            body=hubspot_call_body_for_disposition(screening_outcome),
+            body=pending[1] if pending else hubspot_call_body_for_disposition(screening_outcome),
             call_status=hubspot_call_status_for_disposition(screening_outcome),
             disposition=screening_outcome,
         )
@@ -649,6 +672,8 @@ async def log_call_engagement(
                 "status": "logged",
             }
         ).eq("carrier_call_id", call_sid).execute()
+        if pending and engagement_id:
+            call_entry.mark_call_body_written(supabase, pending[0], str(engagement_id))
         memo_id = row.get("memo_id")
         if memo_id and engagement_id:
             try:

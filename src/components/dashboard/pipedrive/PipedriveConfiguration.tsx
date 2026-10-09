@@ -9,11 +9,20 @@ import {
   type PipedriveObjectTab,
 } from "@/lib/api/pipedrive-setup";
 import { toast } from "sonner";
-import { Check, ChevronDown, ShieldCheck, Settings2, Search, FilterX, Info, RefreshCw } from "lucide-react";
+import { Check, ShieldCheck, Settings2, Search, FilterX, Info } from "lucide-react";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { Segmented } from "@/components/ui/segmented";
+import { Toggle } from "@/components/ui/toggle";
 import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
+import { DealCreationRuleField } from "@/components/dashboard/crm/DealCreationRuleField";
+import { useLanguage } from "@/lib/i18n";
+import { AnimIcon } from "@/components/ui/anim-icon";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+// Sentinel for empty stage selection (no default stage)
+const NONE = "__none__";
 
 interface PipedriveConfigurationProps {
   onSaved?: () => void;
@@ -35,6 +44,7 @@ const RECOMMENDED_BY_OBJECT: Record<ObjectTab, string[]> = {
 };
 
 export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveConfigurationProps) => {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: crmKeys.pipedriveSetup(),
@@ -118,7 +128,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
 
   if (isError && !data) {
     return (
-      <p className="text-sm text-muted-foreground">Could not load Pipedrive fields. Try again in a moment.</p>
+      <p className="text-sm text-muted-foreground">Pipedrive login expired. Disconnect it and connect again.</p>
     );
   }
 
@@ -136,62 +146,99 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
         <div className="grid sm:grid-cols-2 gap-6">
           <div className="space-y-2">
             <label className={THEME_TOKENS.typography.capsLabel}>Pipeline</label>
-            <div className="relative">
-              <select
-                value={config.default_pipeline_id}
-                disabled={readOnly}
-                onChange={(e) => {
-                  const p = pipelines.find((pl) => pl.id === e.target.value);
-                  if (!p) return;
-                  const stage = p.stages[0];
-                  setConfig((prev) => ({
-                    ...prev,
-                    default_pipeline_id: p.id,
-                    default_pipeline_name: p.label,
-                    default_stage_id: stage?.id ?? "",
-                    default_stage_name: stage?.label ?? "",
-                  }));
-                }}
-                className="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none"
-              >
+            <Select
+              value={config.default_pipeline_id}
+              disabled={readOnly}
+              onValueChange={(pipelineId) => {
+                const p = pipelines.find((pl) => pl.id === pipelineId);
+                if (!p) return;
+                const stage = p.stages[0];
+                setConfig((prev) => ({
+                  ...prev,
+                  default_pipeline_id: p.id,
+                  default_pipeline_name: p.label,
+                  default_stage_id: stage?.id ?? "",
+                  default_stage_name: stage?.label ?? "",
+                  meeting_booked_pipeline_id: null,
+                  meeting_booked_stage_id: null,
+                }));
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {pipelines.map((p) => (
-                  <option key={p.id} value={p.id}>
+                  <SelectItem key={p.id} value={p.id}>
                     {p.label}
-                  </option>
+                  </SelectItem>
                 ))}
-              </select>
-              <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-            </div>
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <label className={THEME_TOKENS.typography.capsLabel}>Stage</label>
-            <div className="relative">
-              <select
-                value={config.default_stage_id}
-                disabled={readOnly}
-                onChange={(e) => {
-                  const s = selectedPipeline?.stages.find((st) => st.id === e.target.value);
-                  if (s) {
-                    setConfig((prev) => ({
-                      ...prev,
-                      default_stage_id: s.id,
-                      default_stage_name: s.label,
-                    }));
-                  }
-                }}
-                className="w-full h-12 px-6 rounded-full border border-border/40 bg-secondary/5 text-foreground appearance-none cursor-pointer font-bold focus:outline-none"
-              >
+            <Select
+              value={config.default_stage_id}
+              disabled={readOnly}
+              onValueChange={(stageId) => {
+                const s = selectedPipeline?.stages.find((st) => st.id === stageId);
+                if (s) {
+                  setConfig((prev) => ({
+                    ...prev,
+                    default_stage_id: s.id,
+                    default_stage_name: s.label,
+                  }));
+                }
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
                 {selectedPipeline?.stages.map((s) => (
-                  <option key={s.id} value={s.id}>
+                  <SelectItem key={s.id} value={s.id}>
                     {s.label}
-                  </option>
+                  </SelectItem>
                 ))}
-              </select>
-              <ChevronDown className="absolute right-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40 pointer-events-none" />
-            </div>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <label className={THEME_TOKENS.typography.capsLabel}>{t.product.meetingBookedStage}</label>
+            <Select
+              value={config.meeting_booked_stage_id ?? NONE}
+              disabled={readOnly || !selectedPipeline}
+              onValueChange={(value) => {
+                const stageId = value === NONE ? null : value;
+                setConfig((prev) => ({
+                  ...prev,
+                  meeting_booked_pipeline_id: stageId ? selectedPipeline?.id ?? null : null,
+                  meeting_booked_stage_id: stageId,
+                }));
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t.product.meetingBookedStageNone} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>{t.product.meetingBookedStageNone}</SelectItem>
+                {selectedPipeline?.stages.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>
+
+      <DealCreationRuleField
+        value={config.deal_creation_rule}
+        disabled={readOnly}
+        onChange={(rule) => setConfig((prev) => ({ ...prev, deal_creation_rule: rule }))}
+      />
 
       <AutoAcceptCrmToggle
         checked={Boolean(config.auto_sync_hubspot_calls)}
@@ -215,35 +262,30 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
               title="Pull the latest Pipedrive fields and pipelines"
               className="rounded-full h-8 px-3 text-[12px] border-border/50 text-beige shrink-0"
             >
-              {isRefreshing ? <VocifySpinner size={12} /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+              <AnimIcon name="refresh" size={14} state={isRefreshing && "busy"} className="mr-1.5" />
               Refresh
             </Button>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {OBJECT_TABS.map((tab) => {
-            const count = ((config[tab.configKey] as string[]) || []).length;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  setSearchQuery("");
-                  setShowAllFields(false);
-                }}
-                className={`px-3 py-1.5 rounded-full text-[12px] border transition-all ${
-                  activeTab === tab.id
-                    ? "bg-beige/15 border-beige/40 text-beige"
-                    : "bg-secondary/5 border-border/30 text-muted-foreground hover:border-border/50"
-                }`}
-              >
+        <Segmented<ObjectTab>
+          aria-label="Object"
+          value={activeTab}
+          onValueChange={(tab) => {
+            setActiveTab(tab);
+            setSearchQuery("");
+            setShowAllFields(false);
+          }}
+          className="flex-wrap"
+          options={OBJECT_TABS.map((tab) => ({
+            value: tab.id,
+            label: (
+              <>
                 {tab.label}
-                <span className="ml-2 opacity-50">{count}</span>
-              </button>
-            );
-          })}
-        </div>
+                <span className="opacity-50">{((config[tab.configKey] as string[]) || []).length}</span>
+              </>
+            ),
+          }))}
+        />
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="relative flex-1">
@@ -278,10 +320,11 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {filteredProperties.length > 0 ? (
                 filteredProperties.map((prop) => (
-                  <button
+                  <Toggle
                     key={prop.name}
-                    type="button"
-                    onClick={() => {
+                    variant="chip"
+                    pressed={selectedFields.includes(prop.name)}
+                    onPressedChange={() => {
                       if (readOnly) return;
                       const active = selectedFields.includes(prop.name);
                       setConfig((prev) => ({
@@ -291,11 +334,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
                           : [...selectedFields, prop.name],
                       }));
                     }}
-                    className={`flex items-center justify-between px-4 py-3 rounded-2xl border transition-all text-left group ${
-                      selectedFields.includes(prop.name)
-                        ? "bg-beige/10 border-beige/30 text-beige"
-                        : "bg-white/50 border-border/20 text-muted-foreground hover:border-border/40"
-                    }`}
+                    className="group h-auto w-full justify-between rounded-2xl px-4 py-3 text-left"
                   >
                     <div className="flex flex-col min-w-0">
                       <span className="text-[10px] font-bold truncate">{prop.label}</span>
@@ -306,7 +345,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
                       )}
                     </div>
                     {selectedFields.includes(prop.name) && <Check className="h-3 w-3 shrink-0 ml-2" />}
-                  </button>
+                  </Toggle>
                 ))
               ) : (
                 <div className="col-span-full py-12 flex flex-col items-center justify-center text-muted-foreground/40">
@@ -354,7 +393,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
       <Button
         onClick={handleSave}
         disabled={isSaving}
-        className="w-full bg-beige text-cream hover:bg-beige-dark rounded-full text-[10px] font-medium shadow-medium h-12"
+        className="w-full bg-beige text-cream hover:bg-beige/90 rounded-full text-[10px] font-medium shadow-medium h-12"
       >
         {isSaving ? <VocifySpinner size={12} /> : null}
         Save Configuration

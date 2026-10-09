@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from uuid import UUID
 from typing import Any, Literal, Optional
 
@@ -15,12 +16,14 @@ from app.services.activity_scope import (
     annotate_recording_author,
     can_view_company_activity,
     company_user_ids,
+    effective_visibility,
     invert_hubspot_owners,
     load_viewer_scope,
     should_apply_author_recording_filter,
     visible_recordings_for_viewer,
 )
 from app.services.company_scope import require_company_id, require_crm_write_access, require_crm_connection, get_crm_connection
+from app.services.live_calls.linking import link_desktop_calls_for_contact
 from app.services.hubspot import (
     HubSpotClient,
     HubSpotValidationService,
@@ -34,9 +37,11 @@ from app.services.hubspot import (
 )
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
+from app.services.crm_field_permissions import edits_company_fields
 from app.services.preview_targets import unique_associated_contact_id
 from app.services.hubspot.contact_identity import (
     CONTACT_CONTEXT_PROPERTIES,
+    display_name,
     stored_contact_phone,
 )
 from app.models.hubspot import (
@@ -69,6 +74,10 @@ from app.services.hubspot.calls import (
     recording_display_title,
 )
 from app.services.hubspot.call_processor import enqueue_hubspot_call_process
+from app.services.hubspot.auto_sync import (
+    read_crm_call_recordings_preference,
+    write_crm_call_recordings_preference,
+)
 from app.services.request_coalesce import CoalesceCache
 from supabase import Client
 
@@ -77,6 +86,30 @@ _CONTEXT_CACHE = CoalesceCache(ttl_seconds=30)
 
 
 router = APIRouter(prefix="/api/v1/crm", tags=["crm"])
+
+
+class CallRecordingsPreference(BaseModel):
+    """Whether the rep's own dialer recordings in the CRM are processed into memos."""
+
+    process: bool
+
+
+@router.get("/call-recordings-preference", response_model=CallRecordingsPreference)
+async def get_call_recordings_preference(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+) -> CallRecordingsPreference:
+    return CallRecordingsPreference(process=read_crm_call_recordings_preference(supabase, user_id))
+
+
+@router.put("/call-recordings-preference", response_model=CallRecordingsPreference)
+async def put_call_recordings_preference(
+    payload: CallRecordingsPreference,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+) -> CallRecordingsPreference:
+    write_crm_call_recordings_preference(supabase, user_id, payload.process)
+    return payload
 
 
 def _company_hubspot_connection_id(supabase: Client, user_id: str) -> str:
@@ -233,7 +266,7 @@ async def _present_recordings(
 ) -> list[dict]:
     membership, members, authors = load_viewer_scope(supabase, user_id)
     role = membership.role if membership else None
-    can_view_company = can_view_company_activity(role)
+    can_view_company = can_view_company_activity(role, effective_visibility(supabase, membership))
     member_ids = company_user_ids(members) or [user_id]
     owner_to_user: dict[str, str] = {}
     conn = get_crm_connection(supabase, user_id, "hubspot")
@@ -292,6 +325,10 @@ async def _recordings_for_record(
 ) -> list[dict]:
     client = get_hubspot_client_from_connection(user_id, supabase)
     items = await list_recordings_for_record(client, from_object_type, record_id)
+    if from_object_type == "contacts":
+        # A call the rep recorded on the desktop shows as that memo, not as a
+        # recording to transcribe again.
+        link_desktop_calls_for_contact(supabase, user_id, record_id, items)
     return await _present_recordings(user_id, supabase, items, author_user_id)
 
 
@@ -394,7 +431,10 @@ async def list_recent_hubspot_recordings(
     wanted = (author_user_id or "").strip()
     if wanted:
         membership, members, _authors = load_viewer_scope(supabase, user_id)
-        can_view = can_view_company_activity(membership.role if membership else None)
+        can_view = can_view_company_activity(
+            membership.role if membership else None,
+            effective_visibility(supabase, membership),
+        )
         if should_apply_author_recording_filter(
             author_user_id=wanted,
             can_view_company=can_view,
@@ -1136,7 +1176,7 @@ async def search_hubspot_contacts(
     matches: list[ContactMatch] = []
     for contact in hits:
         props = contact.properties or {}
-        name = f"{props.get('firstname', '')} {props.get('lastname', '')}".strip() or None
+        name = display_name(props)
         matches.append(ContactMatch(
             contact_id=str(contact.id),
             email=(props.get("email") or "") or "",
@@ -1160,7 +1200,9 @@ async def get_hubspot_configuration(
     Returns configuration if exists, 404 if not configured yet.
     """
     config_service = CRMConfigurationService(supabase)
-    config = await config_service.get_configuration(user_id, provider="hubspot")
+    config = await config_service.get_configuration(
+        user_id, provider="hubspot", company_fields_only=edits_company_fields(supabase, user_id)
+    )
 
     if not config:
         raise HTTPException(

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { BarChart3, Mic, Clock, TrendingUp } from "lucide-react";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { Button } from "@/components/ui/button";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { memosApi, memoKeys } from "@/features/memos/api";
 
@@ -69,12 +70,7 @@ const UsagePage = () => {
           <p className="text-sm text-muted-foreground">
             {(error as Error)?.message || "Something went wrong fetching your stats."}
           </p>
-          <button
-            type="button"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-beige text-cream px-6 py-2 text-[10px] font-medium disabled:opacity-60"
-          >
+          <Button size="sm" onClick={() => refetch()} disabled={isFetching}>
             {isFetching ? (
               <>
                 <VocifySpinner size={12} />
@@ -83,7 +79,7 @@ const UsagePage = () => {
             ) : (
               "Try again"
             )}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -126,9 +122,9 @@ const UsagePage = () => {
                   }}
                 >
                   {day.memos > 0 && (
-                    <div className="absolute inset-0 bg-beige rounded-t-2xl shadow-[0_0_20px_rgba(245,215,176,0.3)]" />
+                    <div className="absolute inset-0 bg-beige rounded-t-2xl" />
                   )}
-                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white text-foreground text-[10px] font-black px-2 py-1 rounded-lg opacity-0 group-hover/bar:opacity-100 transition-opacity shadow-soft">
+                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-card text-foreground text-[10px] font-black px-2 py-1 rounded-lg opacity-0 group-hover/bar:opacity-100 transition-opacity shadow-soft">
                     {day.memos}
                   </div>
                 </div>
@@ -152,7 +148,7 @@ const UsagePage = () => {
             recentActivity.slice(0, 10).map((activity, i) => (
               <div key={i} className={`flex items-center justify-between p-4 ${THEME_TOKENS.radius.card} hover:bg-secondary/5 transition-colors group`}>
                 <div className="flex items-center gap-4">
-                  <div className={`w-2 h-2 rounded-full ${activity.type === "memo" ? "bg-beige" : "bg-success shadow-[0_0_10px_rgba(34,197,94,0.3)]"}`} />
+                  <div className={`w-2 h-2 rounded-full ${activity.type === "memo" ? "bg-beige" : "bg-success"}`} />
                   <div>
                     <p className="font-bold text-foreground group-hover:text-beige transition-colors">{activity.action}</p>
                     <p className={THEME_TOKENS.typography.capsLabel}>{activity.company}</p>

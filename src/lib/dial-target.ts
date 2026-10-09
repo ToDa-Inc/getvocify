@@ -72,14 +72,15 @@ export function isInCall(callState: string | undefined): boolean {
   return Boolean(callState && callState !== CALL_STATES.IDLE);
 }
 
-export function floatingDialerChrome(
+/**
+ * The call panel is docked on the right. A live call keeps the dialer mounted when the panel is
+ * closed (it holds the phone connection) and lights the edge tab instead.
+ */
+export function dialerDock(
   open: boolean,
   callState: CallState | undefined,
-): { sheet: boolean; fab: boolean } {
-  return {
-    sheet: open,
-    fab: !open && isInCall(callState),
-  };
+): { panel: boolean; liveTab: boolean } {
+  return { panel: open, liveTab: !open && isInCall(callState) };
 }
 
 export function formatCallerIdDisplay(e164: string): string {

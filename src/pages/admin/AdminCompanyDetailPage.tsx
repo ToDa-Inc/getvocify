@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Copy, Loader2, LogIn, Minus, Plus } from "lucide-react";
+import { ArrowLeft, Copy, LogIn, Minus, Plus } from "lucide-react";
+import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { toast } from "sonner";
 import { adminApi, adminKeys } from "@/features/admin/api";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 import { Input } from "@/components/ui/input";
 import { loginAsAccount } from "@/lib/admin-impersonation";
 
@@ -33,6 +35,8 @@ const AdminCompanyDetailPage = () => {
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [accessMode, setAccessMode] = useState<"open" | "paywalled" | "unlocked">("open");
+  const [reprocessLimit, setReprocessLimit] = useState(50);
+  const [reprocessOnlyNew, setReprocessOnlyNew] = useState(true);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: adminKeys.company(companyId),
@@ -40,9 +44,28 @@ const AdminCompanyDetailPage = () => {
     enabled: !!companyId,
   });
 
+  const { data: reprocess } = useQuery({
+    queryKey: [...adminKeys.company(companyId), "reprocess"],
+    queryFn: () => adminApi.reprocessProgress(companyId),
+    enabled: !!companyId,
+    refetchInterval: (query) => (query.state.data?.running ? 4000 : false),
+  });
+  const reprocessMutation = useMutation({
+    mutationFn: () => adminApi.reprocessMemos(companyId, reprocessLimit, reprocessOnlyNew),
+    onSuccess: (run) => {
+      queryClient.setQueryData([...adminKeys.company(companyId), "reprocess"], run);
+      toast.success(run.total ? `Reprocessing ${run.total} conversations` : "Nothing to reprocess");
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "Could not start reprocessing")),
+  });
+
   const company = (data?.company as Record<string, unknown>) ?? {};
   const members = (data?.members as Record<string, unknown>[]) ?? [];
   const invites = (data?.pending_invites as Record<string, unknown>[]) ?? [];
+  // Founder request: the first account of a company is always the Head of Sales
+  // (owner) - from scratch, or created here. Once it has one, further invites/adds
+  // are ordinary reps (the role picker below still applies).
+  const isFirstAccount = members.length === 0 && invites.length === 0;
   const currentLimit = Number(company.seat_limit ?? 1);
   const seatsUsed = Number(company.seats_used ?? 0);
   const seatsPending = Number(company.seats_pending ?? 0);
@@ -184,28 +207,16 @@ const AdminCompanyDetailPage = () => {
 
         <div className="space-y-2">
           <p className={THEME_TOKENS.typography.capsLabel}>Access</p>
-          <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-            {(
-              [
-                { value: "open" as const, label: "Open" },
-                { value: "paywalled" as const, label: "Require payment" },
-                { value: "unlocked" as const, label: "Unlocked" },
-              ]
-            ).map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setAccessMode(option.value)}
-                className={`rounded-full px-4 h-8 text-xs font-medium transition-colors ${
-                  accessMode === option.value
-                    ? "bg-beige text-cream"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <Segmented<"open" | "paywalled" | "unlocked">
+            value={accessMode}
+            onValueChange={setAccessMode}
+            options={[
+              { value: "open", label: "Open" },
+              { value: "paywalled", label: "Require payment" },
+              { value: "unlocked", label: "Unlocked" },
+            ]}
+            aria-label="Access mode"
+          />
           <p className="text-xs text-muted-foreground">
             Open is the default. Require payment locks the product until they subscribe.
             Unlocked ignores Stripe and uses the license slider.
@@ -218,7 +229,7 @@ const AdminCompanyDetailPage = () => {
             <button
               type="button"
               aria-label="Decrease licenses"
-              className="h-10 w-10 rounded-full border border-border/40 bg-secondary/5 text-foreground hover:bg-secondary/10 disabled:opacity-40"
+              className="h-10 w-10 rounded-full border border-border/40 bg-secondary/5 text-foreground hover:bg-secondary/60 disabled:opacity-40"
               disabled={licenseCount <= Math.max(1, seatsUsed)}
               onClick={() => setLicenseCount((n) => Math.max(1, n - 1))}
             >
@@ -234,7 +245,7 @@ const AdminCompanyDetailPage = () => {
             <button
               type="button"
               aria-label="Increase licenses"
-              className="h-10 w-10 rounded-full border border-border/40 bg-secondary/5 text-foreground hover:bg-secondary/10"
+              className="h-10 w-10 rounded-full border border-border/40 bg-secondary/5 text-foreground hover:bg-secondary/60"
               onClick={() => setLicenseCount((n) => n + 1)}
             >
               <Plus className="h-4 w-4 mx-auto" />
@@ -253,7 +264,7 @@ const AdminCompanyDetailPage = () => {
           >
             {saveMutation.isPending ? (
               <>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <VocifySpinner size={16} tone="onFill" />
                 Saving…
               </>
             ) : (
@@ -265,9 +276,63 @@ const AdminCompanyDetailPage = () => {
 
       <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
         <div className="mb-5">
-          <h2 className={THEME_TOKENS.typography.sectionTitle}>Invite teammate</h2>
+          <h2 className={THEME_TOKENS.typography.sectionTitle}>Reprocess conversations</h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Sends an email if Resend is configured. Otherwise you get a shareable link.
+            Runs this company's stored conversations (not approved, with a transcript) through this
+            environment's pipeline again: playbook, extraction as the author, score and intelligence.
+            Nothing is written to the CRM.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Input
+            type="number"
+            min={1}
+            max={500}
+            value={reprocessLimit}
+            onChange={(e) => setReprocessLimit(Math.max(1, Math.min(500, Number(e.target.value) || 1)))}
+            className="w-24 rounded-full h-10"
+            aria-label="How many conversations"
+          />
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={reprocessOnlyNew}
+              onChange={(e) => setReprocessOnlyNew(e.target.checked)}
+            />
+            Only the ones not analysed yet
+          </label>
+          <Button
+            disabled={reprocessMutation.isPending || Boolean(reprocess?.running)}
+            onClick={() => reprocessMutation.mutate()}
+            className="rounded-full bg-beige text-cream px-6 h-10"
+          >
+            {reprocess?.running ? (
+              <>
+                <VocifySpinner size={16} tone="onFill" />
+                Reprocessing…
+              </>
+            ) : (
+              "Reprocess"
+            )}
+          </Button>
+        </div>
+        {reprocess && reprocess.total > 0 ? (
+          <p className="text-xs text-muted-foreground mt-3">
+            {reprocess.done} of {reprocess.total} done{reprocess.failed ? ` · ${reprocess.failed} failed` : ""}
+            {reprocess.running ? "" : " · finished"}
+          </p>
+        ) : null}
+      </div>
+
+      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
+        <div className="mb-5">
+          <h2 className={THEME_TOKENS.typography.sectionTitle}>
+            {isFirstAccount ? "Invite the Head of Sales" : "Invite teammate"}
+          </h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            {isFirstAccount
+              ? "This workspace has no members yet. The first account is always the Head of Sales - they'll set up the company and invite the rest of the team."
+              : "Sends an email if Resend is configured. Otherwise you get a shareable link."}
           </p>
         </div>
         <form
@@ -295,32 +360,42 @@ const AdminCompanyDetailPage = () => {
             />
           </div>
           <div className="space-y-2">
-            <p className={THEME_TOKENS.typography.capsLabel}>Role</p>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-                {INVITE_ROLES.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setInviteRole(option.value)}
-                    className={`rounded-full px-4 h-8 text-xs font-medium transition-colors ${
-                      inviteRole === option.value
-                        ? "bg-beige text-cream"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
+            {isFirstAccount ? (
+              <>
+                <p className={THEME_TOKENS.typography.capsLabel}>Role</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="rounded-full bg-beige text-cream px-4 h-8 inline-flex items-center text-xs font-medium">
+                    Head of Sales
+                  </span>
+                  <Button
+                    type="submit"
+                    disabled={inviteMutation.isPending}
+                    className="rounded-full bg-beige text-cream px-6 h-10"
                   >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              <Button
-                type="submit"
-                disabled={inviteMutation.isPending}
-                className="rounded-full bg-beige text-cream px-6 h-10"
-              >
-                {inviteMutation.isPending ? "Sending…" : "Send invite"}
-              </Button>
-            </div>
+                    {inviteMutation.isPending ? "Sending…" : "Send invite"}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className={THEME_TOKENS.typography.capsLabel}>Role</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Segmented<"member" | "admin">
+                    value={inviteRole}
+                    onValueChange={setInviteRole}
+                    options={INVITE_ROLES}
+                    aria-label="Invite role"
+                  />
+                  <Button
+                    type="submit"
+                    disabled={inviteMutation.isPending}
+                    className="rounded-full bg-beige text-cream px-6 h-10"
+                  >
+                    {inviteMutation.isPending ? "Sending…" : "Send invite"}
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </form>
         {inviteUrl && (
@@ -379,25 +454,15 @@ const AdminCompanyDetailPage = () => {
                     </Button>
                   </div>
                 </div>
-                <div className="inline-flex rounded-full border border-border/40 bg-secondary/5 p-1">
-                  {ROLE_OPTIONS.map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      disabled={roleMutation.isPending}
-                      onClick={() => {
-                        if (option !== role) roleMutation.mutate({ memberId, role: option });
-                      }}
-                      className={`rounded-full px-3 h-7 text-[11px] font-medium capitalize transition-colors ${
-                        role === option
-                          ? "bg-beige text-cream"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
+                <Segmented<"owner" | "admin" | "member">
+                  value={role as "owner" | "admin" | "member"}
+                  onValueChange={(newRole) => {
+                    if (newRole !== role) roleMutation.mutate({ memberId, role: newRole });
+                  }}
+                  options={ROLE_OPTIONS.map((opt) => ({ value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) }))}
+                  aria-label="Member role"
+                  className={roleMutation.isPending ? "opacity-50" : ""}
+                />
               </div>
             );
           })}

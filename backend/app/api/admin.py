@@ -7,7 +7,7 @@ import re
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 
 from app.api.auth import AuthResponse, _user_response
@@ -21,6 +21,7 @@ from app.services.admin_accounts import (
 from app.services.admin_session import mint_session_for_email
 from app.services.company import CompanyService
 from app.services.recovery import RecoveryService
+from app.services.usage import report as usage_report
 from pydantic import BaseModel, EmailStr, Field
 
 logger = logging.getLogger(__name__)
@@ -318,6 +319,28 @@ async def recover_stuck_memos_admin(
     return {"status": "completed", **result}
 
 
+@router.get("/memos/{memo_id}/cost")
+async def admin_memo_cost(
+    memo_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    _: str = Depends(require_master_key),
+):
+    """What one memo cost us: STT audio time plus every LLM call, from the memo's cost columns."""
+    report = usage_report.memo_cost_report(supabase, str(memo_id))
+    if report is None:
+        raise HTTPException(status_code=404, detail="Memo not found")
+    return report
+
+
+@router.get("/usage/summary")
+async def admin_usage_summary(
+    days: int = Query(default=7, ge=1, le=90),
+    supabase: Client = Depends(get_supabase),
+    _: str = Depends(require_master_key),
+):
+    return usage_report.period_summary(supabase, days)
+
+
 @router.get("/runtime")
 async def admin_runtime(_: str = Depends(require_master_key)):
     return {
@@ -516,11 +539,18 @@ async def add_member_to_company_admin(
     existing = svc.get_membership(uid)
     if existing:
         raise HTTPException(status_code=409, detail="User already belongs to a workspace")
+    # Founder request: the first account of a company is always the Head of Sales
+    # (owner), created from scratch or from this console alike - never a plain member.
+    is_first = svc.is_first_invite(cid)
+    if is_first:
+        role = "owner"
+    else:
+        role = body.role if body.role != "owner" else "member"
     svc.supabase.table("company_members").insert(
         {
             "company_id": cid,
             "user_id": uid,
-            "role": body.role if body.role != "owner" else "member",
+            "role": role,
             "status": "active",
         }
     ).execute()
@@ -529,7 +559,7 @@ async def add_member_to_company_admin(
         supabase,
         "add_company_member",
         target_user_id=uid,
-        metadata={"company_id": cid, "role": body.role},
+        metadata={"company_id": cid, "role": role},
     )
     return {"success": True}
 
@@ -543,16 +573,19 @@ async def invite_to_company_admin(
 ):
     cid = str(company_id)
     svc = CompanyService(supabase)
-    invite, invite_url, email_sent = await svc.create_invite(
+    # Founder request: the first account of a company is always the Head of Sales
+    # (owner), whether it signs up itself or we invite it from this console.
+    role = "owner" if svc.is_first_invite(cid) else body.role
+    invite, invite_url, email_sent, crm_owner_match = await svc.create_invite(
         company_id=cid,
         email=body.email,
-        role=body.role,
+        role=role,
         send_email=True,
     )
     _write_audit(
         supabase,
         "admin_invite",
-        metadata={"company_id": cid, "email": str(body.email), "role": body.role},
+        metadata={"company_id": cid, "email": str(body.email), "role": role},
     )
     return {
         "success": True,
@@ -627,6 +660,43 @@ async def revoke_company_invite_admin(
         metadata={"company_id": cid, "invite_id": str(invite_id)},
     )
     return {"success": True}
+
+
+class AdminReprocessRequest(BaseModel):
+    limit: int = 50
+    only_unprocessed: bool = True
+
+
+@router.post("/companies/{company_id}/reprocess-memos")
+async def reprocess_company_memos_admin(
+    company_id: UUID,
+    body: AdminReprocessRequest,
+    supabase: Client = Depends(get_supabase),
+    _: str = Depends(require_master_key),
+):
+    """Run the company's stored conversations through this backend's pipeline again
+    (playbook pin, extraction as the author, score, intelligence). For testing on real
+    history copied into a test company; approved memos are never touched."""
+    from app.services.memo_reprocess import start_reprocess
+
+    cid = str(company_id)
+    run = start_reprocess(supabase, cid, limit=body.limit, only_unprocessed=body.only_unprocessed)
+    _write_audit(
+        supabase,
+        "admin_reprocess_memos",
+        metadata={"company_id": cid, "total": run.get("total"), "only_unprocessed": body.only_unprocessed},
+    )
+    return run
+
+
+@router.get("/companies/{company_id}/reprocess-memos")
+async def reprocess_company_memos_progress_admin(
+    company_id: UUID,
+    _: str = Depends(require_master_key),
+):
+    from app.services.memo_reprocess import progress
+
+    return progress(str(company_id))
 
 
 @router.post("/members/{user_id}/transfer")

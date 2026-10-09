@@ -13,7 +13,6 @@ import re
 import time
 import unicodedata
 from collections import Counter, defaultdict
-from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
 
@@ -35,9 +34,6 @@ from app.services.transcript_turns import (
 
 logger = logging.getLogger(__name__)
 
-DISPLAY_TRANSCRIPT_STATUSES = frozenset(
-    {"extracting", "pending_review", "pending_transcript"}
-)
 TWO_PARTY_SOURCES = frozenset({"hubspot_call", "vocify_call"})
 
 
@@ -45,23 +41,30 @@ def is_two_party_source(source: Optional[str]) -> bool:
     return (source or "").strip() in TWO_PARTY_SOURCES
 
 
-def should_refresh_display_transcript(status: Optional[str]) -> bool:
-    """LLM polish may update the shown transcript only before approve/fail."""
-    return (status or "") in DISPLAY_TRANSCRIPT_STATUSES
+def speakers_are_verified(stt_meta: Optional[dict[str, Any]]) -> bool:
+    """Channel-separated capture (desktop mic vs meeting audio) already knows who the rep is."""
+    return isinstance(stt_meta, dict) and stt_meta.get("speakers") == "channels"
+
+
+def keep_verified_speakers(before: str, after: str) -> str:
+    """Accept text repairs from a later pass but never its speaker changes."""
+    old = parse_transcript_turns(before)
+    new = parse_transcript_turns(after)
+    if len(old) != len(new):
+        return before
+    return serialize_transcript_turns(
+        [{"speaker": o.get("speaker"), "text": n.get("text")} for o, n in zip(old, new)]
+    )
 
 
 def extraction_complete_update(extraction: dict[str, Any], processed_at: str) -> dict[str, Any]:
-    """Persist fields + note. Do not write transcript — polish may already have."""
+    """Persist fields + note. The transcript is stored before extraction starts, not here."""
     return {
         "status": "pending_review",
         "extraction": extraction,
         "processed_at": processed_at,
         "processing_started_at": None,
     }
-
-_SANITIZE_LLM: ContextVar[Optional[dict[str, Any]]] = ContextVar(
-    "sanitize_llm_info", default=None
-)
 
 _STOP = frozenset(
     {
@@ -642,198 +645,6 @@ def reconstruct_spelled_emails(
     return out
 
 
-def build_sanitize_llm_prompt(
-    transcript: str,
-    terms: Iterable[EntityTerm],
-    roles: Optional[dict[str, str]] = None,
-    spoken_language: Optional[str] = None,
-) -> str:
-    entity_block = format_terms_for_llm(terms) or "(none provided)"
-    roles = roles or {}
-    rep = roles.get("rep_name") or "the Vocify user / sales rep"
-    them = roles.get("contact_name") or "the prospect"
-    company = roles.get("company_name") or "the prospect company"
-    seller = roles.get("seller_company") or "the seller company"
-    lang = (spoken_language or "").strip().lower()
-    language_block = ""
-    if lang == "ca":
-        language_block = """
-Spoken language is Catalan (may mix Spanish). Keep Catalan orthography.
-Do not translate into Spanish. Fix ASR toward Catalan (trucadas→trucades, tienes→tens, vacaciones→vacances, vosotros→vosaltres).
-"""
-    elif lang == "es":
-        language_block = """
-Spoken language is Spanish. Repair toward Spanish; do not rewrite into Catalan.
-"""
-    email_block = spelled_email_guidelines(spoken_language)
-    return f"""You repair a sales-call transcript after automatic speech recognition.
-{language_block}
-{email_block}
-Roles (use these to fix speaker labels, not to invent names):
-- S1 = {rep} (the caller / sales rep from {seller})
-- S2 = {them} at {company} (the prospect)
-- Two-person phone call: do not keep S3/S4. Merge extras into S1 or S2.
-
-ASR speaker IDs on HubSpot/phone recordings are often inverted or split.
-If S2 says "soy {rep}" / "fundador" / "te llamo {them}", that pitch is S1 — not {them}.
-Never label the pitch as {them} just because the rep said their name.
-
-Allowed entities — spell these exactly ONLY if they were actually spoken:
-{entity_block}
-
-Repair:
-1. Obvious ASR / phonetic errors on phone audio (SyFy → Vocify if allowed; tocadas → llamadas; cikautcho → Cikautxo).
-   Keep messy overlap. Do not rewrite the call into clean prose.
-2. Speaker assignment: move or split a turn when the WORDS clearly belong to the other person
-   (self-intro as founder = S1; answering discovery / vacation / their stack = S2).
-3. Merge consecutive turns from the same speaker. Split a turn that contains both voices.
-4. Reconstruct spelled emails into the written address (see the spelling rules above).
-
-Do not:
-- Summarize, translate, or clean filler/grammar for style.
-- Add facts, companies, or people that were not spoken.
-- Replace a clearly different spoken name with the CRM name
-  (transcript says Jean, contact is Eneritz → leave Jean).
-- Invent clean sentences over unintelligible overlap — leave the messy words.
-
-Return JSON only:
-{{"turns": [{{"speaker": "S1", "text": "..."}}, {{"speaker": "S2", "text": "..."}}]}}
-
-TRANSCRIPT:
-\"\"\"
-{transcript}
-\"\"\"
-"""
-
-
-def accept_llm_sanitize(original: str, candidate: str) -> bool:
-    """Drop LLM output that rewrote or emptied the transcript."""
-    src = (original or "").strip()
-    out = (candidate or "").strip()
-    if not src or not out:
-        return False
-    if out.startswith("```"):
-        out = out.strip("`").strip()
-        if out.lower().startswith("text"):
-            out = out[4:].lstrip()
-    if len(out) < max(20, int(len(src) * 0.55)):
-        return False
-    if len(out) > int(len(src) * 1.45) + 80:
-        return False
-    return True
-
-
-def _strip_llm_transcript(candidate: str) -> str:
-    out = (candidate or "").strip()
-    if out.startswith("```"):
-        lines = out.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        out = "\n".join(lines).strip()
-    return out
-
-
-def turns_from_llm_payload(payload: Any) -> list[dict[str, str]]:
-    if isinstance(payload, dict):
-        raw_turns = payload.get("turns")
-    elif isinstance(payload, list):
-        raw_turns = payload
-    else:
-        raw_turns = None
-    if not isinstance(raw_turns, list):
-        return []
-    out: list[dict[str, str]] = []
-    for item in raw_turns:
-        if not isinstance(item, dict):
-            continue
-        text = str(item.get("text") or "").strip()
-        if not text:
-            continue
-        speaker = normalize_speaker(item.get("speaker")) or "S1"
-        out.append({"speaker": speaker, "text": text})
-    return out
-
-
-async def llm_sanitize_transcript(
-    transcript: str,
-    terms: Iterable[EntityTerm],
-    roles: Optional[dict[str, str]] = None,
-    spoken_language: Optional[str] = None,
-) -> str:
-    """Gemini repair: names, obvious ASR, and speaker turns. Falls back to input."""
-    if not transcript or not transcript.strip():
-        return transcript
-    term_list = [t for t in terms if t.canonical]
-    try:
-        from app.config import settings
-        from app.services.llm import LLMClient
-
-        if not getattr(settings, "TRANSCRIPT_SANITIZE_LLM", True):
-            return transcript
-        model = (
-            (getattr(settings, "TRANSCRIPT_SANITIZE_MODEL", None) or "").strip()
-            or (getattr(settings, "EXTRACTION_MODEL", None) or "").strip()
-            or "google/gemini-3.5-flash-lite"
-        )
-        llm = LLMClient(model=model)
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You repair ASR transcripts and speaker labels. "
-                    "You never summarize, translate, or invent. Return JSON with a turns array."
-                ),
-            },
-            {
-                "role": "user",
-                "content": build_sanitize_llm_prompt(
-                    transcript, term_list, roles, spoken_language=spoken_language
-                ),
-            },
-        ]
-        from app.services.pipeline_meta import snapshot_prompts
-
-        _SANITIZE_LLM.set(
-            {
-                "provider": getattr(settings, "LLM_PROVIDER", None) or "openrouter",
-                "model": model,
-                "prompts": snapshot_prompts(messages),
-            }
-        )
-        payload = await llm.chat_json(
-            messages,
-            model=model,
-            temperature=0.0,
-            timeout=45.0,
-            max_retries=1,
-        )
-        call_meta = getattr(llm, "last_call_meta", None) or {}
-        info = dict(_SANITIZE_LLM.get() or {})
-        if call_meta.get("model"):
-            info["model"] = call_meta["model"]
-        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-            if call_meta.get(key) is not None:
-                info[key] = call_meta[key]
-        _SANITIZE_LLM.set(info)
-        turns = turns_from_llm_payload(payload)
-        cleaned = serialize_transcript_turns(turns) if turns else ""
-        if accept_llm_sanitize(transcript, cleaned):
-            if cleaned != transcript:
-                logger.info(
-                    "LLM transcript repair applied (%d → %d chars, %d turns)",
-                    len(transcript),
-                    len(cleaned),
-                    len(turns),
-                )
-            return cleaned
-        logger.warning("LLM transcript repair output rejected (length/shape guard)")
-    except Exception as e:
-        logger.warning("LLM transcript sanitizer skipped: %s", e)
-    return transcript
-
-
 def prepare_transcript_for_extraction(
     transcript: str,
     glossary: Optional[list[dict[str, Any]]] = None,
@@ -841,6 +652,7 @@ def prepare_transcript_for_extraction(
     extra_names: Optional[list[str]] = None,
     spoken_language: Optional[str] = None,
     two_party: bool = False,
+    speakers_verified: bool = False,
 ) -> tuple[str, str]:
     """Deterministic aliases, casing, S1/S2 remap, spelled emails. No LLM — safe before extract."""
     transcript = normalize_diarized_transcript(transcript)
@@ -854,9 +666,12 @@ def prepare_transcript_for_extraction(
         )
     roles = role_hints_from_context(existing_values, extra_names)
     text = cleaned.text
-    if two_party:
-        text = collapse_extra_speakers(text)
-    text = canonicalize_rep_prospect_speakers(text, roles)
+    if speakers_verified:
+        text = keep_verified_speakers(transcript, text)
+    else:
+        if two_party:
+            text = collapse_extra_speakers(text)
+        text = canonicalize_rep_prospect_speakers(text, roles)
     if not spoken_language:
         try:
             from app.services.session_entities import get_batch_stt_language
@@ -868,6 +683,73 @@ def prepare_transcript_for_extraction(
     return text, format_terms_for_llm(terms)
 
 
+def start_transcript_patch(
+    transcript: str,
+    glossary: Optional[list[dict[str, Any]]],
+    existing_values: Optional[dict[str, Any]],
+    extra_names: Optional[list[str]],
+    *,
+    two_party: bool = False,
+    spoken_language: Optional[str] = None,
+) -> Optional["asyncio.Task"]:
+    """Start the LLM repair of misheard words (transcript_patch.py) and return at once, so it can
+    run while the call is read and extracted. Two-channel desktop calls are repaired too: live
+    transcripts mishear brands ("PayDrive"), and a patch only replaces words inside a turn, so
+    the speakers the channels gave stay exactly as they were."""
+    from app.services.transcript_patch import patch_transcript
+
+    if not spoken_language:
+        try:
+            from app.services.session_entities import get_batch_stt_language
+
+            spoken_language = get_batch_stt_language()
+        except Exception:
+            spoken_language = None
+    terms = collect_sanitize_terms(glossary, existing_values, extra_names)
+    roles = role_hints_from_context(existing_values, extra_names)
+
+    async def run() -> tuple[Any, float]:
+        started = time.perf_counter()
+        result = await patch_transcript(transcript, terms, roles, spoken_language=spoken_language, two_party=two_party)
+        return result, time.perf_counter() - started
+
+    return asyncio.ensure_future(run())
+
+
+async def finish_transcript_patch(task: Optional["asyncio.Task"], *, rules_ms: Optional[int] = None) -> Optional[Any]:
+    """Wait for the repair (normally already done) and record the "sanitize" stage: how long the
+    call itself took, how long extraction then waited for it (0 = fully hidden), and every edit
+    it applied or refused. Never raises."""
+    from app.services.pipeline_meta import record_stage
+
+    if task is None:
+        record_stage("sanitize", time.perf_counter(), skipped="not_started")
+        return None
+    waiting = time.perf_counter()
+    try:
+        result, took = await task
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if task.cancelled() and not (current and current.cancelling()):
+            record_stage("sanitize", time.perf_counter(), skipped="cancelled")
+            return None
+        raise  # this coroutine itself is being cancelled
+    except Exception as exc:  # patch_transcript does not raise; a cancelled or broken task is not the memo's problem
+        logger.warning("Transcript patch task failed: %s", exc)
+        record_stage("sanitize", time.perf_counter(), skipped=f"error:{type(exc).__name__}")
+        return None
+    record_stage(
+        "sanitize", time.perf_counter() - took,
+        waited_ms=round((time.perf_counter() - waiting) * 1000), rules_ms=rules_ms, **result.stage_info(),
+    )
+    return result
+
+
+def cancel_transcript_patch(task: Optional["asyncio.Task"]) -> None:
+    if task is not None and not task.done():
+        task.cancel()
+
+
 async def prepare_transcript_for_extraction_async(
     transcript: str,
     glossary: Optional[list[dict[str, Any]]] = None,
@@ -875,42 +757,23 @@ async def prepare_transcript_for_extraction_async(
     extra_names: Optional[list[str]] = None,
     spoken_language: Optional[str] = None,
     two_party: bool = False,
+    speakers_verified: bool = False,
 ) -> tuple[str, str]:
-    """Cheap repair, then optional LLM polish for display (do not block extract on this)."""
-    from app.services.pipeline_meta import record_stage
-
-    t0 = time.perf_counter()
-    token = _SANITIZE_LLM.set(None)
-    try:
-        if not spoken_language:
-            try:
-                from app.services.session_entities import get_batch_stt_language
-
-                spoken_language = get_batch_stt_language()
-            except Exception:
-                spoken_language = None
-        text, glossary_text = prepare_transcript_for_extraction(
-            transcript,
-            glossary,
-            existing_values,
-            extra_names,
-            spoken_language=spoken_language,
-            two_party=two_party,
-        )
-        terms = collect_sanitize_terms(glossary, existing_values, extra_names)
-        roles = role_hints_from_context(existing_values, extra_names)
-        polished = await llm_sanitize_transcript(
-            text, terms, roles, spoken_language=spoken_language
-        )
-        if two_party:
-            polished = collapse_extra_speakers(polished)
-        polished = canonicalize_rep_prospect_speakers(polished, roles)
-        polished = reconstruct_spelled_emails(polished, spoken_language=spoken_language)
-        info = _SANITIZE_LLM.get() or {}
-        record_stage("sanitize", t0, **info)
-        return polished, glossary_text
-    finally:
-        _SANITIZE_LLM.reset(token)
+    """`prepare_transcript_for_extraction` plus the LLM patch, one after the other, for paths
+    that have nothing to overlap it with (re-extract, WhatsApp). Same return value; the rule-
+    cleaned text comes back whenever the patch does not apply."""
+    started = time.perf_counter()
+    text, glossary_text = prepare_transcript_for_extraction(
+        transcript, glossary, existing_values, extra_names,
+        spoken_language=spoken_language, two_party=two_party, speakers_verified=speakers_verified,
+    )
+    rules_ms = round((time.perf_counter() - started) * 1000)
+    task = start_transcript_patch(
+        text, glossary, existing_values, extra_names,
+        two_party=two_party, spoken_language=spoken_language,
+    )
+    patched = await finish_transcript_patch(task, rules_ms=rules_ms)
+    return (patched.text if patched else text), glossary_text
 
 
 async def sanitize_user_transcript(
@@ -920,6 +783,7 @@ async def sanitize_user_transcript(
     *,
     memo_data: Optional[dict[str, Any]] = None,
     existing_values: Optional[dict[str, Any]] = None,
+    speakers_verified: bool = False,
 ) -> str:
     """Load glossary + CRM names, then cheap deterministic repair (no LLM)."""
     from app.services.glossary import GlossaryService
@@ -947,100 +811,6 @@ async def sanitize_user_transcript(
         extra_names=extra,
         spoken_language=spoken,
         two_party=is_two_party_source(source),
+        speakers_verified=speakers_verified,
     )
     return cleaned
-
-
-async def polish_memo_transcript(
-    memo_id: str,
-    user_id: str,
-    transcript: str,
-    supabase: Any,
-    *,
-    memo_data: Optional[dict[str, Any]] = None,
-) -> None:
-    """Background LLM repair of the stored transcript. Never blocks extract or overwrites CRM fields."""
-    if not transcript or not str(transcript).strip():
-        return
-    try:
-        from app.services.glossary import GlossaryService
-        from app.services.session_entities import load_stt_profile
-
-        glossary_svc = GlossaryService(supabase)
-        glossary = await glossary_svc.get_user_glossary(user_id)
-        profile = load_stt_profile(supabase, user_id)
-        extra = [n for n in (profile.get("full_name"), profile.get("company_name")) if n]
-        if memo_data is None:
-            fetched = (
-                supabase.table("memos")
-                .select(
-                    "id,user_id,hubspot_contact_id,hubspot_deal_id,matched_deal_id,status,source,source_type"
-                )
-                .eq("id", memo_id)
-                .limit(1)
-                .execute()
-            )
-            memo_data = (fetched.data or [None])[0]
-        values = None
-        if memo_data is not None:
-            try:
-                from app.services.extraction_context import load_existing_crm_values
-
-                values = await load_existing_crm_values(supabase, user_id, memo_data)
-            except Exception:
-                values = {}
-        langs = profile.get("stt_languages") or ["es"]
-        spoken = langs[0] if langs else "es"
-        from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
-
-        with pipeline_run() as stages:
-            source = (memo_data or {}).get("source") or (memo_data or {}).get("source_type") or ""
-            polished, _ = await prepare_transcript_for_extraction_async(
-                transcript,
-                glossary,
-                values,
-                extra_names=extra,
-                spoken_language=spoken,
-                two_party=is_two_party_source(source),
-            )
-            persist_pipeline_meta(supabase, memo_id, stages)
-        if not polished or polished == transcript:
-            return
-        row = (
-            supabase.table("memos")
-            .select("status")
-            .eq("id", memo_id)
-            .limit(1)
-            .execute()
-        )
-        status = ((row.data or [None])[0] or {}).get("status")
-        if not should_refresh_display_transcript(status):
-            return
-        supabase.table("memos").update({"transcript": polished}).eq("id", memo_id).execute()
-    except Exception as e:
-        logger.warning("Background transcript polish skipped for %s: %s", memo_id, e)
-
-
-_POLISH_TASKS: set[asyncio.Task] = set()
-
-
-def schedule_transcript_polish(
-    memo_id: str,
-    user_id: str,
-    transcript: str,
-    supabase: Any,
-    *,
-    memo_data: Optional[dict[str, Any]] = None,
-) -> None:
-    """Fire LLM transcript polish without waiting. Extract proceeds on cheap text."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return
-    task = loop.create_task(
-        polish_memo_transcript(
-            memo_id, user_id, transcript, supabase, memo_data=memo_data
-        )
-    )
-    _POLISH_TASKS.add(task)
-    task.add_done_callback(_POLISH_TASKS.discard)

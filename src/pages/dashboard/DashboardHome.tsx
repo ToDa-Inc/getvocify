@@ -1,31 +1,13 @@
-import { useNavigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useAuth } from "@/features/auth";
-import { getUserDisplayName } from "@/features/auth/types";
-import { ActivityPanel } from "@/components/dashboard/ActivityPanel";
-import { VoiceRecorderWidget } from "@/components/dashboard/VoiceRecorderWidget";
-import { THEME_TOKENS, V_PATTERNS } from "@/lib/theme/tokens";
+import { InicioPage } from "@/features/home/components/InicioPage";
 
+/** Inicio for every role (the paywall redirect lives in DashboardLayout). The full Hoy is /dashboard/today. */
 const DashboardHome = () => {
-  const navigate = useNavigate();
   const { user } = useAuth();
-  const displayName = user ? getUserDisplayName(user) : "User";
-
-  return (
-    <div className={`max-w-5xl mx-auto space-y-8 ${THEME_TOKENS.motion.fadeIn}`}>
-      <div className={V_PATTERNS.dashboardHeader}>
-        <h1 className={THEME_TOKENS.typography.pageTitle}>
-          Welcome back, <span className={THEME_TOKENS.typography.accentTitle}>{displayName.split(" ")[0]}</span>
-        </h1>
-        <p className={THEME_TOKENS.typography.body}>Ready to update your CRM?</p>
-      </div>
-
-      <VoiceRecorderWidget
-        onComplete={(memoId) => navigate(`/dashboard/memos/${memoId}`)}
-      />
-
-      <ActivityPanel />
-    </div>
-  );
+  // T9: send an owner/admin who hasn't finished onboarding to the wizard first.
+  if (user?.company?.needsOnboarding) return <Navigate to="/dashboard/onboarding" replace />;
+  return <InicioPage />;
 };
 
 export default DashboardHome;

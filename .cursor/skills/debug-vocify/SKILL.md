@@ -1,14 +1,17 @@
 ---
 name: debug-vocify
 description: >
-  Vocify-only production debug pipeline (Hugo-style). Use only when the user
-  asks to debug Vocify — production, logs, 502, emails, invites, billing,
+  Vocify-only debug pipeline (Hugo-style). Use only when the user
+  asks to debug Vocify — production, staging, logs, 502, emails, invites, billing,
   calls, WhatsApp, STT, CRM, or a named vendor (Resend, Stripe, Twilio,
   Telnyx, Unipile, Deepgram, OpenRouter, Railway). Do not use for routine
   feature work, refactors, or other products.
 ---
 
 # Debug Vocify
+
+**Global install:** `~/.agents/skills/debug-vocify/` (Claude, Codex, Cursor).
+Repo copy: `getvocify/.cursor/skills/debug-vocify/`.
 
 Vocify-specific ops pipeline. **Run only when the user requests a debug.**
 Not SignalCore, not other repos, not everyday coding.
@@ -22,9 +25,9 @@ Copy and tick:
 
 ```
 Debug Vocify
-- [ ] 0 Identity — company/user/time/env; admin search if they named a customer
-- [ ] 1 Health — api.getvocify.com/health (Vercel is not the API)
-- [ ] 2 Railway — deploy status + bounded error/keyword logs
+- [ ] 0 Identity — company/user/time/env (production|staging); admin search if they named a customer
+- [ ] 1 Health — prod api.getvocify.com/health or staging getvocify-staging.up.railway.app/health
+- [ ] 2 Railway — that env's deploy status + bounded error/keyword logs
 - [ ] 3 Vendor — open services/<name>.md, then GET via vocify-http.sh or MCP
 - [ ] 4 Code — only after evidence; origin/main vs local WIP
 - [ ] 5 Fix — smallest change; hotfix from origin/main; re-verify
@@ -33,11 +36,15 @@ Debug Vocify
 Cards and IDs: [services/INDEX.md](services/INDEX.md).
 Full playbook: [pipeline.md](pipeline.md).
 
+Scripts from any cwd (Claude / Codex / Cursor):
+
 ```bash
-.cursor/skills/debug-vocify-railway/scripts/vocify-railway.sh health
-.cursor/skills/debug-vocify-railway/scripts/vocify-railway.sh errors
-.cursor/skills/debug-vocify/scripts/vocify-http.sh resend GET /emails
+~/.agents/skills/debug-vocify-railway/scripts/vocify-railway.sh health
+~/.agents/skills/debug-vocify-railway/scripts/vocify-railway.sh errors
+~/.agents/skills/debug-vocify/scripts/vocify-http.sh resend GET /emails
 ```
+
+From the getvocify repo root the same helpers live at `.cursor/skills/debug-vocify*/scripts/`.
 
 ## Evidence (Hugo, non-negotiable)
 

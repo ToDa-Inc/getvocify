@@ -101,6 +101,7 @@ def _safe_return_url(url: str) -> str:
         "localhost:8080",
         "localhost:8081",
         "app.getvocify.com",
+        "staging.getvocify.com",
         "getvocify.com",
         "www.getvocify.com",
     }

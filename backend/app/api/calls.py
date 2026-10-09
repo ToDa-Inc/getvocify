@@ -25,6 +25,7 @@ from app.services.activity_scope import (
     UnknownCompanyAuthor,
     can_view_company_activity,
     company_user_ids,
+    effective_visibility,
     load_viewer_scope,
     memo_readable_by,
     resolve_list_user_ids,
@@ -38,6 +39,7 @@ from app.services.telephony.caller_id import (
     start_caller_id_verification,
     update_caller_id_label,
     CallerIdNotVerified,
+    CallerIdRangeRestricted,
     CallerIdVerificationUnsupported,
 )
 from app.services.telephony.provider import calling_provider
@@ -252,7 +254,7 @@ async def create_caller_id(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
-    except CallerIdVerificationUnsupported as e:
+    except (CallerIdRangeRestricted, CallerIdVerificationUnsupported) as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from e
@@ -287,6 +289,10 @@ async def confirm_caller_id(
     except InvalidPhoneNumber as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except CallerIdRangeRestricted as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from e
     except CallerIdNotVerified as e:
         raise HTTPException(
@@ -406,9 +412,10 @@ async def list_call_history(
 ):
     membership, members, authors = load_viewer_scope(supabase, user_id)
     role = membership.role if membership else None
+    visibility = effective_visibility(supabase, membership)
     scope_value = scope if isinstance(scope, str) else getattr(scope, "default", None)
     scope_norm = str(scope_value or "me").strip().lower()
-    if scope_norm == "company" and not can_view_company_activity(role):
+    if scope_norm == "company" and not can_view_company_activity(role, visibility):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only owners and admins can list company activity",
@@ -418,6 +425,7 @@ async def list_call_history(
             viewer_id=user_id,
             viewer_role=role,
             member_ids=company_user_ids(members),
+            viewer_visibility=visibility,
             scope=scope_norm,
             author_user_id=(author_user_id or "").strip() or None,
         )
@@ -487,6 +495,7 @@ async def get_call(
         owner_user_id=owner_id,
         viewer_role=membership.role if membership else None,
         same_company=owner_id in set(company_user_ids(members)),
+        viewer_visibility=effective_visibility(supabase, membership),
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Call not found"

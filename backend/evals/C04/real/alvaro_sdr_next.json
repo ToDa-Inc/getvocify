@@ -1,0 +1,733 @@
+[
+ {
+  "memo_id": "98b0879d-1466-45d2-8a1d-da752002d219",
+  "followup_email": {
+   "needed": true,
+   "kind": "info"
+  },
+  "callback": {
+   "needed": true,
+   "when": "2026-09-25",
+   "who_asked": "rep"
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "4ae6c8c4-11ed-4658-9f59-30031de4ed3a",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "b42814e0-f655-406c-a751-e301ccab7b2c",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "338a91a0-e12f-4b8a-87ff-d5d4f7fef7b0",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "a4925501-a606-43cc-ba6b-462d8fbe5e6a",
+  "followup_email": {
+   "needed": false,
+   "kind": "other"
+  },
+  "callback": {
+   "needed": true,
+   "when": null,
+   "who_asked": "prospect"
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "5be9c7fc-fc7a-43bd-b60f-500d353aa03d",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": true,
+   "when": "2026-09-25T12:30",
+   "who_asked": "prospect"
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "11400bcf-77f6-4f16-98f7-1fb2877555a6",
+  "followup_email": {
+   "needed": true,
+   "kind": "calendar_invite"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": true,
+   "starts_at": "2026-10-01",
+   "with": "sdr"
+  }
+ },
+ {
+  "memo_id": "ae7a7a43-75cd-497b-a949-ab2b8e640450",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "9232f46c-708f-4e6a-aa8f-a3286c8481ab",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "0e156749-07a1-4834-a289-9621d3d6a4da",
+  "followup_email": {
+   "needed": true,
+   "kind": "calendar_invite"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": true,
+   "starts_at": "2026-09-24T17:45",
+   "with": "sdr"
+  }
+ },
+ {
+  "memo_id": "9cb9c3e3-3bc7-43c2-acaa-65d2fc53d20c",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "14e35ecc-409f-427c-8e79-f23ac00b482e",
+  "followup_email": {
+   "needed": true,
+   "kind": "info"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "efb5059c-e9bb-4c88-8959-e8c3a2a126ff",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "0b3b2b28-fa16-41df-8ee7-d87eab9db9ad",
+  "followup_email": {
+   "needed": true,
+   "kind": "calendar_invite"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": true,
+   "starts_at": "2026-09-30T12:30",
+   "with": "sdr"
+  }
+ },
+ {
+  "memo_id": "27726de3-a6f5-461f-9949-e5e485d51e7b",
+  "followup_email": {
+   "needed": true,
+   "kind": "calendar_invite"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": true,
+   "starts_at": "2026-09-28T13:00",
+   "with": "sdr"
+  }
+ },
+ {
+  "memo_id": "3ba7754a-8722-4f2c-a341-5232c498152c",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "7602f46d-4039-41f8-a746-7391e2e15e94",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": true,
+   "starts_at": "2026-09-30",
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "d5ae8bdb-18e8-4647-bcb7-f9d1370d542e",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": true,
+   "starts_at": "2026-09-22T12:30",
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "5eb7c3a9-ea34-4892-99cb-f259870f2ab7",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": null,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "345d7fd1-51f4-4d81-87cd-178e853ec4cd",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": true,
+   "starts_at": "2026-09-30",
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "09ad6515-48f2-4427-9208-a3a8e7f460dd",
+  "followup_email": {
+   "needed": true,
+   "kind": "info"
+  },
+  "callback": {
+   "needed": true,
+   "when": null,
+   "who_asked": "rep"
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "bc1f4484-47c5-423e-9def-d34baecc9589",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": true,
+   "when": "2027-09-23",
+   "who_asked": "prospect"
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "29e698c2-03e6-4b6c-a8a0-3e1885f80cc3",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": true,
+   "when": null,
+   "who_asked": "prospect"
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "09a173a7-cc3e-4f52-9768-56761602c41e",
+  "followup_email": {
+   "needed": true,
+   "kind": "calendar_invite"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": true,
+   "starts_at": "2026-10-09T09:30",
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "f73f0f4b-d5c5-4eb6-affa-0d0afb4fff65",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "2de1d0e1-6d3a-4c92-9bcb-1255fdaa04fb",
+  "followup_email": {
+   "needed": true,
+   "kind": "other"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "1926a8a0-f7f9-4672-93c1-91ad79be4f38",
+  "followup_email": {
+   "needed": true,
+   "kind": "calendar_invite"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": true,
+   "starts_at": "2026-10-02",
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "5caa4822-deb1-4c21-a3f3-9d3be9a5089b",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "d3c04718-308b-42ee-b79c-60575b037dc7",
+  "followup_email": {
+   "needed": true,
+   "kind": "other"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "1264f0af-53f9-4f15-8384-49f38ba394a9",
+  "followup_email": {
+   "needed": true,
+   "kind": "info"
+  },
+  "callback": {
+   "needed": true,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "cff789e6-a0e6-4d7f-8626-b7f165329a69",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": true,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "62f74bd6-3f54-4d04-80bd-45d16e6d90fd",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": true,
+   "when": "2027-01-15",
+   "who_asked": "prospect"
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "2bda3562-20aa-4005-ad21-8cc64477acee",
+  "followup_email": {
+   "needed": true,
+   "kind": "calendar_invite"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": true,
+   "starts_at": "2026-09-23T15:00",
+   "with": "ae"
+  }
+ },
+ {
+  "memo_id": "e3754981-1478-4b8b-896b-e6ee434b8e44",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": true,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "24d77830-1622-43dd-ac3b-73b1327e45ad",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "0aae3ca1-dbc8-41f7-adf3-8baa884557d2",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "87b7d86c-f30d-40d4-86c1-9fe553dc791f",
+  "followup_email": {
+   "needed": true,
+   "kind": "calendar_invite"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": true,
+   "starts_at": "2026-09-24T13:00",
+   "with": "sdr"
+  }
+ },
+ {
+  "memo_id": "6904f26a-6a8e-4f06-8c7f-d7fdd7cafc06",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "4c837a37-b34d-4e17-a31a-72ae8480bd77",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": true,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "4a33d342-ff24-40a7-91a2-a311a0db546d",
+  "followup_email": {
+   "needed": true,
+   "kind": "other"
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": "prospect"
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "9ce7cb62-c0b7-4b88-b1e7-e7868762eb1d",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": null,
+   "starts_at": null,
+   "with": "unknown"
+  }
+ },
+ {
+  "memo_id": "13281213-ac7e-4dce-840c-cb7c57f8742a",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": false,
+   "when": null,
+   "who_asked": null
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ },
+ {
+  "memo_id": "93df8687-ee6e-4ebe-9117-25194f78632c",
+  "followup_email": {
+   "needed": false,
+   "kind": null
+  },
+  "callback": {
+   "needed": true,
+   "when": null,
+   "who_asked": "rep"
+  },
+  "meeting": {
+   "booked": false,
+   "starts_at": null,
+   "with": null
+  }
+ }
+]

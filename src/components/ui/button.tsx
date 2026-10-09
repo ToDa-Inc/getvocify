@@ -9,13 +9,20 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        // The app's primary: beige with the glass highlight and a soft glow on hover (materials.css .btn-glow).
+        default: "btn-glow bg-beige text-cream hover:bg-beige/90",
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "border border-border/70 bg-card text-foreground shadow-none hover:bg-secondary/60",
+        // Secondary: the light glass of a selected nav pill.
+        outline: "glass-nav text-foreground hover:bg-white/40 dark:hover:bg-white/10",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-secondary hover:text-foreground",
         link: "text-primary underline-offset-4 hover:underline",
-        hero: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-none",
+        // Same primary as `default`: kept as a name so existing call sites do not change.
+        hero: "btn-glow bg-beige text-cream hover:bg-beige/90",
+        // A quiet text action beside a primary ("Cancelar", "Ver todo"): no fill, color change only.
+        quiet: "rounded-md text-muted-foreground hover:text-foreground",
+        // A red text action ("Colgar", "Eliminar"): no fill until hovered. Filled red is `destructive`.
+        dangerGhost: "text-destructive hover:bg-destructive/10",
         recording: "bg-destructive text-destructive-foreground",
       },
       size: {
@@ -23,6 +30,7 @@ const buttonVariants = cva(
         sm: "h-9 rounded-full px-3.5",
         lg: "h-11 rounded-full px-6 text-sm",
         xl: "h-12 rounded-full px-8 text-[15px] font-normal",
+        text: "h-7 gap-1.5 px-2 text-[13px]",
         icon: "h-10 w-10",
         "icon-lg": "h-12 w-12",
         "icon-xl": "h-16 w-16",

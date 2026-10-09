@@ -18,6 +18,8 @@ from app.services.billing.entitlement import (
     access_mode_of,
     workspace_entitlements,
 )
+from app.services.feature_flags import is_enabled
+from app.services.hoy.materialize import DEFAULT_CALLBACK_AFTER_DAYS
 from app.emails.templates import (
     build_invite_email_html,
     build_password_changed_email_html,
@@ -32,6 +34,13 @@ INVITE_TOKEN_EXPIRY_DAYS = 7
 PASSWORD_RESET_EXPIRY_HOURS = 1
 MANAGE_ROLES = frozenset({"owner", "admin"})
 INVITE_ROLES = frozenset({"admin", "member"})
+REP_WORKSPACE_FLAG = "REP_WORKSPACE_ENABLED"
+BRIEF_V2_FLAG = "BRIEF_V2_ENABLED"
+SALES_ROLES_FLAG = "SALES_ROLES_ENABLED"
+FOLLOWUP_BY_FLOW_FLAG = "FOLLOWUP_BY_FLOW_ENABLED"
+ONBOARDING_WIZARD_FLAG = "ONBOARDING_WIZARD_ENABLED"
+SALES_ROLES = frozenset({"sdr", "ae", "general"})
+VISIBILITIES = frozenset({"own", "team"})
 
 
 @dataclass
@@ -41,6 +50,9 @@ class Membership:
     user_id: str
     role: str
     status: str
+    sales_role: Optional[str] = None
+    handoff_ae_user_id: Optional[str] = None
+    visibility: str = "own"
 
     @property
     def is_active(self) -> bool:
@@ -91,6 +103,80 @@ def _missing_company_schema(exc: BaseException) -> bool:
     )
 
 
+def _missing_sales_strategy_column(exc: BaseException) -> bool:
+    """True when migration 058_sales_strategy.sql (companies.sales_strategy) has not run
+    yet: an undefined-column error naming that column."""
+    try:
+        from postgrest.exceptions import APIError
+    except ImportError:
+        APIError = ()  # type: ignore[misc, assignment]
+
+    if isinstance(exc, APIError):
+        code = str(exc.code or "").upper()
+        msg = (exc.message or str(exc)).lower()
+        if (code == "42703" or "does not exist" in msg) and "sales_strategy" in msg:
+            return True
+
+    msg = str(exc).lower()
+    return "42703" in msg and "sales_strategy" in msg
+
+
+def _missing_onboarding_column(exc: BaseException) -> bool:
+    """True when migration 059_company_onboarding.sql (companies.onboarding_completed_at)
+    has not run yet: an undefined-column error naming that column."""
+    try:
+        from postgrest.exceptions import APIError
+    except ImportError:
+        APIError = ()  # type: ignore[misc, assignment]
+
+    if isinstance(exc, APIError):
+        code = str(exc.code or "").upper()
+        msg = (exc.message or str(exc)).lower()
+        if (code == "42703" or "does not exist" in msg) and "onboarding_completed_at" in msg:
+            return True
+
+    msg = str(exc).lower()
+    return "42703" in msg and "onboarding_completed_at" in msg
+
+
+_SALES_COLUMN_NAMES = ("sales_role", "handoff_ae_user_id", "visibility")
+
+
+def _missing_sales_columns(exc: BaseException) -> bool:
+    """True when migration 054_sales_roles.sql (sales_role/handoff_ae_user_id/visibility)
+    has not run yet: an undefined-column error naming one of those columns."""
+    try:
+        from postgrest.exceptions import APIError
+    except ImportError:
+        APIError = ()  # type: ignore[misc, assignment]
+
+    if isinstance(exc, APIError):
+        code = str(exc.code or "").upper()
+        msg = (exc.message or str(exc)).lower()
+        if (code == "42703" or "does not exist" in msg) and any(n in msg for n in _SALES_COLUMN_NAMES):
+            return True
+
+    msg = str(exc).lower()
+    return "42703" in msg and any(n in msg for n in _SALES_COLUMN_NAMES)
+
+
+def sales_role_for_user(supabase: Client, user_id: str, *, company_id: Optional[str] = None) -> Optional[str]:
+    """Best-effort sales_role lookup for capture routing (D5). Tolerant of the sales_role
+    column not existing yet (delegates to get_membership) and never raises. When the caller
+    already knows the company (T12 reports), `company_id` scopes the result to it: a
+    membership row for a different company is treated as "no role", not that company's."""
+    try:
+        membership = CompanyService(supabase).get_membership(str(user_id))
+    except Exception as exc:
+        logger.warning("sales_role lookup failed for %s: %s", user_id, exc)
+        return None
+    if not membership:
+        return None
+    if company_id is not None and str(membership.company_id) != str(company_id):
+        return None
+    return membership.sales_role
+
+
 class CompanyService:
     def __init__(self, supabase: Client):
         self.supabase = supabase
@@ -99,19 +185,36 @@ class CompanyService:
         try:
             result = (
                 self.supabase.table("company_members")
-                .select("id, company_id, user_id, role, status")
+                .select("id, company_id, user_id, role, status, sales_role, handoff_ae_user_id, visibility")
                 .eq("user_id", user_id)
                 .limit(1)
                 .execute()
             )
         except Exception as exc:
-            if _missing_company_schema(exc):
+            # Checked before _missing_company_schema: an undefined sales_role/etc. column
+            # error also mentions "company_members" and "does not exist", so the more
+            # specific check must run first or it never fires.
+            if _missing_sales_columns(exc):
+                logger.warning(
+                    "sales_role/handoff_ae_user_id/visibility unavailable (run migration "
+                    "054_sales_roles.sql): %s",
+                    exc,
+                )
+                result = (
+                    self.supabase.table("company_members")
+                    .select("id, company_id, user_id, role, status")
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
+                )
+            elif _missing_company_schema(exc):
                 logger.warning(
                     "Company schema unavailable (run migration 028_companies.sql): %s",
                     exc,
                 )
                 return None
-            raise
+            else:
+                raise
         rows = result.data or []
         if not rows:
             return None
@@ -122,6 +225,9 @@ class CompanyService:
             user_id=str(row["user_id"]),
             role=row["role"],
             status=row["status"],
+            sales_role=row.get("sales_role"),
+            handoff_ae_user_id=(str(row["handoff_ae_user_id"]) if row.get("handoff_ae_user_id") else None),
+            visibility=row.get("visibility") or "own",
         )
 
     def require_membership(self, user_id: str) -> Membership:
@@ -153,6 +259,31 @@ class CompanyService:
         if not result.data:
             raise HTTPException(status_code=404, detail="Company not found")
         return result.data
+
+    def callback_after_days(self, company_id: str) -> int:
+        """T5 (companies.callback_after_days, migration 057): how many silent days after a
+        no_response/voicemail call attempt Hoy surfaces callback_no_answer. Read with
+        select("*") like get_company, so a company row without the column yet (migration
+        not applied) never raises - it just falls back to the same default of 2."""
+        try:
+            company = self.get_company(company_id)
+        except Exception:
+            return DEFAULT_CALLBACK_AFTER_DAYS
+        value = company.get("callback_after_days")
+        return int(value) if isinstance(value, int) and value > 0 else DEFAULT_CALLBACK_AFTER_DAYS
+
+    def followup_cadence(self, company_id: str) -> dict[str, int]:
+        """Lista 4 T2 (companies.followup_cadence, migration 062): the Head of Sales' own
+        follow-up waits per stopper, validated (hoy/cadence.parse_overrides). Read with
+        select("*") like callback_after_days, so before the migration - or on any failed
+        read - it is {} and E8's defaults apply."""
+        from app.services.hoy.cadence import parse_overrides
+
+        try:
+            company = self.get_company(company_id)
+        except Exception:
+            return {}
+        return parse_overrides(company.get("followup_cadence"))
 
     def count_active_members(self, company_id: str) -> int:
         result = (
@@ -251,7 +382,89 @@ class CompanyService:
 
         return get_billing(self.supabase, company_id) or {}
 
+    def rep_workspace_enabled(self, company_id: str) -> bool:
+        return is_enabled(self.supabase, company_id, REP_WORKSPACE_FLAG)
+
+    def brief_v2_enabled(self, company_id: str) -> bool:
+        return is_enabled(self.supabase, company_id, BRIEF_V2_FLAG)
+
+    def sales_roles_enabled(self, company_id: str) -> bool:
+        return is_enabled(self.supabase, company_id, SALES_ROLES_FLAG)
+
+    def sales_strategy_enabled(self, company_id: str) -> bool:
+        """D10 rides on the follow-up-by-flow flag: that is the only consumer so far."""
+        return is_enabled(self.supabase, company_id, FOLLOWUP_BY_FLOW_FLAG)
+
+    def lead_tiers_enabled(self, company_id: str) -> bool:
+        """T5: callback_after_days only matters (and is only editable) with lead tiers on."""
+        return is_enabled(self.supabase, company_id, "HOY_LEAD_TIERS_ENABLED")
+
+    def sdr_sections_enabled(self, company_id: str) -> bool:
+        """Lista 4: the follow-up cadence only matters (and is only editable) with the SDR's
+        Tareas / Seguimiento / Nuevos on - it is what brings a contact back to Seguimiento."""
+        return is_enabled(self.supabase, company_id, "HOY_SDR_SECTIONS_ENABLED")
+
+    def onboarding_wizard_enabled(self, company_id: str) -> bool:
+        return is_enabled(self.supabase, company_id, ONBOARDING_WIZARD_FLAG)
+
+    def needs_onboarding(self, membership: "Membership", company: Optional[dict] = None) -> bool:
+        """T9: only a Head of Sales (owner/admin) ever gets the wizard, and only while the
+        flag is on. Pass `company` when the caller already has the row (company_summary_for_user,
+        GET /company) to skip a second read.
+
+        `onboarding_completed_at` comes back through get_company's `select("*")`, so a company
+        on a database before migration 059 simply has no such key in the row - that reads as
+        "not asking for onboarding" (pre-migration behaviour unchanged), not as "incomplete".
+        Once the column exists, an explicit None means incomplete."""
+        if not membership.can_manage_team:
+            return False
+        if not self.onboarding_wizard_enabled(membership.company_id):
+            return False
+        row = company if company is not None else self.get_company(membership.company_id)
+        if "onboarding_completed_at" not in row:
+            return False
+        return row.get("onboarding_completed_at") is None
+
+    def onboarding_state(self, company_id: str) -> dict:
+        """Best-effort read of which onboarding steps already look done, for the wizard to
+        skip ahead. `playbooks` has no cheap signal (its store lives in memory, see
+        api/playbooks.py) so it always starts pending; the wizard's own skip covers it."""
+        from app.services.onboarding import STEPS
+
+        company = self.get_company(company_id)
+        members = self.list_members(company_id, include_sales_fields=True)
+        sdrs = [m for m in members if m.get("sales_role") == "sdr"]
+        state = {
+            "crm": bool(company.get("primary_crm_connection_id")),
+            "team": self.count_active_members(company_id) > 1 or bool(self.list_pending_invites(company_id)),
+            "handoff": not sdrs or any(m.get("handoff_ae_user_id") for m in sdrs),
+            "playbooks": False,
+            "strategy": bool((company.get("sales_strategy") or "").strip()),
+        }
+        return {step: state[step] for step in STEPS}
+
+    def complete_onboarding(self, company_id: str) -> dict:
+        """Owner/admin only (require_manage_role at the API layer). Tolerant of migration
+        059_company_onboarding.sql not having run yet, same pattern as update_sales_strategy."""
+        try:
+            result = (
+                self.supabase.table("companies")
+                .update({"onboarding_completed_at": _iso(_now())})
+                .eq("id", company_id)
+                .execute()
+            )
+            return (result.data or [{}])[0]
+        except Exception as exc:
+            if _missing_onboarding_column(exc):
+                logger.warning(
+                    "onboarding_completed_at unavailable (run migration 059_company_onboarding.sql): %s", exc,
+                )
+                return self.get_company(company_id)
+            raise
+
     def company_summary_for_user(self, user_id: str) -> Optional[dict]:
+        from app.services.feature_flags import CLIENT_FLAGS, enabled_features
+
         membership = self.get_membership(user_id)
         if not membership or not membership.is_active:
             return None
@@ -259,6 +472,7 @@ class CompanyService:
         usage = self.seat_usage(membership.company_id)
         billing = self.billing_for(membership.company_id)
         entitlements = workspace_entitlements(company, billing)
+        sales_roles_on = self.sales_roles_enabled(membership.company_id)
         return {
             "id": membership.company_id,
             "name": company.get("name"),
@@ -272,12 +486,24 @@ class CompanyService:
             "plan_type": entitlements["plan_type"],
             "paywalled": entitlements["paywalled"],
             "can_use_dialer": entitlements["can_use_dialer"],
+            "rep_workspace_enabled": self.rep_workspace_enabled(membership.company_id),
+            "brief_v2_enabled": self.brief_v2_enabled(membership.company_id),
+            "sales_role": membership.sales_role if sales_roles_on else None,
+            # T13: the current user's own visibility, so the frontend can tell a
+            # visibility=team member it may load /dashboard/insights, same rule as
+            # activity_scope.can_view_company_activity.
+            "visibility": membership.visibility if sales_roles_on else None,
+            "features": enabled_features(self.supabase, membership.company_id, CLIENT_FLAGS),
+            "needs_onboarding": self.needs_onboarding(membership, company),
         }
 
-    def list_members(self, company_id: str) -> List[dict]:
+    def list_members(self, company_id: str, *, include_sales_fields: bool = False) -> List[dict]:
+        select_cols = "id, user_id, role, status, created_at"
+        if include_sales_fields:
+            select_cols += ", sales_role, handoff_ae_user_id, visibility"
         members_result = (
             self.supabase.table("company_members")
-            .select("id, user_id, role, status, created_at")
+            .select(select_cols)
             .eq("company_id", company_id)
             .order("created_at")
             .execute()
@@ -298,31 +524,46 @@ class CompanyService:
         out = []
         for m in members:
             uid = str(m["user_id"])
-            out.append(
-                {
-                    "id": str(m["id"]),
-                    "user_id": uid,
-                    "email": emails.get(uid, ""),
-                    "full_name": profiles.get(uid, {}).get("full_name"),
-                    "role": m["role"],
-                    "status": m["status"],
-                    "created_at": m.get("created_at"),
-                }
-            )
+            row = {
+                "id": str(m["id"]),
+                "user_id": uid,
+                "email": emails.get(uid, ""),
+                "full_name": profiles.get(uid, {}).get("full_name"),
+                "role": m["role"],
+                "status": m["status"],
+                "created_at": m.get("created_at"),
+            }
+            if include_sales_fields:
+                handoff = m.get("handoff_ae_user_id")
+                row["sales_role"] = m.get("sales_role")
+                row["handoff_ae_user_id"] = str(handoff) if handoff else None
+                row["visibility"] = m.get("visibility") or "own"
+            out.append(row)
         return out
 
     def list_pending_invites(self, company_id: str) -> List[dict]:
         now = _iso(_now())
-        result = (
-            self.supabase.table("company_invitations")
-            .select("id, email, role, expires_at, created_at, invited_by")
-            .eq("company_id", company_id)
-            .is_("accepted_at", "null")
-            .is_("revoked_at", "null")
-            .gt("expires_at", now)
-            .order("created_at", desc=True)
-            .execute()
-        )
+        base_cols = "id, email, role, expires_at, created_at, invited_by"
+
+        def _read(columns: str):
+            return (
+                self.supabase.table("company_invitations")
+                .select(columns)
+                .eq("company_id", company_id)
+                .is_("accepted_at", "null")
+                .is_("revoked_at", "null")
+                .gt("expires_at", now)
+                .order("created_at", desc=True)
+                .execute()
+            )
+
+        try:
+            result = _read(f"{base_cols}, sales_role")
+        except Exception as exc:
+            # Column only exists after migration 054; keep listing invites without it.
+            if not _missing_sales_columns(exc):
+                raise
+            result = _read(base_cols)
         return [
             {
                 "id": str(r["id"]),
@@ -331,6 +572,7 @@ class CompanyService:
                 "expires_at": r["expires_at"],
                 "created_at": r.get("created_at"),
                 "invited_by": r.get("invited_by"),
+                "sales_role": r.get("sales_role"),
             }
             for r in (result.data or [])
         ]
@@ -364,6 +606,12 @@ class CompanyService:
             logger.warning("Auth list_users failed during invite check: %s", exc)
         return None
 
+    def is_first_invite(self, company_id: str) -> bool:
+        """True while a company has no active member and no pending invite yet - the
+        only moment an invite may be for the Head of Sales (owner) rather than a rep
+        (founder request: the first account of a company is always the Head of Sales)."""
+        return self.count_active_members(company_id) == 0 and not self.list_pending_invites(company_id)
+
     async def create_invite(
         self,
         *,
@@ -372,9 +620,18 @@ class CompanyService:
         role: str,
         invited_by: Optional[str] = None,
         send_email: bool = True,
-    ) -> Tuple[dict, Optional[str], bool]:
-        if role not in INVITE_ROLES:
+        sales_role: Optional[str] = None,
+    ) -> Tuple[dict, Optional[str], bool, Optional[bool]]:
+        if role == "owner":
+            if not self.is_first_invite(company_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail="This company already has a Head of Sales",
+                )
+        elif role not in INVITE_ROLES:
             raise HTTPException(status_code=400, detail="Invalid invite role")
+        if sales_role is not None and sales_role not in SALES_ROLES:
+            raise HTTPException(status_code=400, detail="Invalid sales_role")
         email_norm = normalize_email(email)
         self.ensure_seat_available(company_id)
 
@@ -407,20 +664,37 @@ class CompanyService:
             "invited_by": invited_by,
             "expires_at": _iso(expires),
         }
+        # Column only exists after migration 054; omit rather than send when unused so
+        # invites keep working before it is applied.
+        if sales_role:
+            row["sales_role"] = sales_role
         result = self.supabase.table("company_invitations").insert(row).execute()
         if not result.data:
             raise HTTPException(status_code=500, detail="Failed to create invite")
         invite = result.data[0]
         company = self.get_company(company_id)
         invite_url = f"{settings.FRONTEND_URL.rstrip('/')}/invite/{raw_token}"
+
+        # Item 3: never blocks the invite - None means no connected CRM or a failed lookup.
+        try:
+            from app.services.invite_crm_match import crm_owner_match_for_invite
+
+            crm_owner_match = crm_owner_match_for_invite(self.supabase, company_id, email_norm)
+        except Exception as exc:
+            logger.warning("crm_owner_match lookup failed for invite to %s: %s", email_norm, exc)
+            crm_owner_match = None
+
         email_sent = False
         if send_email:
+            inviter_name = self._display_name_for(invited_by) if invited_by else None
             email_sent = await self._send_invite_email(
                 to=email_norm,
                 company_name=company.get("name") or "Vocify",
                 invite_url=invite_url,
+                sales_role=sales_role,
+                inviter_name=inviter_name,
             )
-        return invite, invite_url if not email_sent else None, email_sent
+        return invite, invite_url if not email_sent else None, email_sent, crm_owner_match
 
     async def resend_invite(self, invite_id: str, company_id: str) -> Tuple[dict, Optional[str], bool]:
         now = _iso(_now())
@@ -452,10 +726,37 @@ class CompanyService:
             to=str(invite["email"]),
             company_name=company.get("name") or "Vocify",
             invite_url=invite_url,
+            sales_role=invite.get("sales_role"),
         )
         return invite, invite_url if not email_sent else None, email_sent
 
-    async def _send_invite_email(self, *, to: str, company_name: str, invite_url: str) -> bool:
+    def _display_name_for(self, user_id: str) -> Optional[str]:
+        """Best-effort inviter name for the invite email (item 4). Never raises."""
+        try:
+            result = (
+                self.supabase.table("user_profiles")
+                .select("full_name")
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
+            rows = result.data or []
+            if rows and rows[0].get("full_name"):
+                return str(rows[0]["full_name"])
+        except Exception as exc:
+            logger.warning("Could not resolve inviter name for %s: %s", user_id, exc)
+        emails = self._auth_emails_by_ids([user_id])
+        return emails.get(user_id) or None
+
+    async def _send_invite_email(
+        self,
+        *,
+        to: str,
+        company_name: str,
+        invite_url: str,
+        sales_role: Optional[str] = None,
+        inviter_name: Optional[str] = None,
+    ) -> bool:
         client = get_resend_client()
         if not client:
             logger.warning("Resend not configured; invite email skipped for %s", to)
@@ -464,6 +765,8 @@ class CompanyService:
             company_name=company_name,
             invite_url=invite_url,
             expires_days=INVITE_TOKEN_EXPIRY_DAYS,
+            sales_role=sales_role,
+            inviter_name=inviter_name,
         )
         try:
             await client.send_email(
@@ -521,6 +824,7 @@ class CompanyService:
         company_id = str(invite["company_id"])
         email = str(invite["email"])
         role = invite["role"]
+        sales_role = invite.get("sales_role")
 
         existing_user_id = self._email_exists_in_auth(email)
         if existing_user_id:
@@ -544,14 +848,17 @@ class CompanyService:
             }
             self.supabase.table("user_profiles").insert(profile).execute()
 
-        self.supabase.table("company_members").insert(
-            {
-                "company_id": company_id,
-                "user_id": user_id,
-                "role": role,
-                "status": "active",
-            }
-        ).execute()
+        member_row = {
+            "company_id": company_id,
+            "user_id": user_id,
+            "role": role,
+            "status": "active",
+        }
+        # Column only exists after migration 054; omit rather than send when unused so
+        # invite acceptance keeps working before it is applied.
+        if sales_role:
+            member_row["sales_role"] = sales_role
+        self.supabase.table("company_members").insert(member_row).execute()
         self.supabase.table("user_profiles").update({"company_id": company_id}).eq(
             "id", user_id
         ).execute()
@@ -600,6 +907,77 @@ class CompanyService:
         )
         return (result.data or [target])[0]
 
+    def update_member_profile(
+        self,
+        *,
+        company_id: str,
+        actor: Membership,
+        member_id: str,
+        sales_role: Optional[str] = "__unset__",
+        handoff_ae_user_id: Optional[str] = "__unset__",
+        visibility: Optional[str] = "__unset__",
+    ) -> dict:
+        """D1/D2/D3: commercial type, SDR->AE routing and activity visibility.
+
+        Owner/admin only. A sentinel default tells "not provided" apart from
+        "explicitly cleared to null", since every field here is optional.
+        """
+        if not actor.can_manage_team:
+            raise HTTPException(status_code=403, detail="Only owners and admins can edit member profiles")
+
+        target = self._get_member_row(company_id, member_id)
+        updates: Dict[str, Any] = {}
+
+        release_ae_side = False
+        if sales_role != "__unset__":
+            if sales_role is not None and sales_role not in SALES_ROLES:
+                raise HTTPException(status_code=400, detail="Invalid sales_role")
+            updates["sales_role"] = sales_role
+            # An AE/General turned SDR no longer has a deals section: the contacts handed
+            # to them go back to their SDRs and nobody stays routed to them.
+            release_ae_side = sales_role == "sdr" and target.get("sales_role") != "sdr"
+
+        if visibility != "__unset__":
+            if visibility is not None and visibility not in VISIBILITIES:
+                raise HTTPException(status_code=400, detail="Invalid visibility")
+            updates["visibility"] = visibility or "own"
+
+        if handoff_ae_user_id != "__unset__":
+            if handoff_ae_user_id:
+                if str(handoff_ae_user_id) == str(target["user_id"]):
+                    raise HTTPException(status_code=400, detail="A rep cannot route handoffs to themselves")
+                ae_row = self._get_member_row_by_user_id(company_id, str(handoff_ae_user_id))
+                if (ae_row.get("status") or "active") != "active":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="handoff_ae_user_id must be an active member",
+                    )
+                ae_sales_role = ae_row.get("sales_role")
+                # D1: a null sales_role behaves as "general".
+                if ae_sales_role not in (None, "ae", "general"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="handoff_ae_user_id must belong to an AE or general rep in this company",
+                    )
+                updates["handoff_ae_user_id"] = str(handoff_ae_user_id)
+            else:
+                updates["handoff_ae_user_id"] = None
+
+        if not updates:
+            return target
+
+        updates["updated_at"] = _iso(_now())
+        result = (
+            self.supabase.table("company_members")
+            .update(updates)
+            .eq("id", member_id)
+            .eq("company_id", company_id)
+            .execute()
+        )
+        if release_ae_side:
+            self._release_handoffs(company_id, str(target["user_id"]), as_ae_only=True)
+        return (result.data or [target])[0]
+
     def remove_member(
         self,
         *,
@@ -615,10 +993,21 @@ class CompanyService:
         if actor.role == "admin" and target["role"] in ("owner", "admin"):
             raise HTTPException(status_code=403, detail="Admins cannot remove owners or other admins")
 
+        self._release_handoffs(company_id, str(target["user_id"]))
         self.supabase.table("company_members").delete().eq("id", member_id).execute()
         self.supabase.table("user_profiles").update({"company_id": None}).eq(
             "id", target["user_id"]
         ).execute()
+
+    def _release_handoffs(self, company_id: str, user_id: str, *, as_ae_only: bool = False) -> None:
+        """Lista 3: a leaving member (or one who stops being an AE) never keeps contacts
+        locked in a handoff nobody can see. Never blocks the removal itself."""
+        from app.services.handoffs import release_member_handoffs
+
+        try:
+            release_member_handoffs(self.supabase, company_id=company_id, user_id=user_id, as_ae_only=as_ae_only)
+        except Exception:
+            logger.warning("Releasing handoffs failed for user %s", user_id, exc_info=True)
 
     async def notify_removed(self, email: str, company_name: str) -> None:
         client = get_resend_client()
@@ -647,6 +1036,22 @@ class CompanyService:
             raise HTTPException(status_code=404, detail="Member not found")
         return result.data
 
+    def _get_member_row_by_user_id(self, company_id: str, user_id: str) -> dict:
+        # limit(1) rather than single(): single() raises (500) on zero rows, and a
+        # non-member handoff_ae_user_id is an ordinary 400, not a server error.
+        result = (
+            self.supabase.table("company_members")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("company_id", company_id)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+        if not rows:
+            raise HTTPException(status_code=400, detail="handoff_ae_user_id is not a member of this company")
+        return rows[0]
+
     def update_company_name(self, company_id: str, name: str) -> dict:
         name = name.strip()
         if not name:
@@ -658,6 +1063,54 @@ class CompanyService:
             .execute()
         )
         return (result.data or [{}])[0]
+
+    def update_callback_after_days(self, company_id: str, days: int) -> None:
+        """T5: owner/admin only (require_manage_role at the API layer), 1-30 days (validated
+        by the request model). Tolerant of migration 057 not having run yet: logged, and
+        Hoy keeps using the default."""
+        try:
+            (
+                self.supabase.table("companies")
+                .update({"callback_after_days": int(days), "updated_at": _iso(_now())})
+                .eq("id", company_id)
+                .execute()
+            )
+        except Exception:
+            logger.warning("callback_after_days not saved for %s (migration 057?)", company_id, exc_info=True)
+
+    def update_followup_cadence(self, company_id: str, overrides: dict[str, int]) -> None:
+        """Lista 4 T4: owner/admin only (require_manage_role at the API layer), validated by
+        the request model. {} stores NULL (E8's defaults). Tolerant of migration 062 not
+        having run yet, like update_callback_after_days."""
+        try:
+            (
+                self.supabase.table("companies")
+                .update({"followup_cadence": dict(overrides) or None, "updated_at": _iso(_now())})
+                .eq("id", company_id)
+                .execute()
+            )
+        except Exception:
+            logger.warning("followup_cadence not saved for %s (migration 062?)", company_id, exc_info=True)
+
+    def update_sales_strategy(self, company_id: str, value: Optional[str]) -> dict:
+        """D10: owner/admin only (require_manage_role at the API layer). Blank clears it.
+        Tolerant of migration 058_sales_strategy.sql not having run yet."""
+        text = (value or "").strip()
+        try:
+            result = (
+                self.supabase.table("companies")
+                .update({"sales_strategy": text or None, "updated_at": _iso(_now())})
+                .eq("id", company_id)
+                .execute()
+            )
+            return (result.data or [{}])[0]
+        except Exception as exc:
+            if _missing_sales_strategy_column(exc):
+                logger.warning(
+                    "sales_strategy unavailable (run migration 058_sales_strategy.sql): %s", exc,
+                )
+                return self.get_company(company_id)
+            raise
 
     def update_seat_limit(self, company_id: str, seat_limit: int) -> dict:
         if seat_limit < 1:
@@ -710,6 +1163,7 @@ class CompanyService:
         target = self._get_member_row(company_id, member_id)
         if target["role"] == "owner" and self.count_owners(company_id) <= 1:
             raise HTTPException(status_code=409, detail="Cannot remove the last owner")
+        self._release_handoffs(company_id, str(target["user_id"]))
         self.supabase.table("company_members").delete().eq("id", member_id).execute()
         self.supabase.table("user_profiles").update({"company_id": None}).eq(
             "id", target["user_id"]
@@ -731,6 +1185,7 @@ class CompanyService:
         if membership.role == "owner" and self.count_owners(membership.company_id) <= 1:
             raise HTTPException(status_code=409, detail="Cannot transfer the last owner")
         self.ensure_seat_available(to_company_id)
+        self._release_handoffs(membership.company_id, user_id)
         self.supabase.table("company_members").delete().eq("user_id", user_id).execute()
         self.supabase.table("company_members").insert(
             {

@@ -15,6 +15,7 @@ import secrets
 import threading
 
 from app.services.company import CompanyService, Membership
+from app.services.feature_flags import is_enabled
 
 
 # Singleton Supabase client (thread-safe)
@@ -201,5 +202,14 @@ def require_company_role(*roles: str) -> Callable:
         return membership
 
     return _dep
+
+
+REP_WORKSPACE_FLAG = "REP_WORKSPACE_ENABLED"
+
+
+def require_rep_workspace(supabase, company_id: str) -> None:
+    # Off means the route does not exist for this company: same body as an unknown path.
+    if not is_enabled(supabase, company_id, REP_WORKSPACE_FLAG):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
 

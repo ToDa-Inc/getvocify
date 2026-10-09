@@ -4,8 +4,8 @@ import { useAuth } from "@/features/auth";
 import { useRealtimeTranscription } from "@/features/recording";
 import {
   CopilotControls,
-  DEFAULT_PRODUCT_CONTEXT,
   PRODUCT_CONTEXT_STORAGE_KEY,
+  normalizeStoredProductContext,
   SuggestionCard,
   VoiceEnrollmentPanel,
   useObjectionSuggestions,
@@ -19,9 +19,11 @@ const ObjectionCopilotPage = () => {
   const { user } = useAuth();
   const [productContext, setProductContext] = useState(() => {
     try {
-      return localStorage.getItem(PRODUCT_CONTEXT_STORAGE_KEY) || DEFAULT_PRODUCT_CONTEXT;
+      return normalizeStoredProductContext(
+        localStorage.getItem(PRODUCT_CONTEXT_STORAGE_KEY)
+      );
     } catch {
-      return DEFAULT_PRODUCT_CONTEXT;
+      return "";
     }
   });
   const [showContext, setShowContext] = useState(false);
@@ -181,7 +183,7 @@ const ObjectionCopilotPage = () => {
       </div>
 
       {(transcriptionError || suggestError) && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {transcriptionError || suggestError}
         </div>
       )}
@@ -195,7 +197,7 @@ const ObjectionCopilotPage = () => {
         model={model}
       />
 
-      <section className="rounded-3xl border border-border/40 bg-white/70 p-5 space-y-3">
+      <section className="rounded-3xl border border-border/40 bg-card/70 p-5 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xs font-medium text-muted-foreground">
             Live transcript
@@ -220,7 +222,7 @@ const ObjectionCopilotPage = () => {
         </div>
       </section>
 
-      <section className="rounded-3xl border border-border/40 bg-white/70 p-5 space-y-3">
+      <section className="rounded-3xl border border-border/40 bg-card/70 p-5 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-medium text-muted-foreground">
             Offer context
@@ -240,7 +242,7 @@ const ObjectionCopilotPage = () => {
             onChange={(e) => setProductContext(e.target.value)}
             rows={8}
             className="text-sm rounded-2xl"
-            placeholder="Your offer, ICP, proof points…"
+            placeholder="Pega qué vendes, a quién y qué no debes inventar."
           />
         ) : (
           <p className="text-xs text-muted-foreground line-clamp-3 whitespace-pre-wrap">

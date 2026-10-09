@@ -42,6 +42,336 @@
         "grade": "presence",
         "at": 1789474290320
       }
+    },
+    "inline:a-rep-can-ask-about-a-contact-and-send-the-quest-7ec406e7": {
+      "id": "inline:a-rep-can-ask-about-a-contact-and-send-the-quest-7ec406e7",
+      "statement": "A rep can ask about a contact and send the question",
+      "state": "proved",
+      "declaredAt": 1790626374890,
+      "binding": {
+        "kind": "element",
+        "query": {
+          "role": "button",
+          "name": "Enviar"
+        },
+        "state": "enabled"
+      },
+      "surface": {
+        "route": "/dashboard",
+        "files": [
+          "src/features/ask/components/Composer.tsx"
+        ]
+      },
+      "provenBy": {
+        "verdictId": "reticle_act_and_wait:1790626375392",
+        "grade": "presence",
+        "at": 1790626375392
+      }
+    },
+    "inline:asking-about-a-contact-streams-an-answer-that-ci-62ee328b": {
+      "id": "inline:asking-about-a-contact-streams-an-answer-that-ci-62ee328b",
+      "statement": "Asking about a contact streams an answer that cites its sources and states how much data it read",
+      "state": "proved",
+      "declaredAt": 1790626378105,
+      "binding": {
+        "kind": "allOf",
+        "predicates": [
+          {
+            "kind": "text",
+            "contains": "objeción de precio sin responder"
+          },
+          {
+            "kind": "element",
+            "query": {
+              "role": "button",
+              "name": "De la conversación 1"
+            }
+          },
+          {
+            "kind": "text",
+            "contains": "Basado en 1 de 2 conversaciones"
+          }
+        ]
+      },
+      "surface": {
+        "route": "/dashboard",
+        "files": [
+          "src/components/ui/icon-action.tsx"
+        ]
+      },
+      "provenBy": {
+        "verdictId": "reticle_act_and_wait:1790626379769",
+        "grade": "presence",
+        "at": 1790626379769
+      }
+    },
+    "inline:a-citation-opens-the-exact-quote-who-said-it-and-f07442d7": {
+      "id": "inline:a-citation-opens-the-exact-quote-who-said-it-and-f07442d7",
+      "statement": "A citation opens the exact quote, who said it, and a way to open the conversation",
+      "state": "proved",
+      "declaredAt": 1790626385778,
+      "binding": {
+        "kind": "allOf",
+        "predicates": [
+          {
+            "kind": "text",
+            "contains": "“Nos parece caro para el equipo”"
+          },
+          {
+            "kind": "text",
+            "contains": "Prospecto"
+          },
+          {
+            "kind": "element",
+            "query": {
+              "role": "link",
+              "name": "Abrir conversación"
+            }
+          }
+        ]
+      },
+      "surface": {
+        "route": "/dashboard",
+        "files": [
+          "src/features/ask/components/AnswerBody.tsx"
+        ]
+      },
+      "provenBy": {
+        "verdictId": "reticle_act_and_wait:1790626386317",
+        "grade": "presence",
+        "at": 1790626386317
+      }
+    },
+    "inline:escape-closes-the-citation-popover-d6b313fc": {
+      "id": "inline:escape-closes-the-citation-popover-d6b313fc",
+      "statement": "Escape closes the citation popover",
+      "state": "proved",
+      "declaredAt": 1790626391859,
+      "binding": {
+        "kind": "element",
+        "query": {
+          "role": "link",
+          "name": "Abrir conversación"
+        },
+        "absent": true
+      },
+      "surface": {
+        "route": "/dashboard",
+        "files": [
+          "src/features/ask/components/Composer.tsx"
+        ]
+      },
+      "provenBy": {
+        "verdictId": "reticle_act_and_wait:1790626392539",
+        "grade": "presence",
+        "at": 1790626392539
+      }
+    },
+    "inline:a-write-proposed-by-ask-waits-for-an-explicit-co-f0be4939": {
+      "id": "inline:a-write-proposed-by-ask-waits-for-an-explicit-co-f0be4939",
+      "statement": "A write proposed by Ask waits for an explicit Confirm or Cancel",
+      "state": "bound",
+      "declaredAt": 1790626449068,
+      "binding": {
+        "kind": "allOf",
+        "predicates": [
+          {
+            "kind": "element",
+            "query": {
+              "role": "button",
+              "name": "Confirmar"
+            }
+          },
+          {
+            "kind": "text",
+            "contains": "Nota: Llamar a Marina el jueves"
+          }
+        ]
+      }
+    },
+    "inline:opening-preguntar-shows-the-chat-as-a-floating-s-f3652202": {
+      "id": "inline:opening-preguntar-shows-the-chat-as-a-floating-s-f3652202",
+      "statement": "Opening Preguntar shows the chat as a floating sheet with the composer ready to type.",
+      "state": "proved",
+      "declaredAt": 1790705916942,
+      "binding": {
+        "kind": "element",
+        "query": {
+          "role": "textbox",
+          "name": "Pregunta por un contacto"
+        }
+      },
+      "surface": {
+        "route": "/dashboard/process",
+        "files": [
+          "src/components/dashboard/DashboardLayout.tsx"
+        ]
+      },
+      "provenBy": {
+        "verdictId": "reticle_act_and_wait:1790705919968",
+        "grade": "presence",
+        "at": 1790705919968
+      }
+    },
+    "inline:the-ask-sheet-has-a-single-header-whose-close-ic-a4fd2ebd": {
+      "id": "inline:the-ask-sheet-has-a-single-header-whose-close-ic-a4fd2ebd",
+      "statement": "The Ask sheet has a single header whose close icon dismisses the chat.",
+      "state": "proved",
+      "declaredAt": 1790706069783,
+      "binding": {
+        "kind": "element",
+        "query": {
+          "role": "textbox",
+          "name": "Pregunta por un contacto"
+        },
+        "absent": true
+      },
+      "surface": {
+        "route": "/dashboard/process",
+        "files": [
+          "src/components/ui/icon-action.tsx"
+        ]
+      },
+      "provenBy": {
+        "verdictId": "reticle_act_and_wait:1790706071996",
+        "grade": "presence",
+        "at": 1790706071996
+      }
+    },
+    "inline:after-a-call-the-review-shows-note-fields-tasks-35aafd06": {
+      "id": "inline:after-a-call-the-review-shows-note-fields-tasks-35aafd06",
+      "statement": "After a call, the review shows Note / Fields / Tasks (plus Email and Coaching when ready) as tabs under who/deal, so the rep switches views instead of scrolling a long page, and Confirm stays visible.",
+      "state": "bound",
+      "declaredAt": 1790719108164,
+      "binding": {
+        "kind": "element",
+        "query": {
+          "role": "tablist"
+        }
+      }
+    },
+    "inline:a-memo-whose-coaching-summary-is-still-pending-s-a93fbbf6": {
+      "id": "inline:a-memo-whose-coaching-summary-is-still-pending-s-a93fbbf6",
+      "statement": "A memo whose coaching summary is still pending shows Note/Fields/Tasks but no Coaching tab, so the rep never opens an empty tab.",
+      "state": "bound",
+      "declaredAt": 1790719739314,
+      "binding": {
+        "kind": "allOf",
+        "predicates": [
+          {
+            "kind": "element",
+            "query": {
+              "scope": "#review-tab-note",
+              "self": true
+            },
+            "state": "present"
+          },
+          {
+            "kind": "element",
+            "query": {
+              "scope": "#review-tab-fields",
+              "self": true
+            },
+            "state": "present"
+          },
+          {
+            "kind": "element",
+            "query": {
+              "scope": "#review-panel-coaching v-debrief, #review-panel-coaching section",
+              "self": true
+            },
+            "state": "present"
+          },
+          {
+            "kind": "element",
+            "query": {
+              "scope": "#review-tab-coaching",
+              "self": true
+            },
+            "absent": true
+          },
+          {
+            "kind": "console",
+            "level": "error",
+            "absent": true
+          }
+        ]
+      }
+    },
+    "inline:retry-buttons-show-the-shared-refresh-icon-that-af8e37cb": {
+      "id": "inline:retry-buttons-show-the-shared-refresh-icon-that-af8e37cb",
+      "statement": "Retry buttons show the shared refresh icon that spins in place while working instead of swapping to a spinner",
+      "state": "bound",
+      "declaredAt": 1790763984893,
+      "binding": {
+        "kind": "allOf",
+        "predicates": [
+          {
+            "kind": "net",
+            "urlContains": "/crm/hubspot/schema?object_type=deals&refresh=true",
+            "status": 200
+          },
+          {
+            "kind": "element",
+            "query": {
+              "scope": "button[title='Pull the latest HubSpot properties and pipelines'] .v-ai--refresh.is-busy",
+              "self": true
+            },
+            "absent": true
+          },
+          {
+            "kind": "element",
+            "query": {
+              "scope": "button[title='Pull the latest HubSpot properties and pipelines'] .v-ai--refresh",
+              "self": true
+            }
+          }
+        ]
+      }
+    },
+    "inline:copying-the-follow-up-turns-its-icon-into-a-chec-461ab316": {
+      "id": "inline:copying-the-follow-up-turns-its-icon-into-a-chec-461ab316",
+      "statement": "Copying the follow-up turns its icon into a check and its label into \"Copiado\" in place, instead of a toast",
+      "state": "proved",
+      "declaredAt": 1790763790254,
+      "binding": {
+        "kind": "allOf",
+        "predicates": [
+          {
+            "kind": "net",
+            "method": "POST",
+            "urlContains": "/memos/d58f4f67-2e1b-480e-b5dc-e94324182acc/followup",
+            "status": 200
+          },
+          {
+            "kind": "element",
+            "query": {
+              "scope": "v-followup [data-action='copy'] .v-ai--copy.is-done",
+              "self": true
+            },
+            "absent": true
+          },
+          {
+            "kind": "element",
+            "query": {
+              "text": "Copiar",
+              "scope": "v-followup [data-action='copy'] [data-v-label]",
+              "self": true
+            }
+          }
+        ]
+      },
+      "surface": {
+        "route": "/dashboard/memos/d58f4f67-2e1b-480e-b5dc-e94324182acc",
+        "files": [
+          "src/components/dashboard/FollowupCard.tsx"
+        ]
+      },
+      "provenBy": {
+        "verdictId": "reticle_assert:1790763790285",
+        "grade": "presence",
+        "at": 1790763790285
+      }
     }
   }
 }

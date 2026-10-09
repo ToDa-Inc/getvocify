@@ -43,6 +43,8 @@ class CRMExtractionSyncProtocol(Protocol):
         lost_reason_deal_property: Optional[str] = None,
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
+        stage_confirm: bool = False,
+        commitment_tasks: Optional[list] = None,
     ) -> SyncResult: ...
 
 
@@ -68,6 +70,9 @@ class CRMPreviewProtocol(Protocol):
         create_new_deal: bool = False,
         include_unchanged: bool = False,
         skip_deal: bool = False,
+        stage_confirm: bool = False,
+        meeting_booked_stage: Optional[dict[str, str]] = None,
+        commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview: ...
 
 
@@ -107,6 +112,14 @@ class CRMCallOutcomeAvailabilityProtocol(Protocol):
         lost_lead_status_value: Optional[str] = None,
         on_hold_lead_status_value: Optional[str] = None,
     ) -> CallOutcomeAvailability: ...
+
+
+class CRMOwnerWriteProtocol(Protocol):
+    """T3 handoff (D7): move a deal's (or contact's) CRM owner to the AE's mapped owner id."""
+
+    def find_owner_id(self, email: str) -> Optional[str]: ...
+
+    def set_owner(self, *, object_type: str, object_id: str, owner_id: str) -> bool: ...
 
 
 class CRMFieldSpecsProtocol(Protocol):

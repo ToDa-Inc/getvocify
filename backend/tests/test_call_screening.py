@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.telephony.call_screening import classify_call_outcome
+from app.services.telephony.call_screening import classify_call_outcome, resolve_screening_outcome
 
 
 class TestClassifyCallOutcome:
@@ -18,6 +18,28 @@ class TestClassifyCallOutcome:
             "S2: Diga.\n"
             "S1: Llamo de Vocify.\n"
             "S2: Ahora no puedo."
+        )
+        assert classify_call_outcome(transcript, duration=20.0) == "no_response"
+
+    def test_short_bad_moment_exchange_with_callback_is_connected(self):
+        """26s call: the contact answers, cannot talk, agrees to talk tomorrow. Both sides spoke,
+        so it goes to the call reading instead of being skipped as no conversation."""
+        transcript = (
+            "SPEAKER: S1\nHola, Miguel.\n\n"
+            "SPEAKER: S2\nSí, dígame.\n\n"
+            "SPEAKER: S1\nHola, Miguel, ¿qué tal? Soy Dani, de Vocify.\n\n"
+            "SPEAKER: S2\nVale, pues la verdad es que no puedo hablar, estoy en reuniones. "
+            "Si podemos hablar mañana por la mañana, ¿vale? Gracias, Dani. Chao.\n\n"
+            "SPEAKER: S1\nPerfecto, hacemos así. Chao, chao."
+        )
+        assert classify_call_outcome(transcript, duration=26.0) == "connected"
+
+    def test_short_exchange_with_voicemail_greeting_is_still_skipped(self):
+        transcript = (
+            "SPEAKER: S1\nHola, buenas.\n\n"
+            "SPEAKER: S2\nEl número al que llama no está disponible, deje su mensaje después del tono.\n\n"
+            "SPEAKER: S1\nHola, soy Dani de Vocify, le llamaba por lo de la demo.\n\n"
+            "SPEAKER: S2\nBuzón de voz, grabe su mensaje y pulse almohadilla para terminar."
         )
         assert classify_call_outcome(transcript, duration=20.0) == "no_response"
 
@@ -111,3 +133,19 @@ class TestClassifyCallOutcome:
             "De acuerdo, en dos semanas hablamos. Chao."
         )
         assert classify_call_outcome(transcript, duration=63.0) == "connected"
+
+
+def test_whatsapp_visit_with_transcript_is_connected():
+    outcome = resolve_screening_outcome(
+        {"source": "whatsapp", "interaction_kind": "visit"},
+        "Rep: Hola\nThem: Hola",
+    )
+    assert outcome == "connected"
+
+
+def test_existing_screening_outcome_is_not_replaced():
+    outcome = resolve_screening_outcome(
+        {"source": "whatsapp", "screening_outcome": "voicemail"},
+        "Rep: Hola",
+    )
+    assert outcome == "voicemail"

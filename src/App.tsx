@@ -17,20 +17,30 @@ import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
 import InviteAcceptPage from "./pages/auth/InviteAcceptPage";
 import TeamPage from "./pages/dashboard/TeamPage";
+import { InsightsRoute, ManagerOnly, RepOnly } from "./pages/dashboard/headOfSalesRoutes";
+import SalesProcessPage from "./pages/dashboard/SalesProcessPage";
+import TeamRepDetailPage from "./pages/dashboard/TeamRepDetailPage";
+import CoachPage from "./pages/dashboard/CoachPage";
+import ReportPage from "./pages/dashboard/ReportPage";
 import BillingPage from "./pages/dashboard/BillingPage";
 import AdminCompaniesPage from "./pages/admin/AdminCompaniesPage";
 import AdminCompanyDetailPage from "./pages/admin/AdminCompanyDetailPage";
 import DashboardLayout from "./components/dashboard/DashboardLayout";
+import { DashboardThemeProvider } from "./components/ThemeProvider";
 import DashboardHome from "./pages/dashboard/DashboardHome";
+import OnboardingWizard from "./pages/dashboard/OnboardingWizard";
 import RecordPage from "./pages/dashboard/RecordPage";
-import MemosPage from "./pages/dashboard/MemosPage";
+import { RepHome } from "@/features/today/components/RepHome";
+import InteractionsPage from "./pages/dashboard/InteractionsPage";
 import MemoDetail from "./pages/dashboard/MemoDetail";
 import IntegrationsPage from "./pages/dashboard/IntegrationsPage";
 import SettingsPage from "./pages/dashboard/SettingsPage";
 import SettingsLayout from "./pages/dashboard/settings/SettingsLayout";
 import CallingSection from "./pages/dashboard/settings/CallingSection";
+import { CalendarSettings } from "@/components/dashboard/settings/CalendarSettings";
 import OfferSection from "./pages/dashboard/settings/OfferSection";
 import GlossarySection from "./pages/dashboard/settings/GlossarySection";
+import BriefHighlightSection from "./pages/dashboard/settings/BriefHighlightSection";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
@@ -45,6 +55,12 @@ import { useEffect } from "react";
 import { isLandingDomain, isLandingPath, APP_URL } from "@/lib/app-url";
 import { sessionGateView } from "@/lib/auth-session";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
+
+/** An old route that lives on elsewhere; its query (`?author=`) and hash come along. */
+const MovedTo = ({ pathname }: { pathname: string }) => {
+  const { search, hash } = useLocation();
+  return <Navigate to={{ pathname, search, hash }} replace />;
+};
 
 /** Redirects getvocify.com/login, /dashboard, etc. → app.getvocify.com */
 const LandingDomainRedirect = () => {
@@ -153,26 +169,46 @@ const App = () => (
               <Route path="accounts/:userId" element={<AdminAccountDetailPage />} />
             </Route>
             <Route path="/dashboard" element={
-              <ProtectedRoute>
-                <DashboardLayout />
-              </ProtectedRoute>
+              <DashboardThemeProvider>
+                <ProtectedRoute>
+                  <DashboardLayout />
+                </ProtectedRoute>
+              </DashboardThemeProvider>
             }>
               <Route index element={<DashboardHome />} />
+              <Route path="onboarding" element={<OnboardingWizard />} />
               <Route path="record" element={<RecordPage />} />
-              <Route path="memos" element={<MemosPage />} />
+              <Route path="interactions" element={<InteractionsPage />} />
+              <Route path="memos" element={<MovedTo pathname="/dashboard/interactions" />} />
               <Route path="memos/:id" element={<MemoDetail />} />
               <Route path="integrations" element={<IntegrationsPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="settings" element={<SettingsLayout />}>
                 <Route index element={<SettingsPage />} />
                 <Route path="calling" element={<CallingSection />} />
+                <Route path="calendar" element={<CalendarSettings />} />
                 <Route path="offer" element={<OfferSection />} />
                 <Route path="glossary" element={<GlossarySection />} />
+                <Route path="brief" element={<BriefHighlightSection />} />
                 <Route path="team" element={<TeamPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="usage" element={<UsagePage />} />
                 <Route path="billing" element={<BillingPage />} />
               </Route>
+              <Route path="insights" element={<InsightsRoute />} />
+              {/* Proceso de venta: the playbook editor (Head of Sales). Its health and objections are in Equipo. */}
+              <Route path="process" element={<ManagerOnly><SalesProcessPage /></ManagerOnly>} />
+              {/* The playbook editor left Ajustes; outside the settings layout so its tab guard does not bounce the old URL first. */}
+              <Route path="settings/playbooks" element={<Navigate to="/dashboard/process" replace />} />
+              <Route path="insights/rep/:userId" element={<TeamRepDetailPage />} />
+              <Route path="coach" element={<RepOnly><CoachPage /></RepOnly>} />
+              {/* T13: MANAGER_HOME_ENABLED moves an owner/admin's home to the team panel;
+                  this is where "go to my Today" points a manager who also sells. */}
+              <Route path="today" element={<RepHome />} />
+              {/* The rep's playbook is a tab of Coaching. */}
+              <Route path="playbook" element={<Navigate to="/dashboard/coach?tab=playbook" replace />} />
+              <Route path="ask" element={<Navigate to="/dashboard" replace state={{ ask: true }} />} />
+              <Route path="reports/:id" element={<ReportPage />} />
               <Route path="team" element={<Navigate to="/dashboard/settings/team" replace />} />
               <Route path="billing" element={<Navigate to="/dashboard/settings/billing" replace />} />
               <Route path="calling" element={<Navigate to="/dashboard/settings/calling" replace />} />

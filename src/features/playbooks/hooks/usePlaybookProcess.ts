@@ -1,0 +1,237 @@
+import { useCallback, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { useAuth } from "@/features/auth";
+import { errorCode, playbooksApi, type PlaybookList, type TypeEdit } from "@/features/playbooks/api";
+import type { Flush } from "@/features/playbooks/hooks/usePlaybookDraft";
+import { CATALOG_KEY, COMPANY_KEY, DEAL_STAGES_KEY, DEFAULT_GOALS, PLAYBOOKS_KEY, TYPE_STATS_KEY } from "@/features/playbooks/keys";
+import { useLanguage } from "@/lib/i18n";
+import { motionLabel } from "@/lib/motion-label";
+import {
+  nothingYet,
+  optimisticStatus,
+  playbookRows,
+  type AppliesTo,
+} from "@/lib/playbook-doc";
+import { newStepKey, templateSteps, type EditorStep } from "@/lib/playbook-editor";
+import { isEmptyKnowledge, knowledgeSummary } from "@/lib/playbook-knowledge";
+import type { MotionStatus } from "@/lib/playbook-setup";
+import { byChannel as typesByChannel, type LiveChannel } from "@/lib/type-channels";
+
+/** A manager always sees the two base flows, even before anything was created. */
+function withBaseFlows(motions: Record<string, MotionStatus>, canEdit: boolean): Record<string, MotionStatus> {
+  return canEdit ? { discovery: "missing", closing: "missing", ...motions } : motions;
+}
+
+/**
+ * Everything "Vuestro proceso" knows and does, without any markup: the data, how each call
+ * type is named, and the actions that change the list (switch, delete/undo, rules, publish).
+ * The components only render what this returns.
+ */
+export function usePlaybookProcess() {
+  const { t, language } = useLanguage();
+  const copy = t.product.pb2;
+  const lang = language === "EN" ? "en" : "es";
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const role = user?.company?.role;
+  const canEdit = role === "owner" || role === "admin";
+  const routing = (user?.company?.features ?? []).includes("PLAYBOOK_ROUTING_ENABLED");
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  // Bumped when the server changed a playbook under an open document, so it reloads.
+  const [docVersion, setDocVersion] = useState(0);
+  const flushes = useRef(new Map<string, Flush>());
+
+  const list = useQuery({ queryKey: PLAYBOOKS_KEY, queryFn: playbooksApi.list, retry: false });
+  const catalog = useQuery({
+    queryKey: CATALOG_KEY,
+    queryFn: playbooksApi.catalog,
+    enabled: (routing || typesByChannel(list.data)) && canEdit,
+    retry: false,
+    staleTime: 60 * 60 * 1000,
+  });
+  const stages = useQuery({
+    queryKey: DEAL_STAGES_KEY,
+    queryFn: playbooksApi.dealStages,
+    enabled: (routing || typesByChannel(list.data)) && canEdit,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+  const company = useQuery({ queryKey: COMPANY_KEY, queryFn: playbooksApi.company, retry: false });
+  // Types by channel: the server says so with `type_detection`; then types need no role and no rule.
+  const byChannel = typesByChannel(list.data);
+  const stats = useQuery({
+    queryKey: TYPE_STATS_KEY,
+    queryFn: playbooksApi.typeStats,
+    enabled: byChannel && canEdit,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // By channel a type exists only once it is added (with its channels): no placeholder rows.
+  const motions = typesByChannel(list.data) ? list.data?.motions ?? {} : withBaseFlows(list.data?.motions ?? {}, canEdit);
+  const details = list.data?.details ?? {};
+  const types = catalog.data?.types ?? [];
+  const typeOf = (key: string) => types.find((type) => type.key === key);
+  const rows = playbookRows(motions, details, routing);
+  const companySummary = knowledgeSummary(company.data?.knowledge, copy.summary);
+  const empty =
+    canEdit && list.isSuccess && nothingYet(motions, details) && !company.isLoading && isEmptyKnowledge(company.data?.knowledge);
+
+  const name = (key: string) => {
+    if (key === "closing" && "negotiation" in motions) return copy.closingDemoOnly;
+    // A catalog type reads in the app's language; a company's own type keeps its name.
+    const localized = copy.typeLabels[key] || typeOf(key)?.label?.[lang];
+    if (localized && (details[key]?.catalog ?? true)) return localized;
+    return details[key]?.label || localized || motionLabel(key, t.product.motions);
+  };
+
+  const template = (key: string) => (): EditorStep[] => {
+    const fromCatalog = typeOf(key)?.template?.[lang];
+    if (fromCatalog?.length) return fromCatalog.map((step) => ({ key: newStepKey(), ...step }));
+    return templateSteps(key, lang);
+  };
+
+  const goalOf = (key: string): string | null =>
+    details[key]?.goal ?? list.data?.goals?.[key] ?? typeOf(key)?.goal ?? DEFAULT_GOALS[key] ?? null;
+  const ruleOf = (key: string): AppliesTo | null => details[key]?.applies_to ?? typeOf(key)?.applies_to ?? null;
+
+  const refresh = () => queryClient.invalidateQueries({ queryKey: PLAYBOOKS_KEY });
+  /** The server's answer to a pause/resume/delete/restore is the new list: take it as is. */
+  const adoptList = (data: PlaybookList) => queryClient.setQueryData<PlaybookList>(PLAYBOOKS_KEY, data);
+  const reloadDocuments = () => setDocVersion((version) => version + 1);
+
+  const registerFlush = useCallback((key: string, flush: Flush | null) => {
+    if (flush) flushes.current.set(key, flush);
+    else flushes.current.delete(key);
+  }, []);
+
+  /** Types by channel: name, channels or recognition sentence. The answer is the new list. */
+  const editType = async (key: string, edit: TypeEdit): Promise<void> => {
+    adoptList(await playbooksApi.editType(key, edit));
+  };
+
+  /** A type was just added: Vocify drafts how to recognise it, unless someone wrote one meanwhile.
+   * Best-effort and silent: a type works without the sentence. */
+  const typeAdded = async (key: string, label: string, channels: LiveChannel[]) => {
+    await refresh();
+    try {
+      const { recognize } = await playbooksApi.draftRecognize({ name: label, channels, language: lang });
+      const current = queryClient.getQueryData<PlaybookList>(PLAYBOOKS_KEY)?.details?.[key];
+      if (recognize && current && !current.recognize) await editType(key, { recognize });
+    } catch {
+      // No sentence: the type is still recognised by its name and playbook.
+    }
+  };
+
+  const saveRule = async (key: string, rule: AppliesTo) => {
+    await playbooksApi.saveRule(key, rule);
+    await refresh();
+  };
+
+  /** The row switch. Flips at once, confirms with the server, rolls back on failure; the toast
+   * offers the opposite action, so a misclick costs one click. */
+  const toggle = async (key: string, on: boolean): Promise<void> => {
+    const action = on ? "resume" : "pause";
+    const label = name(key);
+    setBusyKey(key);
+    queryClient.setQueryData<PlaybookList>(PLAYBOOKS_KEY, (old) => {
+      if (!old) return old;
+      const next = optimisticStatus(action, old.motions[key] ?? "missing");
+      return next ? { ...old, motions: { ...old.motions, [key]: next } } : old;
+    });
+    try {
+      adoptList(await (on ? playbooksApi.resume(key) : playbooksApi.pause(key)));
+      reloadDocuments();
+      toast((on ? copy.resumedToast : copy.pausedToast).replace("{name}", label), {
+        action: { label: copy.undo, onClick: () => void toggle(key, !on) },
+      });
+    } catch {
+      await refresh();
+      toast.error(copy.actionFailed);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  /** Delete is soft on the server (calls already scored keep their mark), so it can be undone. */
+  const remove = async (key: string): Promise<boolean> => {
+    const label = name(key);
+    setBusyKey(key);
+    try {
+      adoptList(await playbooksApi.remove(key));
+      flushes.current.delete(key);
+      toast(copy.deletedToast.replace("{name}", label), {
+        action: {
+          label: copy.undo,
+          onClick: () =>
+            void playbooksApi
+              .restore(key)
+              .then((data) => {
+                adoptList(data);
+                reloadDocuments();
+              })
+              .catch(() => toast.error(copy.actionFailed)),
+        },
+      });
+      return true;
+    } catch {
+      toast.error(copy.actionFailed);
+      return false;
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  /** "Publicar" on one call type: save what is being typed, then make its draft the live version. */
+  const publish = async (key: string): Promise<void> => {
+    setBusyKey(key);
+    try {
+      const flush = flushes.current.get(key);
+      if (flush && !(await flush())) throw new Error("unsaved");
+      const result = await playbooksApi.publish(key);
+      if (result.motions[key] !== "published") throw new Error("publish");
+      await refresh();
+      reloadDocuments();
+      toast.success(copy.publishedToast.replace("{name}", name(key)));
+    } catch (error) {
+      toast.error(errorCode(error) === "contradiction" ? t.product.playbookContradiction : copy.publishFailed);
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  return {
+    canEdit,
+    routing,
+    byChannel,
+    detection: list.data?.type_detection ?? null,
+    stats: stats.data?.types ?? {},
+    editType,
+    typeAdded,
+    list,
+    company,
+    companySummary,
+    stages: stages.data?.stages ?? [],
+    types,
+    motions,
+    details,
+    rows,
+    empty,
+    busyKey,
+    docVersion,
+    name,
+    template,
+    goalOf,
+    ruleOf,
+    refresh,
+    registerFlush,
+    saveRule,
+    toggle,
+    remove,
+    publish,
+    companySaved: () => void queryClient.invalidateQueries({ queryKey: COMPANY_KEY }),
+  };
+}
+
+export type PlaybookProcess = ReturnType<typeof usePlaybookProcess>;

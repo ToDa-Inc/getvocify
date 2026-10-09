@@ -25,31 +25,9 @@ configure_logging(
     json_format=settings.LOG_JSON,
 )
 
-# Error tracking (optional - no-op if SENTRY_DSN isn't set, or if the package
-# isn't installed). Without this, the only way to learn about a production
-# failure is a customer complaint or manually grepping logs.
-if settings.SENTRY_DSN:
-    try:
-        import sentry_sdk
-        from sentry_sdk.integrations.fastapi import FastApiIntegration
-        from sentry_sdk.integrations.starlette import StarletteIntegration
-        from sentry_sdk.integrations.logging import LoggingIntegration
+from app.observability import init_sentry
 
-        sentry_sdk.init(
-            dsn=settings.SENTRY_DSN,
-            environment=settings.ENVIRONMENT,
-            integrations=[
-                StarletteIntegration(),
-                FastApiIntegration(),
-                LoggingIntegration(level=logging.WARNING, event_level=logging.ERROR),
-            ],
-            traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
-            # Voice memo transcripts/CRM data are sensitive - never attach request bodies/PII
-            send_default_pii=False,
-        )
-        logging.getLogger(__name__).info("Sentry error tracking initialized (env=%s)", settings.ENVIRONMENT)
-    except ImportError:
-        logging.getLogger(__name__).warning("SENTRY_DSN set but sentry-sdk not installed; skipping")
+init_sentry()
 
 
 class TimeoutMiddleware(BaseHTTPMiddleware):
@@ -69,6 +47,7 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
             "/transcription" in path
             or "/copilot" in path
             or "/memos/upload" in path
+            or "/captures" in path
             or "/upload-transcript" in path
             or "/re-extract" in path
             or "/re-transcribe" in path
@@ -156,15 +135,33 @@ _cors_origins = [
     "https://getvocify.com",
     "https://www.getvocify.com",
     "https://app.getvocify.com",
+    "https://staging.getvocify.com",
 ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o for o in _cors_origins if o],  # drop empty strings
-    allow_origin_regex=r"(chrome-extension://.*|https?://(localhost|127\.0\.0\.1)(:\d+)?)",
+    allow_origin_regex=r"(chrome-extension://.*|https?://(localhost|127\.0\.0\.1)(:\d+)?|https://.*\.vercel\.app)",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from app.services.pipedrive.exceptions import PipedriveAuthError
+
+@app.exception_handler(PipedriveAuthError)
+async def pipedrive_auth_exception_handler(request: Request, exc: PipedriveAuthError):
+    """A dead Pipedrive login must not 500 the settings page. Disconnect stays local."""
+    logging.getLogger("app.pipedrive").warning(
+        "Pipedrive auth failed on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc.message,
+    )
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "Pipedrive rejected the saved login. Disconnect it and connect again."},
+    )
+
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
@@ -258,6 +255,21 @@ async def _refresh_crm_updates_stale_pending_gauge():
         await asyncio.sleep(5 * 60)
 
 
+async def _periodic_confirm_writes():
+    """Hoy confirmations whose scheduled write was lost (restart, crash) or needs a retry."""
+    from app.deps import get_supabase
+    from app.services.hoy.confirmations import SWEEP_INTERVAL_SECONDS, sweep_confirm_writes
+
+    logger = logging.getLogger(__name__)
+    supabase = get_supabase()
+    while True:
+        await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+        try:
+            await sweep_confirm_writes(supabase)
+        except Exception:
+            logger.exception("Hoy confirm sweep failed", extra={"domain": "hoy", "phase": "confirm_sweep"})
+
+
 async def _periodic_memo_recovery():
     """
     Every 5 minutes, re-queue memos stuck in 'transcribing'/'extracting' past
@@ -294,6 +306,17 @@ async def _periodic_memo_recovery():
             logger.exception(
                 "❌ Periodic recovery failed",
                 extra={"domain": "recovery", "phase": "periodic", "error": str(e)},
+            )
+        try:
+            from datetime import datetime, timezone
+
+            from app.services.reporting.tick_bindings import run_report_ticks
+
+            await asyncio.to_thread(run_report_ticks, supabase, datetime.now(timezone.utc))
+        except Exception as e:
+            logger.exception(
+                "❌ Report email tick failed",
+                extra={"domain": "reporting", "phase": "periodic_tick", "error": str(e)},
             )
 
 
@@ -353,6 +376,30 @@ async def startup_event():
 
     asyncio.create_task(_refresh_crm_updates_stale_pending_gauge())
     asyncio.create_task(_periodic_memo_recovery())
+    asyncio.create_task(_periodic_confirm_writes())
+    from app.services.intelligence.worker import install_intelligence_tick, start_worker
+    from app.deps import get_supabase
+    from app.api.ask import set_ask_loop, set_ask_store
+    from app.services.playbooks.repository import SqlPlaybookRepository, set_playbook_repository
+    from app.services.crm_copilot.web_sessions import SupabaseAskStore, live_ask_loop
+    supabase = get_supabase()
+    set_playbook_repository(SqlPlaybookRepository(supabase))
+    set_ask_store(SupabaseAskStore(supabase))
+    set_ask_loop(live_ask_loop)
+    from app.services.coaching.brief_preferences import set_supabase as set_brief_preference_supabase
+
+    set_brief_preference_supabase(supabase)
+    from app.api.annotations import set_annotation_store
+    from app.services.intelligence.annotations import SupabaseAnnotationStore
+    set_annotation_store(SupabaseAnnotationStore(get_supabase()))
+    install_intelligence_tick()
+    start_worker()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    from app.services.intelligence.worker import stop_worker
+    await stop_worker()
 
 
 @app.get("/")

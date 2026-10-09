@@ -1,0 +1,270 @@
+[
+  {
+    "id": "f02_meeting_with_time_from_c04",
+    "language": "es",
+    "input": {
+      "rep_name": "Lucía Pérez",
+      "contact_name": "Marina",
+      "summary": "Marina, responsable de operaciones en Transportes Ebro, pierde leads porque nadie sabe a quién le toca llamar. Acepta una demo.",
+      "next_steps": ["Enviar caso de éxito de logística", "Demo el jueves"],
+      "voice_samples": [],
+      "transcript": "You: Marina, ¿cómo gestionáis hoy el seguimiento de leads? Them: Mal, la verdad. Se nos quedan leads sin llamar cada semana porque nadie sabe a quién le toca. You: Te enseño cómo lo resuelve otra empresa de transporte. Antes te mando el caso de éxito de logística, el miércoles lo tienes. ¿Te va bien una demo el jueves a las once? Them: Sí, el jueves a las once me va bien.",
+      "intelligence": {
+        "pain_confirmed": true,
+        "commitments": [{"text": "Enviar el caso de éxito de logística", "due_at": "2026-09-30T00:00:00+02:00", "temporal_precision": "date", "evidence_refs": ["ev-a"]}],
+        "meeting": {"agreed": true, "starts_at": "2026-10-01T11:00:00+02:00", "precision": "time", "evidence_refs": ["ev-m"]},
+        "evidence": [{"id": "ev-p", "quote": "Se nos quedan leads sin llamar cada semana porque nadie sabe a quién le toca"}]
+      }
+    },
+    "expect": {
+      "formality": "tu",
+      "must_match": ["\\bjueves\\b", "\\b11(:00|\\.00| ?h)?\\b|\\bonce\\b"],
+      "must_not_match": ["\\b(lunes|martes|viernes|sábado|domingo)\\b", "€|\\beuros?\\b|\\d+ ?%"]
+    }
+  },
+  {
+    "id": "f02_meeting_with_only_a_day",
+    "language": "es",
+    "input": {
+      "rep_name": "Jorge Sanz",
+      "contact_name": "Pilar",
+      "summary": "Pilar, directora comercial de Grupo Alia, no sabe qué pasa en las llamadas de los comerciales nuevos. Demo acordada el viernes; la hora está por cerrar.",
+      "next_steps": ["Llamar el viernes por la mañana para cerrar la hora de la demo"],
+      "voice_samples": [],
+      "transcript": "Them: El problema es que no sé qué pasa en las llamadas de los comerciales nuevos. You: Eso lo vemos muy bien en una demo. ¿Te viene bien el viernes? Them: El viernes perfecto. Llámame por la mañana y cerramos la hora.",
+      "intelligence": {
+        "pain_confirmed": true,
+        "commitments": [{"text": "Llamar a Pilar para cerrar la hora de la demo", "due_at": "2026-10-02T00:00:00+02:00", "temporal_precision": "date", "evidence_refs": ["ev-c"]}],
+        "meeting": {"agreed": true, "starts_at": "2026-10-02", "precision": "date", "evidence_refs": ["ev-m"]},
+        "evidence": [{"id": "ev-p", "quote": "no sé qué pasa en las llamadas de los comerciales nuevos"}]
+      }
+    },
+    "expect": {
+      "formality": "tu",
+      "must_match": ["\\bviernes\\b"],
+      "must_not_match": ["\\b\\d{1,2}(:\\d{2}| ?h)\\b", "\\ba las (\\d|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)\\b", "\\b(lunes|martes|miércoles|jueves)\\b"]
+    }
+  },
+  {
+    "id": "f02_commitment_day_wins_over_next_steps",
+    "language": "es",
+    "input": {
+      "rep_name": "Marta Gil",
+      "contact_name": "Óscar",
+      "summary": "Óscar quiere la propuesta de renovación con el nuevo número de usuarios.",
+      "next_steps": ["Enviar propuesta el martes"],
+      "voice_samples": [],
+      "transcript": "Them: Ya somos cuarenta comerciales, así que la renovación tiene que cubrirlos a todos. You: Hecho. Te preparo la propuesta con los cuarenta usuarios y el lunes la tienes en tu correo. Them: Perfecto, el lunes la reviso con finanzas.",
+      "intelligence": {
+        "pain_confirmed": null,
+        "commitments": [{"text": "Enviar la propuesta de renovación para cuarenta usuarios", "due_at": "2026-10-05T00:00:00+02:00", "temporal_precision": "date", "evidence_refs": ["ev-c"]}],
+        "meeting": {"agreed": null, "starts_at": null, "precision": "unknown", "evidence_refs": []},
+        "evidence": []
+      }
+    },
+    "expect": {
+      "formality": "tu",
+      "must_match": ["\\blunes\\b"],
+      "must_not_match": ["\\bmartes\\b", "€|\\beuros?\\b|\\d+ ?%"]
+    }
+  },
+  {
+    "id": "f02_vague_step_stays_vague",
+    "language": "es",
+    "input": {
+      "rep_name": "Andrés Molina",
+      "contact_name": "Raquel",
+      "summary": "Raquel está contenta con su proveedor actual, pero quiere tener alternativas. Andrés le enviará información cuando tenga el catálogo nuevo.",
+      "next_steps": ["Enviar información cuando esté el catálogo nuevo"],
+      "voice_samples": [],
+      "transcript": "Them: Ahora mismo estamos bien con nuestro proveedor, pero no me importa tener alternativas. You: Lógico. Estamos terminando el catálogo nuevo; cuando lo tenga te mando algo. Them: Vale, sin prisa."
+    },
+    "expect": {
+      "formality": "tu",
+      "must_not_match": [
+        "\\b(lunes|martes|miércoles|jueves|viernes|sábado|domingo)\\b",
+        "\\bmañana\\b",
+        "\\b\\d{1,2} de [a-záéíóú]+",
+        "\\b(esta|próxima) semana\\b|semana que viene",
+        "\\b\\d{1,2}(:\\d{2}| ?h)\\b",
+        "adjunt"
+      ]
+    }
+  },
+  {
+    "id": "f02_price_asked_but_not_given",
+    "language": "es",
+    "input": {
+      "rep_name": "Lucía Pérez",
+      "contact_name": "Iván",
+      "summary": "Iván pregunta el precio para quince comerciales. Lucía lo confirmará cuando hable con su responsable y le buscará un caso parecido.",
+      "next_steps": ["Confirmar precio para 15 comerciales", "Buscar un caso parecido"],
+      "voice_samples": [],
+      "transcript": "Them: ¿Y cuánto nos costaría para quince comerciales? You: Depende del plan; déjame que lo hable con mi responsable y te confirmo el precio exacto. Them: Vale. Y si tenéis algún caso parecido al nuestro, pásamelo. You: Te lo busco."
+    },
+    "expect": {
+      "formality": "tu",
+      "must_not_match": ["€|\\beuros?\\b|\\$|\\d+ ?%", "adjunt", "\\b(lunes|martes|miércoles|jueves|viernes)\\b"]
+    }
+  },
+  {
+    "id": "f02_no_contact_name_is_not_invented",
+    "language": "es",
+    "input": {
+      "rep_name": "Jorge Sanz",
+      "contact_name": "",
+      "summary": "La responsable de compras de una cadena de ferreterías compara tarifas de transporte para sus tiendas. Jorge le enviará la tarifa del servicio urgente.",
+      "next_steps": ["Enviar tarifa del servicio urgente"],
+      "voice_samples": [],
+      "transcript": "Them: Soy la responsable de compras. Estamos comparando tarifas de transporte para las tiendas. You: Te mando la tarifa del servicio urgente, que es el que más os encaja. Them: Genial, mándamela a este correo."
+    },
+    "expect": {
+      "formality": "tu",
+      "must_not_match": ["(?-i:^\\s*(Hola|Buenas|Buenos días|Buenas tardes)[,:]? +[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)", "€|\\beuros?\\b|\\d+ ?%"]
+    }
+  },
+  {
+    "id": "f02_usted_from_voice_samples",
+    "language": "es",
+    "input": {
+      "rep_name": "Andrés Molina",
+      "contact_name": "Fernando Ruiz",
+      "summary": "Fernando Ruiz busca proveedor para el turno de noche del almacén de Getafe. Andrés le enviará el lunes una propuesta con dos turnos.",
+      "next_steps": ["Enviar propuesta con dos turnos el lunes"],
+      "voice_samples": [
+        "Buenos días, señor Ortega:\n\nLe envío la tarifa revisada con los cambios que me indicó. Si le encaja, la dejamos cerrada.\n\nUn saludo cordial,\nAndrés",
+        "Buenos días, señora Campos:\n\nGracias por recibirme. Le resumo los dos puntos que acordamos y le confirmo que tendrá el calendario antes del cierre de mes.\n\nUn saludo cordial,\nAndrés"
+      ],
+      "transcript": "You: Buenos días, soy Andrés, de Logística Norte. Them: Buenos días. You: Le llamaba por el almacén de Getafe. ¿Siguen buscando proveedor para el turno de noche? Them: Sí, seguimos buscando. You: Entonces le preparo una propuesta con dos turnos y se la envío el lunes. Them: De acuerdo, la espero."
+    },
+    "expect": {
+      "formality": "usted",
+      "must_match": ["\\blunes\\b"],
+      "must_not_match": ["ortega|campos", "€|\\beuros?\\b|\\d+ ?%", "cierre de mes"]
+    }
+  },
+  {
+    "id": "f02_tu_from_voice_samples",
+    "language": "es",
+    "input": {
+      "rep_name": "Marta Gil",
+      "contact_name": "Carlos",
+      "summary": "Carlos quiere probar Vocify con tres comerciales antes de decidir. Marta activará la prueba y le mandará los accesos con una guía rápida.",
+      "next_steps": ["Activar prueba para tres comerciales", "Enviar accesos y guía rápida"],
+      "voice_samples": [
+        "Hola Nuria,\n\nTe paso el resumen de lo que vimos: dos licencias para el equipo de Valencia y formación la semana que viene.\n\nUn abrazo,\nMarta",
+        "Hola Pablo,\n\nMil gracias por el rato de hoy. Te confirmo que te llamo el martes para cerrar la fecha de arranque.\n\nUn abrazo,\nMarta"
+      ],
+      "transcript": "Them: Antes de meter a todo el equipo quiero probarlo con tres comerciales. You: Me parece bien. Activo la prueba para esos tres y te mando los accesos en cuanto estén listos. Them: Perfecto, pásame también una guía rápida si la tenéis. You: Claro, va con los accesos."
+    },
+    "expect": {
+      "formality": "tu",
+      "must_not_match": ["nuria|pablo|valencia", "\\bmartes\\b", "semana que viene", "€|\\beuros?\\b|\\d+ ?%"]
+    }
+  },
+  {
+    "id": "f02_three_next_steps",
+    "language": "es",
+    "input": {
+      "rep_name": "Lucía Pérez",
+      "contact_name": "Elena",
+      "summary": "Elena, gerente de Clínicas Dentia, necesita el dossier, hablar con un cliente de referencia y un presupuesto para cuatro clínicas antes de llevarlo a los socios.",
+      "next_steps": ["Enviar dossier del producto", "Poner en contacto con un cliente de referencia", "Preparar presupuesto para cuatro clínicas"],
+      "voice_samples": [],
+      "transcript": "Them: Para llevarlo a los socios necesito tres cosas: el dossier, hablar con algún cliente que ya lo use y un presupuesto para las cuatro clínicas. You: Hecho. Te mando el dossier, te pongo en contacto con un cliente del sector y te preparo el presupuesto para las cuatro. Them: Genial."
+    },
+    "expect": {
+      "formality": "tu",
+      "must_match": ["dossier", "cliente", "presupuesto"],
+      "must_not_match": ["€|\\beuros?\\b|\\d+ ?%", "\\b(lunes|martes|miércoles|jueves|viernes)\\b"]
+    }
+  },
+  {
+    "id": "f02_pain_quote_is_context_not_a_quote",
+    "language": "es",
+    "input": {
+      "rep_name": "Jorge Sanz",
+      "contact_name": "Nacho",
+      "summary": "Nacho, jefe de ventas de Seguros Rivas, pierde tiempo pasando notas al CRM. Jorge le enviará un vídeo corto de cómo funciona.",
+      "next_steps": ["Enviar vídeo de demostración"],
+      "voice_samples": [],
+      "transcript": "Them: Perdemos media mañana cada lunes pasando las notas de la semana al CRM. You: Justo eso es lo que automatizamos. Te mando un vídeo corto para que veas cómo funciona. Them: Venga, mándamelo.",
+      "intelligence": {
+        "pain_confirmed": true,
+        "commitments": [{"text": "Enviar un vídeo corto de cómo funciona", "due_at": null, "temporal_precision": "unknown", "evidence_refs": ["ev-c"]}],
+        "meeting": {"agreed": null, "starts_at": null, "precision": "unknown", "evidence_refs": []},
+        "evidence": [{"id": "ev-p", "quote": "Perdemos media mañana cada lunes pasando las notas de la semana al CRM"}]
+      }
+    },
+    "expect": {
+      "formality": "tu",
+      "must_not_match": ["perdemos media mañana cada lunes pasando las notas", "\\b(martes|miércoles|jueves|viernes)\\b", "\\b\\d{1,2}(:\\d{2}| ?h)\\b"]
+    }
+  },
+  {
+    "id": "f02_prospect_request_is_answered_as_asked",
+    "language": "es",
+    "input": {
+      "rep_name": "Marta Gil",
+      "contact_name": "Beatriz",
+      "summary": "Beatriz, directora de operaciones de Tiendas Olmo, pidió el dossier técnico (seguridad e integración con su CRM) para moverlo con IT. Marta se lo enviará.",
+      "next_steps": ["Enviar dossier técnico"],
+      "voice_samples": [],
+      "transcript": "Them: Para moverlo con IT necesito el dossier técnico, con la parte de seguridad y cómo se integra con nuestro CRM. ¿Me lo puedes mandar? You: Claro, te lo mando. Them: Genial, así lo reviso con ellos.",
+      "intelligence": {
+        "pain_confirmed": null,
+        "commitments": [{"text": "Enviar el dossier técnico con seguridad e integración con el CRM", "origin": "prospect_request", "due_at": null, "temporal_precision": "unknown", "evidence_refs": ["ev-c"]}],
+        "meeting": {"agreed": null, "starts_at": null, "precision": "unknown", "evidence_refs": []},
+        "evidence": []
+      }
+    },
+    "expect": {
+      "formality": "tu",
+      "must_match": ["\\bme (pediste|pedías|has pedido|habías pedido|solicitaste)\\b"],
+      "must_not_match": ["como te (prometí|ofrecí|dije)", "€|\\beuros?\\b|\\d+ ?%", "\\b(lunes|martes|miércoles|jueves|viernes)\\b"]
+    }
+  },
+  {
+    "id": "f02_en_meeting_with_time_from_c04",
+    "language": "en",
+    "input": {
+      "rep_name": "Emma Clarke",
+      "contact_name": "Daniel",
+      "summary": "Daniel runs sales at Northwind Tools. Half of his reps never log their calls in the CRM. They agreed a demo on Tuesday at 3 pm, and Emma will send a short case study first.",
+      "next_steps": ["Send case study", "Demo on Tuesday"],
+      "voice_samples": [],
+      "transcript": "You: How do your reps log calls today? Them: Honestly, half of them don't. Notes never reach the CRM. You: Let me show you how we fix that. I'll send you a short case study first. How about a demo on Tuesday at 3 pm? Them: Tuesday at 3 works.",
+      "intelligence": {
+        "pain_confirmed": true,
+        "commitments": [{"text": "Send a short case study", "due_at": null, "temporal_precision": "unknown", "evidence_refs": ["ev-c"]}],
+        "meeting": {"agreed": true, "starts_at": "2026-10-06T15:00:00+02:00", "precision": "time", "evidence_refs": ["ev-m"]},
+        "evidence": [{"id": "ev-p", "quote": "Notes never reach the CRM"}]
+      }
+    },
+    "expect": {
+      "must_match": ["\\bTuesday\\b", "\\b3(:00)? ?(pm|p\\.m\\.)|\\b15:00\\b"],
+      "must_not_match": ["\\b(Monday|Wednesday|Thursday|Friday)\\b", "\\$|€|\\d+ ?%"]
+    }
+  },
+  {
+    "id": "f02_en_vague_step_stays_vague",
+    "language": "en",
+    "input": {
+      "rep_name": "Emma Clarke",
+      "contact_name": "Sarah",
+      "summary": "Sarah is happy with her current tool and has no budget to change this year. Emma will share material when the new reporting module launches.",
+      "next_steps": ["Share material when the reporting module launches"],
+      "voice_samples": [],
+      "transcript": "Them: We're fine with our current tool for now, and there's no budget to change this year. You: Understood. We're launching a new reporting module soon; I'll share some material when it's out. Them: Sure, send it over then."
+    },
+    "expect": {
+      "must_not_match": [
+        "\\b(Monday|Tuesday|Wednesday|Thursday|Friday|tomorrow|next week)\\b",
+        "\\b\\d{1,2}(:\\d{2}| ?(am|pm))\\b",
+        "\\b(January|February|March|April|May|June|July|August|September|October|November|December)\\b",
+        "attach",
+        "\\$|€|\\d+ ?%"
+      ]
+    }
+  }
+]

@@ -1,0 +1,637 @@
+[
+ {
+  "memo_id": "9039b184-a95d-4890-93ce-17c1b24fba42",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "steps": {}
+ },
+ {
+  "memo_id": "1e14c751-72e1-4f66-b76a-97bbfca9f599",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   16,
+   24
+  ],
+  "prospect_turns_sample": [
+   5,
+   11,
+   17
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "6d41f16a-b197-42d3-af26-1c195299c81d",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   14,
+   28
+  ],
+  "prospect_turns_sample": [
+   15,
+   31,
+   45
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "09b7cb6f-7623-4aca-83a6-da8c750114d5",
+  "call_type": "dictated_note",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "steps": {}
+ },
+ {
+  "memo_id": "e0dbde3e-816d-452e-b2ea-cac5ae6188d7",
+  "call_type": "gatekeeper",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   1,
+   5,
+   7
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "2ad3385d-8cbc-4a48-b2f2-99f52a2be14f",
+  "call_type": "not_a_sales_call",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "steps": {
+   "alinear_el_objetivo": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "reconfirmar_el_dolor": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "demo_conectada_al_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "impacto_y_requisitos": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "03bb75b3-e1a9-4424-a508-caab13b95b4b",
+  "call_type": "no_conversation",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   8,
+   14
+  ],
+  "prospect_turns_sample": [
+   1,
+   3,
+   9
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "44035fc2-3321-41f2-86a3-7f8fa4c615f6",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "f0ac0f91-a056-4404-b5b3-a81e8f3dd592",
+  "call_type": "wrong_person",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   3,
+   5,
+   9
+  ],
+  "prospect_turns_sample": [
+   2,
+   6,
+   8
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "d6439c0a-8621-410a-ab08-4c460b567f13",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   8
+  ],
+  "prospect_turns_sample": [
+   1,
+   3,
+   5
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "63a3f8f5-d05e-43e1-95fd-a62b0afc2369",
+  "call_type": "follow_up",
+  "phase_reached": "discovery",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   4,
+   10,
+   12
+  ],
+  "prospect_turns_sample": [
+   5,
+   9,
+   11
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "33dd6987-1d08-4b54-9e00-5c3a967a320d",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   3,
+   5
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "f6de82f7-0695-481e-a261-acc877ad5101",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "steps": {}
+ },
+ {
+  "memo_id": "bfd2ab0e-966e-47d0-96c5-a3ec9a4bcc72",
+  "call_type": "follow_up",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   6,
+   8
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "steps": {
+   "alinear_el_objetivo": {
+    "status": "not_applicable",
+    "doubt": true
+   },
+   "reconfirmar_el_dolor": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "demo_conectada_al_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "impacto_y_requisitos": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "fc7d5285-c9e6-48eb-b742-e347f34b30c0",
+  "call_type": "no_conversation",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   6,
+   8
+  ],
+  "prospect_turns_sample": [
+   5,
+   7,
+   9
+  ],
+  "steps": {
+   "marcar_el_marco": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "diagnosticar_el_sistema_comercial": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "coste_de_inaccion": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "validar_quien_decide": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "resumir_el_problema": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "ad876aa4-18b8-4e54-a6d9-be338a2b625d",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   8
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "260610be-e49d-45e6-ae60-5779e1434998",
+  "call_type": "cold_first_contact",
+  "phase_reached": "closing",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   7,
+   11,
+   53
+  ],
+  "prospect_turns_sample": [
+   2,
+   12,
+   66
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "f95df18e-60ef-461b-a760-2ef4f8d8fd10",
+  "call_type": "wrong_person",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   6,
+   10
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   9
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "44ab1c1d-176a-43da-b770-1dfb8ef067e2",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   16
+  ],
+  "prospect_turns_sample": [
+   1,
+   9,
+   21
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "0e60cf15-add2-4af3-a449-b7209ec398e5",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   10,
+   16
+  ],
+  "prospect_turns_sample": [
+   5,
+   11,
+   17
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "2eff7f69-cf03-4768-965d-6d99d6b2ed3a",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   8,
+   12
+  ],
+  "prospect_turns_sample": [
+   1,
+   9,
+   11
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "5e7e5d86-8ea2-4fcb-984a-deb38aba1e2f",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   3,
+   5,
+   23
+  ],
+  "prospect_turns_sample": [
+   4,
+   8,
+   16
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "7d02d091-2907-4cab-9694-567b9fb1a477",
+  "call_type": "not_a_sales_call",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "steps": {
+   "alinear_el_objetivo": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "reconfirmar_el_dolor": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "demo_conectada_al_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "impacto_y_requisitos": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "afe3d622-497b-4629-87e2-7f60f4cde71d",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   4,
+   8,
+   14
+  ],
+  "prospect_turns_sample": [
+   2,
+   7,
+   13
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "d58d2436-91cf-431e-b2b8-a95c14c397bc",
+  "call_type": "wrong_person",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   6,
+   8,
+   10
+  ],
+  "prospect_turns_sample": [
+   9,
+   11,
+   13
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "4348213f-80de-49b5-82a3-fd508db7e7b6",
+  "call_type": "not_a_sales_call",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "steps": {}
+ },
+ {
+  "memo_id": "aa86db0b-b9a5-476e-b174-6d434436bb8f",
+  "call_type": "bad_moment",
+  "phase_reached": "opening",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   2,
+   5,
+   9
+  ],
+  "prospect_turns_sample": [
+   4,
+   6,
+   8
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "a1f9c0f4-5e58-469e-9717-4d30d2fc2347",
+  "call_type": "cold_first_contact",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   8,
+   16
+  ],
+  "prospect_turns_sample": [
+   3,
+   9,
+   13
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "24e136fc-053d-42fa-9dba-75395ed5e116",
+  "call_type": "wrong_person",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "prospect_turns_sample": [
+   2,
+   6,
+   8
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "3c223e2c-e0a5-4d03-b26b-9840adfc0281",
+  "call_type": "gatekeeper",
+  "phase_reached": "discovery",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   1,
+   5,
+   7
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "5981ab94-89a7-4fcc-b94a-875c087ae7d8",
+  "call_type": "cold_first_contact",
+  "phase_reached": "discovery",
+  "speaker_swap": true,
+  "rep_turns_sample": [
+   4,
+   6
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   7
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "70a690b7-5e83-4f49-bd02-8959eb01d297",
+  "call_type": "not_a_sales_call",
+  "phase_reached": "none",
+  "speaker_swap": true,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "steps": {
+   "alinear_el_objetivo": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "reconfirmar_el_dolor": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "demo_conectada_al_pain": {
+    "status": "not_applicable",
+    "doubt": false
+   },
+   "impacto_y_requisitos": {
+    "status": "not_applicable",
+    "doubt": false
+   }
+  }
+ },
+ {
+  "memo_id": "1162b89d-001b-4d6f-a1ab-0643074a8266",
+  "call_type": "follow_up",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   2,
+   4,
+   36
+  ],
+  "prospect_turns_sample": [
+   3,
+   5,
+   35
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "c9157f0b-0b05-46c8-adce-4e009730ed1b",
+  "call_type": "wrong_person",
+  "phase_reached": "opening",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   1,
+   9,
+   23
+  ],
+  "prospect_turns_sample": [
+   2,
+   10,
+   18
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "3d860ae4-9a0f-4726-a067-4e0f54a599d4",
+  "call_type": "discovery_meeting",
+  "phase_reached": "pitch",
+  "speaker_swap": false,
+  "rep_turns_sample": [
+   1,
+   6,
+   9
+  ],
+  "prospect_turns_sample": [
+   2,
+   7,
+   11
+  ],
+  "steps": {}
+ },
+ {
+  "memo_id": "8b074973-f388-49f0-8262-7d8cdddbda5d",
+  "call_type": "not_a_sales_call",
+  "phase_reached": "none",
+  "speaker_swap": false,
+  "rep_turns_sample": [],
+  "prospect_turns_sample": [],
+  "steps": {}
+ }
+]

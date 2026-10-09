@@ -7,6 +7,7 @@ from uuid import UUID
 
 from app.models.approval import ApprovalPreview, AvailableField, ContactMatch, DealMatch, ProposedUpdate
 from app.models.memo import MemoExtraction
+from app.services.deal_stage_confirm import suggested_stage
 from app.services.extraction_confidence import field_extraction_confidence
 from app.services.hubspot.contact_identity import real_contact_email_or_none
 
@@ -124,6 +125,9 @@ class PipedrivePreviewService:
         contact_candidates: Optional[Any] = None,
         skip_deal: bool = False,
         include_unchanged: bool = False,
+        stage_confirm: bool = False,
+        meeting_booked_stage: Optional[dict[str, str]] = None,
+        commitment_tasks: Optional[list] = None,
     ) -> ApprovalPreview:
         if allowed_fields is None:
             allowed_fields = list(DEFAULT_DEAL_FIELDS)
@@ -199,6 +203,21 @@ class PipedrivePreviewService:
                         current_company = await self.search.get_organization(str(current["org_id"]))
                     except Exception:
                         pass
+
+            if stage_confirm:
+                # The stage is chosen from the deal's own pipeline (F14), not written as a plain field.
+                deal_props.pop("stage_id", None)
+                stage_row = await self._confirmed_stage_row(
+                    extraction,
+                    current=current,
+                    is_new_deal=is_new_deal,
+                    new_deal_stage_id=stage_id,
+                    default_pipeline_id=default_pipeline_id,
+                    meeting_booked_stage=meeting_booked_stage,
+                    label=deal_labels.get("stage_id", "Stage"),
+                )
+                if stage_row:
+                    proposed_updates.append(stage_row)
 
             if is_new_deal:
                 for field_name, new_value in deal_props.items():
@@ -287,17 +306,23 @@ class PipedrivePreviewService:
                 include_unchanged=include_unchanged,
             )
 
-        for i, step in enumerate(extraction.nextSteps or []):
-            if not str(step).strip():
+        if commitment_tasks is not None:
+            task_rows = [(task.text, task.due_date, task.commitment_id) for task in commitment_tasks]
+        else:
+            task_rows = [(str(step).strip(), None, None) for step in extraction.nextSteps or []]
+        for i, (text, due_date, commitment_id) in enumerate(task_rows):
+            if not text:
                 continue
             proposed_updates.append(
                 ProposedUpdate(
                     field_name=f"next_step_task_{i}",
                     field_label="Next step",
                     current_value=None,
-                    new_value=str(step).strip(),
+                    new_value=text,
                     extraction_confidence=field_extraction_confidence(extraction, "nextSteps"),
                     object_type="task",
+                    due_date=due_date,
+                    commitment_id=commitment_id,
                 )
             )
 
@@ -368,4 +393,54 @@ class PipedrivePreviewService:
             allowed_line_item_fields=allowed_line_item_fields,
             new_contact=new_contact,
             new_company=new_company,
+        )
+
+    async def _confirmed_stage_row(
+        self,
+        extraction: MemoExtraction,
+        *,
+        current: dict[str, Any],
+        is_new_deal: bool,
+        new_deal_stage_id: Optional[str],
+        default_pipeline_id: Optional[str],
+        meeting_booked_stage: Optional[dict[str, str]],
+        label: str,
+    ) -> Optional[ProposedUpdate]:
+        """The stage row of the deal's own pipeline, preselected per the F14 addendum."""
+        if is_new_deal:
+            pipeline_id = default_pipeline_id
+            current_stage = None
+            inferred = new_deal_stage_id
+        else:
+            pipeline_id = str(current["pipeline_id"]) if current.get("pipeline_id") is not None else None
+            current_stage = str(current["stage_id"]) if current.get("stage_id") is not None else None
+            inferred = (
+                await self.schema.resolve_stage_id(extraction.dealStage, None, pipeline_id)
+                if extraction.dealStage
+                else None
+            )
+        stages = await self.schema.list_stages(pipeline_id)
+        options = [
+            {"value": str(s["id"]), "label": str(s.get("name") or s["id"])}
+            for s in stages
+            if s.get("id") is not None
+        ]
+        suggested = suggested_stage(
+            pipeline_id=pipeline_id,
+            stage_ids=[o["value"] for o in options],
+            meeting_booked=meeting_booked_stage,
+            inferred=inferred,
+            fallback=current_stage,
+        )
+        if not suggested:
+            return None
+        return ProposedUpdate(
+            field_name="stage_id",
+            field_label=label,
+            current_value=None if is_new_deal else (current_stage or "(empty)"),
+            new_value=suggested,
+            extraction_confidence=field_extraction_confidence(extraction, "stage_id"),
+            field_type="enumeration",
+            options=options,
+            object_type="deals",
         )

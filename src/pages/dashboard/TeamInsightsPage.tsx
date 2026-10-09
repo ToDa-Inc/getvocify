@@ -1,0 +1,186 @@
+import { useState } from "react";
+import { Link, Navigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/features/auth";
+import { FilterMenu } from "@/features/interactions/components/FilterMenu";
+import { AdherenceBreakdown } from "@/features/team-insights/components/AdherenceBreakdown";
+import { AdherenceTrend } from "@/features/team-insights/components/AdherenceTrend";
+import { ObjectionBreakdown } from "@/features/team-insights/components/ObjectionBreakdown";
+import { OutcomeBreakdown } from "@/features/team-insights/components/OutcomeBreakdown";
+import { TeamOverview } from "@/features/team-insights/components/TeamOverview";
+import { useLanguage } from "@/lib/i18n";
+import {
+  teamAdherenceHasData,
+  teamCrmCoverage,
+  teamFlowFilterLabel,
+  teamInsightsView,
+  type ObjectionCategory,
+  type TeamFilters,
+  type TeamMetrics,
+  type TeamRep,
+} from "@/lib/team-insights";
+import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { api } from "@/shared/lib/api-client";
+
+
+const EMPTY_FILTERS: TeamFilters = { period: "week", motion: null, userId: null };
+
+function adherenceQuery(filters: TeamFilters): string {
+  const params = new URLSearchParams();
+  if (filters.userId) params.set("user_id", filters.userId);
+  if (filters.motion) params.set("motion", filters.motion);
+  const qs = params.toString();
+  return qs ? `/team/adherence?${qs}` : "/team/adherence";
+}
+
+export default function TeamInsightsPage() {
+  const { t } = useLanguage();
+  const { user } = useAuth();
+  const role = user?.company?.role ?? "member";
+  const [filters, setFilters] = useState<TeamFilters>(EMPTY_FILTERS);
+  // T1/D3: a member with visibility=team also reads this page (read-only) - the backend
+  // is the source of truth (403 otherwise), this only decides whether to fire the query.
+  const allowed = role === "owner" || role === "admin" || user?.company?.visibility === "team";
+  const managerHomeEnabled = Boolean(user?.company?.features?.includes("MANAGER_HOME_ENABLED"));
+  const query = useQuery({
+    queryKey: ["team-adherence", filters],
+    queryFn: () =>
+      api.get<{
+        adherence: number | null;
+        met_steps: number;
+        applicable_steps: number;
+        coverage: number | null;
+        crm_coverage?: "complete" | "partial";
+        won?: number | null;
+        lost?: number | null;
+        unresolved_wins?: number;
+        sample_limited?: boolean;
+        attempts?: number;
+        connected?: number;
+        meetings?: number;
+        objection_categories?: ObjectionCategory[];
+        competitor_mentions?: { name: string; count: number; quotes?: { quote: string; date: string }[] }[];
+        reps?: TeamRep[];
+        review?: { memo_id: string; line: string }[];
+      }>(adherenceQuery(filters)),
+    enabled: allowed,
+    retry: false,
+  });
+  const motionsQuery = useQuery({
+    queryKey: ["playbook-motions"],
+    queryFn: () => api.get<{ motions: Record<string, string> }>("/playbooks"),
+    enabled: allowed,
+    retry: false,
+  });
+  // Lista 4 E5: a rep who can't read the team panel has Coach instead of Team.
+  if (user && !allowed) return <Navigate to="/dashboard/coach" replace />;
+  if (allowed && (query.isLoading || query.isError)) {
+    return (
+      <main className={`max-w-5xl mx-auto space-y-4 ${THEME_TOKENS.motion.fadeIn}`}>
+        <h1 className={THEME_TOKENS.typography.pageTitle}>{t.product.teamTitle}</h1>
+        <p className={THEME_TOKENS.typography.body}>{query.isError ? t.product.teamReadFailed : t.product.teamLoading}</p>
+      </main>
+    );
+  }
+  const reps: TeamRep[] = query.data?.reps ?? [];
+  const filterActive = Boolean(filters.userId || filters.motion);
+  const scopedEmpty = filterActive && query.data != null && !teamAdherenceHasData(query.data);
+  const metrics: TeamMetrics | null =
+    query.data && !scopedEmpty
+      ? {
+          attempts: typeof query.data.attempts === "number" ? query.data.attempts : null,
+          connected: typeof query.data.connected === "number" ? query.data.connected : null,
+          meetings: typeof query.data.meetings === "number" ? query.data.meetings : null,
+          won: query.data.won ?? null,
+          lost: query.data.lost ?? null,
+          unresolvedWins: query.data.unresolved_wins ?? 0,
+          adherence: query.data.adherence,
+          met: query.data.met_steps,
+          applicable: query.data.applicable_steps,
+          coverageCrm: teamCrmCoverage(query.data.crm_coverage),
+          sampleLimited: query.data.sample_limited === true,
+        }
+      : null;
+  const view = teamInsightsView({
+    role,
+    visibility: user?.company?.visibility,
+    companyEmpty: false,
+    filters,
+    reps,
+    metrics: query.isSuccess ? metrics : null,
+    copy: t.product,
+  });
+  const motionKeys = Object.keys(motionsQuery.data?.motions ?? {}).sort((a, b) =>
+    a.localeCompare(b, "es"),
+  );
+
+  return (
+    <main className={`max-w-5xl mx-auto space-y-6 ${THEME_TOKENS.motion.fadeIn}`}>
+      <h1 className={THEME_TOKENS.typography.pageTitle}>{t.product.teamTitle}</h1>
+      {view.kind === "denied" ? <p>{view.title}</p> : null}
+      {view.kind === "new" ? <p>{view.title}</p> : null}
+      {allowed ? (
+        <div role="group" aria-label={t.product.teamTitle} className="flex flex-wrap items-center gap-2">
+          <FilterMenu
+            label={t.product.teamFilterRep}
+            value={filters.userId ?? ""}
+            choices={[
+              { value: "", label: t.product.teamFilterAllReps },
+              ...reps.map((rep) => ({ value: rep.userId, label: rep.name })),
+            ]}
+            onChange={(next) => setFilters((prev) => ({ ...prev, userId: next || null }))}
+          />
+          <FilterMenu
+            label={t.product.teamFilterMotion}
+            value={filters.motion ?? ""}
+            choices={[
+              { value: "", label: t.product.teamFilterAllMotions },
+              ...motionKeys.map((key) => ({ value: key, label: teamFlowFilterLabel(key, t.product, t.product.motions) })),
+            ]}
+            onChange={(next) => setFilters((prev) => ({ ...prev, motion: next || null }))}
+          />
+        </div>
+      ) : null}
+      {view.kind === "empty" ? (
+        <div>
+          <p>{view.title}</p>
+          <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => setFilters(EMPTY_FILTERS)}>{t.product.teamResetFilters}</Button>
+        </div>
+      ) : null}
+      {view.kind === "ready" && view.metrics ? (
+        <>
+          {(query.data?.review?.length ?? 0) > 0 ? (
+            <section className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-3 p-5`}>
+              <h2 className={THEME_TOKENS.typography.sectionTitle}>{t.product.teamReviewTitle}</h2>
+              <ul className="space-y-2">
+                {query.data?.review?.map((item) => (
+                  <li key={item.memo_id}>
+                    <Link className="text-[15px] leading-relaxed text-foreground" to={`/dashboard/memos/${item.memo_id}`}>
+                      {item.line}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+          <TeamOverview metrics={view.metrics} reps={view.reps} showRepDetail={managerHomeEnabled} />
+          <AdherenceBreakdown metrics={view.metrics}>
+            <AdherenceTrend filters={filters} />
+          </AdherenceBreakdown>
+          <ObjectionBreakdown
+            categories={query.data?.objection_categories ?? []}
+            competitors={query.data?.competitor_mentions}
+            sampleLimited={query.data?.sample_limited === true}
+          />
+          <OutcomeBreakdown
+            metrics={view.metrics}
+            winRate={view.winRate}
+            unresolvedLabel={view.unresolvedLabel}
+            partialWarning={view.partialCrmWarning ? t.product.partialCrm : null}
+          />
+        </>
+      ) : null}
+    </main>
+  );
+}

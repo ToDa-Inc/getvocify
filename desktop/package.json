@@ -1,0 +1,82 @@
+{
+  "name": "vocify-companion",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Vocify desktop companion: Granola-style system audio, dashboard UI, tray overlay, CRM handoff.",
+  "author": "Vocify",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ToDa-Inc/getvocify-desktop.git"
+  },
+  "type": "module",
+  "main": "electron-main.mjs",
+  "scripts": {
+    "start": "node scripts/build-macos-tap.mjs --optional && node start.mjs",
+    "web": "node server.mjs",
+    "test": "node --test lib/*.test.js",
+    "icons": "node scripts/generate-icons.mjs",
+    "tap": "node scripts/build-macos-tap.mjs",
+    "dist": "electron-builder --publish never",
+    "dist:mac": "node scripts/build-macos-tap.mjs --optional && electron-builder --mac dmg zip --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.vocify.companion",
+    "productName": "Vocify Companion",
+    "files": [
+      "electron-main.mjs",
+      "preload.cjs",
+      "start.mjs",
+      "server.mjs",
+      "lib/**/*",
+      "renderer/**/*",
+      "build/icon.png",
+      "build/trayTemplate.png",
+      "build/trayTemplate@2x.png",
+      "brand/icon-512.png",
+      "native/macos-tap/main.swift"
+    ],
+    "extraResources": [
+      {
+        "from": "native/macos-tap",
+        "to": ".",
+        "filter": ["vocify-tap"]
+      }
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "mac": {
+      "category": "public.app-category.business",
+      "icon": "build/icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Vocify records your microphone as You.",
+        "NSAudioCaptureUsageDescription": "Vocify captures meeting playback as the prospect.",
+        "NSScreenCaptureDescription": "Screen Recording lets Vocify hear Zoom, Meet, and Teams."
+      }
+    },
+    "dmg": {
+      "title": "Vocify Companion",
+      "background": "build/dmg-background.png",
+      "icon": "build/icon.png",
+      "window": { "width": 540, "height": 380 },
+      "contents": [
+        { "x": 140, "y": 170, "type": "file" },
+        { "x": 400, "y": 170, "type": "link", "path": "/Applications" }
+      ],
+      "artifactName": "Vocify-Companion-${version}.${ext}"
+    },
+    "publish": null
+  }
+}

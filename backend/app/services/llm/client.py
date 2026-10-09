@@ -57,6 +57,8 @@ class LLMClient:
         provider: Optional[str] = None,
         timeout: Optional[float] = None,
         max_retries: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> dict:
         return await self.router.chat_json(
             messages,
@@ -65,6 +67,8 @@ class LLMClient:
             provider=provider,
             timeout=timeout,
             max_retries=max_retries,
+            reasoning_effort=reasoning_effort,
+            max_tokens=max_tokens,
         )
 
     async def chat_tools(
@@ -89,3 +93,25 @@ class LLMClient:
             max_retries=max_retries,
             extra=extra,
         )
+
+    async def chat_tools_stream(
+        self,
+        messages: list[dict],
+        *,
+        tools: list,
+        model: Optional[str] = None,
+        temperature: float = 0.0,
+        provider: Optional[str] = None,
+        timeout: Optional[float] = None,
+        extra: Optional[dict] = None,
+    ):
+        async for item in self.router.chat_tools_stream(
+            messages,
+            tools=tools,
+            model=model or self._override_model,
+            temperature=temperature,
+            provider=provider,
+            timeout=timeout,
+            extra=extra,
+        ):
+            yield item

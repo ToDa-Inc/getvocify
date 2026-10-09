@@ -1,4 +1,4 @@
-"""Cheap sanitize before extract; LLM polish is display-only and must not block."""
+"""Rule-based sanitize before extract."""
 
 import unittest
 
@@ -8,23 +8,12 @@ from app.services.transcript_sanitize import (
     is_two_party_source,
     raw_speaker_count,
     reconstruct_spelled_emails,
-    should_refresh_display_transcript,
 )
 
 
-class DisplayTranscriptPolishTests(unittest.TestCase):
-    def test_review_statuses_can_receive_polished_transcript(self):
-        self.assertTrue(should_refresh_display_transcript("extracting"))
-        self.assertTrue(should_refresh_display_transcript("pending_review"))
-        self.assertTrue(should_refresh_display_transcript("pending_transcript"))
-
-    def test_approved_or_failed_transcript_is_not_replaced(self):
-        self.assertFalse(should_refresh_display_transcript("approved"))
-        self.assertFalse(should_refresh_display_transcript("failed"))
-        self.assertFalse(should_refresh_display_transcript(None))
-
-    def test_extraction_persist_does_not_clobber_transcript(self):
-        """Extract finishes while LLM polish may already have written a better transcript."""
+class ExtractionCompleteUpdateTests(unittest.TestCase):
+    def test_extraction_persist_does_not_write_the_transcript(self):
+        """The transcript is stored before extraction starts, so finishing must not touch it."""
         payload = extraction_complete_update(
             {"summary": "note"},
             processed_at="2026-08-21T12:00:00+00:00",

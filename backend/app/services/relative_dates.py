@@ -30,12 +30,14 @@ _WEEKDAY = {
     "viernes": 4, "friday": 4,
     "sabado": 5, "sábado": 5, "saturday": 5,
     "domingo": 6, "sunday": 6,
+    # Catalan
+    "dilluns": 0, "dimarts": 1, "dimecres": 2, "dijous": 3, "divendres": 4, "dissabte": 5, "diumenge": 6,
 }
 
 
 def _fold(text: str) -> str:
     raw = (text or "").strip().lower()
-    repl = str.maketrans("áéíóúü", "aeiouu")
+    repl = str.maketrans("áéíóúüàèòï", "aeiouuaeoi")
     return raw.translate(repl)
 
 
@@ -116,6 +118,57 @@ def resolve_schedule(text: str, ref: date) -> Optional[str]:
             if delta == 0:
                 delta = 7
             return (ref + timedelta(days=delta)).isoformat()
+    return _resolve_spoken(blob, ref)
+
+
+_COUNT = {
+    "un": 1, "una": 1, "uno": 1, "un par de": 2, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+    "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10, "once": 11, "doce": 12, "quince": 15,
+    "a": 1, "an": 1, "one": 1, "a couple of": 2, "two": 2, "three": 3, "four": 4, "six": 6,
+}
+_UNIT = r"(dias?|semanas?|mes(?:es)?|anos?|days?|weeks?|months?|years?)"
+_COUNT_RE = "|".join(sorted((re.escape(k) for k in _COUNT), key=len, reverse=True))
+
+
+def _after(ref: date, count: int, unit: str) -> date:
+    if unit.startswith(("dia", "day")):
+        return ref + timedelta(days=count)
+    if unit.startswith(("semana", "week")):
+        return ref + timedelta(weeks=count)
+    if unit.startswith(("mes", "month")):
+        return _add_months(ref, count)
+    return _add_months(ref, 12 * count)
+
+
+def _resolve_spoken(blob: str, ref: date) -> Optional[str]:
+    """The everyday phrases a call uses for "when": tomorrow, a weekday, in N weeks, in January,
+    at the end of the week. A part of the day alone ("por la mañana") is not a date."""
+    blob = blob.replace("ñ", "n")
+    if re.search(r"\bpasado manana\b", blob):
+        return (ref + timedelta(days=2)).isoformat()
+    if re.search(r"\b(?:manana|tomorrow|dema)\b", re.sub(r"\bpor la manana\b", "", blob)):
+        return (ref + timedelta(days=1)).isoformat()
+    if re.search(r"\b(?:hoy|today|esta tarde|this afternoon|ahora|ya|ahora mismo|en un rato|now|right away|avui|ara)\b", blob):
+        return ref.isoformat()
+    span = re.search(rf"\b(?:en|dentro de|in|within)\s+(?:unos?\s+|unas?\s+)?({_COUNT_RE}|\d{{1,2}})\s+{_UNIT}\b", blob)
+    if span:
+        raw = span.group(1)
+        count = int(raw) if raw.isdigit() else _COUNT[raw]
+        return _after(ref, count, span.group(2)).isoformat()
+    if re.search(r"\b(?:el ano que viene|next year)\b", blob):
+        return _add_months(ref, 12).isoformat()
+    if re.search(r"\b(?:fin(?:al)?(?:es)? de (?:esta )?semana|end of (?:the|this) week)\b", blob):
+        delta = (4 - ref.weekday()) % 7
+        return (ref + timedelta(days=delta)).isoformat()
+    month = re.search(r"\b(?:en|a principios de|principios de|a primeros de|a finales de|finales de|a mediados de|in|early|late)\s+([a-z]+)\b", blob)
+    if month and month.group(1) in _MONTHS:
+        number = _MONTHS[month.group(1)]
+        day = 25 if "final" in month.group(0) or "late" in month.group(0) else 15 if "mediados" in month.group(0) else 1
+        return _date_for_month_day(ref, number, day).isoformat()
+    for name, wd in _WEEKDAY.items():
+        if re.search(rf"\b(?:el|este|on|this)?\s*{name}\b", blob):
+            delta = (wd - ref.weekday()) % 7
+            return (ref + timedelta(days=delta or 7)).isoformat()
     return None
 
 
