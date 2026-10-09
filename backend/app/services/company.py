@@ -19,6 +19,7 @@ from app.services.billing.entitlement import (
     workspace_entitlements,
 )
 from app.services.feature_flags import is_enabled
+from app.services.ttl_cache import TtlCache
 from app.services.hoy.materialize import DEFAULT_CALLBACK_AFTER_DAYS
 from app.emails.templates import (
     build_invite_email_html,
@@ -29,6 +30,9 @@ from app.emails.templates import (
 from app.integrations.resend_client import ResendClientError, get_resend_client, get_resend_from_email
 
 logger = logging.getLogger(__name__)
+
+# Auth emails by user id; shown as names/authors, so a few minutes of staleness is harmless.
+_AUTH_EMAILS: TtlCache[str] = TtlCache(300.0)
 
 INVITE_TOKEN_EXPIRY_DAYS = 7
 PASSWORD_RESET_EXPIRY_HOURS = 1
@@ -578,8 +582,14 @@ class CompanyService:
         ]
 
     def _auth_emails_by_ids(self, user_ids: List[str]) -> Dict[str, str]:
+        """Emails by user id. Each is one blocking call to the auth service, and every page of a
+        memo lists the same few members, so a found email is kept for a few minutes."""
         out: Dict[str, str] = {}
         for uid in user_ids:
+            cached = _AUTH_EMAILS.get(uid)
+            if cached is not None:
+                out[uid] = cached
+                continue
             try:
                 user = self.supabase.auth.admin.get_user_by_id(uid)
                 email = getattr(user, "email", None) or ""
@@ -588,6 +598,8 @@ class CompanyService:
                 if isinstance(user, dict):
                     email = user.get("email") or email
                 out[uid] = email or ""
+                if email:
+                    _AUTH_EMAILS.put(uid, email)
             except Exception as exc:
                 logger.warning("Could not load auth email for %s: %s", uid, exc)
         return out

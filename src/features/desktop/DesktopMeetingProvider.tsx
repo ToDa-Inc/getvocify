@@ -18,7 +18,9 @@ import { crmApi } from "@/lib/api/crm";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
 import { api } from "@/shared/lib/api-client";
+import { liveTickets } from "./liveTickets";
 import { ROUTES } from "@/shared/lib/constants";
+import { EchoSuppressor } from "@/lib/echo-suppressor";
 import {
   encodeChannelAudio,
   hookMicPcm,
@@ -47,6 +49,7 @@ import { SpeakerTimeline } from "@/lib/speaker-timeline";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, desktopPlatform, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
 import { islandCallContact, latestOnly, type CallPreview } from "@/lib/call-contact";
+import { contactRecordUrl } from "@/lib/today";
 import {
   POST_CALL_GIVE_UP_MS,
   UNDO_MS,
@@ -133,8 +136,9 @@ type DesktopMeeting = {
 };
 
 const MAX_RECONNECTS = 5;
-/** Production closes ~5s after CloseStream, once the last finals are flushed. */
-const DRAIN_MS = 6000;
+/** The server answers CloseStream with EndOfTranscript as soon as the last finals are flushed (well under a second),
+ * and gives up after 3 s; this waits a second longer so its answer always wins. */
+const DRAIN_MS = 4000;
 /** Worst case a crash loses this much transcript. */
 const SAVE_EVERY_MS = 2000;
 
@@ -187,6 +191,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   /** The CRM the island names in its card; read when a call ends. */
   const crmNameRef = useRef<string | null>(null);
   crmNameRef.current = connected ? CRM_PROVIDER_CONFIGS[connected as CRMProvider]?.name ?? null : null;
+  /** Where a contact's record lives in the connected CRM (HubSpot only): the card links to it once it is updated. */
+  const hubspot = integrations.data?.find((connection) => connection.provider === "hubspot" && connection.status === "connected");
+  const contactUrlRef = useRef<(contactId: string | null | undefined) => string | null>(() => null);
+  contactUrlRef.current = (contactId) =>
+    contactRecordUrl(hubspot ? "hubspot" : null, hubspot?.metadata?.portalId ?? null, contactId ?? null);
   /** A type's name as the memo page shows it: the company's label, else the catalog's. */
   const typeName = useCallback(
     (key: string, label?: string | null) => label || t.product.pb2.typeLabels[key] || motionLabel(key, t.product.motions),
@@ -217,6 +226,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     run: { cancelled: boolean };
     state: PostCall;
     proposed: ProposedUpdate[];
+    /** The memo's CRM contact, when it has one. */
+    contactId?: string;
     undoTimer?: number;
     /** Every type the call could be, in the order the memo page lists them. */
     typeOrder?: string[];
@@ -255,8 +266,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const recoveredForRef = useRef<string | null>(null);
   const userIdRef = useRef("");
   const wsRef = useRef<WebSocket | null>(null);
+  /** Which sides have had their first words transcribed in this recording (logged once each). */
+  const firstWordsRef = useRef<{ rep?: boolean; prospect?: boolean }>({});
   /** Who the meeting app showed speaking, timed on the other side's audio clock (page recording only). */
   const speakersRef = useRef<{ timeline: SpeakerTimeline; clockAt: number | null } | null>(null);
+  /** Keeps the call out of the microphone when the page records both sides itself (a meeting heard through speakers). */
+  const echoRef = useRef<EchoSuppressor | null>(null);
   /** The live service's pass for this recording, sent first on every connection. */
   const ticketRef = useRef<string | null>(null);
   /** The Mac app is recording this meeting itself; the page only mirrors its transcript. */
@@ -433,6 +448,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     releaseAudioRef.current.forEach((release) => release());
     releaseAudioRef.current = [];
     speakersRef.current = null;
+    if (echoRef.current) {
+      // How much of the microphone was the call's echo: the app's log is where a Windows test shows it worked.
+      getDesktopBridge()?.shell.log?.("echo:suppressed", echoRef.current.stats());
+      echoRef.current = null;
+    }
     micRef.current?.getTracks().forEach((track) => track.stop());
     micRef.current = null;
     await getDesktopBridge()?.systemAudio.stop();
@@ -468,6 +488,17 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (data.type === "Results") {
+        // Once per side and recording, in the desktop app's log: when its first words came back. A side that starts
+        // late (or never) is why the other person's voice, heard by the mic, shows as the rep's.
+        const side = data.audio_channel === "rep" || data.audio_channel === "prospect" ? data.audio_channel : null;
+        if (side && !firstWordsRef.current[side] && data.channel?.alternatives?.[0]?.transcript?.trim()) {
+          firstWordsRef.current[side] = true;
+          getDesktopBridge()?.shell.log?.("transcript-first-words", {
+            side,
+            secondsIntoRecording: draftRef.current ? Math.round((Date.now() - draftRef.current.startedAt) / 100) / 10 : null,
+            audioSecond: typeof data.start === "number" ? data.start : null,
+          });
+        }
         // The other side's words go to whoever the meeting app showed speaking then.
         const speakers = speakersRef.current;
         const name =
@@ -639,9 +670,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       const type = callTypeFrom(playbook, typeName);
       const crm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, preview?.proposed_updates);
       postCallRef.current.crm = crm;
+      postCallRef.current.contactId = contactId;
       showPostCall({
         type,
         ...crmForType(type?.key, crm),
+        crmUrl: crm.stage === "done" ? contactUrlRef.current(contactId) : null,
         meeting: meetingFrom(proposal?.proposal ?? null),
         notes: Boolean(memo.extraction?.summary?.trim() || memo.userNotes?.trim()),
         summary: summaryLines(memo.extraction?.summary),
@@ -695,7 +728,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               });
               await memosApi.approveForContact(memoId, extraction);
               if (current.run.cancelled) return;
-              showPostCall({ stage: "done", applied: kept, undoUntil: undefined });
+              showPostCall({ stage: "done", applied: kept, undoUntil: undefined, crmUrl: contactUrlRef.current(current.contactId) });
               memoChanged(memoId);
             } catch {
               const crm = current.state.crm ?? "the CRM";
@@ -713,8 +746,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           endPostCall();
           navigate(ROUTES.MEMO_DETAIL(memoId));
           return;
+        case "chooseContact":
+          // A recording with no contact: the review's fields tab is where the contact is chosen.
+          endPostCall();
+          navigate(`${ROUTES.MEMO_DETAIL(memoId)}?tab=fields`);
+          return;
         case "notes":
-          navigate(ROUTES.MEMO_DETAIL(memoId));
+        case "openNotes":
+          navigate(`${ROUTES.MEMO_DETAIL(memoId)}?tab=note`);
           return;
         case "openEmail":
           navigate(`${ROUTES.MEMO_DETAIL(memoId)}?tab=email`);
@@ -948,10 +987,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       };
 
       // The live service takes no session of its own: a ticket from the API, valid for the day.
-      ticketRef.current = await api
-        .post<{ ticket: string }>("/transcription/ticket")
-        .then((res) => res.ticket)
-        .catch(() => null);
+      // (A call asked for it while it rang, so this is usually instant.)
+      ticketRef.current = await liveTickets.get(user.id);
 
       // The Mac app records natively when it can: no web audio, so nothing waits on this page.
       const recorder = call ? undefined : bridge.recorder;
@@ -1006,6 +1043,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       endPostCall();
       clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
+      firstWordsRef.current = {};
       reconnectsRef.current = 0;
       setPhase("live");
       if (!options?.stay) navigate(ROUTES.RECORD);
@@ -1034,10 +1072,19 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       } else if (ctx && (micStream || call)) {
         // A Vocify call knows who it is with; a meeting recorded here is named from the meeting app's readings.
         speakersRef.current = call ? null : { timeline: new SpeakerTimeline(), clockAt: null };
+        // A Vocify call has the two sides as separate streams already; a meeting is the mic plus what the PC plays.
+        echoRef.current = call ? null : new EchoSuppressor();
         openSocket();
         let levelsSentAt = 0;
-        const send = (channel: MeetingSpeaker) => (pcm: ArrayBuffer) => {
+        const send = (channel: MeetingSpeaker) => (heard: ArrayBuffer) => {
           const side = channel === "rep" ? "you" : "them";
+          let pcm = heard;
+          const echo = echoRef.current;
+          if (echo) {
+            // The mic hears the meeting through the speakers: what is only that echo is not the rep.
+            if (channel === "prospect") echo.pushCall(new Int16Array(heard), performance.now());
+            else pcm = echo.process(new Int16Array(heard), performance.now()).buffer as ArrayBuffer;
+          }
           // Paused: send silence so the session stays open and both channels keep one clock.
           const audio = pausedRef.current ? new ArrayBuffer(pcm.byteLength) : pcm;
           if (!pausedRef.current) {

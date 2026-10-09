@@ -18,8 +18,19 @@ const REFRESH_MS = 60_000;
  * backend, from when it started.
  */
 export function MeetingHeadsUp() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const calendarOn = Boolean(user?.company?.features?.includes("RECALL_BOT_ENABLED"));
+
+  // The watching happens in this page, so the desktop app keeps the (hidden) page alive while it is on: without it the
+  // app gives the page back whenever nothing is recording, and no meeting is ever announced. Only a known user says
+  // whether the calendar is connected: a page that is still loading must not switch it off.
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge || isLoading || !user) return;
+    bridge.shell.setState({ calendarWatch: calendarOn });
+  }, [calendarOn, isLoading, user]);
+  // Leaving the signed-in app (signing out) ends it.
+  useEffect(() => () => getDesktopBridge()?.shell.setState({ calendarWatch: false }), []);
 
   useEffect(() => {
     const bridge = getDesktopBridge();

@@ -4,6 +4,7 @@ import { useAuth } from "@/features/auth";
 import { useCallingConfig } from "@/features/calls/useCallingConfig";
 import { callEngine } from "@/features/calling/callEngine";
 import { useDesktopMeeting } from "@/features/desktop/DesktopMeetingProvider";
+import { liveTickets } from "@/features/desktop/liveTickets";
 import { api } from "@/shared/lib/api-client";
 import { ROUTES } from "@/shared/lib/constants";
 import { companyCanUseDialer } from "@/lib/billing-access";
@@ -54,6 +55,8 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
   copyRef.current = t.product;
   const meetingRef = useRef(meeting);
   meetingRef.current = meeting;
+  const userIdRef = useRef(user?.id);
+  userIdRef.current = user?.id;
 
   // The CRM record in the frontmost browser → who the island offers to call.
   useEffect(() => {
@@ -153,6 +156,8 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
     let holdTimer = 0;
     const onCall = (state: CallEngineState) => {
       bridge.shell.setState({ dial: dialIsland(state, callBriefRef.current) });
+      // Ask for the live transcription pass while it rings: the live session then starts the moment it is answered.
+      if (!isCallUp(previous) && isCallUp(state) && userIdRef.current) void liveTickets.get(userIdRef.current);
       // A call that is over never lends its brief to the next one.
       if (isCallEnded(state)) callBriefRef.current = null;
       const target = state.target;

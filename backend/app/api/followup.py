@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+import asyncio
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -83,7 +84,8 @@ async def get_followup(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ) -> dict:
-    memo = _require_readable_memo(supabase, str(memo_id), user_id)
+    # The read runs in a thread; scheduling stays on the loop (it starts a task there).
+    memo = await asyncio.to_thread(_require_readable_memo, supabase, str(memo_id), user_id)
     # Safety net for any path that completed an extraction without scheduling.
     scheduled = (
         is_eligible(memo)

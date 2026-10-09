@@ -69,12 +69,12 @@ describe("changesFrom", () => {
     assert.equal(sure.check, false);
   });
 
-  it("ticks only what isn't flagged", () => {
+  it("ticks every change: a flagged one is written too unless the rep unticks it", () => {
     const changes = changesFrom([
       { field_name: "a", field_label: "A", new_value: "x", extraction_confidence: 0.95 },
       { field_name: "b", field_label: "B", new_value: "y", extraction_confidence: 0.4 },
     ]);
-    assert.deepEqual(defaultKept(changes), ["deals:a"]);
+    assert.deepEqual(defaultKept(changes), ["deals:a", "deals:b"]);
   });
 });
 

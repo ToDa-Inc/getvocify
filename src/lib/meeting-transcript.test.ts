@@ -85,6 +85,96 @@ describe("meetingDisplayTurns", () => {
     assert.deepEqual(meetingTurns(state).map((t) => t.text), ["Which", "Yes.", "is it?"]);
   });
 
+  it("starts a new bubble for the same speaker after a real pause, from the first word of what follows", () => {
+    const timed = (events: Array<[string, boolean, number, number]>) =>
+      events.reduce((acc, [text, isFinal, start, end]) => applyChannelResult(acc, { text, isFinal, audioChannel: "rep", start, end }), EMPTY_MEETING_TRANSCRIPT);
+    const live = timed([["Te lo mando hoy.", true, 0, 2], ["Y otra", false, 6, 7]]);
+    assert.deepEqual(meetingDisplayTurns(live).map((r) => [r.key, r.text, r.pending]), [["u0", "Te lo mando hoy.", ""], ["u1", "", "Y otra"]]);
+    // Its final lands in the bubble the tail opened: nothing merges back or moves.
+    const settled = applyChannelResult(live, { text: "Y otra cosa.", isFinal: true, audioChannel: "rep", start: 6, end: 8 });
+    assert.deepEqual(meetingDisplayTurns(settled).map((r) => [r.key, r.text]), [["u0", "Te lo mando hoy."], ["u1", "Y otra cosa."]]);
+    // Said straight after, it stays one paragraph.
+    const flowing = timed([["Te lo mando hoy.", true, 0, 2], ["Y otra cosa.", true, 2.4, 4]]);
+    assert.deepEqual(meetingDisplayTurns(flowing).map((r) => r.text), ["Te lo mando hoy. Y otra cosa."]);
+  });
+
+  it("breaks a long monologue into paragraphs at the end of a sentence", () => {
+    const sentence = "uno dos tres cuatro cinco seis siete ocho nueve diez once doce.";
+    const state = feed([[sentence, true, "rep"], [sentence, true, "rep"], [sentence, true, "rep"], [sentence, true, "rep"], ["Y sigo", false, "rep"]]);
+    const rows = meetingDisplayTurns(state);
+    assert.deepEqual(rows.map((r) => [r.speaker, r.pending]), [["rep", ""], ["rep", "Y sigo"]]);
+    assert.equal(rows[0].text, [sentence, sentence, sentence, sentence].join(" "));
+    // The saved transcript is still one turn: the split is only how the live view reads.
+    assert.equal(meetingTurns(state).length, 1);
+  });
+
+  describe("quick back-and-forth", () => {
+    type Event = [text: string, isFinal: boolean, channel: "rep" | "prospect", start: number, end: number];
+    const play = (events: Event[]) =>
+      events.reduce((acc, [text, isFinal, audioChannel, start, end]) => applyChannelResult(acc, { text, isFinal, audioChannel, start, end }), EMPTY_MEETING_TRANSCRIPT);
+    const shape = (state: MeetingTranscript) => meetingDisplayTurns(state).map((r) => [r.speaker, r.pending ? `${r.text}|${r.pending}`.replace(/^\|/, "|") : r.text]);
+
+    // Six turns in nine seconds, never more than 0.3 s between one person and the next.
+    const RALLY: Event[] = [
+      ["¿Cuántos sois", false, "rep", 0, 0.8],
+      ["¿Cuántos sois en ventas?", true, "rep", 0, 1.4],
+      ["Somos seis", false, "prospect", 1.6, 2.2],
+      ["Somos seis comerciales.", true, "prospect", 1.6, 2.9],
+      ["¿Y qué CRM", false, "rep", 3.1, 3.7],
+      ["¿Y qué CRM usáis?", true, "rep", 3.1, 4.2],
+      ["Salesforce.", true, "prospect", 4.4, 5.1],
+      ["¿Contentos con él?", true, "rep", 5.3, 6.4],
+      ["Regular, la verdad.", true, "prospect", 6.6, 8.0],
+    ];
+
+    it("gives every change of speaker its own bubble, however short the gap", () => {
+      assert.deepEqual(shape(play(RALLY)), [
+        ["rep", "¿Cuántos sois en ventas?"],
+        ["prospect", "Somos seis comerciales."],
+        ["rep", "¿Y qué CRM usáis?"],
+        ["prospect", "Salesforce."],
+        ["rep", "¿Contentos con él?"],
+        ["prospect", "Regular, la verdad."],
+      ]);
+    });
+
+    it("never changes a bubble that is already on screen: each step only adds words or a new bubble at the end", () => {
+      let before: string[] = [];
+      for (let step = 1; step <= RALLY.length; step++) {
+        const keys = meetingDisplayTurns(play(RALLY.slice(0, step))).map((r) => r.key);
+        assert.deepEqual(keys.slice(0, before.length), before, `step ${step} moved or replaced a bubble`);
+        before = keys;
+      }
+    });
+
+    it("keeps both bubbles apart when the answer starts before the question has settled", () => {
+      const state = play([
+        ["¿Te va bien el", false, "rep", 0, 1],
+        ["Sí", false, "prospect", 1.1, 1.3],
+        ["¿Te va bien el jueves?", true, "rep", 0, 1.6],
+        ["Sí, el jueves", false, "prospect", 1.1, 2],
+      ]);
+      assert.deepEqual(shape(state), [["rep", "¿Te va bien el jueves?"], ["prospect", "|Sí, el jueves"]]);
+    });
+
+    it("a two-word reaction during a long answer gets its own bubble without cutting the answer in two", () => {
+      const state = play([
+        ["Ahora mismo usamos Salesforce", true, "prospect", 0, 2],
+        ["Vale.", true, "rep", 1.5, 1.8],
+        ["y no queremos cambiar.", true, "prospect", 2.1, 3.5],
+      ]);
+      assert.deepEqual(shape(state), [["prospect", "Ahora mismo usamos Salesforce y no queremos cambiar."], ["rep", "Vale."]]);
+    });
+
+    it("shows the rep's reply at once when it starts before the other side's last words have settled", () => {
+      const state = play([
+        ["y eso es todo", false, "prospect", 10, 11],
+        ["Perfecto, pues", false, "rep", 11.1, 11.6],
+      ]);
+      assert.deepEqual(shape(state), [["prospect", "|y eso es todo"], ["rep", "|Perfecto, pues"]]);
+    });
+  });
+
   it("puts both live tails in the order they started and keeps them there", () => {
     const state = feed([["te cuento", false, "rep"], ["perfecto", false, "prospect"], ["te cuento el precio", false, "rep"]]);
     assert.deepEqual(meetingDisplayTurns(state).map((r) => [r.key, r.pending]), [["u0", "te cuento el precio"], ["u1", "perfecto"]]);

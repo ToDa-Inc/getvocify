@@ -59,6 +59,12 @@ const ECHO_OVERLAP = 0.6;
  */
 const INTERJECTION_WORDS = 2;
 const OVERLAP_SLACK_S = 0.5;
+/**
+ * Someone talking at length reads as paragraphs, not one bubble that keeps growing under the reader: the same
+ * speaker starts a new one after a real pause, or once theirs is long and its sentence has ended.
+ */
+const PAUSE_SPLIT_S = 2.5;
+const LONG_PARAGRAPH_WORDS = 45;
 
 function speakerOf(channel: unknown): MeetingSpeaker | null {
   return channel === "rep" || channel === "prospect" ? channel : null;
@@ -375,15 +381,23 @@ function paragraphFor(item: DisplayItem, rows: MeetingDisplayTurn[]): MeetingDis
   // Another person on the same side (two guests) starts their own paragraph.
   const samePerson = (row: MeetingDisplayTurn) => !row.name || !item.name || row.name === item.name;
   if (!last.pending && samePerson(last) && (last.speaker === item.speaker || item.speaker === null || last.speaker === null)) {
-    return last;
+    return startsNewParagraph(last, item) ? null : last;
   }
   const before = rows[rows.length - 2];
   if (!before || !item.speaker || before.speaker !== item.speaker || before.pending || !samePerson(before)) return null;
   if (last.speaker === item.speaker || last.pending || words(last.text).length > INTERJECTION_WORDS) return null;
-  // Said during their paragraph: after it began and before it ended.
+  // Said during their paragraph: after it began and before it ended. Not just after it: a one-word answer that
+  // comes right behind a question ("¿Qué CRM usáis?" "Salesforce.") is a turn, and the next question is a new bubble.
   const said = last.start;
   if (said == null || before.start == null || before.end == null) return null;
-  return said >= before.start - OVERLAP_SLACK_S && said <= before.end + OVERLAP_SLACK_S ? before : null;
+  return said >= before.start - OVERLAP_SLACK_S && said < before.end ? before : null;
+}
+
+/** Decided from what is already settled in `row`, so a tail and the final that replaces it always agree. */
+function startsNewParagraph(row: MeetingDisplayTurn, item: DisplayItem): boolean {
+  if (!row.text || !item.speaker || row.speaker !== item.speaker) return false;
+  if (item.start != null && row.end != null && item.start - row.end >= PAUSE_SPLIT_S) return true;
+  return /[.!?…]$/.test(row.text) && words(row.text).length >= LONG_PARAGRAPH_WORDS;
 }
 
 const settledRowsCache = new WeakMap<MeetingSegment[], MeetingDisplayTurn[]>();
