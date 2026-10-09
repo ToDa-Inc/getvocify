@@ -395,3 +395,76 @@ def test_a_mai_stream_reopened_mid_call_starts_its_sentences_at_its_offset():
     stream.feed(b"\0" * 32000)
     event = stream.events({"type": "transcript-delta", "delta": "Hola."})[0]
     assert (event["start"], event["end"]) == (12.5, 13.5)
+
+
+def test_a_stream_is_finished_when_the_provider_says_done_not_when_the_socket_closes(monkeypatch):
+    """The MAI gateway answers the close handshake slowly: hang-up must not wait for it."""
+    import asyncio
+    import json
+
+    from app.services import live_channel_sessions as live
+
+    class _Socket:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, data):
+            self.sent.append(data)
+
+        def __aiter__(self):
+            async def messages():
+                yield json.dumps({"type": "transcript-final", "text": "Hola"})
+                yield json.dumps({"type": "finish", "text": "Hola"})
+                await asyncio.sleep(30)  # nothing after finish: the socket stays open
+
+            return messages()
+
+    class _Connect:
+        async def __aenter__(self):
+            return _Socket()
+
+        async def __aexit__(self, *exc):
+            await asyncio.sleep(30)  # the close handshake that never comes back
+
+    monkeypatch.setattr(live.websockets, "connect", lambda *a, **k: _Connect())
+
+    async def scenario():
+        events = []
+
+        async def on_event(_stream, event):
+            events.append(event["kind"])
+
+        stream = live.MaiStream("prospect", "es", None, vocab=[], offset_s=0.0, on_event=on_event)
+        stream.start("key")
+        stream.end()
+        await asyncio.wait_for(stream.finished.wait(), 1.0)
+        stream.task.cancel()
+        return events, stream.ended_at
+
+    events, ended_at = asyncio.run(scenario())
+    assert "done" in events
+    assert ended_at is not None
+
+
+def test_a_session_is_live_for_the_recording_webhook_until_it_finishes(monkeypatch):
+    import asyncio
+
+    from app.services import live_activity
+
+    live, sessions, client = _sessions(monkeypatch)
+    sessions.user_id = "rep-1"
+    seen = {}
+
+    async def read_client():
+        seen["during"] = live_activity.recently_live("rep-1")
+
+    async def finish():
+        seen["finishing"] = live_activity.recently_live("rep-1")
+
+    monkeypatch.setattr(sessions, "_read_client", read_client)
+    monkeypatch.setattr(sessions, "_finish", finish)
+    asyncio.run(sessions.run())
+    assert seen["finishing"]
+    assert seen["during"]
+    assert live_activity._open.get("rep-1") is None
+    assert "rep-1" in live_activity._ended_at

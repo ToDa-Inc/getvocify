@@ -52,6 +52,8 @@ from app.services.telephony.twiml import (
     normalize_e164,
 )
 from app.services.storage import StorageService
+from app.services import live_activity
+from app.services.telephony.call_memo_claim import wait_for_live_memo
 from app.services.telephony.call_processor import (
     attach_hubspot_contact_by_phone,
     download_telnyx_recording,
@@ -830,30 +832,65 @@ async def twilio_recording(request: Request):
 
     call_row = await attach_hubspot_contact_by_phone(supabase, call_row)
 
-    memo_id, created = await initiate_vocify_call_memo(supabase, call_row)
-    if memo_id and created:
-        asyncio.create_task(
-            process_vocify_call_background(
-                memo_id,
-                call_row["user_id"],
-                call_sid,
-                audio_bytes,
-                duration,
-                supabase,
-                pre_stages=list(pre_stages),
-                pipeline_started_at=pipeline_started_at,
-            )
-        )
-    elif memo_id:
-        # The desktop's live transcript already made this call's memo: it gets the recording (playback),
-        # and the call is logged in the CRM with it, as a recording-made memo would be.
-        supabase.table("memos").update(
-            {"recording_path": path, "audio_duration": duration}
-        ).eq("id", memo_id).execute()
-        memo = supabase.table("memos").select("screening_outcome").eq("id", memo_id).limit(1).execute()
-        outcome = ((memo.data or [None])[0] or {}).get("screening_outcome") or call_row.get("call_disposition") or "connected"
-        asyncio.create_task(log_call_engagement(supabase, call_sid, duration, screening_outcome=outcome))
+    wait_for_live = not call_row.get("memo_id") and live_activity.recently_live(call_row["user_id"])
+    memo_args = (supabase, call_row, call_sid, path, audio_bytes, duration, pre_stages, pipeline_started_at)
+    if wait_for_live:
+        # The rep was transcribing this call live: that transcript makes the memo within seconds of
+        # hang-up. Twilio gets its answer now; the recording waits for it in the background.
+        asyncio.create_task(_memo_from_recording(*memo_args, wait_for_live=True))
+    else:
+        await _memo_from_recording(*memo_args, wait_for_live=False)
     return Response(status_code=204)
+
+
+async def _memo_from_recording(
+    supabase,
+    call_row: dict,
+    call_sid: str,
+    path: str,
+    audio_bytes: bytes,
+    duration: float,
+    pre_stages: list,
+    pipeline_started_at: float,
+    *,
+    wait_for_live: bool,
+) -> None:
+    """The call's memo from its recording, unless the desktop's live transcript made it first."""
+    try:
+        if wait_for_live:
+            live_memo = await wait_for_live_memo(supabase, call_sid)
+            if live_memo:
+                logger.info("Call %s: the live transcript made the memo; the recording is only attached", call_sid)
+                call_row["memo_id"] = live_memo
+            else:
+                logger.info("Call %s: no live transcript within the grace; transcribing the recording", call_sid)
+        memo_id, created = await initiate_vocify_call_memo(supabase, call_row)
+        if memo_id and created:
+            asyncio.create_task(
+                process_vocify_call_background(
+                    memo_id,
+                    call_row["user_id"],
+                    call_sid,
+                    audio_bytes,
+                    duration,
+                    supabase,
+                    pre_stages=list(pre_stages),
+                    pipeline_started_at=pipeline_started_at,
+                )
+            )
+        elif memo_id:
+            # The desktop's live transcript already made this call's memo: it gets the recording (playback),
+            # and the call is logged in the CRM with it, as a recording-made memo would be.
+            supabase.table("memos").update(
+                {"recording_path": path, "audio_duration": duration}
+            ).eq("id", memo_id).execute()
+            memo = supabase.table("memos").select("screening_outcome").eq("id", memo_id).limit(1).execute()
+            outcome = ((memo.data or [None])[0] or {}).get("screening_outcome") or call_row.get("call_disposition") or "connected"
+            asyncio.create_task(log_call_engagement(supabase, call_sid, duration, screening_outcome=outcome))
+    except Exception:
+        if not wait_for_live:
+            raise
+        logger.exception("Call %s: the recording could not be turned into a memo", call_sid)
 
 
 def _sip_username(raw: str) -> str:

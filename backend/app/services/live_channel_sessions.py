@@ -31,6 +31,7 @@ from urllib.parse import urlencode
 import websockets
 
 from app.config import settings
+from app.services import live_activity
 from app.services.glossary import GlossaryService
 from app.services.live_report import LiveReport
 from app.services.session_entities import EntityTerm, normalize_stt_languages
@@ -78,6 +79,9 @@ BUFFER_S = 90.0
 # Speechmatics takes replayed audio faster than real time (34 s back in ~4 s).
 REPLAY_CHUNK_BYTES = 3200
 FINISH_TIMEOUT_S = 8.0
+# At hang-up the last words are flushed and the client is told; providers answer in well under a second.
+# The desktop stops waiting a second after this (DRAIN_MS), so a stream that never answers costs the cap, not 8 s.
+FINISH_WAIT_S = 3.0
 # A side whose stream fails mid-call (MAI's gateway closes with 1011 now and then) is reopened and its last audio replayed.
 MAX_RECOVERIES = 5
 RECOVER_BACKOFF_S = (0.3, 1.0, 2.0, 4.0, 8.0)
@@ -340,7 +344,8 @@ class LiveStream:
             logger.error("%s %s stream (%s) failed: %s", self.provider, self.label, self.language, e)
             await self.on_event(self, {"kind": "error", "reason": str(e)})
         finally:
-            self.ended_at = time.monotonic()
+            if self.ended_at is None:
+                self.ended_at = time.monotonic()
             self.ready.set()
             self.finished.set()
 
@@ -367,6 +372,11 @@ class LiveStream:
             for event in self.events(json.loads(raw)):
                 await self.on_event(self, event)
                 if event["kind"] in ("done", "error"):
+                    # The provider has flushed everything. The close handshake that follows can take
+                    # seconds (the MAI gateway answers it slowly), and hang-up must not wait for it.
+                    if self.ended_at is None:
+                        self.ended_at = time.monotonic()
+                    self.finished.set()
                     return
 
     def subprotocols(self, api_key: str) -> Optional[list[str]]:
@@ -783,10 +793,14 @@ class ChannelSessions:
                 task = asyncio.create_task(self._roll_over(label, limit))
                 self.checks.add(task)
                 task.add_done_callback(self.checks.discard)
+        live_activity.session_started(self.user_id)
         try:
             await self._read_client()
         finally:
-            await self._finish()
+            try:
+                await self._finish()
+            finally:
+                live_activity.session_ended(self.user_id)
 
     async def _roll_over(self, label: str, limit: float) -> None:
         """Moves a side to a fresh session before the provider ends it, without a gap."""
@@ -846,9 +860,9 @@ class ChannelSessions:
             stream.end()
         current = list(self.active.values())
         try:
-            await asyncio.wait_for(asyncio.gather(*(s.finished.wait() for s in current)), FINISH_TIMEOUT_S)
+            await asyncio.wait_for(asyncio.gather(*(s.finished.wait() for s in current)), FINISH_WAIT_S)
         except asyncio.TimeoutError:
-            logger.warning("Live channels: a stream did not finish in %ss", FINISH_TIMEOUT_S)
+            logger.warning("Live channels: a stream did not finish in %ss", FINISH_WAIT_S)
         if self.shadows:
             await asyncio.wait({s.task for s in self.shadows.values() if s.task}, timeout=3.0)
         for task in self.checks:
