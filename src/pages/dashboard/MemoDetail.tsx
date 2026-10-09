@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
 import { ArrowLeft, Play, Pause, ExternalLink, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,7 @@ const MemoDetail = () => {
   const { user } = useAuth();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
+  const visit = useLocation().key;
   const dealIdFromUrl = searchParams.get("deal_id");
   const tabFromUrl = searchParams.get("tab");
   const [memo, setMemo] = useState<any>(null);
@@ -102,6 +103,12 @@ const MemoDetail = () => {
     role: user?.company?.role ?? "member",
     initialTab: tabFromUrl,
   });
+  // Sent here again while this memo is already open (the island's "Open draft"): the tab asked for is shown,
+  // each time it is asked for (the visit's key changes with every navigation, even to the same address).
+  const selectReviewTab = review.select;
+  useEffect(() => {
+    if (tabFromUrl) selectReviewTab(tabFromUrl);
+  }, [tabFromUrl, visit, selectReviewTab]);
 
   // Approved or skipped from the Mac island while this page was open: show what is true now.
   useEffect(() => {

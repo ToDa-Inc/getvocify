@@ -80,7 +80,10 @@ export function LiveTranscript({
 
   return (
     <div className="relative">
-      <div
+      {/* `layoutScroll`: the bubbles animate their size, and without it every move of this scroller (it follows the
+          latest line on each new word) is read as the bubbles themselves moving, so they slide after the text. */}
+      <motion.div
+        layoutScroll
         ref={scrollRef}
         onScroll={onScroll}
         className={cn(
@@ -153,7 +156,7 @@ export function LiveTranscript({
             )}
           </div>
         )}
-      </div>
+      </motion.div>
       {isActive && hasContent && !following ? (
         <Button
           type="button"

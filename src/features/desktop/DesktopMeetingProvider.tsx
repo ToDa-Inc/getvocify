@@ -49,6 +49,7 @@ import { SpeakerTimeline } from "@/lib/speaker-timeline";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, desktopPlatform, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
 import { islandCallContact, latestOnly, type CallPreview } from "@/lib/call-contact";
+import { contactRecordUrl } from "@/lib/today";
 import {
   POST_CALL_GIVE_UP_MS,
   UNDO_MS,
@@ -189,6 +190,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   /** The CRM the island names in its card; read when a call ends. */
   const crmNameRef = useRef<string | null>(null);
   crmNameRef.current = connected ? CRM_PROVIDER_CONFIGS[connected as CRMProvider]?.name ?? null : null;
+  /** Where a contact's record lives in the connected CRM (HubSpot only): the card links to it once it is updated. */
+  const hubspot = integrations.data?.find((connection) => connection.provider === "hubspot" && connection.status === "connected");
+  const contactUrlRef = useRef<(contactId: string | null | undefined) => string | null>(() => null);
+  contactUrlRef.current = (contactId) =>
+    contactRecordUrl(hubspot ? "hubspot" : null, hubspot?.metadata?.portalId ?? null, contactId ?? null);
   /** A type's name as the memo page shows it: the company's label, else the catalog's. */
   const typeName = useCallback(
     (key: string, label?: string | null) => label || t.product.pb2.typeLabels[key] || motionLabel(key, t.product.motions),
@@ -219,6 +225,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     run: { cancelled: boolean };
     state: PostCall;
     proposed: ProposedUpdate[];
+    /** The memo's CRM contact, when it has one. */
+    contactId?: string;
     undoTimer?: number;
     /** Every type the call could be, in the order the memo page lists them. */
     typeOrder?: string[];
@@ -257,6 +265,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const recoveredForRef = useRef<string | null>(null);
   const userIdRef = useRef("");
   const wsRef = useRef<WebSocket | null>(null);
+  /** Which sides have had their first words transcribed in this recording (logged once each). */
+  const firstWordsRef = useRef<{ rep?: boolean; prospect?: boolean }>({});
   /** Who the meeting app showed speaking, timed on the other side's audio clock (page recording only). */
   const speakersRef = useRef<{ timeline: SpeakerTimeline; clockAt: number | null } | null>(null);
   /** Keeps the call out of the microphone when the page records both sides itself (a meeting heard through speakers). */
@@ -477,6 +487,17 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (data.type === "Results") {
+        // Once per side and recording, in the desktop app's log: when its first words came back. A side that starts
+        // late (or never) is why the other person's voice, heard by the mic, shows as the rep's.
+        const side = data.audio_channel === "rep" || data.audio_channel === "prospect" ? data.audio_channel : null;
+        if (side && !firstWordsRef.current[side] && data.channel?.alternatives?.[0]?.transcript?.trim()) {
+          firstWordsRef.current[side] = true;
+          getDesktopBridge()?.shell.log?.("transcript-first-words", {
+            side,
+            secondsIntoRecording: draftRef.current ? Math.round((Date.now() - draftRef.current.startedAt) / 100) / 10 : null,
+            audioSecond: typeof data.start === "number" ? data.start : null,
+          });
+        }
         // The other side's words go to whoever the meeting app showed speaking then.
         const speakers = speakersRef.current;
         const name =
@@ -648,9 +669,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       const type = callTypeFrom(playbook, typeName);
       const crm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, preview?.proposed_updates);
       postCallRef.current.crm = crm;
+      postCallRef.current.contactId = contactId;
       showPostCall({
         type,
         ...crmForType(type?.key, crm),
+        crmUrl: crm.stage === "done" ? contactUrlRef.current(contactId) : null,
         meeting: meetingFrom(proposal?.proposal ?? null),
         notes: Boolean(memo.extraction?.summary?.trim() || memo.userNotes?.trim()),
         summary: summaryLines(memo.extraction?.summary),
@@ -704,7 +727,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               });
               await memosApi.approveForContact(memoId, extraction);
               if (current.run.cancelled) return;
-              showPostCall({ stage: "done", applied: kept, undoUntil: undefined });
+              showPostCall({ stage: "done", applied: kept, undoUntil: undefined, crmUrl: contactUrlRef.current(current.contactId) });
               memoChanged(memoId);
             } catch {
               const crm = current.state.crm ?? "the CRM";
@@ -722,8 +745,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           endPostCall();
           navigate(ROUTES.MEMO_DETAIL(memoId));
           return;
+        case "chooseContact":
+          // A recording with no contact: the review's fields tab is where the contact is chosen.
+          endPostCall();
+          navigate(`${ROUTES.MEMO_DETAIL(memoId)}?tab=fields`);
+          return;
         case "notes":
-          navigate(ROUTES.MEMO_DETAIL(memoId));
+        case "openNotes":
+          navigate(`${ROUTES.MEMO_DETAIL(memoId)}?tab=note`);
           return;
         case "openEmail":
           navigate(`${ROUTES.MEMO_DETAIL(memoId)}?tab=email`);
@@ -1013,6 +1042,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       endPostCall();
       clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
+      firstWordsRef.current = {};
       reconnectsRef.current = 0;
       setPhase("live");
       if (!options?.stay) navigate(ROUTES.RECORD);

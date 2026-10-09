@@ -30,7 +30,7 @@ export type PostCallChange = {
   multiple: boolean;
   /** Free text the rep can type over in the island (see `typedValue`); false for a value with options. */
   editable: boolean;
-  /** Extraction confidence under CONFIDENCE.MEDIUM ("needs review"): shown, unticked. */
+  /** Extraction confidence under CONFIDENCE.MEDIUM ("needs review"): ticked like the rest, marked as less sure. */
   check: boolean;
 };
 
@@ -130,6 +130,8 @@ export type PostCall = {
   /** The connected CRM's name ("HubSpot", "Pipedrive"...); null when none is known. */
   crm?: string | null;
   type?: PostCallType | null;
+  /** The updated record in the CRM, once written. */
+  crmUrl?: string | null;
 };
 
 type Update = ProposedUpdate & { extraction_confidence?: number | null };
@@ -257,9 +259,9 @@ export function noteMarkdown(text: string, original: string | null | undefined):
     .join("\n\n");
 }
 
-/** The changes ticked by default: everything the extraction is sure enough about. */
+/** The changes ticked by default: all of them. The rep unticks what should not be written. */
 export function defaultKept(changes: PostCallChange[]): string[] {
-  return changes.filter((change) => !change.check).map((change) => change.key);
+  return changes.map((change) => change.key);
 }
 
 type FollowupView = { status?: string | null; recipientName?: string | null; subject?: string | null; body?: string | null };
