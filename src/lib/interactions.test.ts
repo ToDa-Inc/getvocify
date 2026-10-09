@@ -404,8 +404,11 @@ describe("rowContacts", () => {
     ]);
     assert.equal(rowContacts({ extraction: { contactName: "Jordi Casals" } })[0].crm, false);
   });
+  it("keeps a linked contact the extraction never named, as an unnamed CRM entry", () => {
+    assert.deepEqual(rowContacts({ hubspotContactId: "7", extraction: {} }), [{ name: null, email: null, crm: true }]);
+  });
   it("is empty when nobody is known", () => {
-    assert.deepEqual(rowContacts({ hubspotContactId: "7", extraction: {} }), []);
+    assert.deepEqual(rowContacts({ extraction: {} }), []);
     assert.deepEqual(rowContacts({}), []);
   });
 });

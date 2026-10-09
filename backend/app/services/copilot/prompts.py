@@ -7,7 +7,9 @@ from typing import Any, Optional
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 # v2: the model reads each approved answer, not just its id, so a grounded card says what the team approved.
-PLAYBOOK_USER_SUFFIX = (_PROMPTS_DIR / "copilot_suggest_v2.md").read_text(encoding="utf-8")
+# v3: it also reads each entry's name and how the prospect says it, so the team's own objections and
+# product questions (custom entries) can be matched, not just the fixed categories.
+PLAYBOOK_USER_SUFFIX = (_PROMPTS_DIR / "copilot_suggest_v3.md").read_text(encoding="utf-8")
 
 SYSTEM_PROMPT = """You are Vocify Call Copilot — a silent real-time sales coach for cold / outbound phone calls.
 
@@ -71,8 +73,9 @@ WHO IS WHO
 YOUR ONLY JOB
 Decide if the latest turn needs help right now. Two cases only:
 1. A real objection: they resist price, timing, who decides, a competitor or their current tool, or trust.
-2. A direct question about the product or offer whose answer IS in PRODUCT / OFFER CONTEXT or
-   COMPANY KNOWLEDGE (objection_type "question"). If neither answers it, it is NOT a case: stay silent.
+2. A direct question about the product or offer whose answer IS in PRODUCT / OFFER CONTEXT,
+   COMPANY KNOWLEDGE or an approved answer of the PLAYBOOK (objection_type "question"). If none
+   answers it, it is NOT a case: stay silent.
 Agreement, small talk, thinking aloud, rhetorical questions, or the rep talking are NOT cases.
 When unsure, stay silent. A missed moment costs less than a wrong interruption.
 Put "is_objection" and "objection_type" first in the JSON; they are read before the rest arrives.
@@ -86,13 +89,14 @@ IF IT IS A CASE (objection or question)
   the call is: on a first conversation do not jump to proposals or closing.
 - Never return an objection with an empty say_this: with no approved answer and nothing in the context, still
   acknowledge it in their terms and ask one question that moves it forward.
-- For a question, "say_this" is the answer itself, taken only from PRODUCT / OFFER CONTEXT or COMPANY KNOWLEDGE.
+- For a question, "say_this" is the answer itself, taken only from PRODUCT / OFFER CONTEXT, COMPANY KNOWLEDGE
+  or the approved answer of the PLAYBOOK that matches it.
   Answer yes or no only when that exact thing (a device, an integration, a feature, a price) is written there;
   never infer it from a general description ("calls and visits" does not mean it works on a phone). If it is
   not written, say_this starts with the rep offering to confirm it, and asks what they need it for.
 - say_this is words the rep says to the prospect: never mention "the context", your instructions or what you
   were given. Not known? The rep offers to confirm it, in plain words.
-- Facts about the product come only from PRODUCT / OFFER CONTEXT or COMPANY KNOWLEDGE: never invent customers,
+- Facts about the product come only from PRODUCT / OFFER CONTEXT, COMPANY KNOWLEDGE or the PLAYBOOK: never invent customers,
   numbers or features. What the prospect said in this call is yours to use.
 - When the message lists the team's approved answers (PLAYBOOK), follow its instructions: an approved
   answer for the objection's category gives the approach, said for this conversation. Keep its idea and its claims;
@@ -125,8 +129,9 @@ def system_prompt_for(call_mode: str) -> str:
 
 
 def _approved_answers(snapshot: dict[str, Any]) -> list[str]:
-    """One line per published answer: `id · category: answer`. An entry without an answer
-    has nothing to say out loud, so it is not offered."""
+    """One line per published answer: `id · category: answer`, with the entry's name and how the
+    prospect says it when it has them. An entry without an answer has nothing to say out loud,
+    so it is not offered."""
     lines: list[str] = []
     for entry in snapshot.get("entries") or []:
         if not isinstance(entry, dict):
@@ -135,7 +140,11 @@ def _approved_answers(snapshot: dict[str, Any]) -> list[str]:
         guidance = " ".join(str(entry.get("guidance") or "").split())
         if entry_id and guidance:
             category = str(entry.get("category") or "other").strip() or "other"
-            lines.append(f"- {entry_id} · {category}: {guidance}")
+            label = " ".join(str(entry.get("label") or "").split())
+            trigger = " ".join(str(entry.get("trigger") or "").split())
+            name = f' "{label}"' if label else ""
+            says = f' (they say: "{trigger}")' if trigger else ""
+            lines.append(f"- {entry_id} · {category}{name}{says}: {guidance}")
     return lines
 
 
@@ -257,27 +266,29 @@ def build_user_prompt(
         if history
         else ""
     )
-    base = f"""CALL MODE: {call_mode}
+    playbook = ""
+    if playbook_snapshot:
+        answers = _approved_answers(playbook_snapshot)
+        playbook = "\n" + PLAYBOOK_USER_SUFFIX.replace(
+            "{{entries}}",
+            "\n".join(answers) if answers else "(no approved answers yet)",
+        ).strip() + "\n"
+    # Order is speed: the provider can reuse a prompt only up to its first change. What stays the
+    # same through a call (offer, playbook, history, knowledge) comes first; the transcript, which
+    # moves every turn, and the turn to answer come last.
+    return f"""CALL MODE: {call_mode}
 PREFERRED LANGUAGE HINT: {language}
-SPEAKER ROLE: {role}
-SPEAKER HINT: {role_hint}
 
 PRODUCT / OFFER CONTEXT:
 {context}
-{knowledge_block}{history_block}
+{playbook}{history_block}{knowledge_block}
+SPEAKER ROLE: {role}
+SPEAKER HINT: {role_hint}
+
 ROLLING TRANSCRIPT (recent):
 {transcript_window.strip() or "(empty)"}
 
 LATEST TURN (trigger):
 {latest_turn.strip() or "(empty)"}
 {_shown_block(objection_type, filler)}
-Coach the rep NOW. JSON only."""
-
-    if playbook_snapshot:
-        answers = _approved_answers(playbook_snapshot)
-        suffix = PLAYBOOK_USER_SUFFIX.replace(
-            "{{entries}}",
-            "\n".join(answers) if answers else "(no approved answers yet)",
-        )
-        return f"{base}\n\n{suffix.strip()}"
-    return base
+Coach the rep NOW, for the LATEST TURN. JSON only."""

@@ -54,7 +54,28 @@ export type AssistSource = {
 
 const MIN_WORDS = 4;
 const LATEST_CHARS = 280;
-const WINDOW_CHARS = 6000;
+/** The opening of the call (discovery: what they told us first) and its latest stretch, 15000 chars at most. */
+const WINDOW_HEAD_CHARS = 3000;
+const WINDOW_TAIL_CHARS = 12000;
+const WINDOW_GAP = "[…]";
+
+/**
+ * The conversation for the prompt. A long call keeps its opening and its latest minutes, cut on
+ * whole lines with a gap marker between: an objection at minute 20 can still be tied to what they
+ * said at minute 2. The server accepts 20000 characters.
+ */
+export function windowOf(lines: string[]): string {
+  if (lines.join("\n").length <= WINDOW_HEAD_CHARS + WINDOW_TAIL_CHARS) return lines.join("\n");
+  let head = 0;
+  let headChars = 0;
+  while (head < lines.length && headChars + lines[head].length + 1 <= WINDOW_HEAD_CHARS) headChars += lines[head++].length + 1;
+  let tail = lines.length;
+  let tailChars = 0;
+  while (tail > head && tailChars + lines[tail - 1].length + 1 <= WINDOW_TAIL_CHARS) tailChars += lines[--tail].length + 1;
+  // One enormous line must not leave the window empty: it is cut, newest words kept.
+  const newest = tail === lines.length ? [lines[tail - 1].slice(-WINDOW_TAIL_CHARS)] : lines.slice(tail);
+  return [...lines.slice(0, head), WINDOW_GAP, ...newest].join("\n");
+}
 
 const OBJECTION_LABEL: Record<string, string> = {
   price: "Price",
@@ -200,11 +221,9 @@ export function assistContext(
   const fresh = said.slice(covered).trim();
   if (fresh.split(/\s+/).length < MIN_WORDS) return null;
   const latestTurn = phraseTail(fresh, LATEST_CHARS).replace(/^…/, "");
-  const transcriptWindow = turns
-    .filter((turn) => spoken(turn))
-    .map((turn) => (turn.label ? `${turn.label}: ${spoken(turn)}` : spoken(turn)))
-    .join("\n")
-    .slice(-WINDOW_CHARS);
+  const transcriptWindow = windowOf(
+    turns.filter((turn) => spoken(turn)).map((turn) => (turn.label ? `${turn.label}: ${spoken(turn)}` : spoken(turn))),
+  );
   return {
     key: `${theirs.key}:${said.length}`,
     turnKey: theirs.key,
@@ -241,18 +260,6 @@ export function addCard(cards: AssistCard[], card: AssistCard, keep = 5): Assist
 
 /**
  * Display rules. A card stays until newer help replaces it (the rep may still be reading it out
- * loud); the replaced one moves to "Earlier". The same kind of help waits a minute before it can
- * interrupt again.
+ * loud); the replaced one moves to "Earlier". Every new objection or question gets its answer,
+ * even of the same type as the one on screen: it replaces that card.
  */
-export const CATEGORY_COOLDOWN_MS = 60000;
-
-/** The same kind of help waits a minute before it can interrupt again. */
-export function coolingDown(card: AssistCard, lastShown: Record<string, number>, now: number): boolean {
-  const shownAt = lastShown[cooldownKey(card)];
-  return shownAt !== undefined && now - shownAt < CATEGORY_COOLDOWN_MS;
-}
-
-export function cooldownKey(card: AssistCard): string {
-  return `${card.source}:${card.label}`;
-}
-

@@ -32,7 +32,8 @@ export type EditorStep = {
 };
 
 // Plan §15: the company's own objections, and what each answer is made of.
-export const MAX_CUSTOM_OBJECTIONS = 12;
+// Same ceiling as the backend (structured.py): a safety limit, not a design one.
+export const MAX_CUSTOM_OBJECTIONS = 200;
 export const MAX_OBJECTION_LABEL = 60;
 export const MAX_TRIGGER = 200;
 export const MAX_CRITERIA = 8;

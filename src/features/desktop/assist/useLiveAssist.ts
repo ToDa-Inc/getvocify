@@ -4,8 +4,6 @@ import {
   answerCard,
   assistContext,
   BACKSTOP_MS,
-  cooldownKey,
-  coolingDown,
   draftCard,
   nextStep,
   PAUSE_MS,
@@ -78,7 +76,6 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
   const checkRef = useRef<AbortController | null>(null);
   const answerRef = useRef<AbortController | null>(null);
   const backstopRef = useRef<number | undefined>(undefined);
-  const lastShownRef = useRef<Record<string, number>>({});
 
   const found = enabled ? assistContext(turns, askedRef.current) : null;
   const context = found
@@ -107,20 +104,11 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     let draft: AssistCard | null = null;
     if (type) {
       draft = draftCard(type, ctx.latestTurn, Date.now());
-      if (coolingDown(draft, lastShownRef.current, Date.now())) {
-        note("draft-cooling", { label: draft.label, ms: Date.now() - since });
-        setThinking(false);
-        return;
-      }
       note("draft", { label: draft.label, bridge: draft.bridge, ms: Date.now() - since });
       present(draft);
     }
     const onDraft = (card: AssistCard) => {
       if (controller.signal.aborted || draft) return;
-      if (coolingDown(card, lastShownRef.current, Date.now())) {
-        note("draft-cooling", { label: card.label, ms: Date.now() - since });
-        return;
-      }
       note("draft", { label: card.label, bridge: card.bridge, ms: Date.now() - since });
       draft = card;
       present(card);
@@ -134,16 +122,12 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       window.clearTimeout(limit);
       setThinking(false);
       const now = Date.now();
-      const card = results.find((result) => result && (draft || !coolingDown(result, lastShownRef.current, now))) ?? null;
-      if (!card) {
-        const cooling = results.find(Boolean);
-        note(late ? "answer-late" : cooling ? "answer-cooling" : "silent", { label: draft?.label ?? cooling?.label ?? null, ms: now - since });
-      }
+      const card = results.find(Boolean) ?? null;
+      if (!card) note(late ? "answer-late" : "silent", { label: draft?.label ?? null, ms: now - since });
       // No answer never takes a card away: its label and filler line stay, the dots stop.
       const shown = answerCard(draft, card);
       if (!shown) return;
       if (card) {
-        lastShownRef.current[cooldownKey(shown)] = shown.at;
         note("answer", { label: shown.label, sayThis: shown.sayThis, ms: now - since });
       }
       present(shown);

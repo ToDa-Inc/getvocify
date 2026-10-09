@@ -194,3 +194,43 @@ def test_a_product_question_is_answered_only_from_what_the_offer_states():
     # 2026-10-05 live test: an offer about "llamadas, visitas… por voz" made the model say mobile and
     # Windows work, 6 of 6 times. Neither is written anywhere: the rep must offer to confirm.
     assert "never infer it from a general description" in MEETING_SYSTEM_PROMPT
+
+
+def test_a_custom_entry_reaches_the_model_with_its_name_and_how_the_prospect_says_it():
+    prompt = build_user_prompt(
+        transcript_window="Them: ¿funciona con HubSpot?",
+        latest_turn="Them: ¿funciona con HubSpot?",
+        product_context=None,
+        language="es",
+        call_mode="meeting",
+        objection_type="question",
+        playbook_snapshot={
+            "entries": [
+                {
+                    "entry_id": "objection:custom:integraciones",
+                    "category": "custom",
+                    "label": "Integraciones",
+                    "trigger": "¿se conecta con mi CRM?",
+                    "guidance": "Sí, HubSpot de forma nativa.",
+                },
+            ],
+        },
+    )
+    assert '- objection:custom:integraciones · custom "Integraciones" (they say: "¿se conecta con mi CRM?"): Sí, HubSpot de forma nativa.' in prompt
+    # The model is told to match it by meaning even though the turn check said "question".
+    assert "whatever type the turn was labelled" in prompt
+
+
+def test_what_stays_the_same_through_a_call_comes_before_what_changes_every_turn():
+    # The provider reuses a prompt only up to its first change, so the playbook must not sit after the transcript.
+    prompt = build_user_prompt(
+        transcript_window="Them: caro",
+        latest_turn="Them: caro",
+        product_context="Vendemos X",
+        language="es",
+        call_mode="meeting",
+        playbook_snapshot={"entries": [{"entry_id": "objection:price", "category": "price", "guidance": "Depende del equipo."}]},
+        company_knowledge={"value_short": "Menos tiempo en el CRM"},
+    )
+    assert prompt.index("Vendemos X") < prompt.index("PLAYBOOK") < prompt.index("COMPANY KNOWLEDGE") < prompt.index("ROLLING TRANSCRIPT (recent):")
+    assert prompt.index("ROLLING TRANSCRIPT (recent):") < prompt.index("LATEST TURN (trigger):") < prompt.index("Coach the rep NOW")

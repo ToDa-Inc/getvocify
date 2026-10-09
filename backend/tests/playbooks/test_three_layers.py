@@ -37,6 +37,7 @@ from app.services.playbooks.knowledge import (
 from app.services.playbooks.repository import InMemoryPlaybookRepository, set_playbook_repository
 from app.services.playbooks.structure import split_source, structure_source
 from app.services.playbooks.structured import (
+    MAX_CUSTOM_OBJECTIONS,
     PlaybookDraftError,
     editor_view,
     normalize_objections,
@@ -115,7 +116,7 @@ class _Fixed:
 @pytest.mark.parametrize("objections,code,index", [
     ([{"category": "custom", "label": "  ", "trigger": "x"}], "custom_objection_label_empty", 0),
     ([{"category": "price", "guidance": "ok"}, {"category": "custom", "trigger": "x"}], "custom_objection_label_empty", 1),
-    ([{"category": "custom", "label": f"c{i}"} for i in range(13)], "too_many_custom_objections", None),
+    ([{"category": "custom", "label": f"c{i}"} for i in range(MAX_CUSTOM_OBJECTIONS + 1)], "too_many_custom_objections", None),
     ([{"category": "custom", "label": "x" * 61}], "field_too_long", 0),
     ([{"category": "custom", "label": "ok", "trigger": "x" * 201}], "field_too_long", 0),
     ([{"category": "custom", "label": "ok", "guidance": "x" * 601}], "guidance_too_long", 0),
@@ -145,14 +146,14 @@ def test_invalid_criteria_are_422_with_the_contract_code(criteria, code, index):
 
 def test_the_limits_themselves_are_accepted():
     client = _client()
-    customs = [{"category": "custom", "label": f"Objeción {i}", "trigger": "t"} for i in range(12)]
+    customs = [{"category": "custom", "label": f"Objeción {i}", "trigger": "t"} for i in range(MAX_CUSTOM_OBJECTIONS)]
     body = _put(
         client,
         objections=[{**customs[0], "label": "x" * 60, "trigger": "t" * 200, "guidance": "g" * 600}, *customs[1:]],
         qualification=[{"label": "L" * 60, "good": "g" * 200}] + [{"label": f"c{i}"} for i in range(7)],
     )
     assert body.status_code == 200
-    assert len(body.json()["objections"]) == 12 and len(body.json()["qualification"]) == 8
+    assert len(body.json()["objections"]) == MAX_CUSTOM_OBJECTIONS and len(body.json()["qualification"]) == 8
 
 
 def test_custom_objection_slugs_are_stable_and_collisions_get_a_suffix():

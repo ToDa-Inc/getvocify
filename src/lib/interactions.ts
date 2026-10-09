@@ -244,7 +244,8 @@ type ContactSource = {
 /**
  * Who a row involved: a meeting's attendees, else the one contact the extraction names. The CRM mark goes
  * only on a person we can tie to the memo's linked contact: the attendee with the extraction's email, or
- * the single contact of a call. Nobody else is marked, and nobody is invented. The linked contact comes first.
+ * the single contact of a call. Nobody else is marked, and nobody is invented: a linked contact with no
+ * name is one unnamed entry. The linked contact comes first.
  */
 export function rowContacts(memo: ContactSource): RowContact[] {
   const linked = Boolean(memo.hubspotContactId);
@@ -259,7 +260,9 @@ export function rowContacts(memo: ContactSource): RowContact[] {
   }
   const name = trimmed(memo.extraction?.contactName);
   const email = trimmed(memo.extraction?.contactEmail);
-  return name || email ? [{ name, email, crm: linked }] : [];
+  if (name || email) return [{ name, email, crm: linked }];
+  // Linked in the CRM but never named: the record is known even if the person is not.
+  return linked ? [{ name: null, email: null, crm: true }] : [];
 }
 
 /**

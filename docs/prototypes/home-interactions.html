@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inicio · Grabar + Interacciones (prototipo)</title>
+<style>
+@font-face { font-family: Geist; src: url('../../public/fonts/Geist-Variable.woff2') format('woff2'); font-weight: 100 900; }
+/* Tokens copied from src/styles/tokens.css (light) and src/index.css (dark). */
+:root {
+  --background: 40 33% 96%; --foreground: 30 10% 14%; --card: 0 0% 100%;
+  --muted: 38 20% 90%; --muted-foreground: 30 6% 42%; --border: 38 20% 85%;
+  --secondary: 38 25% 88%; --beige: 35 25% 35%; --success: 125 32% 30%;
+  --destructive: 0 72% 51%; --warning: 38 92% 40%; --ink: 30 15% 8%;
+}
+:root[data-theme="dark"] {
+  --background: 0 0% 4%; --foreground: 40 33% 96%; --card: 0 0% 8%;
+  --muted: 0 0% 15%; --muted-foreground: 40 20% 70%; --border: 0 0% 20%;
+  --secondary: 0 0% 15%; --beige: 38 25% 70%; --success: 125 28% 55%;
+  --destructive: 0 72% 60%; --warning: 38 92% 55%; --ink: 40 33% 96%;
+}
+* { box-sizing: border-box; margin: 0; }
+body { font-family: Geist, system-ui, sans-serif; background: hsl(var(--background)); color: hsl(var(--foreground)); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+svg { flex: none; }
+.ic { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Prototype chrome (not part of the product) */
+.proto { position: sticky; top: 0; z-index: 50; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: center; padding: 8px 16px; font-size: 12px; background: hsl(var(--ink)); color: hsl(var(--background)); }
+.proto label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; opacity: .85; }
+.proto b { font-weight: 600; opacity: 1; }
+
+/* Island (macOS notch) — drawn natively by the Mac app; shown here only to picture the result. */
+.island-wrap { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: center; z-index: 60; pointer-events: none; padding-top: 38px; }
+.island { pointer-events: auto; width: 230px; height: 0; opacity: 0; overflow: hidden; border-radius: 0 0 22px 22px; background: #000; color: #fff; transition: all .28s cubic-bezier(.16,1,.3,1); display: flex; align-items: center; gap: 10px; padding: 0 14px; font-size: 12.5px; }
+.island.on { height: 44px; opacity: 1; }
+.island .dot { width: 8px; height: 8px; border-radius: 50%; background: #ff4d4d; animation: pulse 1.4s infinite; }
+.island .t { font-variant-numeric: tabular-nums; font-weight: 500; }
+.island .tag { margin-left: auto; padding: 2px 8px; border-radius: 99px; background: #ffffff1f; font-size: 11px; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+/* Page */
+.page { max-width: 880px; margin: 0 auto; padding: 16px 16px 80px; }
+.toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 2px; height: 36px; }
+.ibtn { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; color: hsl(var(--muted-foreground)); transition: background .15s, color .15s; }
+.ibtn:hover { background: hsl(var(--secondary) / .7); color: hsl(var(--foreground)); }
+
+/* Grabar: the one new control. Secondary weight (the composer stays the hero), verb + mic. */
+.rec { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px 0 10px; margin-right: 6px; border-radius: 99px; font-size: 13px; font-weight: 500; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); transition: all .15s; }
+.rec:hover { border-color: hsl(var(--foreground) / .3); }
+.rec kbd { font: 11px Geist, sans-serif; color: hsl(var(--muted-foreground)); margin-left: 2px; }
+.rec.live { border-color: hsl(var(--destructive) / .3); background: hsl(var(--destructive) / .08); color: hsl(var(--destructive)); padding-right: 4px; }
+.rec.live .d { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 1.4s infinite; }
+.rec.live .t { font-variant-numeric: tabular-nums; }
+.rec.live .stop { margin-left: 4px; padding: 3px 10px; border-radius: 99px; background: hsl(var(--destructive)); color: #fff; font-size: 12px; }
+
+h1 { text-align: center; font-weight: 400; font-size: 1.75rem; letter-spacing: -.01em; margin: 20px 0 20px; }
+h1 span { margin-left: 10px; font-size: 15px; color: hsl(var(--muted-foreground)); letter-spacing: 0; }
+.col { max-width: 680px; margin: 0 auto; }
+.composer { display: flex; align-items: center; gap: 8px; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 16px; padding: 12px 12px 12px 18px; box-shadow: 0 1px 2px hsl(30 10% 14% / .04); }
+.composer input { flex: 1; border: 0; outline: 0; background: none; font: inherit; font-size: 15px; color: inherit; }
+.composer input::placeholder { color: hsl(var(--muted-foreground)); }
+.sugg { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+.sugg button { height: 32px; padding: 0 12px; border-radius: 99px; border: 1px solid hsl(var(--border)); font-size: 13px; background: hsl(var(--card) / .5); }
+.sugg button:hover { background: hsl(var(--secondary) / .6); }
+
+/* Chat view (proves the thread survives a recording) */
+.chat { max-width: 680px; margin: 8px auto 0; display: none; flex-direction: column; gap: 14px; }
+.chat .q { align-self: flex-end; background: hsl(var(--secondary)); padding: 8px 14px; border-radius: 16px 16px 4px 16px; font-size: 14.5px; max-width: 80%; }
+.chat .a { font-size: 14.5px; line-height: 1.55; }
+.chat .a small { display: block; margin-top: 6px; color: hsl(var(--muted-foreground)); font-size: 12px; }
+body.in-chat .home { display: none; }
+body.in-chat .chat { display: flex; }
+
+/* Interacciones */
+.latest { margin-top: 36px; }
+.latest-head { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; margin-bottom: 6px; }
+.latest-head h2 { font-size: 13px; font-weight: 500; color: hsl(var(--muted-foreground)); }
+.seg { display: inline-flex; padding: 2px; border-radius: 10px; background: hsl(var(--muted) / .7); }
+.seg button { height: 26px; padding: 0 10px; border-radius: 8px; font-size: 12.5px; color: hsl(var(--muted-foreground)); }
+.seg button[aria-pressed="true"] { background: hsl(var(--card)); color: hsl(var(--foreground)); box-shadow: 0 1px 2px hsl(30 10% 14% / .08); }
+.day { padding: 14px 12px 4px; font-size: 13px; font-weight: 500; color: hsl(var(--muted-foreground)); }
+ul { list-style: none; padding: 0; }
+.row { position: relative; display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 12px; transition: background .15s; }
+.row:hover { background: hsl(var(--secondary) / .55); }
+.row:hover, .row:focus-within { z-index: 10; }
+.row .open { position: absolute; inset: 0; border-radius: 12px; }
+
+/* Channel tile: glyph says WHAT it was; corner mark says WHERE it stands. */
+.tile { position: relative; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; border: 1px solid hsl(var(--border) / .8); background: hsl(var(--card)); color: hsl(var(--foreground) / .8); }
+.tile .ic { width: 18px; height: 18px; }
+.tile.call    { background: hsl(var(--success) / .10); color: hsl(var(--success)); border-color: hsl(var(--success) / .2); }
+.tile.meeting { background: hsl(var(--beige) / .10);   color: hsl(var(--beige));   border-color: hsl(var(--beige) / .22); }
+.tile.visit   { background: hsl(var(--foreground) / .05); }
+.tile.voice_note { background: hsl(var(--muted) / .8); color: hsl(var(--muted-foreground)); }
+.mark { position: absolute; right: -3px; bottom: -3px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid hsl(var(--background)); }
+.row:hover .mark { border-color: hsl(var(--secondary)); }
+.mark.review { background: hsl(var(--warning)); }
+.mark.failed { background: hsl(var(--destructive)); }
+.mark.processing { background: hsl(var(--muted-foreground)); animation: pulse 1.2s infinite; }
+
+.main { min-width: 0; flex: 1; }
+.title { font-size: 15px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title em { font-style: normal; color: hsl(var(--muted-foreground)); }
+.sub { margin-top: 2px; font-size: 13px; color: hsl(var(--muted-foreground)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub .st-review { color: hsl(var(--warning)); font-weight: 500; }
+.sub .st-failed { color: hsl(var(--destructive)); font-weight: 500; }
+
+.side { position: relative; z-index: 2; display: flex; align-items: center; gap: 14px; flex: none; }
+.chip { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 99px; font-size: 12px; font-weight: 500; background: hsl(var(--secondary)); color: hsl(var(--foreground) / .85); white-space: nowrap; }
+.chip.none { background: none; border: 1px dashed hsl(var(--border)); color: hsl(var(--muted-foreground)); font-weight: 400; }
+.chip.internal { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+.when { width: 66px; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.when .h { font-size: 13px; color: hsl(var(--foreground) / .85); }
+.when .dur { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; color: hsl(var(--muted-foreground)); }
+.when .dur .ic { width: 11px; height: 11px; }
+
+/* Contacts: overlapping initials. Hover or focus opens the card; click on a name goes to the CRM. */
+.people { position: relative; display: flex; align-items: center; min-width: 24px; }
+.av { position: relative; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 600; letter-spacing: .02em; border: 2px solid hsl(var(--background)); transition: border-color .15s; }
+.row:hover .av { border-color: hsl(var(--secondary)); }
+.av + .av { margin-left: -8px; }
+.av.more { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); font-size: 10px; }
+.av.c0 { background: hsl(25 55% 88%); color: hsl(25 55% 28%); }
+.av.c1 { background: hsl(200 40% 88%); color: hsl(200 45% 26%); }
+.av.c2 { background: hsl(145 30% 86%); color: hsl(145 40% 24%); }
+.av.c3 { background: hsl(280 30% 90%); color: hsl(280 35% 32%); }
+:root[data-theme="dark"] .av.c0 { background: hsl(25 35% 24%); color: hsl(25 60% 80%); }
+:root[data-theme="dark"] .av.c1 { background: hsl(200 30% 22%); color: hsl(200 50% 80%); }
+:root[data-theme="dark"] .av.c2 { background: hsl(145 25% 20%); color: hsl(145 40% 78%); }
+:root[data-theme="dark"] .av.c3 { background: hsl(280 22% 24%); color: hsl(280 45% 82%); }
+.hs { position: absolute; right: -4px; bottom: -4px; width: 13px; height: 13px; border-radius: 50%; background: #ff7a59; border: 1.5px solid hsl(var(--background)); display: flex; align-items: center; justify-content: center; }
+.row:hover .hs { border-color: hsl(var(--secondary)); }
+.hs svg { width: 8px; height: 8px; }
+
+.pop { position: absolute; right: 0; top: calc(100% + 6px); width: 340px; padding: 6px; border-radius: 14px; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); box-shadow: 0 10px 30px -8px hsl(30 10% 14% / .22), 0 2px 6px hsl(30 10% 14% / .06); opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .14s, transform .14s; z-index: 20; }
+.people:hover .pop, .people:focus-within .pop { opacity: 1; transform: none; pointer-events: auto; transition-delay: .12s; }
+.pop::before { content: ""; position: absolute; left: 0; right: 0; top: -8px; height: 8px; }
+.pop h4 { padding: 6px 8px 4px; font-size: 11.5px; font-weight: 500; color: hsl(var(--muted-foreground)); }
+.person { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 9px; }
+.person:hover { background: hsl(var(--secondary) / .6); }
+.person .av { border: 0; width: 30px; height: 30px; margin: 0; }
+.person .who { min-width: 0; flex: 1; }
+.person .n { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.person .e { font-size: 12px; color: hsl(var(--muted-foreground)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.person .go { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px 0 6px; border-radius: 8px; font-size: 12px; color: hsl(var(--foreground) / .85); border: 1px solid hsl(var(--border)); text-decoration: none; white-space: nowrap; }
+.person .go:hover { background: hsl(var(--card)); border-color: hsl(var(--foreground) / .3); }
+.person .go .ic { width: 12px; height: 12px; }
+.hsmark { width: 14px; height: 14px; border-radius: 50%; background: #ff7a59; display: inline-flex; align-items: center; justify-content: center; }
+.hsmark svg { width: 9px; height: 9px; }
+.person .nocrm { font-size: 11.5px; color: hsl(var(--muted-foreground)); }
+
+.fade { height: 56px; margin-top: -56px; position: relative; pointer-events: none; background: linear-gradient(transparent, hsl(var(--background))); }
+.see { display: flex; justify-content: center; padding: 10px; }
+.see a { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; color: hsl(var(--muted-foreground)); text-decoration: none; }
+
+@media (max-width: 720px) {
+  .hide-sm { display: none !important; }
+  .side { gap: 10px; }
+  .when { width: 50px; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="proto">
+  <b>Prototipo — datos de ejemplo</b>
+  <label><input type="checkbox" id="dark"> Oscuro</label>
+  <label>Hora:
+    <select id="clock"><option value="24">17:05 h (24 h, España)</option><option value="12">5:05 p. m.</option></select>
+  </label>
+  <label><input type="checkbox" id="mac" checked> App de Mac (isla)</label>
+  <span style="opacity:.6">Pasa el ratón por los círculos de contactos · pulsa Grabar · escribe una pregunta y pulsa Enter</span>
+</div>
+
+<!-- The notch island is native; this only pictures it opening while the page stays put. -->
+<div class="island-wrap"><div class="island" id="island"><span class="dot"></span><span class="t" id="itime">00:00</span><span class="tag">Discovery</span></div></div>
+
+<main class="page">
+  <div class="toolbar">
+    <button class="rec" id="rec" aria-label="Grabar" title="Grabar (abre la isla)">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      <span id="reclabel">Grabar</span>
+    </button>
+    <button class="ibtn" aria-label="Historial" title="Historial"><svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg></button>
+    <button class="ibtn" id="new" aria-label="Nuevo chat" title="Nuevo chat" style="display:none"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  </div>
+
+  <div class="home">
+    <h1>Buenas tardes, Dani<span>jueves, 8 de octubre</span></h1>
+    <div class="col">
+      <form class="composer" id="form">
+        <input id="q" placeholder="Pregunta sobre tus llamadas, reuniones y clientes…" autocomplete="off">
+        <button class="ibtn" type="submit" aria-label="Enviar"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+      </form>
+      <div class="sugg">
+        <button type="button" data-q="¿Qué quedó pendiente con Marta Ruiz?">¿Qué quedó pendiente con Marta Ruiz?</button>
+        <button type="button" data-q="Resume mi semana">Resume mi semana</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="chat" id="chat">
+    <div class="q" id="chatq"></div>
+    <div class="a">Con Marta Ruiz (Hostelería Levante) quedó pendiente enviar la propuesta con el precio por local antes del viernes y confirmar la fecha de la demo con su socio.<small>Respuesta de ejemplo del prototipo — el chat sigue aquí mientras grabas.</small></div>
+  </div>
+
+  <section class="latest home">
+    <div class="latest-head">
+      <h2>Últimas interacciones</h2>
+      <div style="display:flex;gap:14px;align-items:center">
+        <div class="seg" id="seg">
+          <button aria-pressed="true" data-f="all">Todas</button>
+          <button aria-pressed="false" data-f="call">Llamadas</button>
+          <button aria-pressed="false" data-f="meeting">Reuniones</button>
+        </div>
+        <a class="hide-sm" href="#" style="font-size:13px;color:hsl(var(--muted-foreground));text-decoration:none">Ver todo →</a>
+      </div>
+    </div>
+    <div id="list"></div>
+    <div class="see"><a href="#">Ver todo <svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></div>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const ICON = {
+  call: '<svg class="ic" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
+  meeting: '<svg class="ic" viewBox="0 0 24 24"><rect x="3" y="6" width="12" height="12" rx="2.5"/><path d="m15 11 6-3.5v9L15 13"/></svg>',
+  visit: '<svg class="ic" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+  voice_note: '<svg class="ic" viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg>',
+  timer: '<svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M10 2h4"/></svg>',
+  ext: '<svg class="ic" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4 10 14M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+};
+// Stand-in for the HubSpot sprocket: the real asset is not in public/ yet (see notes).
+const HS = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><circle cx="14" cy="14" r="4"/><path d="M14 10V4M8 5l4 4M20 8l-3 3"/></svg>';
+const CHANNEL = { call: 'Llamada', meeting: 'Reunión', visit: 'Visita', voice_note: 'Nota de voz' };
+
+// hubspot: true only when the memo carries hubspotContactId AND this person is that contact (matched by email).
+const NOW = new Date(); const at = (d, h, m) => { const x = new Date(NOW); x.setDate(x.getDate() - d); x.setHours(h, m, 0, 0); return x; };
+const DATA = [
+  { day: 0, kind: 'meeting', title: 'Marta Ruiz · Hostelería Levante', sub: 'Quieren precio por local y demo con su socio', type: 'Discovery', when: at(0,16,30), dur: '38 min', people: [
+      { n: 'Marta Ruiz', e: 'marta@hosteleria-levante.es', r: 'Directora', hs: true }, { n: 'Pablo Ferrer', e: 'pablo@hosteleria-levante.es' }, { n: 'Lucía Gómez', e: 'lucia@hosteleria-levante.es' }, { n: 'Iván Soler', e: 'ivan@hosteleria-levante.es' }, { n: 'Carmen Vidal', e: 'carmen@gestoria-vidal.es' } ] },
+  { day: 0, kind: 'call', title: 'Jordi Casals · Clínicas Dental Nord', sub: 'Pide que le llamemos el lunes con la propuesta', type: 'Seguimiento', when: at(0,12,5), dur: '6 min', status: 'review', people: [ { n: 'Jordi Casals', e: 'jordi@dentalnord.com', r: 'Gerente', hs: true } ] },
+  { day: 0, kind: 'call', title: 'Llamada de 2 min', sub: '', type: null, when: at(0,10,40), dur: '2 min', status: 'processing', people: [] },
+  { day: 1, kind: 'meeting', title: 'Revisión semanal del equipo', sub: 'Pipeline, objeciones de precio y objetivos de octubre', type: 'Interna', internal: true, when: at(1,17,0), dur: '52 min', people: [ { n: 'Ana Torres', e: 'ana@vocify.com' }, { n: 'Sergio Martín', e: 'sergio@vocify.com' } ] },
+  { day: 1, kind: 'call', title: 'Elena Prats · Logística Prats', sub: 'No contesta; buzón de voz', type: 'Cierre', when: at(1,11,20), dur: '1 min', status: 'failed', people: [ { n: 'Elena Prats', e: 'elena@logprats.es', hs: true } ] },
+  { day: 1, kind: 'visit', title: 'Visita · Taller Mecánico Ribera', sub: 'Demo en el local, quieren instalarlo en las dos sedes', type: 'Demo', when: at(1,9,30), dur: '1 h 10 min', people: [ { n: 'Raúl Ribera', e: 'raul@tallerribera.es', hs: true }, { n: 'Nuria Ribera', e: null } ] },
+  { day: 3, kind: 'voice_note', title: 'Idea para el guion de la demo', sub: 'Abrir con el coste de una llamada perdida', type: null, when: at(3,18,45), dur: '1 min', people: [] },
+];
+
+function hour(d) {
+  const mode = $('#clock').value;
+  if (mode === '24') return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' h';
+  return d.toLocaleTimeString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(/\s/g, ' ');
+}
+const initials = (n) => { const p = n.trim().split(/\s+/); return (p[0][0] + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase(); };
+const dayLabel = (d) => d === 0 ? 'Hoy' : d === 1 ? 'Ayer' : at(d,0,0).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/^./, (c) => c.toUpperCase()).replace('.', '');
+
+function people(row) {
+  if (!row.people.length) return '<div class="people" style="min-width:0"></div>';
+  const shown = row.people.slice(0, 3), extra = row.people.length - shown.length;
+  const stack = shown.map((p, i) => `<span class="av c${i % 4}">${initials(p.n)}${p.hs ? `<span class="hs">${HS}</span>` : ''}</span>`).join('')
+    + (extra > 0 ? `<span class="av more">+${extra}</span>` : '');
+  const card = row.people.map((p, i) => `
+    <div class="person">
+      <span class="av c${i % 4}">${initials(p.n)}</span>
+      <div class="who"><div class="n">${p.n}</div><div class="e">${[p.r, p.e].filter(Boolean).join(' · ') || 'Sin email'}</div></div>
+      ${p.hs ? `<a class="go" href="#" onclick="return false" title="Abrir contacto en HubSpot"><span class="hsmark">${HS}</span>HubSpot ${ICON.ext}</a>` : ''}
+    </div>`).join('');
+  const label = row.kind === 'meeting' ? `Asistentes · ${row.people.length}` : 'Contacto';
+  return `<div class="people" tabindex="0" aria-label="${label}">${stack}<div class="pop" role="dialog"><h4>${label}</h4>${card}</div></div>`;
+}
+
+function render() {
+  const f = document.querySelector('#seg [aria-pressed="true"]').dataset.f;
+  const rows = DATA.filter((r) => f === 'all' || r.kind === f);
+  let html = '', last = null;
+  for (const r of rows) {
+    if (r.day !== last) { html += `<div class="day">${dayLabel(r.day)}</div>`; last = r.day; }
+    const st = r.status === 'review' ? '<span class="st-review">Por revisar</span>' : r.status === 'failed' ? '<span class="st-failed">No se pudo procesar</span>' : r.status === 'processing' ? 'Procesando…' : '';
+    const sub = [st, r.sub].filter(Boolean).join(' · ');
+    html += `<div class="row" data-kind="${r.kind}">
+      <a class="open" href="#" onclick="return false" aria-label="${CHANNEL[r.kind]}: ${r.title}"></a>
+      <span class="tile ${r.kind}" title="${CHANNEL[r.kind]}">${ICON[r.kind]}${r.status ? `<span class="mark ${r.status}"></span>` : ''}</span>
+      <div class="main"><div class="title">${r.title}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>
+      <div class="side">
+        ${people(r)}
+        <span class="chip ${r.type ? (r.internal ? 'internal' : '') : 'none'} hide-sm" title="Cambiar tipo">${r.type || 'Sin tipo'}</span>
+        <div class="when"><div class="h">${hour(r.when)}</div><div class="dur">${ICON.timer}${r.dur}</div></div>
+      </div>
+    </div>`;
+  }
+  $('#list').innerHTML = html;
+}
+
+// Controls
+$('#seg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; document.querySelectorAll('#seg button').forEach((x) => x.setAttribute('aria-pressed', x === b)); render(); });
+$('#clock').addEventListener('change', render);
+$('#dark').addEventListener('change', (e) => document.documentElement.dataset.theme = e.target.checked ? 'dark' : 'light');
+
+// Recording: stays on the page. Island opens, chat and list are untouched.
+let timer = null, secs = 0;
+const fmt = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+const idle = () => { $('#rec').className = 'rec'; $('#rec').innerHTML = `<svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Grabar</span>`; };
+function setLive() {
+  $('#rec').className = 'rec live';
+  $('#rec').innerHTML = `<span class="d"></span><span class="t" id="rt">${fmt(secs)}</span><span class="stop" id="stop">Detener</span>`;
+}
+$('#rec').addEventListener('click', () => {
+  if (timer) { clearInterval(timer); timer = null; $('#island').classList.remove('on'); idle(); return; }
+  if (!$('#mac').checked) { alert('En el navegador no hay isla: este botón no aparece (o abre /dashboard/record).'); return; }
+  secs = 0; setLive(); $('#island').classList.add('on');
+  timer = setInterval(() => { secs++; $('#rt').textContent = fmt(secs); $('#itime').textContent = fmt(secs); }, 1000);
+});
+$('#mac').addEventListener('change', (e) => { $('#rec').style.display = e.target.checked ? '' : 'none'; });
+
+// Chat
+const goChat = (t) => { $('#chatq').textContent = t; document.body.classList.add('in-chat'); $('#new').style.display = ''; };
+$('#form').addEventListener('submit', (e) => { e.preventDefault(); const v = $('#q').value.trim(); if (v) goChat(v); });
+document.querySelectorAll('.sugg button').forEach((b) => b.addEventListener('click', () => goChat(b.dataset.q)));
+$('#new').addEventListener('click', () => { document.body.classList.remove('in-chat'); $('#new').style.display = 'none'; $('#q').value = ''; });
+
+render();
+</script>
+</body>
+</html>

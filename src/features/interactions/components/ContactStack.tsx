@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, User } from "lucide-react";
 import { HubSpotMark } from "@/components/dashboard/hubspot/HubSpotMark";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { openExternalLink } from "@/lib/desktop-host";
@@ -24,7 +24,7 @@ function Circle({ contact, className }: { contact: RowContact; className?: strin
       aria-hidden
       className={cn("relative flex shrink-0 items-center justify-center rounded-full text-[10.5px] font-medium", tintOf(contact), className)}
     >
-      {initialsOf(contact)}
+      {initialsOf(contact) || <User aria-hidden className="h-[55%] w-[55%]" strokeWidth={1.5} />}
       {contact.crm ? <HubSpotMark className="absolute -bottom-1 -right-1 h-3.5 w-3.5 ring-2 ring-background group-hover:ring-secondary" /> : null}
     </span>
   );
@@ -98,7 +98,7 @@ export function ContactStack({
         <ul className="max-h-64 overflow-y-auto">
           {contacts.map((contact, index) => {
             const detail = contact.email ?? "";
-            const label = contact.name || contact.email || "";
+            const label = contact.name || contact.email || copy.contactInCrm.replace("{crm}", crmName);
             const link = contact.crm ? crmUrl : null;
             const body = (
               <>
