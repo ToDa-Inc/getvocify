@@ -234,6 +234,23 @@ def _shown_block(objection_type: str | None, filler: str | None = None) -> str:
     )
 
 
+def _suggested_block(previous: Optional[list[str]]) -> str:
+    """The lines help already put on screen in this call: the new one must not repeat them."""
+    lines = [" ".join(str(line or "").split()) for line in previous or []]
+    lines = [line for line in lines if line]
+    if not lines:
+        return ""
+    listed = "\n".join(f'- "{line}"' for line in lines)
+    return (
+        "\nALREADY SUGGESTED TO THE REP IN THIS CALL (oldest first):\n"
+        f"{listed}\n"
+        "say_this must be different from every line above: never repeat one or merely reword it. When the latest turn "
+        "is the same kind of objection or question again, answer what is new in it with a different angle, "
+        "taken from what this prospect said in the ROLLING TRANSCRIPT or a fact in the context you have not used yet. "
+        "Different never means invented: no fact, number or promise that the context does not contain.\n"
+    )
+
+
 def build_user_prompt(
     *,
     transcript_window: str,
@@ -247,6 +264,7 @@ def build_user_prompt(
     contact_history: str | None = None,
     objection_type: str | None = None,
     filler: str | None = None,
+    previous_answers: Optional[list[str]] = None,
 ) -> str:
     context = (product_context or "").strip() or "(none provided — stay generic and ask discovery questions)"
     role = (speaker_role or "unknown").strip().lower()
@@ -290,5 +308,5 @@ ROLLING TRANSCRIPT (recent):
 
 LATEST TURN (trigger):
 {latest_turn.strip() or "(empty)"}
-{_shown_block(objection_type, filler)}
+{_suggested_block(previous_answers)}{_shown_block(objection_type, filler)}
 Coach the rep NOW, for the LATEST TURN. JSON only."""

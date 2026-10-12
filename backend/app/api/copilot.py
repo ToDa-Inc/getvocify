@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -52,6 +52,8 @@ class SuggestRequest(BaseModel):
     objection_type: Optional[str] = Field(default=None, max_length=32)
     # The filler line the rep is already saying for it: the answer is the next sentence.
     filler: Optional[str] = Field(default=None, max_length=200)
+    # The lines live help already showed in this call, oldest first: the new one must differ.
+    previous_answers: list[Annotated[str, Field(max_length=400)]] = Field(default_factory=list, max_length=8)
 
 
 class TurnRequest(BaseModel):
@@ -176,6 +178,7 @@ async def suggest_objection_handling(
             contact_history=contact_history,
             objection_type=body.objection_type if body.objection_type in turn.OBJECTIONS else None,
             filler=body.filler,
+            previous_answers=body.previous_answers,
         )
 
     def sse(event: dict) -> str:

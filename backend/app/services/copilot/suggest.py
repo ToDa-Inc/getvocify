@@ -155,6 +155,7 @@ async def stream_objection_suggestion(
     contact_history: Optional[str] = None,
     objection_type: Optional[str] = None,
     filler: Optional[str] = None,
+    previous_answers: Optional[list[str]] = None,
 ) -> AsyncIterator[dict[str, Any]]:
     del context  # threaded for grounding/session wiring; prompts unchanged without CRM load
     """
@@ -185,6 +186,7 @@ async def stream_objection_suggestion(
                 contact_history=contact_history,
                 objection_type=objection_type,
                 filler=filler,
+                previous_answers=previous_answers,
             ),
         },
     ]
