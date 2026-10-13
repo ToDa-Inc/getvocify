@@ -54,15 +54,38 @@ def _sure(answer: object, allowed) -> Optional[str]:
     return answer["choice"] if confidence >= MIN_CONFIDENCE else None
 
 
-async def read_turn(conversation: str, latest: str) -> dict[str, Optional[bool | str]]:
-    """{"finished", "objection"}; both None when the classifier can't be reached."""
+def questions_for(custom: Optional[dict[str, dict[str, str]]]) -> dict:
+    """The two questions. The team's own objections join the fixed kinds as choices, described the way
+    the playbook words them, so a turn that means one of them is not filed under "none"."""
+    if not custom:
+        return QUESTIONS
+    criteria = {
+        **OBJECTIONS,
+        **{
+            entry_id: f"The team's own objection «{entry['label']}»."
+            + (f" They say things like: {entry['trigger']}" if entry["trigger"] else "")
+            for entry_id, entry in custom.items()
+        },
+    }
+    return {**QUESTIONS, "objection": {**QUESTIONS["objection"], "criteria": criteria}}
+
+
+async def read_turn(
+    conversation: str, latest: str, custom: Optional[dict[str, dict[str, str]]] = None,
+) -> dict[str, Optional[bool | str]]:
+    """{"finished", "objection"}; both None when the classifier can't be reached. When the turn means one
+    of the playbook's own objections (`custom`), objection is "custom" with that entry's id and label."""
     answers = await JevClient()._post_systemone(
         {"conversation": conversation[-CONVERSATION_CHARS:], "LATEST": latest[-LATEST_CHARS:]},
-        QUESTIONS,
+        questions_for(custom),
     )
     if not answers:
         return {"finished": None, "objection": None}
-    return {
+    reading: dict[str, Optional[bool | str]] = {
         "finished": _sure(answers.get("turn"), {"finished", "continuing"}) != "continuing",
-        "objection": _sure(answers.get("objection"), OBJECTIONS) or "none",
+        "objection": _sure(answers.get("objection"), {*OBJECTIONS, *(custom or {})}) or "none",
     }
+    if reading["objection"] in (custom or {}):
+        entry_id = str(reading["objection"])
+        reading = {**reading, "objection": "custom", "entry_id": entry_id, "label": custom[entry_id]["label"]}
+    return reading

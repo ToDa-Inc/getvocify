@@ -154,6 +154,7 @@ async def stream_objection_suggestion(
     company_knowledge: Optional[dict[str, Any]] = None,
     contact_history: Optional[str] = None,
     objection_type: Optional[str] = None,
+    entry: Optional[dict[str, Any]] = None,
     filler: Optional[str] = None,
     previous_answers: Optional[list[str]] = None,
 ) -> AsyncIterator[dict[str, Any]]:
@@ -185,6 +186,7 @@ async def stream_objection_suggestion(
                 company_knowledge=company_knowledge,
                 contact_history=contact_history,
                 objection_type=objection_type,
+                entry=entry,
                 filler=filler,
                 previous_answers=previous_answers,
             ),

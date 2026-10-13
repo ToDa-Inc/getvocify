@@ -213,11 +213,32 @@ def format_company_knowledge(
     return f"{_KNOWLEDGE_HEADER}\n{body}"
 
 
-def _shown_block(objection_type: str | None, filler: str | None = None) -> str:
+# The kinds that have one approved answer each; "question" and "other" can match any of the team's own entries.
+FIXED_KINDS = frozenset({"price", "timing", "authority", "competitor", "status_quo", "trust"})
+
+
+def _shown_block(objection_type: str | None, filler: str | None = None, entry: Optional[dict[str, Any]] = None) -> str:
     """The rep already sees this objection's label and is saying its filler line: the answer
     follows it, as the next sentence of what the rep is saying."""
+    if entry and not objection_type:
+        # The turn check matched the team's own objection: its approved answer is the one to follow.
+        label = " ".join(str(entry.get("label") or "").split())
+        objection_type = "other"
+        named = (
+            f'THE TURN CHECK MATCHED THE TEAM\'S OWN OBJECTION "{label}" (id {entry.get("entry_id")}): '
+            f'follow that approved answer and set source_id to "{entry.get("entry_id")}".\n'
+        )
+    else:
+        named = ""
     if not objection_type or objection_type == "none":
         return ""
+    if objection_type in FIXED_KINDS:
+        # The card on screen already says which kind it is: its approved answer is the one followed,
+        # not another entry the conversation happens to touch.
+        named = (
+            f"The label on screen is {objection_type}: if the playbook has an approved answer for {objection_type}, "
+            "follow that one and set source_id to its id.\n"
+        )
     said = " ".join((filler or "").split())
     continues = (
         f'THE REP HAS JUST SAID: "{said}" say_this is the next sentence the rep says right after those words: '
@@ -230,7 +251,7 @@ def _shown_block(objection_type: str | None, filler: str | None = None) -> str:
         f"\nALREADY SHOWN TO THE REP: {objection_type}. "
         f'Answer it: is_objection true, objection_type "{objection_type}", say_this never empty. '
         "If the facts to answer are not in the context, say_this offers to confirm them; never invent.\n"
-        f"{continues}"
+        f"{named}{continues}"
     )
 
 
@@ -265,6 +286,7 @@ def build_user_prompt(
     objection_type: str | None = None,
     filler: str | None = None,
     previous_answers: Optional[list[str]] = None,
+    entry: Optional[dict[str, Any]] = None,
 ) -> str:
     context = (product_context or "").strip() or "(none provided — stay generic and ask discovery questions)"
     role = (speaker_role or "unknown").strip().lower()
@@ -308,5 +330,5 @@ ROLLING TRANSCRIPT (recent):
 
 LATEST TURN (trigger):
 {latest_turn.strip() or "(empty)"}
-{_suggested_block(previous_answers)}{_shown_block(objection_type, filler)}
+{_suggested_block(previous_answers)}{_shown_block(objection_type, filler, entry)}
 Coach the rep NOW, for the LATEST TURN. JSON only."""

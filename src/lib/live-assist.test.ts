@@ -173,6 +173,27 @@ describe("prospectSilent", () => {
   });
 });
 
+describe("nextStep with the playbook's own objections", () => {
+  it("a custom match answers with the entry and its name", () => {
+    const reading = { finished: true, objection: "custom", entry_id: "objection:custom:x", label: "Venta muy diferente" };
+    assert.deepEqual(nextStep(reading, false), {
+      do: "answer",
+      type: "custom",
+      entryId: "objection:custom:x",
+      label: "Venta muy diferente",
+    });
+  });
+
+  it("the card carries the entry's name instead of a generic label", () => {
+    assert.equal(draftCard("custom", "Damos pocas visitas", 1, "Venta muy diferente").label, "Venta muy diferente");
+    assert.equal(draftCard("price", "caro", 1).label, "Price");
+  });
+
+  it("a custom reading without its entry is skipped, never a card with nothing to follow", () => {
+    assert.deepEqual(nextStep({ finished: true, objection: "custom" }, false), { do: "skip" });
+  });
+});
+
 describe("nextStep", () => {
   it("a finished objection shows its card at once and has the answer written for it", () => {
     assert.deepEqual(nextStep({ finished: true, objection: "price" }, false), { do: "answer", type: "price" });

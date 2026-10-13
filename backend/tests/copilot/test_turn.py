@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from app.api import copilot as copilot_api
 from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
-from app.services.copilot import turn
+from app.services.copilot import playbook_objections, turn
 from app.services.copilot.prompts import build_user_prompt
 from app.services.llm.jev import JevClient
 
@@ -130,6 +130,13 @@ def test_the_answer_is_written_for_the_type_already_on_screen():
     assert "ALREADY SHOWN" not in _prompt()
 
 
+def test_a_fixed_kind_on_screen_follows_that_categorys_approved_answer():
+    # 2026-10-14 simulated call: a Timing card answered from another entry the transcript touched.
+    assert "follow that one and set source_id to its id" in _prompt(objection_type="timing")
+    assert "The label on screen is" not in _prompt(objection_type="question")
+    assert "The label on screen is" not in _prompt(entry=SNAPSHOT["entries"][1])
+
+
 def test_the_line_continues_from_the_filler_the_rep_just_said():
     # 2026-10-05 live test: "Claro, que lo vea quien decide…" then "Perfecto, ¿me pasas su contacto?"
     # acknowledged twice, and "Sí, te cuento…" then "No tengo confirmado…" contradicted itself.
@@ -167,8 +174,8 @@ def test_a_goodbye_or_an_agreed_next_step_is_no_objection():
     assert "pushback" in turn.OBJECTIONS["timing"].lower()
 
 
-def test_the_turn_check_needs_a_signed_in_rep_and_no_database_lookup(monkeypatch):
-    # Every pause runs it: a company lookup per check only adds a database round trip.
+def test_the_turn_check_needs_a_signed_in_rep_and_no_company_lookup_without_a_type(monkeypatch):
+    # Every pause runs it: with no call type there is no playbook to read, so no database round trip.
     def no_lookup():
         raise AssertionError("the turn check must not look up the company")
 
@@ -177,6 +184,135 @@ def test_the_turn_check_needs_a_signed_in_rep_and_no_database_lookup(monkeypatch
     app.include_router(copilot_api.router)
     app.dependency_overrides[get_user_id] = lambda: "user-1"
     app.dependency_overrides[get_membership] = no_lookup
-    app.dependency_overrides[get_supabase] = no_lookup
+    app.dependency_overrides[get_supabase] = lambda: object()
     response = TestClient(app).post("/api/v1/copilot/turn", json={"transcript_window": "Them: caro", "latest_turn": "me parece caro"})
     assert response.json() == {"finished": True, "objection": "price"}
+
+
+# --- The playbook's own objections ----------------------------------------------------------------------
+
+DIFFERENT_SALE = "objection:custom:venta_diferente"
+EMAIL = "objection:custom:mandame_un_email"
+SNAPSHOT = {
+    "entries": [
+        {"entry_id": "objection:price", "category": "price", "guidance": "Habla de cifras."},
+        {"entry_id": DIFFERENT_SALE, "category": "custom", "label": "Venta muy diferente",
+         "trigger": "Damos pocas visitas, son proyectos grandes.", "guidance": "Comprueba con números."},
+        {"entry_id": EMAIL, "category": "custom", "label": "Mándame un email", "trigger": "", "guidance": "Acepta pero hazlo útil."},
+        {"entry_id": "objection:custom:no_answer", "category": "custom", "label": "Sin respuesta", "trigger": "x", "guidance": ""},
+    ]
+}
+
+
+def test_only_custom_entries_with_an_answer_reach_the_classifier():
+    assert playbook_objections.custom_entries(SNAPSHOT) == {
+        DIFFERENT_SALE: {"label": "Venta muy diferente", "trigger": "Damos pocas visitas, son proyectos grandes."},
+        EMAIL: {"label": "Mándame un email", "trigger": ""},
+    }
+    assert playbook_objections.custom_entries(None) == {}
+
+
+def test_a_turn_that_means_a_custom_objection_is_named_not_filed_under_none(monkeypatch):
+    custom = playbook_objections.custom_entries(SNAPSHOT)
+    seen = _answers(monkeypatch, {
+        "turn": {"choice": "finished", "confidence": 0.9},
+        "objection": {"choice": DIFFERENT_SALE, "confidence": 0.9},
+    })
+    reading = asyncio.run(turn.read_turn("Them: nuestra venta es diferente", "nuestra venta es diferente", custom))
+    assert reading == {"finished": True, "objection": "custom", "entry_id": DIFFERENT_SALE, "label": "Venta muy diferente"}
+    criteria = seen["questions"]["objection"]["criteria"]
+    assert set(criteria) == set(turn.OBJECTIONS) | set(custom)
+    assert "Damos pocas visitas" in criteria[DIFFERENT_SALE] and "Venta muy diferente" in criteria[DIFFERENT_SALE]
+
+
+def test_without_custom_entries_the_classifier_is_asked_exactly_as_before(monkeypatch):
+    seen = _answers(monkeypatch, {"turn": {"choice": "finished", "confidence": 0.9}, "objection": {"choice": "price", "confidence": 1}})
+    assert _read() == {"finished": True, "objection": "price"}
+    assert seen["questions"] is turn.QUESTIONS
+
+
+def test_an_unsure_custom_match_is_no_objection(monkeypatch):
+    _answers(monkeypatch, {
+        "turn": {"choice": "finished", "confidence": 0.9},
+        "objection": {"choice": EMAIL, "confidence": 0.3},
+    })
+    assert asyncio.run(turn.read_turn("w", "l", playbook_objections.custom_entries(SNAPSHOT)))["objection"] == "none"
+
+
+def test_the_endpoint_reads_the_types_own_objections_and_returns_the_match(monkeypatch):
+    asked = {}
+
+    def fake_custom(_supabase, user_id, motion):
+        asked["who"] = (user_id, motion)
+        return playbook_objections.custom_entries(SNAPSHOT)
+
+    monkeypatch.setattr(playbook_objections, "custom_for", fake_custom)
+    _answers(monkeypatch, {"turn": {"choice": "finished", "confidence": 0.9}, "objection": {"choice": EMAIL, "confidence": 0.9}})
+    response = _client().post("/api/v1/copilot/turn", json={
+        "transcript_window": "Them: mándame un email", "latest_turn": "mándame un email", "sales_motion_key": "discovery",
+    })
+    assert response.json() == {"finished": True, "objection": "custom", "entry_id": EMAIL, "label": "Mándame un email"}
+    assert asked["who"] == ("user-1", "discovery")
+
+
+def test_the_lookup_is_kept_for_a_minute_and_a_failed_one_is_not(monkeypatch):
+    playbook_objections._cache.clear()
+    reads = []
+
+    def live_snapshot(_supabase, company_id, motion):
+        reads.append((company_id, motion))
+        return SNAPSHOT
+
+    from app.services import company as company_service
+    from app.services.playbooks import live
+
+    monkeypatch.setattr(live, "live_snapshot", live_snapshot)
+    monkeypatch.setattr(
+        company_service.CompanyService, "require_membership",
+        lambda self, user_id: Membership(id="m", company_id="co-1", user_id=user_id, role="member", status="active"),
+    )
+    first = playbook_objections.custom_for(object(), "user-1", "discovery")
+    assert playbook_objections.custom_for(object(), "user-1", "discovery") is first
+    assert reads == [("co-1", "discovery")]
+
+    playbook_objections._cache.clear()
+
+    def boom(*_a):
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr(live, "live_snapshot", boom)
+    assert playbook_objections.custom_for(object(), "user-2", "discovery") == {}
+    assert ("user-2", "discovery") not in playbook_objections._cache
+
+
+def test_the_answer_follows_the_matched_playbook_entry(monkeypatch):
+    entry = SNAPSHOT["entries"][1]
+    prompt = _prompt(entry=entry, filler="Te entiendo…")
+    assert f'OWN OBJECTION "Venta muy diferente" (id {DIFFERENT_SALE})' in prompt
+    assert f'source_id to "{DIFFERENT_SALE}"' in prompt
+    assert "ALREADY SHOWN TO THE REP: other" in prompt and "THE REP HAS JUST SAID" in prompt
+    assert "OWN OBJECTION" not in _prompt()
+
+    seen = {}
+
+    async def fake_stream(**kwargs):
+        seen.update(kwargs)
+        yield {"type": "result", "suggestion": {"is_objection": False}}
+
+    from app.services import extraction_context
+    from app.services.copilot.grounding import SuggestGrounding
+
+    grounding = SuggestGrounding("call", "v1", frozenset(), SNAPSHOT)
+    monkeypatch.setattr(extraction_context, "load_product_context", lambda *_a, **_k: "")
+    monkeypatch.setattr(copilot_api, "load_company_knowledge", lambda *_a, **_k: None)
+    monkeypatch.setattr(copilot_api.call_type, "grounding_for_type", lambda *_a, **_k: grounding)
+    monkeypatch.setattr(copilot_api, "stream_objection_suggestion", fake_stream)
+    body = {
+        "transcript_window": "Them: x", "latest_turn": "nuestra venta es diferente", "call_mode": "softphone",
+        "speaker_role": "prospect", "sales_motion_key": "discovery", "objection_type": "custom",
+    }
+    _client().post("/api/v1/copilot/suggest", json={**body, "entry_id": DIFFERENT_SALE})
+    assert seen["entry"]["entry_id"] == DIFFERENT_SALE and seen["objection_type"] is None
+    # An id that is not one of this call's answers is ignored: the model is never told to follow it.
+    _client().post("/api/v1/copilot/suggest", json={**body, "entry_id": "objection:custom:made_up"})
+    assert seen["entry"] is None

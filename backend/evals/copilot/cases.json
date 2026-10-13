@@ -1,0 +1,122 @@
+[
+ {
+  "id": "discovery-objections-es",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "about": "A Spanish cold discovery call. The objections are the ones spoken in the recorded call of 2026-10-13, plus the playbook's other answers. Expectations name playbook entries of Vocify's own 'discovery' playbook; entry ids are matched by suffix.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola Marcos, soy Dani, de Vocify. Te llamo porque trabajáis con equipos comerciales en obra y quería preguntarte cómo apuntáis hoy lo que pasa en cada visita. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime, pero rápido que estoy liado.",
+    "expect": "none",
+    "soft": true,
+    "note": "borderline: a busy opener is not an objection, but the classifier files it under timing"
+   },
+   {
+    "speaker": "You",
+    "text": "Perfecto. ¿Cuántos comerciales sois y cómo registráis lo que se habla con el cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Somos unos ocho comerciales, casi todos en la calle visitando obras, y lo apuntan cuando pueden en el CRM.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Vale, ¿y cuánto tiempo les lleva dejar documentada una visita?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Es que nuestra venta es bastante diferente a las normales. Damos muy pocas visitas y son bastante consultivas.",
+    "expect": "custom:pocas_interacciones_o_venta_de_proyecto",
+    "note": "spoken in the 2026-10-13 call: got no card"
+   },
+   {
+    "speaker": "You",
+    "text": "Entiendo, ¿y cuántas reuniones hace cada comercial a la semana, más o menos?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Pues dos o tres a la semana, pero son proyectos grandes. Tío, me pillas en un mal momento ahora con la empresa y no estamos para contratar.",
+    "expect": "timing"
+   },
+   {
+    "speaker": "You",
+    "text": "Fenomenal, no te quito más tiempo del necesario. ¿Esto lo decides tú o lo decide alguien más?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Esto lo decide el equipo financiero ahora justamente.",
+    "expect": "authority"
+   },
+   {
+    "speaker": "You",
+    "text": "Vale, y para que lo tengas, se paga por comercial al mes."
+   },
+   {
+    "speaker": "Them",
+    "text": "Tío, me parece excesivamente caro.",
+    "expect": "price"
+   },
+   {
+    "speaker": "You",
+    "text": "Antes de hablar de números quiero ver cuánto tiempo os cuesta hoy."
+   },
+   {
+    "speaker": "Them",
+    "text": "Ya, pero sigue siendo mucho dinero para lo que hacemos, de verdad.",
+    "expect": "price",
+    "note": "same objection again: a different line"
+   },
+   {
+    "speaker": "You",
+    "text": "Te entiendo. ¿Y qué usáis hoy para registrar las llamadas?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Es que ya usamos Salesforce y eso ya graba las llamadas y tiene su IA.",
+    "expect": "custom:nuestro_crm_ya_lo_hace"
+   },
+   {
+    "speaker": "You",
+    "text": "Claro. Podemos compararlo sobre una llamada real, ¿te encaja?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Mándame un email con la información y los precios y ya lo miro.",
+    "expect": "custom:mandame_informacion_por_email"
+   },
+   {
+    "speaker": "You",
+    "text": "Claro, te lo mando. ¿Qué te gustaría evaluar primero?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Nosotros ya lo llevamos bien, cada uno apunta sus cosas en el CRM al acabar el día y no tenemos ningún problema.",
+    "expect": "status_quo"
+   },
+   {
+    "speaker": "You",
+    "text": "Vale. ¿Cómo comprobáis que esos apuntes están completos?"
+   },
+   {
+    "speaker": "Them",
+    "text": "¿Funciona con Odoo? Es que usamos un Odoo muy personalizado.",
+    "expect": "custom:crm_propio_o_poco_comun"
+   },
+   {
+    "speaker": "You",
+    "text": "Lo reviso y te lo confirmo. ¿Quedamos el jueves para verlo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Vale, perfecto, quedamos el jueves entonces.",
+    "expect": "none"
+   }
+  ]
+ }
+]

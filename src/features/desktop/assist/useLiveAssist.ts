@@ -104,13 +104,13 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
   };
 
   /** Writes the answer. With a type, its card is already up; without one, the stream names it. */
-  const answer = (ctx: AssistContext, type: string | null, since: number) => {
+  const answer = (ctx: AssistContext, type: string | null, since: number, entry?: { entryId?: string; label?: string }) => {
     const controller = new AbortController();
     answerRef.current = controller;
     setThinking(true);
     let draft: AssistCard | null = null;
     if (type) {
-      draft = draftCard(type, ctx.latestTurn, Date.now());
+      draft = draftCard(type, ctx.latestTurn, Date.now(), entry?.label);
       note("draft", { label: draft.label, bridge: draft.bridge, ms: Date.now() - since });
       present(draft);
     }
@@ -124,7 +124,10 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     // It also carries the lines already shown in this call (not this card's): the new one must differ.
     const previous = previousAnswers(shownRef.current.filter((card) => card.id !== draft?.id));
     const told = previous.length ? { ...ctx, previousAnswers: previous } : ctx;
-    const asked = type && draft ? { ...told, objectionType: type, filler: draft.bridge } : told;
+    const asked =
+      type && draft
+        ? { ...told, objectionType: type, filler: draft.bridge, ...(entry?.entryId && { entryId: entry.entryId }) }
+        : told;
     let done = false;
     const finish = (results: (AssistCard | null)[], late = false) => {
       if (done || controller.signal.aborted) return;
@@ -168,7 +171,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       // These words are handled: the next check is about what they say after.
       askedRef.current = { turnKey: ctx.turnKey, length: ctx.length };
       if (step.do === "skip") return;
-      answer(ctx, step.do === "answer" ? step.type : null, since);
+      answer(ctx, step.do === "answer" ? step.type : null, since, step.do === "answer" ? step : undefined);
     });
   };
 
