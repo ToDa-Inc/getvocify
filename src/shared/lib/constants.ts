@@ -57,6 +57,8 @@ export const ROUTES = {
   PROFILE: '/dashboard/profile',
   SETTINGS: '/dashboard/settings',
   CALLING: '/dashboard/settings/calling#caller-id',
+  /** Where the desktop app's island calls go: through Vocify, or the rep's own phone (and how to set that up). */
+  CALLING_ON_PHONE: '/dashboard/settings/calling#vocify-calling',
   USAGE: '/dashboard/settings/usage',
   COPILOT: '/dashboard/copilot',
 } as const;

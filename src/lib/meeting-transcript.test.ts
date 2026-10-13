@@ -7,6 +7,7 @@ import {
   EMPTY_MEETING_TRANSCRIPT,
   meetingDisplayTurns,
   meetingLastLine,
+  meetingOtherSideSpoke,
   meetingParticipants,
   meetingUploadText,
   normalizeMeetingTranscript,
@@ -647,5 +648,21 @@ describe("echo is only looked for when the mic hears the call", () => {
     assert.equal(state.micHearsCall, false);
     assert.equal(normalizeMeetingTranscript(JSON.parse(JSON.stringify(state))).micHearsCall, false);
     assert.equal("micHearsCall" in normalizeMeetingTranscript({ segments: [] }), false);
+  });
+});
+
+describe("meetingOtherSideSpoke", () => {
+  it("is false when only the rep spoke (an unanswered call)", () => {
+    assert.equal(meetingOtherSideSpoke(EMPTY_MEETING_TRANSCRIPT), false);
+    assert.equal(meetingOtherSideSpoke(feed([["¿Hola? ¿Me oyes?", true, "rep"]])), false);
+  });
+
+  it("is true once the other side said something, finished or still in progress", () => {
+    assert.equal(meetingOtherSideSpoke(feed([["Hola", true, "rep"], ["Sí, dime", true, "prospect"]])), true);
+    assert.equal(meetingOtherSideSpoke(feed([["Sí, di", false, "prospect"]])), true);
+  });
+
+  it("does not count blank results as speech", () => {
+    assert.equal(meetingOtherSideSpoke(feed([["   ", true, "prospect"], ["", false, "prospect"]])), false);
   });
 });

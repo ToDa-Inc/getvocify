@@ -9,18 +9,19 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 const CallingSection = () => {
   const { hash } = useLocation();
 
-  useEffect(() => {
-    if (hash !== "#caller-id") return;
-    document.getElementById("caller-id")?.scrollIntoView({ block: "start" });
-  }, [hash]);
-
   // The desktop app: whether its island calls through Vocify or on the rep's own phone.
   const { calling } = useDesktopCalling();
+
+  // A link to one card (#caller-id, #vocify-calling); the calling card only exists once the desktop app answered.
+  useEffect(() => {
+    if (hash !== "#caller-id" && hash !== "#vocify-calling") return;
+    document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
+  }, [hash, calling]);
 
   return (
     <div className="space-y-6">
       {calling ? (
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
+        <div id="vocify-calling" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} scroll-mt-6 p-6 md:p-8`}>
           <VocifyCallingSettings />
         </div>
       ) : null}
