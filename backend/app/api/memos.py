@@ -35,6 +35,7 @@ from app.services.handoff_visibility import (
 )
 from app.services.followup import schedule_followup
 from app.services.pipeline_lease import update_memo_row
+from app.services.preview_cache import PreviewCache, memo_fingerprint
 from app.services.followup_logic import SKIPPED_SCREENING
 from app.services.storage import StorageService
 from app.services.memo_playback import can_retranscribe, recording_path_for_memo, sign_memo_audio
@@ -520,6 +521,9 @@ async def extract_memo_async(
             supabase,
             {"id": memo_id, "user_id": user_id, "extraction": extraction_data},
         )
+        if trigger in PREWARM_TRIGGERS:
+            # The review is opened within seconds: have its preview ready by then.
+            schedule_preview_prewarm(supabase, memo_id, user_id)
         # Saving the memo, its hooks and the follow-up: the time between extraction and "ready".
         stages.append(record_stage("finish", t_finish))
         persist_pipeline_meta(
@@ -1760,6 +1764,7 @@ async def get_approval_preview(
     create_new_deal: bool = False,
     skip_deal: bool = False,
     contact_id: Optional[str] = None,
+    fresh: bool = False,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
@@ -1779,13 +1784,61 @@ async def get_approval_preview(
 
     memo_data = await asyncio.to_thread(_require_readable_memo, supabase, str(memo_id), user_id)
 
-    if skip_deal:
-        deal_id = None
-        create_new_deal = False
-    elif not deal_id and not create_new_deal:
-        deal_id = (memo_data.get("hubspot_deal_id") or "").strip() or None
-    if not contact_id:
-        contact_id = (memo_data.get("hubspot_contact_id") or "").strip() or None
+    deal_id, create_new_deal, contact_id = _preview_targets(
+        memo_data, deal_id=deal_id, create_new_deal=create_new_deal, skip_deal=skip_deal, contact_id=contact_id
+    )
+    build = lambda: _build_approval_preview(  # noqa: E731
+        supabase,
+        memo_id=memo_id,
+        memo_data=memo_data,
+        user_id=user_id,
+        deal_id=deal_id,
+        create_new_deal=create_new_deal,
+        skip_deal=skip_deal,
+        contact_id=contact_id,
+    )
+    if fresh:
+        preview = await build()
+    else:
+        key = _preview_key(user_id, memo_id, memo_data, deal_id, create_new_deal, skip_deal, contact_id)
+        # A copy: what the cache holds is shared with the next caller.
+        preview = (await _PREVIEW_CACHE.get_or_build(key, build)).model_copy(deep=True)
+
+    # If a deal was explicitly selected, persist it to the memo record
+    if deal_id:
+        await asyncio.to_thread(
+            update_memo_row,
+            supabase,
+            str(memo_id),
+            {
+                "matched_deal_id": deal_id,
+                "matched_deal_name": preview.selected_deal.deal_name if preview.selected_deal else None,
+                "is_new_deal": False,
+            },
+        )
+    elif create_new_deal:
+        await asyncio.to_thread(
+            update_memo_row,
+            supabase,
+            str(memo_id),
+            {"matched_deal_id": None, "matched_deal_name": None, "is_new_deal": True},
+        )
+
+    return preview
+
+
+async def _build_approval_preview(
+    supabase: Client,
+    *,
+    memo_id: UUID,
+    memo_data: dict,
+    user_id: str,
+    deal_id: Optional[str],
+    create_new_deal: bool,
+    skip_deal: bool,
+    contact_id: Optional[str],
+) -> ApprovalPreview:
+    """What approving this memo would change in the CRM, read from the CRM as it is now."""
     extraction_data = memo_data.get("extraction")
     transcript = memo_data.get("transcript", "")
     
@@ -1927,28 +1980,74 @@ async def get_approval_preview(
         )
     except Exception as e:
         logger.warning("Call outcome availability check failed for memo %s: %s", memo_id, e)
-
-    # If a deal was explicitly selected, persist it to the memo record
-    if deal_id:
-        await asyncio.to_thread(
-            update_memo_row,
-            supabase,
-            str(memo_id),
-            {
-                "matched_deal_id": deal_id,
-                "matched_deal_name": preview.selected_deal.deal_name if preview.selected_deal else None,
-                "is_new_deal": False,
-            },
-        )
-    elif create_new_deal:
-        await asyncio.to_thread(
-            update_memo_row,
-            supabase,
-            str(memo_id),
-            {"matched_deal_id": None, "matched_deal_name": None, "is_new_deal": True},
-        )
-
     return preview
+
+
+def _preview_targets(
+    memo_data: dict,
+    *,
+    deal_id: Optional[str],
+    create_new_deal: bool,
+    skip_deal: bool,
+    contact_id: Optional[str],
+) -> tuple[Optional[str], bool, Optional[str]]:
+    """The deal and contact a preview is about: what was asked for, else what the memo has."""
+    if skip_deal:
+        return None, False, contact_id or (memo_data.get("hubspot_contact_id") or "").strip() or None
+    if not deal_id and not create_new_deal:
+        deal_id = (memo_data.get("hubspot_deal_id") or "").strip() or None
+    if not contact_id:
+        contact_id = (memo_data.get("hubspot_contact_id") or "").strip() or None
+    return deal_id, create_new_deal, contact_id
+
+
+def _preview_key(user_id, memo_id, memo_data, deal_id, create_new_deal, skip_deal, contact_id) -> tuple:
+    return (str(user_id), str(memo_id), memo_fingerprint(memo_data), deal_id, bool(create_new_deal), bool(skip_deal), contact_id)
+
+
+_PREVIEW_CACHE: PreviewCache = PreviewCache()
+_PREWARM_SLOTS = asyncio.Semaphore(3)
+_prewarm_tasks: set = set()
+# Triggers of a first extraction: the memo is about to be opened. A reprocess or backfill is not.
+PREWARM_TRIGGERS = frozenset({"extract", "upload"})
+
+
+async def prewarm_approval_preview(supabase: Client, memo_id: str, user_id: str) -> None:
+    """Builds the preview of a freshly extracted memo with a locked contact, so the first request
+    for it (the island asks a second or two after) finds it ready. Best effort: any failure is
+    only logged, and the request then builds it as it always did."""
+    try:
+        async with _PREWARM_SLOTS:
+            memo_data = await asyncio.to_thread(_require_readable_memo, supabase, memo_id, user_id)
+            if memo_data.get("status") != "pending_review" or not memo_data.get("extraction"):
+                return
+            deal_id, create_new_deal, contact_id = _preview_targets(
+                memo_data, deal_id=None, create_new_deal=False, skip_deal=False, contact_id=None
+            )
+            if not contact_id:
+                return
+            key = _preview_key(user_id, memo_id, memo_data, deal_id, create_new_deal, False, contact_id)
+            await _PREVIEW_CACHE.get_or_build(
+                key,
+                lambda: _build_approval_preview(
+                    supabase,
+                    memo_id=UUID(memo_id),
+                    memo_data=memo_data,
+                    user_id=user_id,
+                    deal_id=deal_id,
+                    create_new_deal=create_new_deal,
+                    skip_deal=False,
+                    contact_id=contact_id,
+                ),
+            )
+    except Exception:
+        logger.warning("preview prewarm failed for memo %s", memo_id, exc_info=True)
+
+
+def schedule_preview_prewarm(supabase: Client, memo_id: str, user_id: str) -> None:
+    task = asyncio.get_running_loop().create_task(prewarm_approval_preview(supabase, memo_id, user_id))
+    _prewarm_tasks.add(task)
+    task.add_done_callback(_prewarm_tasks.discard)
 
 
 async def _deals_and_identity(provider, extraction, *, pipeline_id, contact_id):

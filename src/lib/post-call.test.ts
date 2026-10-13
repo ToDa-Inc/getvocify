@@ -193,7 +193,9 @@ describe("pendingItems", () => {
 
 describe("pollDelayMs", () => {
   it("checks quickly at first, then gently", () => {
-    assert.equal(pollDelayMs(0), 1500);
+    assert.equal(pollDelayMs(0), 700);
+    assert.equal(pollDelayMs(7), 700);
+    assert.equal(pollDelayMs(8), 1500);
     assert.equal(pollDelayMs(30), 4000);
   });
 });
