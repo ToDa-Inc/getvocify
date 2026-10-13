@@ -354,9 +354,10 @@ export function pendingItems(postCall: PostCall | null): number {
 /** How long Approve can still be undone before the write runs. */
 export const UNDO_MS = 5000;
 
-/** Waits between status checks: quick at first, gentler while extraction runs long. */
+/** Waits between status checks: quick while extraction usually finishes (a few seconds), then gentler. */
 export function pollDelayMs(attempt: number): number {
-  return attempt < 10 ? 1500 : 4000;
+  if (attempt < 8) return 700;
+  return attempt < 16 ? 1500 : 4000;
 }
 
 /** Long enough for a slow extraction or email draft; after that the memo is left to Vocify. */

@@ -38,3 +38,13 @@ def _fresh_auth_email_cache():
     _AUTH_EMAILS.clear()
     yield
     _AUTH_EMAILS.clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_preview_cache():
+    """Previews are cached per memo state for a minute: one test's must not answer for another's."""
+    from app.api import memos
+
+    memos._PREVIEW_CACHE.clear()
+    yield
+    memos._PREVIEW_CACHE.clear()
