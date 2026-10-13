@@ -66,11 +66,17 @@ const SystemSection = () => {
             : "What Windows lets Vocify use on this computer. Without the microphone, Vocify records silence."}
         </p>
         <div className="max-w-xl">
-          <DesktopPermissionRows permissions={permissions} />
+          <DesktopPermissionRows
+            permissions={permissions}
+            onTestMic={recording ? undefined : () => {
+              document.getElementById("audio-check")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              if (!check.running) void check.start();
+            }}
+          />
         </div>
       </div>
 
-      <div className={card}>
+      <div id="audio-check" className={`${card} scroll-mt-6`}>
         <div className="flex items-start justify-between gap-6">
           <div>
             <h3 className={THEME_TOKENS.typography.sectionTitle}>Audio check</h3>
