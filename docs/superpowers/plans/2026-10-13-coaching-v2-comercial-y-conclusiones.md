@@ -35,16 +35,18 @@ Hecho el 13 oct, lo más sencillo posible: una sola pantalla plana, sin pestaña
 (`?tab=playbook`) y otro botón vuelve a Coaching.
 
 1. **Coaching**, con un filtro por tipo de interacción (frío, inbound, discovery, demo…) cuando
-   el comercial tiene más de uno:
-   - **En qué mejorar** arriba: los 1–2 pasos que más se le escapan en las últimas 4 semanas (no
-     hechos primero, a medias después; hace falta un patrón: 3 conversaciones donde aplicaba y 2
-     fallos). Para cada uno: cuántas veces, qué pide el playbook, una llamada reciente que lo
-     muestra (qué falló, el momento citado) y **la próxima vez** (el consejo de esa llamada, o el
-     ejemplo del playbook). Debajo, las 4 semanas anteriores, solo contra sí mismo.
-   - Debajo, **Tus llamadas**: el registro de todas sus conversaciones del tipo (4 semanas), filas
-     como las de Inicio. Cada una dice qué pasos no hizo o hizo a medias ("Todo hecho" si nada); las
-     que tienen algo que mejorar se abren ahí mismo con qué falló, el momento y la próxima vez.
-   - El paso de reunión (lo declara el comercial) no es conducta y no sale aquí.
+   el comercial tiene más de uno. Diseño sobrio (guía: taste-skill `redesign` + `minimalist`): poco
+   texto, color solo con significado (rojo sin hacer, ámbar a medias, verde hecho).
+   - **En qué mejorar** (izquierda): los 1–2 pasos que más se le escapan en las últimas 4 semanas y la
+     objeción que más deja sin resolver (objeciones, no obstáculos; hace falta que se repita: 2
+     abiertas). Cada uno: etiqueta Paso/Objeción, título, "4/5 sin hacer", qué pasó, la frase de la
+     llamada (en una objeción, también lo que respondió) y la próxima vez en verde (el consejo de la
+     llamada, o la respuesta del playbook a esa objeción).
+   - **Tus pasos** (derecha en escritorio): cada paso con barra, % (o "1 de 2" con menos de 3
+     llamadas) y flecha frente a las 4 semanas anteriores.
+   - **Tus llamadas** (debajo): todas las conversaciones del tipo en 4 semanas, una mini barra de
+     pasos por llamada; las que tienen algo que mejorar se abren con el mismo detalle.
+   - El paso de reunión (lo declara el comercial) no es conducta y no sale en "En qué mejorar".
 2. **Playbook** (botón junto al título), solo de consulta, abierto en el tipo que se está viendo.
 
 Se quitó del comercial: Resumen, Mi proceso, Ejemplos, el interruptor Llamadas/Reuniones, la

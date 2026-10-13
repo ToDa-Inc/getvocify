@@ -28,12 +28,9 @@ export default function CoachPage() {
   const calls = useCoachCalls(type);
   // Edge to edge within the page's margins and 12px in, like Inicio.
   return (
-    <main className={`w-full space-y-8 ${THEME_TOKENS.motion.fadeIn}`}>
-      <header className="flex items-start justify-between gap-4 px-3">
-        <div>
-          <h1 className={THEME_TOKENS.typography.pageTitle}>{playbook ? p.coachTabPlaybook : p.navCoach}</h1>
-          <p className={THEME_TOKENS.typography.body}>{playbook ? p.coachPlaybookSubtitle : p.coachSubtitle}</p>
-        </div>
+    <main className={`w-full space-y-10 ${THEME_TOKENS.motion.fadeIn}`}>
+      <header className="flex items-center justify-between gap-4 px-3">
+        <h1 className={THEME_TOKENS.typography.pageTitle}>{playbook ? p.coachTabPlaybook : p.navCoach}</h1>
         {playbook ? (
           <Button type="button" variant="outline" size="sm" onClick={() => show(null)} data-testid="coach-back">
             <ArrowLeft aria-hidden strokeWidth={1.5} />

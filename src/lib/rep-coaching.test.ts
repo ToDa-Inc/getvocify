@@ -8,8 +8,8 @@ import {
   durationLabel,
   focusTitle,
   formatPercent,
-  improveBeforeLine,
-  improveCountLine,
+  boardTrend,
+  boardValue,
   peerMedianLabel,
   stateView,
   trendArrow,
@@ -82,18 +82,14 @@ describe("sentences", () => {
   });
 });
 
-describe("what to improve", () => {
-  it("counts the slips, never a %: not done first, halfway after", () => {
-    assert.equal(improveCountLine(ES, { missing: 4, improvable: 0, applicable: 9 }), "No lo hiciste en 4 de 9 conversaciones");
-    assert.equal(improveCountLine(ES, { missing: 4, improvable: 2, applicable: 9 }), "No lo hiciste en 4 de 9 conversaciones · a medias en 2");
-    assert.equal(improveCountLine(ES, { missing: 0, improvable: 3, applicable: 5 }), "A medias en 3 de 5 conversaciones");
-    assert.equal(improveCountLine(EN, { missing: 1, improvable: 1, applicable: 3 }), "Not done in 1 of 3 conversations · halfway in 1");
-  });
-  it("compares only with the rep's own weeks before, and says nothing without calls then", () => {
-    const item = (missing: number, improvable: number, applicable: number) => ({ before: { missing, improvable, applicable } });
-    assert.equal(improveBeforeLine(ES, item(3, 11, 14), 4), "Las 4 semanas anteriores: no lo hiciste en 3 de 14 conversaciones · a medias en 11");
-    assert.equal(improveBeforeLine(EN, item(0, 2, 5), 4), "The 4 weeks before: done halfway in 2 of 5 conversations");
-    assert.equal(improveBeforeLine(ES, item(0, 0, 0), 4), null);
+describe("steps board", () => {
+  it("a rate needs three calls behind it; fewer show the count and no arrow", () => {
+    assert.equal(boardValue(ES, { done: 0, applicable: 0, rate: null }), "—");
+    assert.equal(boardValue(ES, { done: 1, applicable: 2, rate: 0.5 }), "1 de 2");
+    assert.equal(boardValue(ES, { done: 5, applicable: 6, rate: 5 / 6 }), "83 %");
+    assert.equal(boardTrend({ applicable: 2, rate: 1, prev_rate: 0 }), null);
+    assert.equal(boardTrend({ applicable: 6, rate: 0.83, prev_rate: 0.5 }), "up");
+    assert.equal(boardTrend({ applicable: 6, rate: 0.83, prev_rate: null }), null);
   });
 });
 

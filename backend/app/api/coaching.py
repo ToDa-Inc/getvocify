@@ -522,6 +522,7 @@ async def get_my_coaching_calls(
         "window_weeks": _CALLS_WEEKS,
         "conversations": 0,
         "improve": [],
+        "steps": [],
         "calls": [],
     }
     if chosen is None:
@@ -530,7 +531,13 @@ async def get_my_coaching_calls(
     window = _in_window(own, window_start, week_end)
     conversations = sorted((r for r in window if r["is_conversation"]), key=lambda r: r["observed_at"], reverse=True)
     body["conversations"] = len(conversations)
-    body["improve"] = engine.improvement_steps(window, _in_window(own, before_start, window_start), playbook_for(chosen)["steps"])
+    before = _in_window(own, before_start, window_start)
+    playbook = playbook_for(chosen)
+    # Steps first, then the objection left open most: the one to three things to work on.
+    body["improve"] = engine.improvement_steps(window, before, playbook["steps"]) + engine.objection_improvements(
+        window, playbook["entries"]
+    )
+    body["steps"] = engine.step_board(window, before, playbook["steps"])
     calls: list[dict] = []
     for row in conversations:
         part = engine.adherence_part(row) or {}

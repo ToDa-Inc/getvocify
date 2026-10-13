@@ -131,6 +131,18 @@ def interaction_row(memo: dict) -> dict | None:
             # Settled by what the rep declared (the meeting), not behaviour to coach.
             "outcome": outcome_step,
         })
+    objections = []
+    for item in intel.get("objections") or []:
+        # Only a concern about the offer or the fit: "I'm driving" is an obstacle, not an objection.
+        if isinstance(item, dict) and item.get("kind", "objection") == "objection":
+            response = item.get("response") if isinstance(item.get("response"), dict) else {}
+            objections.append({
+                "category": str(item.get("category") or "other"),
+                "objection_id": item.get("objection_id") or None,
+                "resolution": item.get("resolution"),
+                "quote": item.get("quote") or None,
+                "response": response.get("text") or None,
+            })
     return {
         "memo_id": str(memo.get("id") or ""),
         "user_id": str(memo.get("user_id") or ""),
@@ -145,6 +157,7 @@ def interaction_row(memo: dict) -> dict | None:
         # v8 says how the call ended, with who said what worked out; older calls keep the note's line.
         "summary_line": (_outcome_line(intel) or _first_plain_line(str(extraction.get("summary") or "")))[:SUMMARY_MAX_CHARS],
         "steps": steps,
+        "objections": objections,
     }
 
 
@@ -258,6 +271,7 @@ def improvement_steps(rows: list[dict], rows_before: list[dict], steps: list[dic
         example = _latest_slip(rows, step)
         prev = before.get(rate["step_id"]) or {}
         out.append({
+            "kind": "step",
             "step_id": rate["step_id"],
             "label": rate["label"],
             "criterion": str(step.get("criterion") or ""),
@@ -269,6 +283,86 @@ def improvement_steps(rows: list[dict], rows_before: list[dict], steps: list[dic
             "example": example,
             # This call's own advice first; else the playbook's example phrase.
             "how": (example or {}).get("advice") or (str(step.get("example") or "") or None),
+        })
+    return out
+
+
+OBJECTION_IMPROVE_LIMIT = 1
+_CUSTOM_ENTRY_PREFIX = "objection:custom:"
+
+
+def _objection_answers(entries: list[dict]) -> dict[str, dict]:
+    """{key: {label, how}} from the playbook: a fixed category by its name, a company's own
+    objection as "custom:<slug>" (the id the call reading names it by)."""
+    out: dict[str, dict] = {}
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        category = str(entry.get("category") or "").strip().lower()
+        guidance = " ".join(str(entry.get("guidance") or "").split()) or None
+        entry_id = str(entry.get("entry_id") or "")
+        if category == "custom" and entry_id.startswith(_CUSTOM_ENTRY_PREFIX):
+            key = f"custom:{entry_id[len(_CUSTOM_ENTRY_PREFIX):]}"
+            out.setdefault(key, {"label": " ".join(str(entry.get("label") or "").split()) or None, "how": guidance})
+        elif category and category != "custom":
+            out.setdefault(category, {"label": None, "how": guidance})
+    return out
+
+
+def objection_improvements(rows: list[dict], entries: list[dict], limit: int = OBJECTION_IMPROVE_LIMIT) -> list[dict]:
+    """The objection the rep leaves unresolved most in these conversations, with the latest time it
+    stayed open (what the prospect said and what the rep replied) and the playbook's answer. A
+    pattern needs FOCUS_MIN_MISSING unresolved ones; an objection whose outcome is unclear does not count."""
+    answers = _objection_answers(entries)
+    tally: dict[str, dict] = {}
+    for row in sorted(rows, key=lambda r: r["observed_at"], reverse=True):
+        if not row.get("is_conversation", True):
+            continue
+        for item in row.get("objections") or []:
+            if item.get("resolution") not in ("open", "resolved"):
+                continue
+            custom = f"custom:{item['objection_id']}" if item.get("objection_id") else None
+            key = custom if custom in answers else item["category"]
+            entry = tally.setdefault(key, {"open": 0, "total": 0, "example": None})
+            entry["total"] += 1
+            if item["resolution"] == "open":
+                entry["open"] += 1
+                if entry["example"] is None:
+                    entry["example"] = {
+                        "memo_id": row["memo_id"],
+                        "observed_at": row["observed_at"],
+                        "quote": item.get("quote"),
+                        "response": item.get("response"),
+                    }
+    ranked = sorted(
+        ((key, entry) for key, entry in tally.items() if entry["open"] >= FOCUS_MIN_MISSING),
+        key=lambda pair: (-pair[1]["open"], -pair[1]["total"], pair[0]),
+    )
+    return [
+        {
+            "kind": "objection",
+            "key": key,
+            "category": key.split(":", 1)[0] if key.startswith("custom:") else key,
+            "label": (answers.get(key) or {}).get("label"),
+            "open": entry["open"],
+            "total": entry["total"],
+            "example": entry["example"],
+            "how": (answers.get(key) or {}).get("how"),
+        }
+        for key, entry in ranked[:limit]
+    ]
+
+
+def step_board(rows: list[dict], rows_before: list[dict], steps: list[dict]) -> list[dict]:
+    """"Tus pasos": each published step over `rows` against `rows_before`, the rep only against
+    themselves. The rate before is only given when it rests on FOCUS_MIN_APPLICABLE calls."""
+    before = {rate["step_id"]: rate for rate in step_rates(rows_before, steps)}
+    out = []
+    for rate in step_rates(rows, steps):
+        prev = before.get(rate["step_id"]) or {}
+        out.append({
+            **{key: rate[key] for key in ("step_id", "label", "done", "improvable", "missing", "applicable", "rate")},
+            "prev_rate": prev.get("rate") if prev.get("applicable", 0) >= FOCUS_MIN_APPLICABLE else None,
         })
     return out
 

@@ -338,3 +338,41 @@ def test_calls_leave_out_the_meeting_the_rep_declares_and_other_reps():
     peer = _memo("p", PEER, {"open": "missed"}, days_ago=1)
     body = _client([memo, peer]).get("/api/v1/coaching/me/calls").json()
     assert [c["memo_id"] for c in body["calls"]] == ["m"] and body["calls"][0]["slips"] == []
+
+
+def _with_objections(memo, *objections):
+    memo["extraction"]["intelligence"]["objections"] = [
+        {"kind": kind, "category": category, "resolution": resolution, "quote": quote,
+         "response": {"text": response} if response else None, "objection_id": objection_id}
+        for kind, category, resolution, quote, response, objection_id in objections
+    ]
+    return memo
+
+
+def test_calls_name_the_objection_left_open_most_with_the_playbooks_answer():
+    memos = [
+        _with_objections(_obs_memo("a", {"open": "met"}, days_ago=1),
+                         ("objection", "price", "open", "Es caro", "Bueno, ya", None),
+                         ("obstacle", "bad_moment", "open", "Estoy conduciendo", None, None)),
+        _with_objections(_obs_memo("b", {"open": "met"}, days_ago=2),
+                         ("objection", "price", "open", "No hay presupuesto", None, None)),
+        _with_objections(_obs_memo("c", {"open": "met"}, days_ago=3),
+                         ("objection", "price", "resolved", "Caro", "Se paga solo", None),
+                         ("objection", "timing", "open", "Ahora no", None, None)),
+    ]
+    body = _client(memos).get("/api/v1/coaching/me/calls").json()
+    [objection] = [i for i in body["improve"] if i["kind"] == "objection"]
+    assert (objection["category"], objection["open"], objection["total"]) == ("price", 2, 3)
+    assert objection["example"] == {"memo_id": "a", "observed_at": objection["example"]["observed_at"],
+                                    "quote": "Es caro", "response": "Bueno, ya"}
+    assert objection["how"] == "Habla de valor"  # the playbook's answer for price
+    # "Ahora no" happened once: not a pattern. "Estoy conduciendo" is an obstacle, never coached here.
+    assert all(i["category"] != "timing" for i in body["improve"] if i["kind"] == "objection")
+
+
+def test_calls_carry_the_steps_board_only_against_the_rep_before():
+    memos = [_obs_memo(f"n{i}", {"open": "met", "pain": "missed"}, days_ago=i + 1) for i in range(3)]
+    memos += [_obs_memo(f"o{i}", {"open": "missed", "pain": "missed"}, days_ago=35 + i) for i in range(3)]
+    board = {s["step_id"]: s for s in _client(memos).get("/api/v1/coaching/me/calls").json()["steps"]}
+    assert (board["open"]["rate"], board["open"]["prev_rate"]) == (1.0, 0.0)
+    assert (board["pain"]["done"], board["pain"]["applicable"], board["pain"]["missing"]) == (0, 3, 3)

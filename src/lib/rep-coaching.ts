@@ -40,7 +40,8 @@ export type CoachSlip = {
   /** What to try next time, in this call's terms. */
   advice: string | null;
 };
-export type CoachImprove = {
+export type CoachImproveStep = {
+  kind: "step";
   step_id: string;
   label: string;
   criterion: string;
@@ -50,6 +51,30 @@ export type CoachImprove = {
   before: { missing: number; improvable: number; applicable: number };
   example: { memo_id: string; observed_at: string; state: string; reason: string | null; quote: string | null; advice: string | null } | null;
   how: string | null;
+};
+/** The objection left open most: what the prospect said, what the rep replied, the playbook's answer. */
+export type CoachImproveObjection = {
+  kind: "objection";
+  key: string;
+  category: string;
+  /** The company's own objection's name; null for a fixed category. */
+  label: string | null;
+  open: number;
+  total: number;
+  example: { memo_id: string; observed_at: string; quote: string | null; response: string | null } | null;
+  how: string | null;
+};
+export type CoachImprove = CoachImproveStep | CoachImproveObjection;
+/** "Tus pasos": a step over the last weeks, with its rate before only when enough calls back it. */
+export type CoachStepBoardItem = {
+  step_id: string;
+  label: string;
+  done: number;
+  improvable: number;
+  missing: number;
+  applicable: number;
+  rate: number | null;
+  prev_rate: number | null;
 };
 export type CoachCall = {
   memo_id: string;
@@ -68,6 +93,7 @@ export type CoachCalls = {
   window_weeks: number;
   conversations: number;
   improve: CoachImprove[];
+  steps: CoachStepBoardItem[];
   calls: CoachCall[];
 };
 
@@ -143,17 +169,18 @@ export function peerMedianLabel(p: Product, median: number | null | undefined): 
   return fill(p.coachPeerMedian, { value: formatPercent(median) });
 }
 
-/** "No lo hiciste en 4 de 9 conversaciones · a medias en 2": counts, never a % (they are few). */
-export function improveCountLine(p: Product, item: Pick<CoachImprove, "missing" | "improvable" | "applicable">): string {
-  if (!item.missing) return fill(p.coachImproveHalfOnly, { count: item.improvable, applicable: item.applicable });
-  const line = fill(p.coachImproveMissing, { missing: item.missing, applicable: item.applicable });
-  return item.improvable ? `${line} · ${fill(p.coachImproveHalf, { count: item.improvable })}` : line;
+/** Below this many calls where a step applied, a rate says nothing ("0 %" of one call): show the count. */
+export const MIN_CALLS_FOR_RATE = 3;
+
+/** "83 %" with enough calls behind it, "1 de 2" with fewer, "—" with none. */
+export function boardValue(p: Product, step: Pick<CoachStepBoardItem, "done" | "applicable" | "rate">): string {
+  if (!step.applicable) return "—";
+  if (step.applicable < MIN_CALLS_FOR_RATE) return fill(p.coachStepCount, { done: step.done, applicable: step.applicable });
+  return formatPercent(step.rate);
 }
 
-/** The same counts over the weeks before, only against themselves; null when there were no calls then. */
-export function improveBeforeLine(p: Product, item: Pick<CoachImprove, "before">, weeks: number): string | null {
-  if (!item.before.applicable) return null;
-  const line = improveCountLine(p, item.before);
-  return fill(p.coachImproveBefore, { weeks, line: line.charAt(0).toLowerCase() + line.slice(1) });
+/** The arrow against the weeks before, only when both sides rest on enough calls. */
+export function boardTrend(step: Pick<CoachStepBoardItem, "applicable" | "rate" | "prev_rate">): Trend {
+  return step.applicable >= MIN_CALLS_FOR_RATE ? trendOf(step.rate, step.prev_rate) : null;
 }
 
