@@ -1143,7 +1143,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         let levelsSentAt = 0;
         // Each second: did the call side play any sound, did the rep speak. A call on the phone heard through the PC's
         // sound (Windows) ends when neither happens for a while (the island decides; other recordings ignore it).
-        const activity = { them: false, you: false, at: performance.now() };
+        const activity = { them: false, you: false, themPeak: 0, youPeak: 0, at: performance.now() };
         const send = (channel: MeetingSpeaker) => (heard: ArrayBuffer) => {
           const side = channel === "rep" ? "you" : "them";
           let pcm = heard;
@@ -1160,10 +1160,15 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             healthRef.current?.hear(side, new Int16Array(heard), performance.now());
             const loudest = peak(new Int16Array(heard));
             if (side === "them" ? loudest > SILENT_PEAK : loudest >= SPEAKING_PEAK) activity[side] = true;
+            // The loudest sample each side had, for the app's log: what silence really measures on a rep's machine.
+            if (side === "them") activity.themPeak = Math.max(activity.themPeak, loudest);
+            else activity.youPeak = Math.max(activity.youPeak, loudest);
             if (performance.now() - activity.at >= 1000) {
-              bridge.shell.setState({ callActivity: { them: activity.them, you: activity.you } });
+              bridge.shell.setState({ callActivity: { them: activity.them, you: activity.you, themPeak: activity.themPeak, youPeak: activity.youPeak } });
               activity.them = false;
               activity.you = false;
+              activity.themPeak = 0;
+              activity.youPeak = 0;
               activity.at = performance.now();
             }
             levelRef.current[side] = Math.max(levelRef.current[side] * 0.85, pcmLevel(pcm));
