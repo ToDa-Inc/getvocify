@@ -298,7 +298,7 @@ class _LoaderQuery:
 # Real memos columns: notes_revision is read by revision_for_memo but is not a column.
 _MEMOS_SCHEMA = frozenset({
     "id", "user_id", "company_id", "source", "source_type", "interaction_kind",
-    "screening_outcome", "capture_started_at", "created_at", "approved_at",
+    "screening_outcome", "audio_duration", "capture_started_at", "created_at", "approved_at",
     "hubspot_contact_id", "hubspot_deal_id", "matched_deal_id", "extraction",
     "followup", "playbook_version_id", "sales_motion_key",
 })

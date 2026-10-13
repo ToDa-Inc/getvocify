@@ -1,7 +1,8 @@
 """Playbook insights (Fase 3): what the calls say about a playbook, per step and per objection.
 
 Pure functions over rows the API module already read: no supabase, no clock. A step's
-rate is met / (met + missed) across the scored calls of the period, and only once at least
+rate is the rep's coaching number (done over done + not done, rep_coaching.step_rates) across
+the read conversations of the period, and only once at least
 MIN_APPLICABLE calls could be judged on it; below that a number would be noise, so it is
 None. Objections reuse team_insights.objections (same counting, same best_example rule)
 and never carry a rep name: `best_example` is the response quote and nothing else.
@@ -12,14 +13,13 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from app.services.playbooks.step_identity import StepMatcher
-from app.services.team_insights.aggregate import _current_scores, _parse_instant
+from app.services.coaching.rep_coaching import interaction_row, step_rates
+from app.services.team_insights.aggregate import _parse_instant
 from app.services.team_insights.objections import objection_counts
 
 # met + missed below this and the step has no rate.
 MIN_APPLICABLE = 10
 PERIODS = ("week", "month")
-_SCORED = frozenset({"ready", "partial"})
 
 
 def memo_instant(memo: dict) -> datetime | None:
@@ -27,100 +27,63 @@ def memo_instant(memo: dict) -> datetime | None:
     return _parse_instant(memo.get("capture_started_at")) or _parse_instant(memo.get("created_at"))
 
 
-def scored_memo_ids(score_rows: list[dict]) -> set[str]:
-    """Memos whose current (latest revision) score is ready or partial."""
-    ids: set[str] = set()
-    for memo_id, row in _current_scores(score_rows).items():
-        score = row.get("score")
-        if isinstance(score, dict) and score.get("status") in _SCORED:
-            ids.add(memo_id)
-    return ids
-
-
-def consider_memos(
-    memos: list[dict],
-    *,
-    motion: str,
-    scored_ids: set[str],
-    start: datetime,
-    end: datetime,
-) -> list[dict]:
-    """The scored memos of this motion whose call time is in [start, end)."""
-    kept: list[dict] = []
-    for memo in memos:
-        if str(memo.get("sales_motion_key") or "") != motion:
-            continue
-        if str(memo.get("id")) not in scored_ids:
-            continue
-        instant = memo_instant(memo)
-        if instant is None or instant < start or instant >= end:
-            continue
-        kept.append(memo)
-    return kept
-
-
-def memo_observations(memo: dict) -> dict[str, str]:
-    """{step_id: status} of a memo. extraction.intelligence first, then the flat
-    extraction.playbook_observations. The first entry of a step wins."""
-    return {step_id: status for step_id, (_, status) in _memo_verdicts(memo).items()}
-
-
-def _memo_verdicts(memo: dict) -> dict[str, tuple[str, str]]:
-    """{step_id: (criterion it was judged on, status)}, read like memo_observations."""
+def coaching_row(memo: dict) -> dict | None:
+    """The call as the rep's coaching reads it (rep_coaching.interaction_row), so a step's rate
+    here is the rep's number: the same states, conversations only, a step matched by its
+    criterion. The extraction may come as JSON text, and older calls keep their observations
+    under the flat extraction.playbook_observations (extraction.intelligence wins)."""
     extraction = memo.get("extraction")
     if isinstance(extraction, str):
         try:
             extraction = json.loads(extraction)
         except ValueError:
             extraction = {}
-    if not isinstance(extraction, dict):
-        return {}
-    intelligence = extraction.get("intelligence")
-    observations = intelligence.get("playbook_observations") if isinstance(intelligence, dict) else None
-    if not isinstance(observations, list):
-        observations = extraction.get("playbook_observations")
-    by_step: dict[str, tuple[str, str]] = {}
-    for item in observations if isinstance(observations, list) else []:
-        if not isinstance(item, dict):
+    extraction = extraction if isinstance(extraction, dict) else {}
+    intelligence = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
+    if not isinstance(intelligence.get("playbook_observations"), list):
+        flat = extraction.get("playbook_observations")
+        intelligence = {**intelligence, "playbook_observations": flat if isinstance(flat, list) else []}
+    return interaction_row({**memo, "extraction": {**extraction, "intelligence": intelligence}})
+
+
+def consider_memos(memos: list[dict], *, motion: str, start: datetime, end: datetime) -> list[dict]:
+    """The read conversations of this motion whose call time is in [start, end): calls with step
+    verdicts, minus voicemails, no-answers and calls under 30 s (rep_coaching.is_conversation)."""
+    kept: list[dict] = []
+    for memo in memos:
+        if str(memo.get("sales_motion_key") or "") != motion:
             continue
-        step_id = str(item.get("step_id") or "").strip()
-        if step_id and step_id not in by_step:
-            by_step[step_id] = (str(item.get("criterion") or ""), str(item.get("status") or "").strip().lower())
-    return by_step
+        instant = memo_instant(memo)
+        if instant is None or instant < start or instant >= end:
+            continue
+        row = coaching_row(memo)
+        if row is None or not row["is_conversation"]:
+            continue
+        kept.append(memo)
+    return kept
 
 
 def step_insights(memos: list[dict], steps: list[dict]) -> list[dict]:
-    """One entry per step of the active version, in its order. A verdict counts for the step
-    with its criterion (step_identity); others are ignored. not_applicable and unknown are not
-    counted."""
-    order: list[str] = []
+    """One entry per step of the active version, in its order: rep_coaching.step_rates over these
+    calls (done, improvable included, over done + not done; a verdict counts for the step with its
+    criterion). The rate needs MIN_APPLICABLE calls judged on the step."""
+    live: list[dict] = []
+    seen: set[str] = set()
     for step in steps or []:
         step_id = str(step.get("step_id") or "").strip() if isinstance(step, dict) else ""
-        if step_id and step_id not in order:
-            order.append(step_id)
-    tallies = {step_id: {"met": 0, "missed": 0} for step_id in order}
-    matcher = StepMatcher(steps)
-    for memo in memos:
-        counted: set[str] = set()
-        for step_id, (criterion, status) in _memo_verdicts(memo).items():
-            live_id = matcher.match(step_id, criterion)
-            if live_id is None or live_id in counted:
-                continue
-            counted.add(live_id)  # one verdict per step and call, as in the rep engine
-            tally = tallies.get(live_id)
-            if tally is not None and status in tally:
-                tally[status] += 1
-    out: list[dict] = []
-    for step_id in order:
-        met, missed = tallies[step_id]["met"], tallies[step_id]["missed"]
-        applicable = met + missed
-        out.append({
-            "step_id": step_id,
-            "met": met,
-            "missed": missed,
-            "rate": met / applicable if applicable >= MIN_APPLICABLE else None,
-        })
-    return out
+        if step_id and step_id not in seen:
+            seen.add(step_id)
+            live.append({**step, "step_id": step_id})
+    rows = [row for row in (coaching_row(memo) for memo in memos) if row is not None]
+    return [
+        {
+            "step_id": rate["step_id"],
+            "met": rate["done"],
+            "missed": rate["missing"],
+            "rate": rate["done"] / rate["applicable"] if rate["applicable"] >= MIN_APPLICABLE else None,
+        }
+        for rate in step_rates(rows, live)
+    ]
 
 
 def objection_insights(
@@ -161,7 +124,6 @@ def build_insights(
     *,
     period: str,
     memos: list[dict],
-    scored_ids: set[str],
     pattern_rows: list[dict],
     steps: list[dict],
     entries: list[dict],
@@ -169,9 +131,9 @@ def build_insights(
     end: datetime,
     motion: str,
 ) -> dict:
-    """The response body. memos are any candidate memos; only the scored, in-period ones
-    of `motion` are considered. steps/entries are the active version's (empty without one)."""
-    considered = consider_memos(memos, motion=motion, scored_ids=scored_ids, start=start, end=end)
+    """The response body. memos are any candidate memos; only the read conversations of `motion`
+    in the period are considered. steps/entries are the active version's (empty without one)."""
+    considered = consider_memos(memos, motion=motion, start=start, end=end)
     return {
         "period": period,
         "calls": len(considered),

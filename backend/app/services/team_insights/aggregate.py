@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 
 from app.services.activity_scope import author_display_name, can_view_company_activity
 from app.services.coaching.metrics import aggregate_adherence
+from app.services.coaching.rep_coaching import adherence_part, interaction_row, is_conversation
+from app.services.coaching.score_rows import current_scores
 from app.services.company import CompanyService
 from app.services.playbooks.catalog import INTERNAL_KEY
 from app.services.playbooks.live import has_published_playbook, live_snapshots
@@ -138,15 +140,9 @@ def activity_row_from_memo(memo: dict) -> dict | None:
 
 
 def memo_had_conversation(memo: dict) -> bool:
-    """A conversation is a connected line where someone actually talked with the rep: the line can
-    connect to a voicemail, a switchboard or silence, which the call reading tells apart. The same
-    definition coaching uses, so the Head of Sales and the rep see one number."""
-    if memo.get("screening_outcome") != "connected":
-        return False
-    extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
-    intel = memo.get("intelligence") or (extraction or {}).get("intelligence") or {}
-    call = intel.get("call") if isinstance(intel, dict) and isinstance(intel.get("call"), dict) else {}
-    return call.get("reached_conversation") is not False
+    """A connected call that was a conversation (rep_coaching.is_conversation: 30 s or more, and
+    someone talked), so the Head of Sales and the rep count the same conversations."""
+    return memo.get("screening_outcome") == "connected" and is_conversation(memo)
 
 
 def memo_meeting_agreed(memo: dict) -> bool:
@@ -163,21 +159,6 @@ def activity_by_rep(rows: list[dict], *, start: datetime, end: datetime) -> dict
         if uid:
             grouped.setdefault(uid, []).append(row)
     return {uid: activity_counts(group, start=start, end=end) for uid, group in grouped.items()}
-
-
-def adherence_part_from_score(score: dict, *, observed_at=None) -> dict | None:
-    if score.get("status") not in {"ready", "partial"}:
-        return None
-    part = {
-        "met_steps": int(score.get("met_steps") or 0),
-        "missed_steps": int(score.get("missed_steps") or 0),
-        "unknown_steps": int(score.get("unknown_steps") or 0),
-        "not_applicable_steps": int(score.get("not_applicable_steps") or 0),
-    }
-    instant = observed_at if observed_at is not None else score.get("observed_at")
-    if instant is not None:
-        part["observed_at"] = instant
-    return part
 
 
 def sort_reps_by_name(reps: list[dict]) -> list[dict]:
@@ -303,15 +284,8 @@ def _paged_in(supabase, table: str, columns: str, column: str, ids: list[str], o
 
 
 def _current_scores(rows: list[dict]) -> dict[str, dict]:
-    """The latest revision (max revision_seq, then created_at) of each memo's score."""
-    latest: dict[str, dict] = {}
-    for row in rows:
-        key = str(row.get("memo_id"))
-        rank = (int(row.get("revision_seq") or 0), str(row.get("created_at") or ""))
-        held = latest.get(key)
-        if held is None or rank >= (int(held.get("revision_seq") or 0), str(held.get("created_at") or "")):
-            latest[key] = row
-    return latest
+    """Each memo's current score row (coaching.score_rows: the one rule every reader uses)."""
+    return current_scores(rows)
 
 
 def load_team_adherence_inputs(
@@ -357,7 +331,7 @@ def load_team_adherence_inputs(
 
         columns = (
             "id,user_id,company_id,playbook_version_id,"
-            "sales_motion_key,screening_outcome,extraction,"
+            "sales_motion_key,screening_outcome,audio_duration,extraction,"
             "capture_started_at,created_at,hubspot_contact_id,hubspot_deal_id"
         )
 
@@ -399,6 +373,8 @@ def load_team_adherence_inputs(
                 "goal_met": memo_meeting_agreed(memo),
                 # The memo's own time, so adherence and activity describe the same calls.
                 "observed_at": memo.get("capture_started_at") or memo.get("created_at"),
+                # THE "% del proceso" of the call, read like the rep's coaching reads it.
+                "part": adherence_part(interaction_row(memo)),
             }
             review_source.append(memo)
             row = activity_row_from_memo(memo)
@@ -408,25 +384,17 @@ def load_team_adherence_inputs(
         # retagged, and its objection patterns, stay out of the team's numbers.
         scored_ids = [memo_id for memo_id in memo_ids if memo_meta[memo_id]["motion"] != INTERNAL_KEY]
         if scored_ids:
-            scores = _paged_in(
-                supabase, "memo_scores", "memo_id,revision_seq,score,created_at", "memo_id", scored_ids,
-                ("memo_id", "revision_seq"),
-            )
-            for item in _current_scores(scores).values():
-                score = item.get("score") or {}
-                meta = memo_meta.get(str(item.get("memo_id")))
-                part = adherence_part_from_score(
-                    score if isinstance(score, dict) else {},
-                    observed_at=meta["observed_at"] if meta else item.get("created_at"),
-                )
-                if part is not None:
-                    parts.append(part)
-                    if meta and meta.get("user_id"):
-                        rep_motion_parts.append(
-                            {**part, "user_id": meta["user_id"], "motion": meta["motion"]}
-                        )
-                    if meta:
-                        health_rows.append({**part, "motion": meta["motion"], "goal_met": meta["goal_met"]})
+            # Adherence is the per-step verdicts of each conversation, the same states the rep sees
+            # on the call (rep_coaching.adherence_part), not the stored score's counts.
+            for memo_id in scored_ids:
+                meta = memo_meta[memo_id]
+                if meta["part"] is None:
+                    continue
+                part = {**meta["part"], "observed_at": meta["observed_at"]}
+                parts.append(part)
+                if meta.get("user_id"):
+                    rep_motion_parts.append({**part, "user_id": meta["user_id"], "motion": meta["motion"]})
+                health_rows.append({**part, "motion": meta["motion"], "goal_met": meta["goal_met"]})
             pattern_rows = _paged_in(
                 supabase,
                 "interaction_patterns",

@@ -13,18 +13,18 @@ _MEMO_BASE = (
 )
 # Only the parts of the analysis coaching reads: the whole extraction (evidence, the call read turn
 # by turn, CRM fields) is several times heavier and made every coaching screen wait for it.
-_EXTRACTION_PARTS = (
+EXTRACTION_PARTS = (
     "observations:extraction->intelligence->playbook_observations,"
     "call_type:extraction->intelligence->call->>call_type,"
     "reached_conversation:extraction->intelligence->call->reached_conversation,"
     "outcome:extraction->intelligence->next->outcome,"
     "summary:extraction->>summary"
 )
-_MEMO_COLUMNS = _MEMO_BASE + "," + _EXTRACTION_PARTS
+_MEMO_COLUMNS = _MEMO_BASE + "," + EXTRACTION_PARTS
 _MEMO_COLUMNS_FULL = _MEMO_BASE + ",extraction"
 
 
-def _as_extraction(row: dict) -> dict:
+def as_extraction(row: dict) -> dict:
     """The trimmed row back in the shape the coaching engine reads (extraction.intelligence...)."""
     if "extraction" in row or "observations" not in row:
         return row
@@ -85,7 +85,7 @@ def load_memos(
                     if len(page) < _PAGE_SIZE:
                         break
                     offset += _PAGE_SIZE
-            rows = [_as_extraction(row) for row in rows]
+            rows = [as_extraction(row) for row in rows]
             rows.sort(key=lambda row: (str(row.get("created_at") or ""), str(row.get("id") or "")))
             # A meeting the rep marked in the CRM (the deal moved to the meeting-booked stage) is
             # their declaration too: it settles the meeting step like rep_outcome does.

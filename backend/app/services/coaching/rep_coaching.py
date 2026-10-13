@@ -69,10 +69,29 @@ def _outcome_line(intel: dict) -> str:
     return " ".join(str(outcome.get("text") or "").split())
 
 
+def _intelligence(memo: dict) -> dict:
+    extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+    intel = memo.get("intelligence") or extraction.get("intelligence")
+    return intel if isinstance(intel, dict) else {}
+
+
+def is_conversation(memo: dict) -> bool:
+    """THE conversation, for the rep and the Head of Sales alike: not a voicemail or a no-answer,
+    at least 30 s when the length is known, and someone talked (the call reading can tell a line
+    that connected to a switchboard or silence). Anything else is activity, never evaluated."""
+    if memo.get("screening_outcome") in _NOT_A_CONVERSATION:
+        return False
+    duration = _duration(memo.get("audio_duration"))
+    if duration is not None and duration < MIN_CONVERSATION_SECONDS:
+        return False
+    call = _intelligence(memo).get("call")
+    return not (isinstance(call, dict) and call.get("reached_conversation") is False)
+
+
 def interaction_row(memo: dict) -> dict | None:
     """One interaction as coaching sees it, or None when it carries no step observations."""
     extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
-    intel = extraction.get("intelligence") if isinstance(extraction.get("intelligence"), dict) else {}
+    intel = _intelligence(memo)
     observations = intel.get("playbook_observations")
     if not isinstance(observations, list) or not observations:
         return None
@@ -80,12 +99,8 @@ def interaction_row(memo: dict) -> dict | None:
     if observed is None:
         return None
     duration = _duration(memo.get("audio_duration"))
-    conversation = memo.get("screening_outcome") not in _NOT_A_CONVERSATION and (
-        duration is None or duration >= MIN_CONVERSATION_SECONDS
-    )
+    conversation = is_conversation(memo)
     call = intel.get("call") if isinstance(intel.get("call"), dict) else {}
-    if call.get("reached_conversation") is False:
-        conversation = False
     rep_outcome = memo.get("rep_outcome")
     steps: list[dict] = []
     seen_steps: set[str] = set()
@@ -163,6 +178,23 @@ def step_rates(rows: list[dict], steps: list[dict]) -> list[dict]:
             "rate": _rate(done, done + missing),
         })
     return out
+
+
+_PART_KEY = {"done": "met_steps", "improvable": "met_steps", "missing": "missed_steps",
+             "no_evidence": "unknown_steps", "not_reached": "not_applicable_steps"}
+
+
+def adherence_part(row: dict | None) -> dict | None:
+    """THE "% del proceso" of one interaction, as counts for metrics.aggregate_adherence: done
+    (improvable counts as done) over done + not done; no evidence and not reached do not count.
+    None for a non-conversation, which is never evaluated. Every surface (the rep's coaching, the
+    Head of Sales' team, trend and process health) sums these, so they all say one number."""
+    if row is None or not row.get("is_conversation", True):
+        return None
+    part = {"met_steps": 0, "missed_steps": 0, "unknown_steps": 0, "not_applicable_steps": 0}
+    for step in row["steps"]:
+        part[_PART_KEY.get(step["state"], "unknown_steps")] += 1
+    return part
 
 
 def process_complete(row: dict) -> bool:

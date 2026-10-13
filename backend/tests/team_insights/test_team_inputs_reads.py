@@ -1,4 +1,4 @@
-"""load_team_adherence_inputs: bounded, paged, batched reads and one current score per memo."""
+"""load_team_adherence_inputs: bounded, paged, batched reads; adherence from each call's own verdicts."""
 
 import logging
 import os
@@ -74,22 +74,42 @@ def test_memo_id_lists_are_chunked_and_responses_paged(monkeypatch):
     inputs = load_team_adherence_inputs(store, COMPANY)
     sizes = [n for table, column, n in store.in_calls if column == "memo_id"]
     assert sizes and max(sizes) <= 2
-    # meeting_proposals: a meeting the rep accepted in Vocify is their declaration of it.
-    assert {t for t, c, _ in store.in_calls if c == "memo_id"} == {"memo_scores", "interaction_patterns", "meeting_proposals"}
+    # meeting_proposals: a meeting the rep accepted in Vocify is their declaration of it. Adherence
+    # comes from the calls' own verdicts, so memo_scores is not read.
+    assert {t for t, c, _ in store.in_calls if c == "memo_id"} == {"interaction_patterns", "meeting_proposals"}
     assert inputs["sample_size"] == 5
     assert len(inputs["pattern_rows"]) == 1
 
 
-def test_only_the_latest_score_revision_counts():
+def _with_steps(memo: dict, *statuses, **over) -> dict:
+    observations = [
+        {"step_id": f"s{i}", "label": f"S{i}", "criterion": f"S{i}", "status": status, "quality": quality}
+        for i, (status, quality) in enumerate(statuses)
+    ]
+    return {**memo, "extraction": {"intelligence": {"playbook_observations": observations}}, **over}
+
+
+def test_adherence_is_the_calls_verdicts_read_like_the_reps_coaching():
     store = _store()
-    store.tables["memos"] = [_at(_memo("m1", USER_A, "discovery"), NOW)]
-    old = {**_score("m1"), "revision_seq": 1, "created_at": "2026-09-25T10:00:00+00:00"}
-    new = {**_score("m1"), "revision_seq": 2, "created_at": "2026-09-23T10:00:00+00:00"}
-    new["score"] = {**new["score"], "met_steps": 4}
-    store.tables["memo_scores"] = [new, old]
+    store.tables["memos"] = [_at(_with_steps(
+        _memo("m1", USER_A, "discovery"),
+        ("met", None), ("met", "improvable"), ("missed", None), ("unknown", None), ("not_applicable", None),
+    ), NOW)]
+    # A stored score that says otherwise does not count: one number for the rep and the Head of Sales.
+    store.tables["memo_scores"] = [{**_score("m1"), "score": {**_score("m1")["score"], "met_steps": 9}}]
+    part = load_team_adherence_inputs(store, COMPANY)["parts"][0]
+    assert (part["met_steps"], part["missed_steps"], part["unknown_steps"], part["not_applicable_steps"]) == (2, 1, 1, 1)
+
+
+def test_a_call_that_was_not_a_conversation_has_no_adherence():
+    store = _store()
+    store.tables["memos"] = [
+        _at(_with_steps(_memo("short", USER_A, "discovery"), ("missed", None), audio_duration=12), NOW),
+        _at(_with_steps(_memo("vm", USER_A, "discovery", screening="voicemail"), ("missed", None)), NOW),
+        _at(_with_steps(_memo("ok", USER_A, "discovery"), ("met", None), audio_duration=95), NOW),
+    ]
     inputs = load_team_adherence_inputs(store, COMPANY)
-    assert inputs["sample_size"] == 1
-    assert inputs["parts"][0]["met_steps"] == 4
+    assert [p["met_steps"] for p in inputs["parts"]] == [1]
 
 
 def test_score_observed_at_is_the_memos_time_not_the_score_row():
@@ -106,7 +126,7 @@ def test_score_observed_at_is_the_memos_time_not_the_score_row():
 def test_read_failure_is_logged_and_stays_tolerant(caplog):
     class Failing(type(_store())):
         def table(self, name):
-            if name == "memo_scores":
+            if name == "interaction_patterns":
                 raise RuntimeError("boom")
             return super().table(name)
 
@@ -114,6 +134,7 @@ def test_read_failure_is_logged_and_stays_tolerant(caplog):
     store = Failing(healthy.tables)
     with caplog.at_level(logging.WARNING, logger=aggregate.logger.name):
         inputs = load_team_adherence_inputs(store, COMPANY)
-    assert inputs["parts"] == []
+    assert len(inputs["parts"]) == 2  # the calls' adherence does not depend on the failed read
+    assert inputs["pattern_rows"] == []
     assert any(r.exc_info and "boom" in str(r.exc_info[1]) for r in caplog.records)
     assert team_adherence(role="admin", **inputs)["attempts"] == 2

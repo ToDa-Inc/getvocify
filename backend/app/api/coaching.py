@@ -16,6 +16,7 @@ from app.services.coaching.briefs import absent_brief
 from app.services.coaching import rep_coaching as engine
 from app.services.coaching import rep_coaching_reads as reads
 from app.services.coaching.rep_focus import FLOW_WEEKS, motion_for_flow, published_flows, resolve_flow
+from app.services.coaching.score_rows import current_score, current_scores
 from app.services.activity_scope import effective_visibility, memo_readable_by
 from app.services.company import CompanyService, Membership
 from app.services.feature_flags import is_enabled
@@ -135,7 +136,7 @@ def get_memo_score(
     # Same revision_seq (a re-read of the same conversation, e.g. a company moving to a newer C04
     # prompt): the most recently written score wins. `blocks` (PLAYBOOK_QUALIFICATION_ENABLED)
     # travels inside the stored score, so it reaches the client as is.
-    current = max(scores, key=lambda row: (row.get("revision_seq") or 0, str(row.get("created_at") or "")))
+    current = current_score(scores)
     body = dict(current.get("score") or {})
     body["playbook_version_id"] = current.get("playbook_version_id")
     return body
@@ -208,16 +209,12 @@ def _load_best_rows(supabase, company_id: str, *, start: datetime, end: datetime
         try:
             scored = (
                 supabase.table("memo_scores")
-                .select("memo_id,score,revision_seq")
+                .select("memo_id,score,revision_seq,created_at,input_revision")
                 .in_("memo_id", memo_ids)
                 .execute()
             )
-            for item in scored.data or []:
-                memo_id = str(item.get("memo_id"))
-                seq = item.get("revision_seq") or 0
-                current = scores_by_memo.get(memo_id)
-                if current is None or seq >= current["revision_seq"]:
-                    scores_by_memo[memo_id] = {"score": item.get("score") or {}, "revision_seq": seq}
+            for memo_id, item in current_scores(scored.data or []).items():
+                scores_by_memo[memo_id] = {"score": item.get("score") or {}, "revision_seq": item.get("revision_seq") or 0}
         except Exception:
             scores_by_memo = {}
     rows: list[dict] = []

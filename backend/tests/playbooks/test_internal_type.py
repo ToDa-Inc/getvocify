@@ -299,18 +299,19 @@ def test_a_scored_memo_retagged_internal_leaves_the_adherence_trend_and_comes_ba
 
     at = datetime(2026, 9, 22, 10, 0, tzinfo=timezone.utc)
     starts = week_starts(now=at, weeks=1)
-    score = {"memo_id": "m1", "revision_seq": 1, "score": {"status": "ready", "met_steps": 2, "missed_steps": 1}}
+    verdicts = [{"step_id": s, "status": status} for s, status in (("a", "met"), ("b", "met"), ("c", "missed"))]
 
     def team_week(motion):
         memo = {"id": "m1", "user_id": "u1", "sales_motion_key": motion, "status": "ready",
-                "screening_outcome": "connected", "capture_started_at": at.isoformat()}
-        body = build_adherence_trend(memos=[memo], scores=[score], reps=[{"userId": "u1", "name": "Ana"}], starts=starts)
+                "screening_outcome": "connected", "capture_started_at": at.isoformat(),
+                "extraction": {"intelligence": {"playbook_observations": verdicts}}}
+        body = build_adherence_trend(memos=[memo], reps=[{"userId": "u1", "name": "Ana"}], starts=starts)
         return body["team"]["weeks"][0]
 
     assert (team_week("discovery")["interactions"], team_week("discovery")["scored"]) == (1, 1)
     internal = team_week("internal")
     assert (internal["interactions"], internal["scored"], internal["adherence"]) == (0, 0, None)
-    # Retagged back to a real type, the same stored score counts again.
+    # Retagged back to a real type, the same verdicts count again.
     assert team_week("closing")["scored"] == 1
 
 

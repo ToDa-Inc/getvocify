@@ -461,19 +461,16 @@ def recent_progress(
     try:
         score_rows = (
             supabase.table("memo_scores")
-            .select("memo_id,revision_seq,score")
+            .select("memo_id,revision_seq,score,created_at,input_revision")
             .in_("memo_id", memo_ids)
             .execute()
         )
         rows = list(getattr(score_rows, "data", None) or [])
     except Exception:
         return []
-    latest: dict[str, dict] = {}
-    for row in rows:
-        memo_id = str(row.get("memo_id"))
-        current = latest.get(memo_id)
-        if current is None or int(row.get("revision_seq") or 0) >= int(current.get("revision_seq") or 0):
-            latest[memo_id] = row
+    from app.services.coaching.score_rows import current_scores
+
+    latest = current_scores(rows)
     values: list[float | None] = []
     for memo_id in memo_ids:
         row = latest.get(memo_id)

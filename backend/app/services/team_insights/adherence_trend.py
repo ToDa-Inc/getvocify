@@ -10,6 +10,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.services.coaching.metrics import aggregate_adherence
+from app.services.coaching.rep_coaching import adherence_part, interaction_row, is_conversation
+from app.services.coaching.rep_coaching_reads import EXTRACTION_PARTS, as_extraction
 from app.services.playbooks.catalog import INTERNAL_KEY
 from app.services.team_insights.aggregate import _parse_instant, assert_team_reader, load_team_reps
 
@@ -18,12 +20,8 @@ DEFAULT_WEEKS = 8
 MAX_WEEKS = 12
 DEFAULT_TZ = "Europe/Madrid"
 
-_NOT_CONVERSATIONS = frozenset({"voicemail", "no_response"})
-_SCORED = frozenset({"ready", "partial"})
 _MEMO_PAGE = 1000
-_SCORE_BATCH = 200
 _SAMPLE_LIMIT = 5
-_COUNT_KEYS = ("met_steps", "missed_steps", "unknown_steps", "not_applicable_steps")
 
 
 def week_starts(*, now: datetime, weeks: int, tz_name: str = DEFAULT_TZ) -> list[date]:
@@ -38,25 +36,18 @@ def _local_monday(instant: datetime, tz: ZoneInfo) -> date:
     return local - timedelta(days=local.weekday())
 
 
-def _current_score(rows: list[dict]) -> dict | None:
-    if not rows:
-        return None
-    return max(rows, key=lambda row: (int(row.get("revision_seq") or 0), str(row.get("created_at") or "")))
-
-
-def _classify(score_row: dict | None) -> tuple[str, dict | None, str | None]:
-    """(bucket, counts, playbook_version_id). bucket is scored / without_playbook / without_score."""
-    if score_row is None:
-        return "without_score", None, None
-    score = score_row.get("score") if isinstance(score_row.get("score"), dict) else {}
-    status = score.get("status")
-    if status == "unavailable" or score.get("reason") == "missing_playbook":
+def _classify(memo: dict) -> tuple[str, dict | None, str | None]:
+    """(bucket, counts, playbook_version_id). bucket is scored / without_playbook / without_score.
+    The counts are the call's own step verdicts (rep_coaching.adherence_part), the number the rep's
+    coaching and the team view use; a call pinned to no playbook is without_playbook, one pinned but
+    not read yet is without_score."""
+    version = memo.get("playbook_version_id")
+    counts = adherence_part(interaction_row(memo))
+    if counts is not None:
+        return "scored", counts, (str(version) if version else None)
+    if not version:
         return "without_playbook", None, None
-    if status not in _SCORED:
-        return "without_score", None, None
-    counts = {key: int(score.get(key) or 0) for key in _COUNT_KEYS}
-    version = score_row.get("playbook_version_id") or score.get("playbook_version_id")
-    return "scored", counts, (str(version) if version else None)
+    return "without_score", None, None
 
 
 def _empty_week(week_start: date) -> dict:
@@ -133,7 +124,6 @@ def _series(entries: list[dict], starts: list[date]) -> dict:
 def build_adherence_trend(
     *,
     memos: list[dict],
-    scores: list[dict],
     reps: list[dict],
     starts: list[date],
     tz_name: str = DEFAULT_TZ,
@@ -143,22 +133,19 @@ def build_adherence_trend(
     tz = ZoneInfo(tz_name)
     rep_ids = [str(rep["userId"]) for rep in reps]
     allowed = set(rep_ids)
-    scores_by_memo: dict[str, list[dict]] = {}
-    for row in scores:
-        scores_by_memo.setdefault(str(row.get("memo_id")), []).append(row)
     entries_by_rep: dict[str, list[dict]] = {uid: [] for uid in rep_ids}
     for memo in memos:
         uid = str(memo.get("user_id") or "")
         if uid not in allowed:
             continue
-        if memo.get("screening_outcome") in _NOT_CONVERSATIONS or memo.get("status") == "failed":
+        if not is_conversation(memo) or memo.get("status") == "failed":
             continue
         if memo.get("sales_motion_key") == INTERNAL_KEY:
             continue  # no customer in it: not a sales conversation, whatever score it once had
         instant = _parse_instant(memo.get("capture_started_at")) or _parse_instant(memo.get("created_at"))
         if instant is None:
             continue
-        bucket, counts, version = _classify(_current_score(scores_by_memo.get(str(memo.get("id")), [])))
+        bucket, counts, version = _classify(memo)
         entries_by_rep[uid].append(
             {
                 "week": _local_monday(instant, tz),
@@ -184,13 +171,34 @@ def _window_start_utc(first_monday: date, tz_name: str) -> datetime:
 
 def _read_memos(supabase, company_id: str, member_ids: list[str], *, since: datetime,
                 user_id: str | None, motion: str | None) -> list[dict]:
-    """capture_started_at <= created_at, so created_at >= window start loses no conversation."""
+    """capture_started_at <= created_at, so created_at >= window start loses no conversation. The
+    parts of the analysis coaching reads come along, and the rep's declared outcome (the meeting
+    step) when the column exists. A failed read raises: the caller says "unavailable", not zero."""
+    try:
+        rows = _read_memo_pages(supabase, company_id, member_ids, since=since, user_id=user_id, motion=motion,
+                                columns=_TREND_COLUMNS + ",rep_outcome")
+    except Exception:
+        rows = _read_memo_pages(supabase, company_id, member_ids, since=since, user_id=user_id, motion=motion,
+                                columns=_TREND_COLUMNS)
+    from app.services.coaching.crm_meetings import apply_rep_meetings
+
+    return apply_rep_meetings(supabase, [as_extraction(row) for row in rows])
+
+
+_TREND_COLUMNS = (
+    "id,user_id,company_id,sales_motion_key,screening_outcome,status,audio_duration,playbook_version_id,"
+    "capture_started_at,created_at,hubspot_contact_id,hubspot_deal_id," + EXTRACTION_PARTS
+)
+
+
+def _read_memo_pages(supabase, company_id: str, member_ids: list[str], *, since: datetime,
+                     user_id: str | None, motion: str | None, columns: str) -> list[dict]:
     rows: list[dict] = []
     offset = 0
     while True:
         query = (
             supabase.table("memos")
-            .select("id,user_id,company_id,sales_motion_key,screening_outcome,status,capture_started_at,created_at")
+            .select(columns)
             .in_("user_id", member_ids)
             .or_(f"company_id.eq.{company_id},company_id.is.null")
             .gte("created_at", since.isoformat())
@@ -204,20 +212,6 @@ def _read_memos(supabase, company_id: str, member_ids: list[str], *, since: date
         if len(page) < _MEMO_PAGE:
             return rows
         offset += _MEMO_PAGE
-
-
-def _read_scores(supabase, memo_ids: list[str]) -> list[dict]:
-    rows: list[dict] = []
-    for index in range(0, len(memo_ids), _SCORE_BATCH):
-        batch = memo_ids[index : index + _SCORE_BATCH]
-        result = (
-            supabase.table("memo_scores")
-            .select("memo_id,revision_seq,playbook_version_id,score,created_at")
-            .in_("memo_id", batch)
-            .execute()
-        )
-        rows.extend(result.data or [])
-    return rows
 
 
 def adherence_trend(
@@ -272,12 +266,10 @@ def adherence_trend(
             user_id=filter_user,
             motion=filter_motion,
         )
-        scores = _read_scores(supabase, [str(memo.get("id")) for memo in memos if memo.get("id")])
     except Exception:
         return {**header, "coverage": "unavailable", "team": None, "reps": []}
     body = build_adherence_trend(
         memos=memos,
-        scores=scores,
         reps=reps,
         starts=starts,
         tz_name=tz_name,

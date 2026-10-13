@@ -17,6 +17,7 @@ from app.api import team_insights as team_api
 from app.deps import get_membership, get_supabase
 from app.services import feature_flags
 from app.services.company import Membership
+from app.services.coaching.score_rows import current_scores
 from app.services.team_insights.adherence_trend import adherence_trend
 from app.services.team_insights.aggregate import TeamAccessError
 
@@ -143,6 +144,7 @@ def _memo(memo_id: str, user_id: str, at: str, *, motion: str = "discovery", scr
         "sales_motion_key": motion,
         "screening_outcome": screening,
         "status": status,
+        "playbook_version_id": "pv-1",  # pinned; not read yet until _store gives it verdicts
         "capture_started_at": at,
         "created_at": at,
     }
@@ -169,11 +171,31 @@ def _score(memo_id: str, *, met: int = 1, missed: int = 0, unknown: int = 0, na:
     }
 
 
+_VERDICTS = (("met", "met_steps"), ("missed", "missed_steps"), ("unknown", "unknown_steps"),
+             ("not_applicable", "not_applicable_steps"))
+
+
+def _as_read(memo: dict, score_row: dict) -> dict:
+    """The call as the C04 reading left it: the trend reads the call's own step verdicts (the
+    rep's coaching number), so each score fixture becomes the verdicts it summarises."""
+    score = score_row["score"]
+    out = {**memo, "playbook_version_id": score_row.get("playbook_version_id")}
+    if score["status"] in ("ready", "partial"):
+        statuses = [status for status, key in _VERDICTS for _ in range(int(score.get(key) or 0))]
+        out["extraction"] = {"intelligence": {"playbook_observations": [
+            {"step_id": f"s{i}", "label": f"S{i}", "criterion": f"S{i}", "status": status}
+            for i, status in enumerate(statuses)
+        ]}}
+    return out
+
+
 def _store(memos: list[dict] | None = None, scores: list[dict] | None = None, members=None) -> _Supabase:
     members = members or [_member(USER_B, "Carlos"), _member(USER_A, "Ana", role="admin")]
+    latest = current_scores(scores or [])  # the reading a call was last scored on
+    memos = [_as_read(memo, latest[memo["id"]]) if memo["id"] in latest else memo for memo in memos or []]
     return _Supabase(
         {
-            "memos": list(memos or []),
+            "memos": list(memos),
             "memo_scores": list(scores or []),
             "company_members": [m for m, _ in members],
             "user_profiles": [p for _, p in members],
@@ -452,18 +474,18 @@ def test_motion_filter_keeps_only_that_typology():
 # --- volume and failures --------------------------------------------------------------
 
 
-def test_more_than_a_thousand_conversations_are_all_counted_and_scores_are_batched():
+def test_more_than_a_thousand_conversations_are_all_counted_across_pages():
     memos = [_memo(f"memo-{i:05d}", USER_A, THIS_WEEK) for i in range(1200)]
     scores = [_score(m["id"]) for m in memos]
     store = _store(memos, scores)
     week = _week(_rep(_trend(store), USER_A), "2026-09-21")
     assert week["interactions"] == 1200
     assert week["scored"] == 1200
-    score_batches = [ins[0] for name, ins in store.calls if name == "memo_scores"]
-    assert score_batches and max(len(batch) for batch in score_batches) <= 200
+    assert sum(1 for name, _ in store.calls if name == "memos") >= 2  # paged, not truncated at 1000
+    assert not any(name == "memo_scores" for name, _ in store.calls)  # the calls' own verdicts
 
 
-@pytest.mark.parametrize("table", ["memos", "memo_scores", "company_members"])
+@pytest.mark.parametrize("table", ["memos", "company_members"])
 def test_a_failed_read_is_unavailable_without_numbers(table):
     store = _store([_memo("memo-a", USER_A, THIS_WEEK)], [_score("memo-a")])
     store.failing.add(table)

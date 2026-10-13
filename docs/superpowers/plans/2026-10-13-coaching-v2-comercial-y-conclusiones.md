@@ -85,7 +85,14 @@ Esto sustituye al enfoque de la rama `fix/coaching-rescore-on-publish` (releer l
 2. **Resultado del comercial en producción:** aplicar `062_sdr_followup_cadence.sql` (`memos.rep_outcome`)
    y crear `brief_seen`. Revisar qué otras migraciones faltan. Necesita el visto bueno de Dani.
 3. **Una sola definición de "% adherencia" y de "conversación"** para el comercial y para el Head
-   of Sales.
+   of Sales (hecho el 13 oct, opción (a) de Toni):
+   - % adherencia = pasos hechos ÷ (hechos + no hechos), de los veredictos por paso de la propia
+     llamada. "Mejorable" cuenta como hecho; "No se llegó" y "Sin evidencia" no cuentan.
+   - Solo pasos del playbook. La cualificación y las objeciones tienen sus propios números y no
+     entran en el % (antes el Head of Sales las mezclaba y el comercial no).
+   - Conversación = no es buzón ni sin respuesta, dura 30 s o más cuando se sabe, y alguien habló.
+   - Con datos reales (30 días) el % del Head of Sales pasó de 54-55 % a 78-79 %: salen las
+     llamadas que no eran conversación y la cualificación y las objeciones dejan de mezclarse.
 4. **Pestaña Playbook del comercial:** que abra un tipo que su rol puede leer (hoy da 404).
 5. **Una fila de puntuación actual por llamada:** los lectores eligen la misma (`revision_seq`).
 

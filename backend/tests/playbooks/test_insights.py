@@ -19,8 +19,6 @@ from app.services.company import Membership
 from app.services.playbooks.insights import (
     MIN_APPLICABLE,
     build_insights,
-    memo_observations,
-    scored_memo_ids,
     step_insights,
 )
 from app.services.team_insights import aggregate
@@ -50,18 +48,26 @@ def _obs(**statuses) -> list[dict]:
     return [{"step_id": step.replace("_", "-"), "status": status} for step, status in statuses.items()]
 
 
-def _call(memo_id, *, at=THIS_WEEK, user=USER_A, motion="discovery", observations=None, flat=False, scored=True):
-    """(memo, score) - the memo carries its observations where the extractor puts them."""
+# A verdict on a step that is not in the playbook: the call was read, and no step's numbers move.
+_READ = [{"step_id": "s-elsewhere", "status": "unknown"}]
+
+
+def _call(memo_id, *, at=THIS_WEEK, user=USER_A, motion="discovery", observations=None, flat=False, scored=True,
+          audio_duration=None, screening="connected"):
+    """(memo, score) - the memo carries its observations where the extractor puts them; `scored=False`
+    is a call not read yet (no verdicts)."""
+    observations = (observations or _READ) if scored else []
     if flat:
         extraction = {"playbook_observations": observations}
     else:
-        extraction = {"intelligence": {"playbook_observations": observations or []}}
+        extraction = {"intelligence": {"playbook_observations": observations}}
     memo = {
         "id": memo_id,
         "company_id": COMPANY,
         "user_id": user,
         "sales_motion_key": motion,
-        "screening_outcome": "connected",
+        "screening_outcome": screening,
+        "audio_duration": audio_duration,
         "extraction": extraction,
         "capture_started_at": at,
         "created_at": at,
@@ -165,12 +171,18 @@ def test_steps_follow_the_active_versions_order_and_ignore_unknown_step_ids():
 
 
 def test_observations_fall_back_to_the_flat_extraction_key():
-    memo, _ = _call("f-1", observations=_obs(s_greet="met"), flat=True)
-    assert memo_observations(memo) == {"s-greet": "met"}
+    flat, _ = _call("f-1", observations=_obs(s_greet="met"), flat=True)
     both, _ = _call("f-2", observations=_obs(s_greet="met"))
-    both["extraction"]["playbook_observations"] = _obs(s_greet="missed")
-    assert memo_observations(both) == {"s-greet": "met"}  # intelligence wins
-    assert memo_observations({"extraction": None}) == {}
+    both["extraction"]["playbook_observations"] = _obs(s_greet="missed")  # intelligence wins
+    first = step_insights([flat, both], STEPS)[0]
+    assert (first["met"], first["missed"]) == (2, 0)
+    assert step_insights([{"id": "x", "created_at": THIS_WEEK, "extraction": None}], STEPS)[0]["met"] == 0
+
+
+def test_improvable_counts_as_done_like_the_reps_coaching():
+    memo, _ = _call("i-1", observations=[{"step_id": "s-greet", "status": "met", "quality": "improvable"}])
+    first = step_insights([memo], STEPS)[0]
+    assert (first["met"], first["missed"]) == (1, 0)
 
 
 def test_a_step_is_counted_once_per_call():
@@ -185,10 +197,12 @@ def test_a_step_is_counted_once_per_call():
 # --- which calls are considered -------------------------------------------------------
 
 
-def test_only_scored_calls_of_the_motion_in_the_period_and_company_are_considered():
+def test_only_read_conversations_of_the_motion_in_the_period_and_company_are_considered():
     calls = [
         _call("ok", observations=_obs(s_greet="met")),
         _call("unscored", observations=_obs(s_greet="met"), scored=False),
+        _call("short", observations=_obs(s_greet="missed"), audio_duration=20),
+        _call("voicemail", observations=_obs(s_greet="missed"), screening="voicemail"),
         _call("other-motion", motion="closing", observations=_obs(s_greet="met")),
         _call("last-week", at=LAST_WEEK, observations=_obs(s_greet="met")),
         _call("outsider", user="cccccccc-cccc-cccc-cccc-cccccccccccc", observations=_obs(s_greet="met")),
@@ -207,14 +221,7 @@ def test_month_reaches_back_to_the_first_and_the_week_does_not():
     assert _get(_supabase(calls), period="month").json()["calls"] == 1
 
 
-def test_the_latest_score_revision_decides_whether_a_call_is_scored():
-    _, score = _call("rev", observations=_obs(s_greet="met"))
-    later = {**score, "revision_seq": 2, "score": {"status": "unavailable"}}
-    assert scored_memo_ids([score, later]) == set()
-    assert scored_memo_ids([score]) == {"rev"}
-
-
-def test_memos_and_scores_are_read_in_pages(monkeypatch):
+def test_memos_are_read_in_pages(monkeypatch):
     monkeypatch.setattr(aggregate, "_PAGE_SIZE", 2)
     monkeypatch.setattr(aggregate, "_IN_BATCH", 2)
     calls = _many("p", 5, _obs(s_greet="met"))
@@ -271,7 +278,6 @@ def test_best_example_is_the_most_recent_call_not_the_latest_extraction():
     body = build_insights(
         period="week",
         memos=[older, newer],
-        scored_ids={"b-old", "b-new"},
         pattern_rows=[old_row, new_row],
         steps=[],
         entries=[],
@@ -343,13 +349,14 @@ def test_no_active_version_returns_empty_steps_but_still_the_objections():
         ]
 
 
-def test_a_failed_read_is_a_503_not_a_page_of_zeros():
+@pytest.mark.parametrize("table", ["memos", "interaction_patterns"])
+def test_a_failed_read_is_a_503_not_a_page_of_zeros(table):
     class Down:
         def __init__(self, inner):
             self._inner = inner
 
         def table(self, name):
-            if name == "memo_scores":
+            if name == table:
                 raise RuntimeError("db down")
             return self._inner.table(name)
 

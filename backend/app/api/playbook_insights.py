@@ -13,7 +13,8 @@ from fastapi.responses import JSONResponse
 from app.deps import get_membership, get_supabase
 from app.services.coaching.rep_coaching_reads import load_published_playbook
 from app.services.company import Membership
-from app.services.playbooks.insights import build_insights, consider_memos, scored_memo_ids
+from app.services.coaching.crm_meetings import apply_rep_meetings
+from app.services.playbooks.insights import build_insights, consider_memos
 from app.services.team_insights.aggregate import _TEAM_ROLES, _paged, _paged_in, load_team_reps
 from app.services.team_insights.period import period_windows
 
@@ -23,7 +24,10 @@ router = APIRouter(prefix="/api/v1/playbooks", tags=["playbooks"])
 
 # capture_started_at <= created_at, so created_at >= start - margin loses no call.
 _CAPTURE_MARGIN = timedelta(days=1)
-_MEMO_COLUMNS = "id,user_id,company_id,sales_motion_key,capture_started_at,created_at,extraction"
+_MEMO_COLUMNS = (
+    "id,user_id,company_id,sales_motion_key,screening_outcome,audio_duration,capture_started_at,created_at,"
+    "hubspot_contact_id,hubspot_deal_id,extraction"
+)
 
 
 def _now() -> datetime:
@@ -35,10 +39,12 @@ def _load_memos(supabase, company_id: str, member_ids: list[str], motion: str, s
     Scoped like team adherence: the company's members' memos (older ones have no company_id),
     or the company's own memos when the member list is unavailable."""
 
+    columns = [_MEMO_COLUMNS + ",rep_outcome"]  # rep_outcome (migration 062) when the column exists
+
     def build():
         query = (
             supabase.table("memos")
-            .select(_MEMO_COLUMNS)
+            .select(columns[0])
             .eq("sales_motion_key", motion)
             .gte("created_at", since.isoformat())
         )
@@ -48,7 +54,13 @@ def _load_memos(supabase, company_id: str, member_ids: list[str], motion: str, s
             query = query.eq("company_id", company_id)
         return query.order("created_at").order("id")
 
-    return _paged(build)
+    try:
+        memos = _paged(build)
+    except Exception:
+        columns[0] = _MEMO_COLUMNS
+        memos = _paged(build)
+    # The meeting step is settled by what the rep declared, as in their own coaching.
+    return apply_rep_meetings(supabase, memos)
 
 
 @router.get("/{sales_motion_key}/insights")
@@ -73,18 +85,7 @@ def get_playbook_insights(
         candidates = _load_memos(
             supabase, membership.company_id, member_ids, sales_motion_key, window.start - _CAPTURE_MARGIN
         )
-        scores = _paged_in(
-            supabase,
-            "memo_scores",
-            "memo_id,revision_seq,score,created_at",
-            "memo_id",
-            [str(memo["id"]) for memo in candidates if memo.get("id")],
-            ("memo_id", "revision_seq"),
-        )
-        scored_ids = scored_memo_ids(scores)
-        considered = consider_memos(
-            candidates, motion=sales_motion_key, scored_ids=scored_ids, start=window.start, end=window.end
-        )
+        considered = consider_memos(candidates, motion=sales_motion_key, start=window.start, end=window.end)
         pattern_rows = _paged_in(
             supabase,
             "interaction_patterns",
@@ -100,7 +101,6 @@ def get_playbook_insights(
         build_insights(
             period=period,
             memos=considered,
-            scored_ids=scored_ids,
             pattern_rows=pattern_rows,
             steps=playbook["steps"],
             entries=playbook["entries"],

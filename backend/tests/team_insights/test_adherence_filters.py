@@ -130,7 +130,10 @@ def _memo(memo_id: str, user_id: str, motion: str, screening: str = "connected")
         "user_id": user_id,
         "sales_motion_key": motion,
         "screening_outcome": screening,
-        "extraction": {},
+        # One step done: team adherence reads the call's own verdicts, like the rep's coaching.
+        "extraction": {"intelligence": {"playbook_observations": [
+            {"step_id": "s1", "label": "S1", "criterion": "S1", "status": "met"},
+        ]}},
         "intelligence": {},
         "capture_started_at": _WEEK.isoformat(),
         "created_at": _WEEK.isoformat(),
