@@ -95,6 +95,8 @@ export type VocifyDesktopBridge = {
     dialOnPhone(number: string): Promise<{ ok: boolean; reason?: string }>;
     /** Opens where calls from the phone are set up (Mac: FaceTime; Windows: Default apps). Missing in older builds. */
     setup?(): Promise<unknown>;
+    /** Opens where the call's microphone is chosen (Mac: FaceTime; Windows: Sound › Recording). Missing in older builds. */
+    micSettings?(): Promise<unknown>;
   };
   /** The global record shortcut. Missing in older builds. */
   shortcut?: {
