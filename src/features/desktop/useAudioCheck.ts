@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getDesktopBridge } from "@/lib/desktop-host";
+import { desktopPlatform, getDesktopBridge } from "@/lib/desktop-host";
 import { hookMicPcm, LIVE_STT_SAMPLE_RATE } from "@/lib/copilot-channel-stt";
 import { peak, pcmLevel, SILENT_PEAK } from "@/lib/audio-health";
 
@@ -78,7 +78,9 @@ export function useAudioCheck() {
           text:
             started.reason === "needs_restart"
               ? "Call audio is on but Vocify needs a restart to use it."
-              : "Vocify couldn't capture call audio. Allow it above.",
+              : desktopPlatform() === "darwin"
+                ? "Vocify couldn't capture call audio. Allow it above."
+                : "Vocify couldn't capture call audio. Check a speaker or headset is connected.",
         },
       );
     }
