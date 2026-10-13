@@ -11,14 +11,14 @@ describe("visibleSettingsTabs", () => {
   it("gives the Head of Sales every tab", () => {
     assert.deepEqual(
       visibleSettingsTabs(true).map((t) => t.id),
-      ["crm", "calling", "offer", "glossary", "brief", "team", "usage", "billing"],
+      ["crm", "calling", "offer", "transcription", "brief", "team", "usage", "billing"],
     );
   });
 
   it("keeps the spec's order", () => {
     assert.deepEqual(
       SETTINGS_TABS.map((t) => t.id),
-      ["crm", "calling", "calendar", "offer", "glossary", "brief", "team", "usage", "billing", "system"],
+      ["crm", "calling", "calendar", "offer", "transcription", "brief", "team", "usage", "billing", "system"],
     );
   });
 
@@ -43,7 +43,7 @@ describe("visibleSettingsTabs", () => {
   it("gives a rep only the personal tabs", () => {
     assert.deepEqual(
       visibleSettingsTabs(false).map((t) => t.id),
-      ["calling", "glossary", "usage"],
+      ["calling", "transcription", "usage"],
     );
   });
 });
@@ -77,13 +77,13 @@ describe("isSettingsPathAllowed", () => {
 
   it("lets a rep onto their personal tabs, including nested paths", () => {
     assert.equal(isSettingsPathAllowed("/dashboard/settings/calling", false), true);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/glossary", false), true);
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/transcription", false), true);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/usage", false), true);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/usage/anything", false), true);
   });
 
   it("does not let the CRM index match a sibling path by prefix", () => {
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/glossary", true), true);
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/transcription", true), true);
     // The index tab uses exact match, so it never swallows a sibling route.
     assert.equal(isSettingsPathAllowed("/dashboard/settings/whatever", true), false);
   });
