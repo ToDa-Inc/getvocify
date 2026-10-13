@@ -3,7 +3,7 @@ import { Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
-import { RecordShortcutSettings } from "@/components/dashboard/settings/RecordShortcutSettings";
+import { isDesktopHost } from "@/lib/desktop-host";
 import { isManagerRole } from "@/lib/nav";
 import { firstAllowedSettingsPath, isSettingsPathAllowed, visibleSettingsTabs } from "@/lib/settings-nav";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -30,12 +30,14 @@ const SettingsLayout = () => {
   const isManager = isManagerRole(user?.company?.role);
   const features = useMemo(() => user?.company?.features ?? [], [user?.company?.features]);
 
-  const sections = useMemo(() => visibleSettingsTabs(isManager, features), [isManager, features]);
+  // The desktop app adds System: this computer's permissions, audio check and shortcut.
+  const host = useMemo(() => ({ desktop: isDesktopHost() }), []);
+  const sections = useMemo(() => visibleSettingsTabs(isManager, features, host), [isManager, features, host]);
   // A member who navigates straight to a manager-only settings URL (bookmark, typed
   // link) lands on their first allowed tab instead. Skip while `user` hasn't loaded
   // yet, so a manager never flashes to Calling before their role is known.
   const needsRedirect =
-    Boolean(user) && !paywalled && !isSettingsPathAllowed(location.pathname, isManager, features);
+    Boolean(user) && !paywalled && !isSettingsPathAllowed(location.pathname, isManager, features, host);
 
   useEffect(() => {
     if (paywalled) return;
@@ -98,12 +100,11 @@ const SettingsLayout = () => {
                 </NavLink>
               ))}
             </nav>
-            <RecordShortcutSettings />
           </div>
         )}
 
         <div className="min-w-0">
-          {needsRedirect ? <Navigate to={firstAllowedSettingsPath(isManager, features)} replace /> : <Outlet />}
+          {needsRedirect ? <Navigate to={firstAllowedSettingsPath(isManager, features, host)} replace /> : <Outlet />}
         </div>
       </div>
     </div>
