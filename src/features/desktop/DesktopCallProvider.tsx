@@ -4,6 +4,7 @@ import { useAuth } from "@/features/auth";
 import { useCallingConfig } from "@/features/calls/useCallingConfig";
 import { callEngine } from "@/features/calling/callEngine";
 import { useDesktopMeeting } from "@/features/desktop/DesktopMeetingProvider";
+import { useDesktopCalling } from "@/features/desktop/useDesktopCalling";
 import { liveTickets } from "@/features/desktop/liveTickets";
 import { api } from "@/shared/lib/api-client";
 import { ROUTES } from "@/shared/lib/constants";
@@ -19,6 +20,7 @@ import {
   onScreenFromPreview,
   outgoingCallerId,
   parseCallCommand,
+  phoneTargetFor,
   type CallingAccess,
   type IslandBrief,
   type IslandCallBrief,
@@ -39,11 +41,16 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
   const { t } = useLanguage();
   const { config } = useCallingConfig();
   const meeting = useDesktopMeeting();
+  const { calling } = useDesktopCalling();
 
   const access: CallingAccess = {
     canDial: companyCanUseDialer(user?.company) && config?.enabled !== false,
     callerId: outgoingCallerId(config?.callerIds),
+    // Off is off: without an app for calls the island says so when Call is pressed, never falls back to Vocify.
+    onPhone: calling?.onPhone === true,
   };
+  const phoneAppRef = useRef(calling?.phoneApp ?? null);
+  phoneAppRef.current = calling?.phoneApp ?? null;
   const accessRef = useRef(access);
   accessRef.current = access;
   const previewRef = useRef<CallPreview | null>(null);
@@ -107,13 +114,13 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // The plan or the caller ID changed (e.g. the rep just verified a number): redraw the offer.
-  const { canDial, callerId } = access;
+  // The plan, the caller ID or Vocify calling changed (e.g. the rep just verified a number): redraw the offer.
+  const { canDial, callerId, onPhone } = access;
   useEffect(() => {
     if (!previewRef.current) return;
-    const onScreen = onScreenFromPreview(previewRef.current, { canDial, callerId });
+    const onScreen = onScreenFromPreview(previewRef.current, { canDial, callerId, onPhone });
     getDesktopBridge()?.shell.setState({ onScreen: onScreen && briefRef.current ? { ...onScreen, brief: briefRef.current } : onScreen });
-  }, [canDial, callerId]);
+  }, [canDial, callerId, onPhone]);
 
   // The island's call commands.
   useEffect(() => {
@@ -125,6 +132,16 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
       if (command.kind === "dial") {
         // Never on top of a meeting being recorded (the island only offers it at rest, but say so anyway).
         if (meetingRef.current.phase !== "idle") return;
+        // Vocify calling off: the call opens on the rep's own phone, and the island records it with this contact.
+        const phone = phoneTargetFor(previewRef.current, accessRef.current);
+        if (phone && bridge.calling) {
+          const contact = phone.contactId ? { hubspotId: phone.contactId, name: phone.name } : null;
+          meetingRef.current.expectPhoneCall({ contact, source: { name: phoneAppRef.current ?? "Phone", kind: "call" } });
+          void bridge.calling.dialOnPhone(phone.to).then((dialed) => {
+            if (!dialed.ok) meetingRef.current.expectPhoneCall(null);
+          });
+          return;
+        }
         const target = dialTargetFor(previewRef.current, accessRef.current);
         if (!target) return;
         // The brief stays with this call, whatever tab the rep moves to while on it.

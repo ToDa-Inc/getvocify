@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { IDLE_CALL, reduceCall, type CallEngineState, type DialTarget } from "./call-engine-state.ts";
 import type { CallPreview } from "./call-contact.ts";
-import { crmRecordKey, dialIsland, dialTargetFor, islandBrief, onScreenFromPreview, outgoingCallerId, parseCallCommand } from "./desktop-call.ts";
+import { crmRecordKey, dialIsland, dialTargetFor, islandBrief, onScreenFromPreview, outgoingCallerId, parseCallCommand, phoneTargetFor } from "./desktop-call.ts";
 
 const CONTACT_PAGE: CallPreview = {
   provider: "hubspot",
@@ -79,6 +79,28 @@ describe("dialTargetFor", () => {
 
   it("is null unless the contact is callable", () => {
     assert.equal(dialTargetFor(CONTACT_PAGE, { canDial: true, callerId: null }), null);
+  });
+});
+
+describe("calls on the rep's own phone (Vocify calling off)", () => {
+  const ON_PHONE = { canDial: false, callerId: null, onPhone: true };
+
+  it("offers the contact on screen without a caller ID or the dialer plan", () => {
+    const onScreen = onScreenFromPreview(CONTACT_PAGE, ON_PHONE);
+    assert.equal(onScreen?.state, "callable");
+    assert.equal(onScreen?.callerId, null);
+    assert.deepEqual(phoneTargetFor(CONTACT_PAGE, ON_PHONE), { to: "+34600111222", name: "Ana Ruiz", contactId: "901" });
+  });
+
+  it("never sends that call through Vocify, and a Vocify call never to the phone", () => {
+    assert.equal(dialTargetFor(CONTACT_PAGE, { ...ON_PHONE, callerId: "+34910000000", canDial: true }), null);
+    assert.equal(phoneTargetFor(CONTACT_PAGE, ACCESS), null);
+  });
+
+  it("still needs a contact with a phone", () => {
+    const noPhone = { ...CONTACT_PAGE, callee: { contact_id: "901", name: "Ana Ruiz", phone: null } };
+    assert.equal(onScreenFromPreview(noPhone, ON_PHONE)?.state, "no_phone");
+    assert.equal(phoneTargetFor(noPhone, ON_PHONE), null);
   });
 });
 
