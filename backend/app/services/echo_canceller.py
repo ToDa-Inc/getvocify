@@ -40,6 +40,9 @@ MAX_LAG_MS = 1000
 CALL_RMS = 300.0
 MIC_RMS = 40.0
 CONFIDENCE = 12.0
+# Before any delay is taken, one measure this clear is enough: on a real call the echo measured 69 to 191, the one
+# wrong delay ever taken 48.6. (Three agreeing measures take 9 s, and the call's echo goes through meanwhile.)
+SURE = 60.0
 # A new delay is taken after this many measures agree (within `AGREE_MS`), and only if it moves the lead this much.
 AGREE = 3
 AGREE_MS = 30
@@ -90,6 +93,7 @@ class EchoCanceller:
         self._heard = {"mic": 0, "call": 0}
         self._next_measure = RATE * MEASURE_S
         self._votes: list[int] = []
+        self._locked = False
         self._max_gain = max_gain
         self._peak = TARGET_PEAK / max_gain
         self._gain = max_gain
@@ -177,8 +181,9 @@ class EchoCanceller:
         if confidence < CONFIDENCE:
             return
         self._votes = [v for v in self._votes if abs(v - lag) <= RATE * AGREE_MS // 1000] + [lag]
-        if len(self._votes) < AGREE:
+        if len(self._votes) < AGREE and (self._locked or confidence < SURE):
             return
+        self._locked = True
         lag = int(np.median(self._votes))
         self.stats["lag_ms"] = lag * 1000 // RATE
         # Negative: the call arrives that much too early, so it is the call that is held back.

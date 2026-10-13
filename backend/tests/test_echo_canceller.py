@@ -83,6 +83,14 @@ def test_the_delay_is_measured_when_one_side_arrives_ahead_of_the_other():
     assert canceller.stats["lag_ms"] == 60
 
 
+def test_one_clear_measure_is_enough_to_line_up_at_the_start():
+    # The browser's mic hears the call ~390 ms after the call audio arrives: lined up after one measure, not three.
+    mic, call = _meeting(12, 10, 390)
+    _, canceller = _run(mic[: 4 * RATE], call[: 4 * RATE], max_gain=1)
+    assert canceller.stats["realigned"] == 1
+    assert abs(canceller.stats["lag_ms"] - 390) <= 20
+
+
 def test_without_call_audio_the_mic_passes_through():
     mic = _voice(3, 3)
     out, _ = _run(mic, np.zeros_like(mic), max_gain=1)

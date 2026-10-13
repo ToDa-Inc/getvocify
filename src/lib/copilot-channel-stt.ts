@@ -5,8 +5,11 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8888/api/v1";
 /** The live transcription service, apart from the API so nothing there can stall a call. */
 const LIVE_API_URL = import.meta.env.VITE_LIVE_API_URL || API_URL;
 
-/** `echoCancel`: the mic is the desktop app's own, captured with the call, so the server takes the call's echo out of it. */
-export function liveTranscriptionWsUrl(userId: string, { echoCancel = false }: { echoCancel?: boolean } = {}): string {
+/**
+ * `echoCancel`: a meeting heard through the computer, so the server takes the call's echo out of the mic. "native": the
+ * desktop app's own raw mic (the server also raises its level); "page": the page's mic, already leveled by the browser.
+ */
+export function liveTranscriptionWsUrl(userId: string, { echoCancel }: { echoCancel?: "native" | "page" } = {}): string {
   const ws = LIVE_API_URL.replace(/^http/, "ws").replace(/\/api\/v1\/?$/, "");
   const url = new URL(`${ws}/api/v1/transcription/live`);
   url.searchParams.set("user_id", userId);
@@ -16,6 +19,7 @@ export function liveTranscriptionWsUrl(userId: string, { echoCancel = false }: {
   // Each side is checked against the profile's call languages and restarts in its own (ChannelReset).
   url.searchParams.set("detect", "1");
   if (echoCancel) url.searchParams.set("aec", "1");
+  if (echoCancel === "page") url.searchParams.set("mic", "page");
   return url.toString();
 }
 

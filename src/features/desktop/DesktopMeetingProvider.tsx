@@ -20,7 +20,6 @@ import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/
 import { api } from "@/shared/lib/api-client";
 import { liveTickets } from "./liveTickets";
 import { ROUTES } from "@/shared/lib/constants";
-import { EchoSuppressor } from "@/lib/echo-suppressor";
 import { SteadyTails } from "@/lib/steady-tail";
 import {
   encodeChannelAudio,
@@ -291,8 +290,6 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const firstWordsRef = useRef<{ rep?: boolean; prospect?: boolean }>({});
   /** Who the meeting app showed speaking, timed on the other side's audio clock (page recording only). */
   const speakersRef = useRef<{ timeline: SpeakerTimeline; clockAt: number | null } | null>(null);
-  /** Keeps the call out of the microphone when the page records both sides itself (a meeting heard through speakers). */
-  const echoRef = useRef<EchoSuppressor | null>(null);
   /** The live service's pass for this recording, sent first on every connection. */
   const ticketRef = useRef<string | null>(null);
   /** The Mac app is recording this meeting itself; the page only mirrors its transcript. */
@@ -304,6 +301,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const micRef = useRef<MediaStream | null>(null);
   /** The desktop app captures the mic with the call (raw, on the call audio's clock): the server takes the echo out. */
   const nativeMicRef = useRef(false);
+  /** A meeting recorded here (the mic plus what the computer plays): the server takes the call's echo out of the mic. */
+  const echoCancelRef = useRef(false);
   const releaseAudioRef = useRef<Array<() => void>>([]);
   const timerRef = useRef<number | null>(null);
   const reconnectsRef = useRef(0);
@@ -499,11 +498,6 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     releaseAudioRef.current.forEach((release) => release());
     releaseAudioRef.current = [];
     speakersRef.current = null;
-    if (echoRef.current) {
-      // How much of the microphone was the call's echo: the app's log is where a Windows test shows it worked.
-      getDesktopBridge()?.shell.log?.("echo:suppressed", echoRef.current.stats());
-      echoRef.current = null;
-    }
     micRef.current?.getTracks().forEach((track) => track.stop());
     micRef.current = null;
     await getDesktopBridge()?.systemAudio.stop();
@@ -514,7 +508,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const openSocket = useCallback(() => {
     // A new session times its audio from zero again: who spoke is timed from its first audio too.
     if (speakersRef.current) speakersRef.current = { timeline: new SpeakerTimeline(), clockAt: null };
-    const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current, { echoCancel: nativeMicRef.current }));
+    const echoCancel = echoCancelRef.current ? (nativeMicRef.current ? "native" : "page") : undefined;
+    const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current, { echoCancel }));
     wsRef.current = ws;
     ws.onopen = () => {
       if (vocifyCallRef.current) reportCallStep("session-socket-open");
@@ -1182,8 +1177,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         // A Vocify call knows who it is with; a meeting recorded here is named from the meeting app's readings.
         speakersRef.current = call ? null : { timeline: new SpeakerTimeline(), clockAt: null };
         // A Vocify call has the two sides as separate streams already; a meeting is the mic plus what the PC plays.
-        // The server takes the echo out of the app's own mic (it has the call on the same clock); the page's mic, here.
-        echoRef.current = call || nativeMicRef.current ? null : new EchoSuppressor();
+        // The server takes the call's echo out of the mic (it measures how late the mic hears it), so no filter here.
+        echoCancelRef.current = !call;
         // What the app's raw mic sounds like once the server raises it: what the meter and the checks measure.
         const micGain = nativeMicRef.current ? new MicGain() : null;
         openSocket();
@@ -1195,15 +1190,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         const activity = { them: false, you: false, themPeak: 0, youPeak: 0, at: performance.now() };
         const send = (channel: MeetingSpeaker) => (raw: ArrayBuffer) => {
           const side = channel === "rep" ? "you" : "them";
-          let pcm = raw;
+          const pcm = raw;
           // Measured as it will be heard (the app's raw mic raised as the server does); always sent raw.
           const heard = side === "you" && micGain ? (micGain.apply(new Int16Array(raw)).buffer as ArrayBuffer) : raw;
-          const echo = echoRef.current;
-          if (echo) {
-            // The mic hears the meeting through the speakers: what is only that echo is not the rep.
-            if (channel === "prospect") echo.pushCall(new Int16Array(heard), performance.now());
-            else pcm = echo.process(new Int16Array(heard), performance.now()).buffer as ArrayBuffer;
-          }
           // Paused: send silence so the session stays open and both channels keep one clock.
           const audio = pausedRef.current ? new ArrayBuffer(pcm.byteLength) : pcm;
           if (!pausedRef.current) {

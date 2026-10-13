@@ -723,6 +723,7 @@ class ChannelSessions:
         user_id: Optional[str] = None,
         service: str = "live",
         echo_cancel: bool = False,
+        echo_raise: bool = True,
     ) -> None:
         self.client = client_ws
         # A meeting heard through speakers: the call is taken out of the rep's mic before it is transcribed.
@@ -731,7 +732,7 @@ class ChannelSessions:
             try:
                 from app.services.echo_canceller import EchoCanceller
 
-                self.echo = EchoCanceller()
+                self.echo = EchoCanceller() if echo_raise else EchoCanceller(max_gain=1)
             except Exception:
                 # Never at the cost of the call: without it the mic is transcribed as it arrives.
                 logger.exception("Live channels: echo canceller unavailable, transcribing the mic as it is")
