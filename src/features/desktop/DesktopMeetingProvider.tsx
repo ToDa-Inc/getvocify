@@ -95,6 +95,12 @@ import { isBrokenGrant, reportCallAudio, reportMicSilent } from "@/lib/audio-fix
 
 /** The app's own mic that is only digital silence this long has not been handed over: the page opens its own. */
 const NATIVE_MIC_SILENT_MS = 3000;
+/**
+ * Off: the app's own mic (captured with the call, for the server's echo removal) is not asked for. In a signed build
+ * on a Mac (2026-10-14) macOS never ran the capture with the mic, and building it disturbed the mic for the page too
+ * ("Your mic isn't sending audio"). Back on once it records a real call in an installed build.
+ */
+const ASK_NATIVE_MIC = false;
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
 
@@ -1088,7 +1094,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         if (!call) {
           // Apps that capture the mic with the call (`nativeMic`) are asked to; the others, or one that could not
           // (no microphone permission yet), leave it to the page, which opens it first as before.
-          const askNative = Boolean(bridge.nativeMic);
+          const askNative = ASK_NATIVE_MIC && Boolean(bridge.nativeMic);
           if (!askNative) await openMic();
 
           let native = await bridge.systemAudio.start({ mic: askNative });
