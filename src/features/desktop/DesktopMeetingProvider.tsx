@@ -88,6 +88,7 @@ import { callsApi } from "@/features/calls/api";
 import { callEngine, reportCallStep } from "@/features/calling/callEngine";
 import { isCallUp } from "@/lib/call-engine-state";
 import { AudioHealth, pcmLevel, type AudioIssue } from "@/lib/audio-health";
+import { isBrokenGrant, reportCallAudio, reportMicSilent } from "@/lib/audio-fix";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
 
@@ -208,6 +209,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const [audioIssue, setAudioIssue] = useState<AudioIssue>(null);
   const healthRef = useRef<AudioHealth | null>(null);
   const audioIssueRef = useRef<AudioIssue>(null);
+  /** This recording's mic has sent sound: a warning left from an earlier one is cleared once. */
+  const micHeardRef = useRef(false);
   /** The call audio's process died (the Mac's own report); silence checks never clear that. */
   const callAudioDiedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -454,6 +457,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     healthRef.current = null;
     callAudioDiedRef.current = false;
     audioIssueRef.current = null;
+    micHeardRef.current = false;
     setAudioIssue(null);
     releaseAudioRef.current.forEach((release) => release());
     releaseAudioRef.current = [];
@@ -1003,7 +1007,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         if (reason === "needs_restart" && isMac) {
           return new PermissionMissing("Call audio is on but Vocify needs a restart. Quit (⌘Q) and reopen, then record again.");
         }
-        return new PermissionMissing("Vocify couldn't capture call audio. Check it in Settings › System, then record again.");
+        if (!isMac) {
+          return new PermissionMissing("Vocify couldn't capture call audio. Check a speaker or headset is connected, then record again.");
+        }
+        return new PermissionMissing("macOS didn't hand Vocify the call's audio. Follow the steps in Settings › System, then record again.");
       };
 
       // The live service takes no session of its own: a ticket from the API, valid for the day.
@@ -1041,6 +1048,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             native = await bridge.systemAudio.start();
             reportCallStep("system-audio-retry", { ok: native.ok, reason: native.reason ?? null, backend: native.backend ?? null });
           }
+          // What the permission rows show next: the fix steps after a refusal while allowed, "Ready" once it works.
+          if (native.ok && native.backend !== "none") reportCallAudio("worked");
+          else if (!native.ok && desktopPlatform() === "darwin" && isBrokenGrant(native.reason)) reportCallAudio("failed");
           if (!native.ok) throw systemAudioError(native.reason);
         }
 
@@ -1166,11 +1176,17 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         );
         levelRef.current = { you: you * 0.6, them: them * 0.6 };
         const health = healthRef.current;
+        if (health && !micHeardRef.current && health.everHeard("you")) {
+          micHeardRef.current = true;
+          reportMicSilent(false);
+        }
         if (health && !pausedRef.current) {
           const issue = health.issue(performance.now());
           if (issue !== audioIssueRef.current) {
             audioIssueRef.current = issue;
             setAudioIssue(issue);
+            // Remembered for Settings: the mic row says it went silent until it sends sound again.
+            if (issue === "mic") reportMicSilent(true);
             // The island stays on it until the audio is back: the window may be hidden behind the call.
             bridge.shell.setState({ micSilent: issue === "mic", callAudioLost: issue === "call" || callAudioDiedRef.current });
           }

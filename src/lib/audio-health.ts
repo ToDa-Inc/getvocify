@@ -46,6 +46,7 @@ export class AudioHealth {
   private startedAt: number;
   /** Any sound at all from the other side since the start: after that, their silence is just listening. */
   private themEverHeard = false;
+  private youEverHeard = false;
   private talkedMs = 0;
   private lastSpokeAt: number | null = null;
   private readonly watchCall: boolean;
@@ -63,6 +64,7 @@ export class AudioHealth {
     if (loudest > SILENT_PEAK) {
       this.soundAt[side] = now;
       if (side === "them") this.themEverHeard = true;
+      else this.youEverHeard = true;
     }
     if (side === "you" && loudest >= SPEAKING_PEAK) {
       // Time between two loud chunks counts as talking when they are close (a sentence, not two).
@@ -75,6 +77,11 @@ export class AudioHealth {
   restart(now: number): void {
     this.soundAt = { you: now, them: now };
     this.lastSpokeAt = null;
+  }
+
+  /** Any sound from this side since the start. */
+  everHeard(side: "you" | "them"): boolean {
+    return side === "you" ? this.youEverHeard : this.themEverHeard;
   }
 
   issue(now: number): AudioIssue {

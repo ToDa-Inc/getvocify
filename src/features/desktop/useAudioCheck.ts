@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { desktopPlatform, getDesktopBridge } from "@/lib/desktop-host";
 import { hookMicPcm, LIVE_STT_SAMPLE_RATE } from "@/lib/copilot-channel-stt";
 import { peak, pcmLevel, SILENT_PEAK } from "@/lib/audio-health";
+import { isBrokenGrant, reportCallAudio, reportMicSilent } from "@/lib/audio-fix";
 
 /** Long enough to say something and play a few seconds of a video; it stops by itself after. */
 const CHECK_MS = 20_000;
@@ -19,6 +20,7 @@ export function useAudioCheck() {
   const [problem, setProblem] = useState<{ side: Side; text: string } | null>(null);
   const releaseRef = useRef<(() => void)[]>([]);
   const levelRef = useRef({ you: 0, them: 0 });
+  const heardRef = useRef({ you: false, them: false });
   /** Bumped by every start and stop: a start still opening devices when stopped lets go of them. */
   const runRef = useRef(0);
   /** A recording took the call audio over: stopping the check must not stop the recording's capture. */
@@ -45,12 +47,17 @@ export function useAudioCheck() {
       else release();
     };
     setProblem(null);
-    setHeard({ you: false, them: false });
+    heardRef.current = { you: false, them: false };
+    setHeard(heardRef.current);
     setRunning(true);
 
     const hear = (side: Side) => (pcm: ArrayBuffer) => {
       levelRef.current[side] = Math.max(levelRef.current[side] * 0.85, pcmLevel(pcm));
-      if (peak(new Int16Array(pcm)) > SILENT_PEAK) setHeard((prev) => (prev[side] ? prev : { ...prev, [side]: true }));
+      if (peak(new Int16Array(pcm)) > SILENT_PEAK && !heardRef.current[side]) {
+        heardRef.current = { ...heardRef.current, [side]: true };
+        setHeard(heardRef.current);
+        if (side === "you") reportMicSilent(false);
+      }
     };
 
     try {
@@ -68,6 +75,8 @@ export function useAudioCheck() {
     }
 
     const started = await bridge.systemAudio.start().catch(() => ({ ok: false, reason: undefined }));
+    if (started.ok) reportCallAudio("worked");
+    else if (desktopPlatform() === "darwin" && isBrokenGrant(started.reason)) reportCallAudio("failed");
     if (started.ok) {
       const off = bridge.systemAudio.onPcm(hear("them"));
       keep(() => {
@@ -82,7 +91,9 @@ export function useAudioCheck() {
             started.reason === "needs_restart"
               ? "Call audio is on but Vocify needs a restart to use it."
               : desktopPlatform() === "darwin"
-                ? "Vocify couldn't capture call audio. Allow it above."
+                ? isBrokenGrant(started.reason)
+                  ? "macOS didn't hand Vocify the call's audio. Follow the steps above."
+                  : "Vocify couldn't capture call audio. Allow it above."
                 : "Vocify couldn't capture call audio. Check a speaker or headset is connected.",
         },
       );
