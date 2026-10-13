@@ -1,5 +1,17 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ChevronDown } from "lucide-react";
+import {
+  ArrowRight,
+  BookOpen,
+  ChevronDown,
+  CircleAlert,
+  CircleCheck,
+  CircleX,
+  Lightbulb,
+  MessageCircle,
+  Quote as QuoteIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Segmented } from "@/components/ui/segmented";
 import { useLanguage } from "@/lib/i18n";
@@ -11,18 +23,30 @@ import {
   fill,
   improveBeforeLine,
   improveCountLine,
-  stateView,
   type CoachCall,
   type CoachCalls,
   type CoachImprove,
   type CoachSlip,
 } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { cn } from "@/lib/utils";
 import { CoachEmpty, CoachError, CoachLoading } from "./CoachingState";
 import { useCoachCalls } from "./useRepCoaching";
 
-const TONE_TEXT = { success: "text-success", warning: "text-warning", destructive: "text-destructive", muted: "text-foreground" } as const;
 const ROW = "rounded-xl px-3 py-2.5 transition-colors duration-150 hover:bg-secondary/60 motion-reduce:transition-none";
+const CHIP = "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium leading-5";
+
+/** One look per state, everywhere: red for not done, amber for done halfway, green for done. */
+const SLIP_LOOK: Record<CoachSlip["state"], { icon: LucideIcon; chip: string; labelKey: "coachStateMissing" | "coachStateImprovable" }> = {
+  missing: { icon: CircleX, chip: THEME_TOKENS.colors.danger, labelKey: "coachStateMissing" },
+  improvable: { icon: CircleAlert, chip: THEME_TOKENS.colors.warning, labelKey: "coachStateImprovable" },
+};
+const TONE_TEXT = { success: "text-success", warning: "text-warning", destructive: "text-destructive", muted: "text-foreground" } as const;
+
+/** Not done first, then halfway: the order of the chips and of a call's detail. */
+function bySeverity(slips: CoachSlip[]): CoachSlip[] {
+  return [...slips].sort((a, b) => Number(a.state !== "missing") - Number(b.state !== "missing"));
+}
 
 function localeOf(language: string) {
   return language === "EN" ? "en-GB" : "es-ES";
@@ -40,94 +64,189 @@ function timeLabel(iso: string | null, language: string): string {
   return at.toLocaleTimeString(localeOf(language), { hour: "2-digit", minute: "2-digit" });
 }
 
-/** The moment of the call, as said. */
-function Quote({ text }: { text: string }) {
-  return <blockquote className="border-l-2 border-border pl-3 text-sm italic text-foreground/80">«{text}»</blockquote>;
+/** "No hecho" / "Mejorable" as a coloured pill with its icon. */
+function StatePill({ state }: { state: CoachSlip["state"] }) {
+  const { t } = useLanguage();
+  const look = SLIP_LOOK[state];
+  const Icon = look.icon;
+  return (
+    <span className={cn(CHIP, look.chip)}>
+      <Icon aria-hidden className="h-3 w-3" strokeWidth={2} />
+      {t.product[look.labelKey]}
+    </span>
+  );
 }
 
-/** What to try next time: the one line a rep should take into the next call. */
-function NextTime({ text }: { text: string }) {
-  const { t } = useLanguage();
+/** A labelled line: what it is on the left (icon + label), the content on the right; stacked on a phone. */
+function Field({ icon: Icon, label, children }: { icon: LucideIcon; label: ReactNode; children: ReactNode }) {
   return (
-    <p className="text-sm text-foreground">
-      <span className="font-medium text-success">{t.product.coachImproveHow}:</span> {text}
+    <div className="grid gap-1.5 sm:grid-cols-[10.5rem_minmax(0,1fr)] sm:gap-4">
+      <p className="flex items-start gap-1.5 pt-0.5 text-[12.5px] font-medium text-muted-foreground">
+        <Icon aria-hidden className="mt-px h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+        <span>{label}</span>
+      </p>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
+/** The moment of the call, as said: a quiet bubble, so it never reads like the advice. */
+function Moment({ text }: { text: string }) {
+  return (
+    <blockquote className={`${THEME_TOKENS.radius.control} bg-secondary/70 px-3.5 py-2.5 text-sm italic leading-relaxed text-foreground/80`}>
+      «{text}»
+    </blockquote>
+  );
+}
+
+/** What to try next time: the one line a rep should take into the next call, so it stands out in green. */
+function NextTime({ text }: { text: string }) {
+  return (
+    <p className={`${THEME_TOKENS.radius.control} border border-success/25 bg-success/10 px-3.5 py-2.5 text-sm leading-relaxed text-foreground`}>
+      {text}
     </p>
   );
 }
 
+/** The what / moment / next-time trio of a slipped step, the same in "En qué mejorar" and in each call. */
+function SlipFields({ reason, quote, advice, extra }: { reason: string | null; quote: string | null; advice: string | null; extra?: ReactNode }) {
+  const { t } = useLanguage();
+  const p = t.product;
+  return (
+    <>
+      {reason || extra ? (
+        <Field icon={MessageCircle} label={p.coachSlipWhat}>
+          {reason ? <p className="text-sm leading-relaxed text-foreground">{reason}</p> : null}
+          {extra}
+        </Field>
+      ) : null}
+      {quote ? (
+        <Field icon={QuoteIcon} label={p.coachSlipMoment}>
+          <Moment text={quote} />
+        </Field>
+      ) : null}
+      {advice ? (
+        <Field icon={Lightbulb} label={<span className="text-success">{p.coachImproveHow}</span>}>
+          <NextTime text={advice} />
+        </Field>
+      ) : null}
+    </>
+  );
+}
+
 /** One of the one or two steps slipped most: what the playbook asks, a call that shows it, how to do it. */
-function ImproveItem({ item, weeks }: { item: CoachImprove; weeks: number }) {
+function ImproveItem({ item, weeks, index }: { item: CoachImprove; weeks: number; index: number }) {
   const { t, language } = useLanguage();
   const p = t.product;
   const before = improveBeforeLine(p, item, weeks);
+  const example = item.example;
   return (
-    <article className="border-t border-border/60 py-5 first:border-t-0 first:pt-1" data-testid="coach-improve-item">
-      <div className="space-y-3">
-        <div className="space-y-0.5">
-          <h3 className={THEME_TOKENS.typography.itemTitle}>{item.label}</h3>
-          <p className="text-sm text-warning">{improveCountLine(p, item)}</p>
+    <article className="border-t border-border/60 py-6 first:border-t-0 first:pt-2" data-testid="coach-improve-item">
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden
+          className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold tabular-nums", THEME_TOKENS.colors.warning)}
+        >
+          {index + 1}
+        </span>
+        <div className="min-w-0 space-y-1">
+          <h3 className="text-[17px] font-semibold tracking-tight text-foreground">{item.label}</h3>
+          <p className="flex flex-wrap items-center gap-1.5">
+            {/* rounded-md, not a pill: on a phone this line wraps. */}
+            <span className={cn(CHIP, "rounded-md", item.missing ? THEME_TOKENS.colors.danger : THEME_TOKENS.colors.warning)}>
+              {improveCountLine(p, item)}
+            </span>
+            {before ? <span className="text-xs text-muted-foreground">{before}</span> : null}
+          </p>
         </div>
+      </div>
+      <div className="mt-5 space-y-3.5 sm:pl-10">
         {item.criterion ? (
-          <div>
-            <p className={THEME_TOKENS.typography.fieldLabel}>{p.coachImproveAsks}</p>
-            <p className={THEME_TOKENS.typography.itemBody}>{item.criterion}</p>
-          </div>
+          <Field icon={BookOpen} label={p.coachImproveAsks}>
+            <p className="text-sm leading-relaxed text-foreground/80">{item.criterion}</p>
+          </Field>
         ) : null}
-        {item.example ? (
-          <div className="space-y-1.5">
-            <p className={THEME_TOKENS.typography.fieldLabel}>
-              {fill(p.coachImproveInCall, { date: dayLabel(item.example.observed_at, language) })}
-              {" · "}
-              <Link to={`/dashboard/memos/${item.example.memo_id}`} className="underline-offset-2 hover:text-foreground hover:underline">
-                {p.coachOpenCall}
+        <SlipFields
+          reason={example?.reason ?? null}
+          quote={example?.quote ?? null}
+          advice={item.how}
+          extra={
+            example ? (
+              <Link
+                to={`/dashboard/memos/${example.memo_id}`}
+                className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                {fill(p.coachImproveInCall, { date: dayLabel(example.observed_at, language) })}
+                <ArrowRight aria-hidden className="h-3 w-3" />
               </Link>
-            </p>
-            {item.example.reason ? <p className={THEME_TOKENS.typography.itemBody}>{item.example.reason}</p> : null}
-            {item.example.quote ? <Quote text={item.example.quote} /> : null}
-          </div>
-        ) : null}
-        {item.how ? <NextTime text={item.how} /> : null}
-        {before ? <p className="text-xs text-muted-foreground">{before}</p> : null}
+            ) : null
+          }
+        />
       </div>
     </article>
   );
 }
 
-/** "No hecho: A · B · Mejorable: C", or "Todo hecho": what slipped, before opening the call. */
-function SlipLine({ slips }: { slips: CoachSlip[] }) {
+/** The steps of a call as coloured chips: not done in red, halfway in amber, or one green "Todo hecho". */
+function SlipChips({ call }: { call: CoachCall }) {
   const { t } = useLanguage();
   const p = t.product;
-  if (!slips.length) return <span className="text-success">{p.coachCallAllDone}</span>;
-  const missing = slips.filter((slip) => slip.state === "missing").map((slip) => slip.label);
-  const halfway = slips.filter((slip) => slip.state === "improvable").map((slip) => slip.label);
+  if (!call.applicable && !call.slips.length) {
+    // A follow-up or a call cut short where no step applied: nothing was judged, so nothing is "done".
+    return <p className="mt-1 text-[13px] text-muted-foreground">{p.coachCallNothingJudged}</p>;
+  }
+  const ordered = bySeverity(call.slips);
   return (
-    <span data-testid="coach-call-slips">
-      {missing.length ? <><span className="text-destructive">{p.coachStateMissing}:</span> {missing.join(" · ")}</> : null}
-      {missing.length && halfway.length ? " · " : null}
-      {halfway.length ? <><span className="text-warning">{p.coachStateImprovable}:</span> {halfway.join(" · ")}</> : null}
-    </span>
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5" data-testid="coach-call-slips">
+      {/* Grey, so it never reads as one of the coloured step chips; the count carries the tone. */}
+      <span className={cn(CHIP, THEME_TOKENS.colors.neutral)}>
+        {p.coachCardSteps}
+        <span className={cn("tabular-nums", TONE_TEXT[countTone(call.done, call.applicable)])}>
+          {call.done}/{call.applicable}
+        </span>
+      </span>
+      {call.meeting_agreed ? (
+        <span className={cn(CHIP, THEME_TOKENS.colors.success)}>
+          {p.coachCardMeeting} · {p.coachCardYes}
+        </span>
+      ) : null}
+      {ordered.length ? (
+        ordered.map((slip) => {
+          const look = SLIP_LOOK[slip.state];
+          const Icon = look.icon;
+          return (
+            <span key={slip.step_id} className={cn(CHIP, look.chip)} title={p[look.labelKey]}>
+              <Icon aria-hidden className="h-3 w-3" strokeWidth={2} />
+              <span className="sr-only">{p[look.labelKey]}: </span>
+              {slip.label}
+            </span>
+          );
+        })
+      ) : (
+        <span className={cn(CHIP, THEME_TOKENS.colors.success)}>
+          <CircleCheck aria-hidden className="h-3 w-3" strokeWidth={2} />
+          {p.coachCallAllDone}
+        </span>
+      )}
+    </div>
   );
 }
 
 function SlipDetail({ slip }: { slip: CoachSlip }) {
-  const { t } = useLanguage();
-  const view = stateView(slip.state);
   return (
-    <li className="space-y-1.5 py-2.5">
-      <p className="text-sm">
-        <span className="font-medium text-foreground">{slip.label}</span>
-        <span className={`ml-2 text-xs ${slip.state === "missing" ? "text-destructive" : "text-warning"}`}>
-          {String(t.product[view.labelKey])}
-        </span>
-      </p>
-      {slip.reason ? <p className={THEME_TOKENS.typography.itemBody}>{slip.reason}</p> : null}
-      {slip.quote ? <Quote text={slip.quote} /> : null}
-      {slip.advice ? <NextTime text={slip.advice} /> : null}
+    <li className="space-y-3 border-t border-border/50 py-5 first:border-t-0 first:pt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[15px] font-semibold text-foreground">{slip.label}</span>
+        <StatePill state={slip.state} />
+      </div>
+      <div className="space-y-3">
+        <SlipFields reason={slip.reason} quote={slip.quote} advice={slip.advice} />
+      </div>
     </li>
   );
 }
 
-/** One call of the record, as a row like Inicio's: what happened, steps done and what slipped, and when.
+/** One call of the record, as a row like Inicio's: what happened, steps as chips, and when.
  * A call with something to improve opens in place; one with nothing to improve opens the call. */
 function CallRow({ call }: { call: CoachCall }) {
   const { t, language } = useLanguage();
@@ -137,21 +256,7 @@ function CallRow({ call }: { call: CoachCall }) {
     <>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[15px] leading-snug text-foreground">{cleanSummaryLine(call.summary_line)}</p>
-        {!call.applicable && !call.slips.length ? (
-          // A follow-up or a call cut short where no step applied: nothing was judged, so nothing is "done".
-          <p className="mt-0.5 text-[13px] text-muted-foreground">{p.coachCallNothingJudged}</p>
-        ) : (
-          <p className="mt-0.5 line-clamp-2 text-[13px] text-muted-foreground">
-            {p.coachCardSteps}{" "}
-            <span className={`tabular-nums ${TONE_TEXT[countTone(call.done, call.applicable)]}`}>
-              {call.applicable ? `${call.done}/${call.applicable}` : "—"}
-            </span>
-            {/* Only a "yes": the meeting comes from what the rep declared, and no declaration is not a "no". */}
-            {call.meeting_agreed ? <span className="text-success"> · {p.coachCardMeeting} · {p.coachCardYes}</span> : null}
-            {" · "}
-            <SlipLine slips={call.slips} />
-          </p>
-        )}
+        <SlipChips call={call} />
       </div>
       <div className="w-[5.5rem] shrink-0 text-right text-xs leading-tight tabular-nums text-muted-foreground">
         <span className="block text-[13px] text-foreground/85">{dayLabel(call.observed_at, language)}</span>
@@ -175,13 +280,13 @@ function CallRow({ call }: { call: CoachCall }) {
   return (
     <li data-testid="coach-call">
       <Collapsible>
-        <CollapsibleTrigger className={`group flex w-full items-start gap-3.5 text-left ${ROW}`}>
+        <CollapsibleTrigger className={`group flex w-full items-start gap-3.5 text-left data-[state=open]:bg-secondary/60 ${ROW}`}>
           {body}
           <ChevronDown size={16} strokeWidth={1.5} className="mt-1 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
         </CollapsibleTrigger>
-        <CollapsibleContent className="ml-3 border-l border-border/60 pb-2 pl-4">
+        <CollapsibleContent className="px-3 pb-4">
           <ul>
-            {call.slips.map((slip) => (
+            {bySeverity(call.slips).map((slip) => (
               <SlipDetail key={slip.step_id} slip={slip} />
             ))}
           </ul>
@@ -230,8 +335,8 @@ export function CoachingCalls({ type, onType }: { type: string | null; onType: (
         </div>
         {data.improve.length ? (
           <div>
-            {data.improve.map((item) => (
-              <ImproveItem key={item.step_id} item={item} weeks={weeks} />
+            {data.improve.map((item, index) => (
+              <ImproveItem key={item.step_id} item={item} weeks={weeks} index={index} />
             ))}
           </div>
         ) : (
