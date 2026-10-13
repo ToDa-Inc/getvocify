@@ -93,7 +93,7 @@ export class AudioHealth {
   }
 }
 
-/** What the rep is told, and which system setting fixes it (none where no permission is involved). */
+/** What the rep is told, and which system page fixes it (Windows: its Sound settings for call audio). */
 export function audioIssueCopy(
   issue: Exclude<AudioIssue, null>,
   platform: "darwin" | "win32" | null,
@@ -112,8 +112,9 @@ export function audioIssueCopy(
         settings: "systemAudio",
       }
     : {
+        // Windows needs no permission for it: Vocify hears the default output, so the meeting app must play there.
         title: "No sound from the other side yet",
-        body: "Check the call's sound plays on this computer.",
-        settings: null,
+        body: "Vocify hears your default speaker or headset. Set Zoom or Teams to play through the same one.",
+        settings: "systemAudio",
       };
 }
