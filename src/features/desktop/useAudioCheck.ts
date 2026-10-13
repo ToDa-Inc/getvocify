@@ -21,6 +21,8 @@ export function useAudioCheck() {
   const levelRef = useRef({ you: 0, them: 0 });
   /** Bumped by every start and stop: a start still opening devices when stopped lets go of them. */
   const runRef = useRef(0);
+  /** A recording took the call audio over: stopping the check must not stop the recording's capture. */
+  const handedOverRef = useRef(false);
 
   const stop = useCallback(() => {
     runRef.current += 1;
@@ -35,6 +37,7 @@ export function useAudioCheck() {
     const bridge = getDesktopBridge();
     if (!bridge) return;
     stop();
+    handedOverRef.current = false;
     const run = runRef.current;
     /** Keeps a release while this run is current, else runs it now. */
     const keep = (release: () => void) => {
@@ -69,7 +72,7 @@ export function useAudioCheck() {
       const off = bridge.systemAudio.onPcm(hear("them"));
       keep(() => {
         off();
-        void bridge.systemAudio.stop();
+        if (!handedOverRef.current) void bridge.systemAudio.stop();
       });
     } else {
       setProblem((prev) =>
@@ -98,7 +101,13 @@ export function useAudioCheck() {
     });
   }, [stop]);
 
+  /** A recording is starting: end the check and leave the call audio to it (there is one capture). */
+  const yieldToRecording = useCallback(() => {
+    handedOverRef.current = true;
+    stop();
+  }, [stop]);
+
   useEffect(() => stop, [stop]);
 
-  return { running, levels, heard, problem, start, stop };
+  return { running, levels, heard, problem, start, stop, yieldToRecording };
 }

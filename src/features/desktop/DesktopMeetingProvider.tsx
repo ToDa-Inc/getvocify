@@ -1032,7 +1032,15 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             });
           micRef.current = micStream;
 
-          const native = await bridge.systemAudio.start();
+          let native = await bridge.systemAudio.start();
+          // Written to the desktop app's log (it keeps every "call:" line), so a refusal says why.
+          reportCallStep("system-audio-start", { ok: native.ok, reason: native.reason ?? null, backend: native.backend ?? null });
+          if (!native.ok && native.reason !== "permission_denied" && native.reason !== "needs_restart") {
+            // The Mac's first capture after launch can outlast its 5 s wait, or meet one still letting go: once more.
+            await new Promise((resolve) => window.setTimeout(resolve, 1000));
+            native = await bridge.systemAudio.start();
+            reportCallStep("system-audio-retry", { ok: native.ok, reason: native.reason ?? null, backend: native.backend ?? null });
+          }
           if (!native.ok) throw systemAudioError(native.reason);
         }
 
