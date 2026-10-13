@@ -10,7 +10,8 @@ export const VocifyCallingSettings = () => {
   const { t } = useLanguage();
   const { calling, setOnPhone } = useDesktopCalling();
   if (!calling) return null;
-  const isMac = desktopPlatform() === "darwin";
+  // FaceTime's wording only where FaceTime places the call: the calling app is the fact, the platform only a fallback.
+  const isMac = calling.phoneApp ? calling.phoneApp === "FaceTime" : desktopPlatform() === "darwin";
   const helper = !calling.onPhone
     ? t.product.vocifyCallingOn
     : !calling.phoneApp
