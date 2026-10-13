@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Mic, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RecordShortcutSettings } from "@/components/dashboard/settings/RecordShortcutSettings";
@@ -47,6 +48,12 @@ const SystemSection = () => {
   const meeting = useDesktopMeeting();
   const check = useAudioCheck();
   const recording = meeting.available && meeting.phase !== "idle";
+  const { running, yieldToRecording } = check;
+
+  // A recording started from the island while the check runs takes the one capture over.
+  useEffect(() => {
+    if (recording && running) yieldToRecording();
+  }, [recording, running, yieldToRecording]);
   const isMac = desktopPlatform() === "darwin";
 
   return (
