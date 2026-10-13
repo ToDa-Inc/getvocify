@@ -6,7 +6,6 @@ import type {
   CompanyMember,
   InvitePreview,
   MemberVisibility,
-  OnboardingStep,
   PendingInvite,
   SalesRole,
 } from './types';
@@ -32,7 +31,6 @@ function mapCompany(raw: Record<string, unknown>): CompanyDetails {
     callbackAfterDays: typeof raw.callback_after_days === 'number' ? raw.callback_after_days : null,
     followupCadence: (raw.followup_cadence as Record<string, number> | null | undefined) ?? null,
     followupCadenceDefaults: (raw.followup_cadence_defaults as Record<string, number> | null | undefined) ?? null,
-    needsOnboarding: Boolean(raw.needs_onboarding),
   };
 }
 
@@ -151,26 +149,6 @@ export const companyApi = {
       expiresAt: String(raw.expires_at),
       requiresPassword: Boolean(raw.requires_password),
     };
-  },
-
-  /** T9: which onboarding step the wizard should show next (owner/admin only). */
-  getOnboardingState: async (): Promise<{
-    needed: boolean;
-    nextStep: OnboardingStep | null;
-    state: Record<OnboardingStep, boolean>;
-  }> => {
-    const raw = await api.get<Record<string, unknown>>('/company/onboarding');
-    return {
-      needed: Boolean(raw.needed),
-      nextStep: (raw.next_step as OnboardingStep | null) ?? null,
-      state: (raw.state as Record<OnboardingStep, boolean>) ?? ({} as Record<OnboardingStep, boolean>),
-    };
-  },
-
-  /** T9: finish (or skip through) the onboarding wizard. */
-  completeOnboarding: async (): Promise<CompanyDetails> => {
-    const raw = await api.post<Record<string, unknown>>('/company/onboarding/complete');
-    return mapCompany(raw);
   },
 
   acceptInvite: async (token: string, password?: string, fullName?: string): Promise<AuthResponse> => {

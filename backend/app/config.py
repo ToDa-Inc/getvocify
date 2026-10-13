@@ -295,8 +295,6 @@ class Settings(BaseSettings):
     FOLLOWUP_SEND_ENABLED: bool = False
     # T8: follow-up instructions tailored per flow (discovery/closing) plus sales_strategy.
     FOLLOWUP_BY_FLOW_ENABLED: bool = False
-    # T9: Head of Sales onboarding wizard on first login.
-    ONBOARDING_WIZARD_ENABLED: bool = False
     # T10: scoring credit for objections handled (objection_handling criterion).
     SCORING_OBJECTION_CREDIT_ENABLED: bool = False
     # T10: debrief v2 (flow, missed steps, phrases, highlights, progress).

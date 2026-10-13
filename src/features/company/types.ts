@@ -32,9 +32,6 @@ export interface CompanySummary {
    * override. Only set when HOY_SDR_SECTIONS_ENABLED. */
   followupCadence?: Record<string, number> | null;
   followupCadenceDefaults?: Record<string, number> | null;
-  /** T9: owner/admin whose company hasn't finished the onboarding wizard yet.
-   * Only meaningful when ONBOARDING_WIZARD_ENABLED; false for members and off by default. */
-  needsOnboarding?: boolean;
 }
 
 export interface CompanyDetails extends CompanySummary {
@@ -71,9 +68,6 @@ export interface PendingInvite {
   /** Commercial type chosen at invite time; absent/null when sales roles are off. */
   salesRole?: SalesRole | null;
 }
-
-/** T9: the onboarding wizard's steps, in the order it walks the Head of Sales through. */
-export type OnboardingStep = 'crm' | 'team' | 'handoff' | 'playbooks' | 'strategy';
 
 export interface InvitePreview {
   email: string;

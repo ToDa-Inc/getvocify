@@ -180,7 +180,6 @@ def test_flag_off_leaves_the_rest_of_the_summary_as_it_was():
         "sales_role": None,
         "visibility": None,
         "features": [],
-        "needs_onboarding": False,
     }
     assert _company(store) == {
         "id": COMPANY,
@@ -203,7 +202,6 @@ def test_flag_off_leaves_the_rest_of_the_summary_as_it_was():
         "callback_after_days": None,
         "followup_cadence": None,
         "followup_cadence_defaults": None,
-        "needs_onboarding": False,
     }
 
 

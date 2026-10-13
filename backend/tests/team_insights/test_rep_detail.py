@@ -278,7 +278,6 @@ def test_company_summary_exposes_the_viewers_own_visibility_when_sales_roles_are
     svc.rep_workspace_enabled = MagicMock(return_value=False)
     svc.brief_v2_enabled = MagicMock(return_value=False)
     svc.sales_roles_enabled = MagicMock(return_value=True)
-    svc.needs_onboarding = MagicMock(return_value=False)
 
     summary = svc.company_summary_for_user(OWNER)
     assert summary["visibility"] == "team"

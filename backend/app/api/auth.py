@@ -76,7 +76,6 @@ class CompanySummary(BaseModel):
     sales_role: Optional[str] = None
     visibility: Optional[str] = None
     features: List[str] = Field(default_factory=list)
-    needs_onboarding: bool = False
 
 
 class UserResponse(BaseModel):
@@ -131,7 +130,6 @@ def _user_response(user_id: str, email: str, profile: dict, supabase: Client) ->
             sales_role=company_summary.get("sales_role"),
             visibility=company_summary.get("visibility"),
             features=list(company_summary.get("features") or []),
-            needs_onboarding=bool(company_summary.get("needs_onboarding")),
         )
         company_row = company_svc.get_company(company_summary["id"])
         product_context = company_row.get("product_context") or ""

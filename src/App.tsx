@@ -28,7 +28,6 @@ import AdminCompanyDetailPage from "./pages/admin/AdminCompanyDetailPage";
 import DashboardLayout from "./components/dashboard/DashboardLayout";
 import { DashboardThemeProvider } from "./components/ThemeProvider";
 import DashboardHome from "./pages/dashboard/DashboardHome";
-import OnboardingWizard from "./pages/dashboard/OnboardingWizard";
 import RecordPage from "./pages/dashboard/RecordPage";
 import { RepHome } from "@/features/today/components/RepHome";
 import InteractionsPage from "./pages/dashboard/InteractionsPage";
@@ -177,7 +176,6 @@ const App = () => (
               </DashboardThemeProvider>
             }>
               <Route index element={<DashboardHome />} />
-              <Route path="onboarding" element={<OnboardingWizard />} />
               <Route path="record" element={<RecordPage />} />
               <Route path="interactions" element={<InteractionsPage />} />
               <Route path="memos" element={<MovedTo pathname="/dashboard/interactions" />} />

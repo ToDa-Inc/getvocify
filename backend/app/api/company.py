@@ -42,7 +42,6 @@ class CompanyResponse(BaseModel):
     # override. Only sent while HOY_SDR_SECTIONS_ENABLED is on (None otherwise).
     followup_cadence: Optional[Dict[str, int]] = None
     followup_cadence_defaults: Optional[Dict[str, int]] = None
-    needs_onboarding: bool = False
 
 
 class UpdateCompanyRequest(BaseModel):
@@ -169,7 +168,6 @@ async def get_company(
             svc.callback_after_days(membership.company_id) if svc.lead_tiers_enabled(membership.company_id) else None
         ),
         **_followup_cadence_fields(svc, membership.company_id),
-        needs_onboarding=svc.needs_onboarding(membership, company),
     )
 
 
@@ -200,43 +198,6 @@ async def update_company(
         svc.update_callback_after_days(membership.company_id, body.callback_after_days)
     if body.followup_cadence is not None and svc.sdr_sections_enabled(membership.company_id):
         svc.update_followup_cadence(membership.company_id, body.followup_cadence)
-    return await get_company(user_id=user_id, supabase=supabase)
-
-
-class OnboardingStateResponse(BaseModel):
-    needed: bool
-    next_step: Optional[str] = None
-    state: Dict[str, bool] = Field(default_factory=dict)
-
-
-@router.get("/onboarding", response_model=OnboardingStateResponse)
-async def get_onboarding_state(
-    user_id: str = Depends(get_user_id),
-    supabase: Client = Depends(get_supabase),
-):
-    """T9: what step the Head of Sales onboarding wizard should show next. Owner/admin only,
-    same as the wizard itself."""
-    from app.services.onboarding import next_onboarding_step
-
-    svc = CompanyService(supabase)
-    membership = svc.require_manage_role(user_id)
-    state = svc.onboarding_state(membership.company_id)
-    return OnboardingStateResponse(
-        needed=svc.needs_onboarding(membership),
-        next_step=next_onboarding_step(state),
-        state=state,
-    )
-
-
-@router.post("/onboarding/complete", response_model=CompanyResponse)
-async def complete_onboarding(
-    user_id: str = Depends(get_user_id),
-    supabase: Client = Depends(get_supabase),
-):
-    """T9: finish (or skip through) the wizard. Owner/admin only."""
-    svc = CompanyService(supabase)
-    membership = svc.require_manage_role(user_id)
-    svc.complete_onboarding(membership.company_id)
     return await get_company(user_id=user_id, supabase=supabase)
 
 
