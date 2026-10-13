@@ -240,6 +240,31 @@ def test_mai_hears_the_quiet_after_speech_until_it_settles_the_last_words():
     assert stuck.tail_s == 0.0
 
 
+def test_mai_words_after_a_pause_start_when_the_side_spoke_again():
+    from array import array
+    from app.services.live_channel_sessions import MaiStream
+
+    quiet = bytes(3200)  # 100 ms
+    voice = array("h", [3000, -3000] * 800).tobytes()
+    stream = MaiStream("rep", "es", None, vocab=[], offset_s=0.0, on_event=_noop)
+    for _ in range(5):
+        stream.feed(voice)
+    first = stream.events({"type": "transcript-delta", "delta": "Hola."})[0]
+    assert (first["start"], first["end"]) == (0.0, 0.5)
+    # 20 s quiet, then speech again at 20.5 s: its words start there, not where "Hola." ended.
+    for _ in range(200):
+        stream.feed(quiet)
+    stream.feed(voice)
+    partial = stream.events({"type": "transcript-partial", "text": "Perfecto"})[0]
+    assert round(partial["start"], 1) == 20.5
+    final = stream.events({"type": "transcript-delta", "delta": " Perfecto,"})[0]
+    assert (round(final["start"], 1), round(final["end"], 1)) == (20.5, 20.6)
+    # Speech that goes on without a pause continues from the words before it.
+    stream.feed(voice)
+    after = stream.events({"type": "transcript-delta", "delta": " el viernes"})[0]
+    assert round(after["start"], 1) == 20.6
+
+
 def test_a_quiet_side_still_keeps_its_session_alive():
     from app.services.live_channel_sessions import KEEPALIVE_S, MaiStream
 

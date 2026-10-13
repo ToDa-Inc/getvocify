@@ -28,6 +28,12 @@ export type MeetingTranscript = {
   interimEnds?: Partial<Record<SpeakerKey, number>>;
   /** Next `seen` to hand out. */
   nextSeen?: number;
+  /**
+   * Whether the rep's mic picks up the call (speakers): only then can a rep line be the call's echo. `false` until the
+   * recording catches the mic hearing it (with headphones, never): nothing the rep says is taken for echo. Unset when
+   * the recording can't tell: every rep line is checked.
+   */
+  micHearsCall?: boolean;
 };
 
 export type MeetingDisplayTurn = {
@@ -98,6 +104,7 @@ export function normalizeMeetingTranscript(raw: unknown): MeetingTranscript {
     interimStarts?: MeetingTranscript["interimStarts"];
     interimSeen?: MeetingTranscript["interimSeen"];
     nextSeen?: number;
+    micHearsCall?: boolean;
   };
   const stored: MeetingSegment[] = Array.isArray(value.segments)
     ? value.segments
@@ -110,6 +117,7 @@ export function normalizeMeetingTranscript(raw: unknown): MeetingTranscript {
     interimStarts: value.interimStarts ?? {},
     interimSeen: value.interimSeen ?? {},
     nextSeen: typeof value.nextSeen === "number" ? value.nextSeen : segments.length + Object.keys(value.interims ?? {}).length,
+    ...(typeof value.micHearsCall === "boolean" ? { micHearsCall: value.micHearsCall } : {}),
   };
 }
 
@@ -182,10 +190,12 @@ export function applyChannelResult(
     };
   }
   return {
+    ...state,
     segments: [...state.segments, segment],
     interims: without(state.interims, key),
     interimStarts: without(state.interimStarts, key),
     interimSeen: without(state.interimSeen, key),
+    interimEnds: without(state.interimEnds, key),
     nextSeen: openSeen === undefined ? nextSeen + 1 : nextSeen,
   };
 }
@@ -305,8 +315,18 @@ function isEcho(segment: MeetingSegment, meeting: MeetingAudio): boolean {
 /** A turn keyed by the arrival of its first segment, so its bubble keeps its identity as text grows. */
 type KeyedTurn = MeetingTurn & { key: string };
 
-const turnsCache = new WeakMap<MeetingSegment[], KeyedTurn[]>();
-const plainTurnsCache = new WeakMap<MeetingSegment[], MeetingTurn[]>();
+/** Whether a transcript's rep lines are checked for echo (see `micHearsCall`). */
+function checksEcho(state: MeetingTranscript): boolean {
+  return state.micHearsCall !== false;
+}
+
+/** Caches by segments, one per answer to `checksEcho`. */
+function byCheck<T>() {
+  return { true: new WeakMap<MeetingSegment[], T>(), false: new WeakMap<MeetingSegment[], T>() };
+}
+
+const turnsCache = byCheck<KeyedTurn[]>();
+const plainTurnsCache = byCheck<MeetingTurn[]>();
 
 /**
  * Settled turns in the order they were spoken: segments sort by start time (untimed
@@ -314,15 +334,15 @@ const plainTurnsCache = new WeakMap<MeetingSegment[], MeetingTurn[]>();
  * the same speaker read as one turn.
  */
 export function meetingTurns(state: MeetingTranscript): MeetingTurn[] {
-  const cached = plainTurnsCache.get(state.segments);
+  const cached = plainTurnsCache[`${checksEcho(state)}`].get(state.segments);
   if (cached) return cached;
   const turns = keyedTurns(state).map(({ speaker, text }) => ({ speaker, text }));
-  plainTurnsCache.set(state.segments, turns);
+  plainTurnsCache[`${checksEcho(state)}`].set(state.segments, turns);
   return turns;
 }
 
 function keyedTurns(state: MeetingTranscript): KeyedTurn[] {
-  const cached = turnsCache.get(state.segments);
+  const cached = turnsCache[`${checksEcho(state)}`].get(state.segments);
   if (cached) return cached;
   let clock = 0;
   const timed = state.segments.map((segment, arrival) => {
@@ -333,7 +353,7 @@ function keyedTurns(state: MeetingTranscript): KeyedTurn[] {
   const meeting = meetingAudio(state.segments);
   const turns: KeyedTurn[] = [];
   for (const { segment, arrival } of timed) {
-    if (isEcho(segment, meeting)) continue;
+    if (checksEcho(state) && isEcho(segment, meeting)) continue;
     const last = turns[turns.length - 1];
     if (last && (last.speaker === segment.speaker || segment.speaker === null)) {
       // A fragment without a channel continues whoever was talking.
@@ -346,14 +366,14 @@ function keyedTurns(state: MeetingTranscript): KeyedTurn[] {
       turns.push({ key: `s${arrival}`, speaker: segment.speaker, text: segment.text });
     }
   }
-  turnsCache.set(state.segments, turns);
+  turnsCache[`${checksEcho(state)}`].set(state.segments, turns);
   return turns;
 }
 
 /** The mic hearing the call while it's still being written: never shown as the rep. */
 function isEchoTail(state: MeetingTranscript, key: SpeakerKey, pending: string): boolean {
   const start = state.interimStarts?.[key];
-  if (key !== "rep" || start === undefined) return false;
+  if (key !== "rep" || start === undefined || !checksEcho(state)) return false;
   const live = state.interims.prospect;
   const liveStart = state.interimStarts?.prospect;
   // What the call says right now counts when it started around the same moment.
@@ -400,17 +420,36 @@ function startsNewParagraph(row: MeetingDisplayTurn, item: DisplayItem): boolean
   return /[.!?…]$/.test(row.text) && words(row.text).length >= LONG_PARAGRAPH_WORDS;
 }
 
-const settledRowsCache = new WeakMap<MeetingSegment[], MeetingDisplayTurn[]>();
-const settledItemsCache = new WeakMap<MeetingSegment[], DisplayItem[]>();
+const settledItemsCache = byCheck<DisplayItem[]>();
+
+/** A side's words still being written as last shown, and how many of its finals had settled by then. */
+type ShownTail = { pending: string; seen: number; settled: number; at: number };
+
+/**
+ * What one recording's live transcript already showed. `placed`: where each piece was drawn (its `seen` → its
+ * bubble's key). Once words are on screen they stay in that bubble: a later decision (an echo dropped, a line held
+ * back, an interjection settling) changes what comes after, never where something already shown sits. `tails`: each
+ * side's words still being written, so a final that settles only their start doesn't blank the rest. Keep one per
+ * recording.
+ */
+export type BubbleLayout = { placed: Map<number, string>; tails: Partial<Record<SpeakerKey, ShownTail>> };
+
+export function createBubbleLayout(): BubbleLayout {
+  return { placed: new Map(), tails: {} };
+}
 
 /**
  * Builds rows in the order words first showed on screen, never re-sorting what is
  * already there: a bubble keeps its place and key from its first word to its final.
  */
-function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[]): MeetingDisplayTurn[] {
+function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[], layout?: BubbleLayout): MeetingDisplayTurn[] {
+  const byKey = new Map(rows.map((row) => [row.key, row]));
   for (const item of items) {
-    const row = paragraphFor(item, rows);
+    const drawn = layout?.placed.get(item.seen);
+    // Already on screen: back in its own bubble, or a bubble of its own if that one is gone.
+    const row = drawn === undefined ? paragraphFor(item, rows) : (byKey.get(drawn) ?? null);
     if (row) {
+      layout?.placed.set(item.seen, row.key);
       // A fragment without a channel continues whoever was talking; an opening one goes to the first speaker.
       if (row.speaker === null && item.speaker) {
         row.speaker = item.speaker;
@@ -426,8 +465,10 @@ function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[]): MeetingD
       if (item.end != null) row.end = Math.max(row.end ?? item.end, item.end);
       continue;
     }
-    rows.push({
-      key: `u${item.seen}`,
+    const key = `u${item.seen}`;
+    layout?.placed.set(item.seen, key);
+    byKey.set(key, rows[rows.push({
+      key,
       speaker: item.speaker,
       label: item.name || (item.speaker ? SPEAKER_LABEL[item.speaker] : null),
       text: item.text,
@@ -435,26 +476,18 @@ function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[]): MeetingD
       start: item.start,
       end: item.end,
       name: item.name ?? null,
-    });
+    }) - 1]);
   }
   return rows;
 }
 
-function settledRows(segments: MeetingSegment[]): MeetingDisplayTurn[] {
-  const cached = settledRowsCache.get(segments);
-  if (cached) return cached;
-  const rows = displayRows(settledItems(segments), []);
-  settledRowsCache.set(segments, rows);
-  return rows;
-}
-
-function settledItems(segments: MeetingSegment[]): DisplayItem[] {
-  const cached = settledItemsCache.get(segments);
+function settledItems(segments: MeetingSegment[], checkEcho: boolean): DisplayItem[] {
+  const cached = settledItemsCache[`${checkEcho}`].get(segments);
   if (cached) return cached;
   const meeting = meetingAudio(segments);
   const items = segments
     .map((segment, arrival) => ({ segment, seen: segment.seen ?? arrival }))
-    .filter(({ segment }) => !isEcho(segment, meeting))
+    .filter(({ segment }) => !checkEcho || !isEcho(segment, meeting))
     .sort((a, b) => a.seen - b.seen)
     .map(({ segment, seen }) => ({
       seen,
@@ -465,37 +498,136 @@ function settledItems(segments: MeetingSegment[]): DisplayItem[] {
       end: segment.end,
       name: segment.name ?? null,
     }));
-  settledItemsCache.set(segments, items);
+  settledItemsCache[`${checkEcho}`].set(segments, items);
   return items;
+}
+
+/** What the screen knows beyond the transcript. */
+export type MeetingView = {
+  /** What earlier updates showed; with it nothing already shown moves. */
+  layout?: BubbleLayout;
+  /** Seconds on any steady clock: how long words a final didn't cover may stay (needs `layout`). */
+  now?: number;
+  /** The call's audio so far: whether it had sound between two moments, and how much of it was sent (seconds). */
+  callSound?: { audible(from: number, to: number): boolean; heardS: number };
+};
+
+/**
+ * Speech on the call shows as words within about a second. Sound that has none this long after it (music, a
+ * notification, noise) had no words to wait for, so a rep line held back for it shows.
+ */
+const CALL_WORDS_WAIT_S = 3;
+
+/**
+ * The mic hears the call through the speakers, and its words can come back before the call's own words for that
+ * moment do. Until they have, a line of the rep's said while the call had sound can't be told from that echo: it
+ * waits off screen, and shows (or is dropped as echo) as soon as the call's words reach it. A call that was silent
+ * then holds nothing back.
+ */
+function waitsForCall(item: DisplayItem, view: MeetingView, reached: number): boolean {
+  const sound = view.callSound;
+  if (item.speaker !== "rep" || item.start === null || !sound) return false;
+  const end = Math.max(item.end ?? item.start, item.start);
+  if (reached >= end || sound.heardS - end > CALL_WORDS_WAIT_S) return false;
+  return sound.audible(item.start - ECHO_WINDOW_S, end + ECHO_WINDOW_S);
+}
+
+/** How far the call's own words have come (seconds): settled ones, then the one still being written. */
+function callWordsReach(state: MeetingTranscript): number {
+  let reached = -Infinity;
+  for (const segment of state.segments) {
+    if (segment.speaker === "prospect") reached = Math.max(reached, segment.end ?? segment.start ?? -Infinity);
+  }
+  if (state.interims.prospect) {
+    reached = Math.max(reached, state.interimEnds?.prospect ?? state.interimStarts?.prospect ?? -Infinity);
+  }
+  return reached;
+}
+
+/**
+ * A final can settle only the start of the words on screen (MAI settles a sentence a few words at a time), and the
+ * rest comes back with the next partial a moment later: until then the rest stays, so the end of a bubble doesn't
+ * blink out and back. Only what was shown and isn't contradicted: a final that changed those words takes them.
+ */
+const CARRY_S = 1.5;
+
+/** The words of `tail` after `final`, when `final` is exactly how `tail` starts (in words). */
+function untouchedRest(tail: string, final: string): string | null {
+  const settled = words(final);
+  const pieces = tail.split(/\s+/).filter(Boolean);
+  let matched = 0;
+  let index = 0;
+  for (; index < pieces.length && matched < settled.length; index++) {
+    for (const word of words(pieces[index])) {
+      if (word !== settled[matched]) return null;
+      matched += 1;
+    }
+  }
+  if (matched < settled.length) return null;
+  const rest = pieces.slice(index).join(" ");
+  return rest || null;
+}
+
+/** Each side's words still on screen that its latest finals settled only the start of (display only). */
+function carriedTails(state: MeetingTranscript, layout: BubbleLayout, now: number, nextSeen: number, shown: Set<number>): DisplayItem[] {
+  const carried: DisplayItem[] = [];
+  for (const key of SPEAKER_ORDER) {
+    const mine = state.segments.filter((segment) => keyOf(segment.speaker) === key);
+    const pending = state.interims[key];
+    if (pending) {
+      layout.tails[key] = { pending, seen: state.interimSeen?.[key] ?? nextSeen, settled: mine.length, at: now };
+      continue;
+    }
+    const tail = layout.tails[key];
+    if (!tail) continue;
+    const latest = mine.slice(tail.settled);
+    const last = latest[latest.length - 1];
+    // Only next to words that are on screen: a final dropped as echo takes its tail with it.
+    const rest = last && shown.has(last.seen ?? -1) && now - tail.at <= CARRY_S
+      ? untouchedRest(tail.pending, latest.map((segment) => segment.text).join(" "))
+      : null;
+    if (!rest) {
+      delete layout.tails[key];
+      continue;
+    }
+    carried.push({ seen: last.seen ?? tail.seen, speaker: speakerFromKey(key), text: "", pending: rest, start: last.end, end: last.end });
+  }
+  return carried;
 }
 
 /**
  * Render-ready paragraphs for the live transcript. Unlike the uploaded text (sorted by
  * speech time), they keep the order words first appeared, so a late final never moves
- * or splits a bubble the rep is reading, and a tail keeps its bubble when it settles.
+ * or splits a bubble the rep is reading, and a tail keeps its bubble when it settles:
+ * a tail still being written sits where it appeared, above what settled after it.
  */
-export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTurn[] {
+export function meetingDisplayTurns(state: MeetingTranscript, view: MeetingView = {}): MeetingDisplayTurn[] {
   const nextSeen = state.nextSeen ?? state.segments.length;
   const tails = SPEAKER_ORDER.flatMap((key) => {
     const pending = state.interims[key];
     if (!pending || isEchoTail(state, key, pending)) return [];
     const start = state.interimStarts?.[key] ?? null;
-    return [{ seen: state.interimSeen?.[key] ?? nextSeen, speaker: speakerFromKey(key), text: "", pending, start, end: start }];
-  }).sort((a, b) => a.seen - b.seen);
-  const items = settledItems(state.segments);
-  const lastSettled = items.length ? items[items.length - 1].seen : -1;
-  if (tails.every((tail) => tail.seen >= lastSettled)) {
-    // Usual case: the tails began after everything settled, so they go last.
-    return displayRows(tails, settledRows(state.segments).map((row) => ({ ...row })));
-  }
-  // Something settled while a tail was still being written: the tail keeps the place it
-  // appeared in, above what came after it, exactly where it will settle.
-  const ordered = [...items];
-  for (const tail of tails) {
-    const slot = ordered.findIndex((item) => item.seen > tail.seen);
-    ordered.splice(slot === -1 ? ordered.length : slot, 0, tail);
-  }
-  return displayRows(ordered, []);
+    const end = state.interimEnds?.[key] ?? start;
+    return [{ seen: state.interimSeen?.[key] ?? nextSeen, speaker: speakerFromKey(key), text: "", pending, start, end }];
+  });
+  const settled = settledItems(state.segments, checksEcho(state));
+  const carried =
+    view.layout && view.now !== undefined
+      ? carriedTails(state, view.layout, view.now, nextSeen, new Set(settled.map((item) => item.seen)))
+      : [];
+  // A mic that doesn't hear the call has no echo to wait out.
+  if (!checksEcho(state)) view = { ...view, callSound: undefined };
+  const reached = view.callSound ? callWordsReach(state) : Infinity;
+  const ordered = [...settled, ...tails, ...carried]
+    // Only what isn't on screen yet waits: a line once shown is never taken back for this.
+    .filter((item) => view.layout?.placed.has(item.seen) || !waitsForCall(item, view, reached))
+    .sort((a, b) => a.seen - b.seen);
+  // Rows keep a tail's start as their end: where its words reach is only known once they settle.
+  return displayRows(
+    ordered.map((item) => (item.pending ? { ...item, end: item.start } : item)),
+    [],
+    view.layout,
+  );
 }
 
 export function meetingHasSpeech(state: MeetingTranscript): boolean {
@@ -550,10 +682,13 @@ export type MeetingOverlayTurn = {
  * What the notch island shows when opened: the whole conversation, untrimmed. On a call to a
  * known contact (`prospect`), the other side is called by that name instead of "Them".
  */
-export function meetingOverlay(state: MeetingTranscript, { prospect }: { prospect?: string | null } = {}): { turns: MeetingOverlayTurn[] } {
+export function meetingOverlay(
+  state: MeetingTranscript,
+  { prospect, view }: { prospect?: string | null; view?: MeetingView } = {},
+): { turns: MeetingOverlayTurn[] } {
   const name = prospect?.trim() || null;
   return {
-    turns: meetingDisplayTurns(state).map((row) => ({
+    turns: meetingDisplayTurns(state, view).map((row) => ({
       key: row.key,
       you: row.speaker === "rep",
       label: name && row.speaker === "prospect" && !row.name ? name : row.label,

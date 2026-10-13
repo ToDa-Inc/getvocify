@@ -21,6 +21,7 @@ import { api } from "@/shared/lib/api-client";
 import { liveTickets } from "./liveTickets";
 import { ROUTES } from "@/shared/lib/constants";
 import { EchoSuppressor } from "@/lib/echo-suppressor";
+import { CallSound } from "@/lib/call-sound";
 import {
   encodeChannelAudio,
   hookMicPcm,
@@ -32,6 +33,7 @@ import {
   applyChannelResult,
   resetChannel,
   normalizeMeetingTranscript,
+  createBubbleLayout,
   EMPTY_MEETING_TRANSCRIPT,
   meetingDisplayTurns,
   meetingHasSpeech,
@@ -277,6 +279,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const speakersRef = useRef<{ timeline: SpeakerTimeline; clockAt: number | null } | null>(null);
   /** Keeps the call out of the microphone when the page records both sides itself (a meeting heard through speakers). */
   const echoRef = useRef<EchoSuppressor | null>(null);
+  /** When the meeting's audio had sound (page recording only): a rep line said then can be its echo. */
+  const callSoundRef = useRef<CallSound | null>(null);
+  /** Where the island drew each line of this recording, so nothing it shows moves. */
+  const bubbleLayoutRef = useRef(createBubbleLayout());
+  /** The last overlay sent to the island, to skip resending the same one. */
+  const overlaySentRef = useRef("");
   /** The live service's pass for this recording, sent first on every connection. */
   const ticketRef = useRef<string | null>(null);
   /** The Mac app is recording this meeting itself; the page only mirrors its transcript. */
@@ -400,18 +408,29 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     applyCallType(withProposal(callTypeRef.current, guess.type));
   }, [applyCallType]);
 
+  /** The island's transcript. `force` sends it even unchanged (with the last line, which changes on its own). */
+  const sendOverlay = useCallback((state: MeetingTranscript, force: boolean) => {
+    // A native recording draws the island itself.
+    if (nativeRef.current) return;
+    const prospect = vocifyCallRef.current?.contact?.name ?? null;
+    const view = { layout: bubbleLayoutRef.current, now: performance.now() / 1000, callSound: callSoundRef.current ?? undefined };
+    const overlay = meetingOverlay(state, { prospect, view });
+    const sent = JSON.stringify(overlay);
+    if (!force && sent === overlaySentRef.current) return;
+    overlaySentRef.current = sent;
+    getDesktopBridge()?.shell.setState(force ? { lastLine: meetingLastLine(state), overlay } : { overlay });
+  }, []);
+
   const updateTranscript = useCallback(
     (next: MeetingTranscript) => {
+      // A new recording draws from scratch.
+      if (next === EMPTY_MEETING_TRANSCRIPT) bubbleLayoutRef.current = createBubbleLayout();
       transcriptRef.current = next;
       setTranscript(next);
-      // A native recording draws the island itself.
-      if (!nativeRef.current) {
-        const prospect = vocifyCallRef.current?.contact?.name ?? null;
-        getDesktopBridge()?.shell.setState({ lastLine: meetingLastLine(next), overlay: meetingOverlay(next, { prospect }) });
-      }
+      sendOverlay(next, true);
       if (draftRef.current) scheduleSave();
     },
-    [scheduleSave],
+    [scheduleSave, sendOverlay],
   );
 
   const setNotes = useCallback(
@@ -480,6 +499,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const openSocket = useCallback(() => {
     // A new session times its audio from zero again: who spoke is timed from its first audio too.
     if (speakersRef.current) speakersRef.current = { timeline: new SpeakerTimeline(), clockAt: null };
+    if (callSoundRef.current) callSoundRef.current = new CallSound(LIVE_STT_SAMPLE_RATE);
     const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current));
     wsRef.current = ws;
     ws.onopen = () => {
@@ -1083,6 +1103,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       setLiveHelpOverride(null);
       endPostCall();
       clearNotes();
+      callSoundRef.current = null;
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       firstWordsRef.current = {};
       reconnectsRef.current = 0;
@@ -1116,6 +1137,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         speakersRef.current = call ? null : { timeline: new SpeakerTimeline(), clockAt: null };
         // A Vocify call has the two sides as separate streams already; a meeting is the mic plus what the PC plays.
         echoRef.current = call ? null : new EchoSuppressor();
+        // A Vocify call's sides are separate streams: the mic never hears the other one.
+        callSoundRef.current = call ? null : new CallSound(LIVE_STT_SAMPLE_RATE);
+        // Nothing the rep says is taken for the call's echo until the mic is caught hearing the call (speakers).
+        updateTranscript({ ...transcriptRef.current, micHearsCall: false });
         openSocket();
         // Only a meeting's call audio needs a permission; a Vocify call's other side is its own stream.
         healthRef.current = new AudioHealth(performance.now(), { watchCall: !call });
@@ -1127,7 +1152,16 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           if (echo) {
             // The mic hears the meeting through the speakers: what is only that echo is not the rep.
             if (channel === "prospect") echo.pushCall(new Int16Array(heard), performance.now());
-            else pcm = echo.process(new Int16Array(heard), performance.now()).buffer as ArrayBuffer;
+            else {
+              pcm = echo.process(new Int16Array(heard), performance.now()).buffer as ArrayBuffer;
+              if (!transcriptRef.current.micHearsCall && echo.stats().muted > 0) {
+                // The mic hears the call: from now on the rep's lines are checked for its echo (earlier ones too).
+                updateTranscript({ ...transcriptRef.current, micHearsCall: true });
+                bridge.shell.log?.("echo:mic-hears-call", {
+                  secondsIntoRecording: draftRef.current ? Math.round((Date.now() - draftRef.current.startedAt) / 100) / 10 : null,
+                });
+              }
+            }
           }
           // Paused: send silence so the session stays open and both channels keep one clock.
           const audio = pausedRef.current ? new ArrayBuffer(pcm.byteLength) : pcm;
@@ -1145,6 +1179,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           const ws = wsRef.current;
           if (ws?.readyState === WebSocket.OPEN) {
             ws.send(encodeChannelAudio(channel, audio));
+            if (channel === "prospect") callSoundRef.current?.hear(new Int16Array(audio));
             // The other side's audio clock starts with its first frame sent (result times count from it).
             const speakers = speakersRef.current;
             if (channel === "prospect" && speakers && speakers.clockAt === null) speakers.clockAt = performance.now();
@@ -1170,6 +1205,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       pausedRef.current = false;
       pausedTotalRef.current = 0;
       setPaused(false);
+      let overlayTicks = 0;
       timerRef.current = window.setInterval(() => {
         const { you, them } = levelRef.current;
         setLevels((prev) =>
@@ -1198,6 +1234,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         const now = Date.now();
         const held = pausedTotalRef.current + (pausedRef.current ? now - pausedAtRef.current : 0);
         setElapsed(formatElapsed(now - startedAt - held));
+        // What the island waits on runs out even with nothing new: a rep line held back for the call's words shows,
+        // words a final didn't cover go.
+        if (++overlayTicks % 4 === 0) sendOverlay(transcriptRef.current, false);
       }, 125);
       bridge.shell.setState({
         listening: true,
@@ -1239,7 +1278,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       void bridge.shell.hideOverlay();
       bridge.shell.command("show");
     }
-  }, [applyCallType, clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, setPhase, t, typeName, updateTranscript, user?.id]);
+  }, [applyCallType, clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, sendOverlay, setPhase, t, typeName, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(
