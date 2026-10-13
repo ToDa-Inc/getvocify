@@ -4,7 +4,6 @@ import {
   answerCard,
   assistContext,
   BACKSTOP_MS,
-  coolingDown,
   draftCard,
   nextStep,
   PAUSE_MS,
@@ -78,7 +77,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
   const checkRef = useRef<AbortController | null>(null);
   const answerRef = useRef<AbortController | null>(null);
   const backstopRef = useRef<number | undefined>(undefined);
-  /** Every card shown in this call, oldest first: for the same-type cooldown and so answers never repeat. */
+  /** Every card shown in this call, oldest first: so answers never repeat. */
   const shownRef = useRef<AssistCard[]>([]);
 
   const found = enabled ? assistContext(turns, askedRef.current) : null;
@@ -169,11 +168,6 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       // These words are handled: the next check is about what they say after.
       askedRef.current = { turnKey: ctx.turnKey, length: ctx.length };
       if (step.do === "skip") return;
-      // The same objection again within the cooldown: the card for it is still being read out loud.
-      if (step.do === "answer" && coolingDown(shownRef.current, step.type, Date.now())) {
-        note("cooldown", { type: step.type, latest: ctx.latestTurn });
-        return;
-      }
       answer(ctx, step.do === "answer" ? step.type : null, since);
     });
   };

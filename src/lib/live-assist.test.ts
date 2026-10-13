@@ -5,13 +5,11 @@ import {
   answerCard,
   assistContext,
   bridgeLine,
-  coolingDown,
   draftCard,
   nextStep,
   objectionCard,
   previousAnswers,
   PAUSE_MS,
-  SAME_TYPE_COOLDOWN_MS,
   prospectSilent,
   streamedDraft,
   turnCheck,
@@ -222,7 +220,7 @@ describe("answerCard", () => {
 
   it("the card is the label, the filler line and one line: nothing else to read", () => {
     const card = objectionCard(suggestion(), 900, "me parece caro")!;
-    assert.deepEqual(Object.keys(card).sort(), ["at", "bridge", "id", "kind", "label", "sayThis", "source", "stage", "type"]);
+    assert.deepEqual(Object.keys(card).sort(), ["at", "bridge", "id", "kind", "label", "sayThis", "source", "stage"]);
   });
 
   it("with no card on screen yet, the answer shows as it came", () => {
@@ -276,27 +274,6 @@ describe("transcript window", async () => {
     const out = windowOf(["Them: hola", `Them: ${"y".repeat(30000)}`]);
     assert.ok(out.length > 0 && out.length <= 15100);
     assert.ok(out.endsWith("y"));
-  });
-});
-
-describe("same-type cooldown", () => {
-  const shown = (type: string, at: number, sayThis = "") => ({ ...draftCard(type, "es caro", at), sayThis });
-
-  it("the same type again within the cooldown gets no new card", () => {
-    assert.equal(coolingDown([shown("price", 1000)], "price", 1000 + SAME_TYPE_COOLDOWN_MS - 1), true);
-  });
-
-  it("once the cooldown is over, the same type is answered again", () => {
-    assert.equal(coolingDown([shown("price", 1000)], "price", 1000 + SAME_TYPE_COOLDOWN_MS), false);
-  });
-
-  it("another type is answered at once", () => {
-    assert.equal(coolingDown([shown("price", 1000)], "timing", 1001), false);
-  });
-
-  it("the card keeps its type when the answer lands in it", () => {
-    const card = answerCard(draftCard("price", "es caro", 1), objectionCard(suggestion({ objection_type: "other" }), 2));
-    assert.equal(card?.type, "price");
   });
 });
 
