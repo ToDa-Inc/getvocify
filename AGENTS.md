@@ -1,9 +1,15 @@
 ## Branches and pull requests: commit to `main`
 
 - **No pull requests.** Don't open one, even to merge your own work.
-- **No new branch or worktree** unless Dani asks for one. Work in the main checkout on `main`, commit, `git pull --rebase`,
-  run the checks, and `git push`. Then keep `staging` the same as `main`: `git push origin main:staging` (if that is
-  rejected, `git merge origin/staging` into `main` first, then push both).
+- **No new branch or worktree** unless Dani asks for one. Work in the main checkout. Commit, `git pull --rebase`,
+  run the checks, and push to one of the two branches:
+  - **Small change** (a fix, copy, styling, one screen): commit on `main` and push. Then bring it to staging:
+    `git checkout staging && git pull && git merge main && git push && git checkout main`.
+  - **Big change** (recording, transcription, calls, CRM writes, auth, billing, database migrations, or many files
+    at once; if unsure, it's big): commit on `staging` and push, so Dani tests it on staging.getvocify.com first.
+    Merge `staging` into `main` (`git checkout main && git pull && git merge staging && git push`) only when Dani
+    says it's good. Never merge `staging` into `main` just to make a push go through: it may hold a big change
+    still being tested.
 - Several sessions work in this folder at once. Commit only your own files (`git add <paths>`, never `git add -A`).
   Never commit, revert or stash another session's changes (the stash is shared by every session).
 - If you were asked for a branch: when the work is done, merge it into `main` yourself (`git merge`, then push),
