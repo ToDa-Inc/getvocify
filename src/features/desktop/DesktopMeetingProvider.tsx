@@ -37,6 +37,7 @@ import {
   EMPTY_MEETING_TRANSCRIPT,
   meetingDisplayTurns,
   meetingHasSpeech,
+  meetingOtherSideSpoke,
   meetingLastLine,
   meetingOverlay,
   meetingParticipants,
@@ -228,6 +229,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const callContactRef = useRef<MeetingDraft["contact"] | null>(null);
   /** Where the detected call happens (app or page), as the Mac told us. */
   const callSourceRef = useRef<CallSourceInfo | null>(null);
+  /** The island opened a call on the rep's phone: the next recording is that call. */
+  const phoneCallRef = useRef(false);
+  /** The recording (draft id) that is a call on the rep's phone: unanswered, it is not kept. */
+  const phoneDraftRef = useRef<string | null>(null);
   /** The memo the island is following after a call; `cancelled` stops an older follow. */
   const postCallRef = useRef<{
     run: { cancelled: boolean };
@@ -911,6 +916,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     // The island keeps a spinner for the ended call until its memo is being written: say where it is.
     bridge?.shell.setState({ listening: false, liveType: null, finish: { step: "stopping" } });
     void bridge?.shell.hideOverlay();
+    // Whether any of the call's sound arrived (a ring counts), before the capture and what it knows are let go.
+    const callHeard = healthRef.current?.everHeard("them") ?? false;
     await releaseAudio();
     if (nativeRef.current) {
       nativeRef.current = false;
@@ -965,6 +972,18 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         }
       }
       void followCallMemo(call.callSid, contactName);
+      return;
+    }
+    const phoneCall = Boolean(draft) && phoneDraftRef.current === draft?.id;
+    phoneDraftRef.current = null;
+    // A call on the phone nobody answered: its sound came through (it rang) and the other side never spoke. When no
+    // sound came through at all Vocify couldn't hear the call, which is not the same: then the rep's side is kept.
+    if (draft && phoneCall && callHeard && !meetingOtherSideSpoke(draft.transcript)) {
+      void bridge?.drafts?.remove(draft.id);
+      clearNotes();
+      updateTranscript(EMPTY_MEETING_TRANSCRIPT);
+      setPhase("idle");
+      bridge?.shell.setState({ finish: { step: "skipped", message: "No answer. Nothing was saved." } });
       return;
     }
     if (!draft || !meetingHasSpeech(draft.transcript)) {
@@ -1094,6 +1113,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         ...(callContact ? { contact: callContact } : {}),
         ...(callSource ? { source: callSource } : {}),
       };
+      phoneDraftRef.current = !call && phoneCallRef.current ? draftRef.current.id : null;
+      phoneCallRef.current = false;
       setContact(callContact);
       typeOptionsRef.current = [];
       proposalRef.current = { attempts: 0, total: 0, lastConfident: false, busy: false };
@@ -1416,6 +1437,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     return bridge.crm.onCallEnded(() => {
       callContactRef.current = null;
       callSourceRef.current = null;
+      phoneCallRef.current = false;
       bridge.shell.setState({ callContact: null });
     });
   }, []);
@@ -1538,6 +1560,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const expectPhoneCall = useCallback((call: { contact: MeetingDraft["contact"] | null; source: CallSourceInfo } | null) => {
     callContactRef.current = call?.contact ?? null;
     callSourceRef.current = call?.source ?? null;
+    phoneCallRef.current = call !== null;
     getDesktopBridge()?.shell.setState({ callContact: call?.contact?.name ? { name: call.contact.name } : null });
   }, []);
 

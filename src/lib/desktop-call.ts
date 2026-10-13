@@ -20,6 +20,8 @@ export type OnScreen = {
   phone: string | null;
   /** The verified number the call goes out from. */
   callerId: string | null;
+  /** Vocify calling is off: Call opens on the rep's own phone. */
+  onPhone?: true;
   state: OnScreenState;
   /** What happened with this contact lately (GET /contacts/{id}/recent-activity), while it loads or once it has lines. */
   brief?: IslandBrief;
@@ -131,6 +133,8 @@ export type CallCommand =
   | { kind: "mute"; muted: boolean }
   | { kind: "digit"; digit: string }
   | { kind: "open-calling" }
+  /** A call on the rep's phone never connected: show how to set calls from the phone up. */
+  | { kind: "open-phone-setup" }
   /** The island can't see the browser in front (macOS refused it): show how to allow it. */
   | { kind: "open-crm-access" };
 
@@ -142,7 +146,9 @@ export function onScreenFromPreview(preview: CallPreview | null | undefined, acc
   if ((!access.canDial && !access.onPhone) || !preview?.record || !preview.provider) return null;
   const crmLabel = CALLABLE_CRMS[preview.provider];
   if (!crmLabel) return null;
-  const base = { provider: preview.provider, crmLabel, callerId: access.onPhone ? null : access.callerId };
+  const base = access.onPhone
+    ? { provider: preview.provider, crmLabel, callerId: null, onPhone: true as const }
+    : { provider: preview.provider, crmLabel, callerId: access.callerId };
   const callee = preview.callee;
   if (!callee) {
     return (preview.contacts_count ?? 0) > 1 ? { ...base, name: null, phone: null, state: "needs_contact" } : null;
@@ -195,7 +201,7 @@ export function dialIsland(state: CallEngineState, brief: IslandCallBrief | null
 const DIGIT = /^digit:([0-9*#])$/;
 
 export function parseCallCommand(raw: string): CallCommand | null {
-  if (raw === "dial" || raw === "hangup" || raw === "open-calling" || raw === "open-crm-access") return { kind: raw };
+  if (raw === "dial" || raw === "hangup" || raw === "open-calling" || raw === "open-phone-setup" || raw === "open-crm-access") return { kind: raw };
   if (raw === "mute" || raw === "unmute") return { kind: "mute", muted: raw === "mute" };
   const digit = DIGIT.exec(raw);
   return digit ? { kind: "digit", digit: digit[1] } : null;
