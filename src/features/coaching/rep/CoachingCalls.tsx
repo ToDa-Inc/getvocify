@@ -23,8 +23,6 @@ import { useCoachCalls } from "./useRepCoaching";
 
 const TONE_TEXT = { success: "text-success", warning: "text-warning", destructive: "text-destructive", muted: "text-foreground" } as const;
 const ROW = "rounded-xl px-3 py-2.5 transition-colors duration-150 hover:bg-secondary/60 motion-reduce:transition-none";
-// The page spans the layout's width; a paragraph keeps a width that reads in one sweep.
-const READING = "max-w-3xl";
 
 function localeOf(language: string) {
   return language === "EN" ? "en-GB" : "es-ES";
@@ -64,7 +62,7 @@ function ImproveItem({ item, weeks }: { item: CoachImprove; weeks: number }) {
   const before = improveBeforeLine(p, item, weeks);
   return (
     <article className="border-t border-border/60 py-5 first:border-t-0 first:pt-1" data-testid="coach-improve-item">
-      <div className={`space-y-3 ${READING}`}>
+      <div className="space-y-3">
         <div className="space-y-0.5">
           <h3 className={THEME_TOKENS.typography.itemTitle}>{item.label}</h3>
           <p className="text-sm text-warning">{improveCountLine(p, item)}</p>
@@ -181,7 +179,7 @@ function CallRow({ call }: { call: CoachCall }) {
           {body}
           <ChevronDown size={16} strokeWidth={1.5} className="mt-1 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
         </CollapsibleTrigger>
-        <CollapsibleContent className={`ml-3 border-l border-border/60 pb-2 pl-4 ${READING}`}>
+        <CollapsibleContent className="ml-3 border-l border-border/60 pb-2 pl-4">
           <ul>
             {call.slips.map((slip) => (
               <SlipDetail key={slip.step_id} slip={slip} />
@@ -215,14 +213,17 @@ export function CoachingCalls({ type, onType }: { type: string | null; onType: (
   return (
     <div className="space-y-10" data-testid="coach-calls">
       {data.types.length > 1 ? (
-        <Segmented
-          value={data.type}
-          onValueChange={onType}
-          options={data.types.map((option) => ({ value: option.key, label: name(option.key, option.label) }))}
-          aria-label={p.coachTypeLabel}
-        />
+        <div className="px-3">
+          <Segmented
+            value={data.type}
+            onValueChange={onType}
+            options={data.types.map((option) => ({ value: option.key, label: name(option.key, option.label) }))}
+            aria-label={p.coachTypeLabel}
+          />
+        </div>
       ) : null}
-      <section aria-labelledby="coach-improve" className="space-y-3">
+      {/* Inicio's layout: headings and text sit 12px in, in line with the rows' content; a row's hover spans the page. */}
+      <section aria-labelledby="coach-improve" className="space-y-3 px-3">
         <div className="space-y-0.5">
           <h2 id="coach-improve" className={THEME_TOKENS.typography.sectionTitle}>{p.coachImproveHeading}</h2>
           <p className={THEME_TOKENS.typography.capsLabel}>{fill(p.coachImproveWindow, { weeks, count: data.conversations })}</p>
@@ -241,9 +242,8 @@ export function CoachingCalls({ type, onType }: { type: string | null; onType: (
       </section>
       {data.calls.length ? (
         <section aria-labelledby="coach-calls-heading" className="space-y-2">
-          <h2 id="coach-calls-heading" className={THEME_TOKENS.typography.sectionTitle}>{p.coachCallsHeading}</h2>
-          {/* The rows' text lines up with the headings; their hover reaches past them, as in Inicio. */}
-          <ul className="-mx-3 space-y-0.5">
+          <h2 id="coach-calls-heading" className={`px-3 ${THEME_TOKENS.typography.sectionTitle}`}>{p.coachCallsHeading}</h2>
+          <ul className="space-y-0.5">
             {data.calls.map((call) => (
               <CallRow key={call.memo_id} call={call} />
             ))}

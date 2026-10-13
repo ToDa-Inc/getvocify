@@ -72,7 +72,7 @@ function YourCompany() {
  * Nothing about teammates: coaching is the rep against their own playbook. */
 export function CoachingPlaybook({ coachedMotion }: { coachedMotion?: string | null }) {
   return (
-    <div className="space-y-10" data-testid="coach-playbook">
+    <div className="space-y-10 px-3" data-testid="coach-playbook">
       <YourProcess coached={coachedMotion} />
       <YourCompany />
     </div>
