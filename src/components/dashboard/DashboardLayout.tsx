@@ -35,6 +35,7 @@ import { DesktopCallProvider } from "@/features/desktop/DesktopCallProvider";
 import { MeetingHeadsUp } from "@/features/desktop/MeetingHeadsUp";
 import { DesktopRecordingChip } from "@/features/desktop/DesktopRecordingChip";
 import { DesktopSetupDialog } from "@/features/desktop/DesktopSetupDialog";
+import { DesktopPermissionBanner } from "@/features/desktop/DesktopPermissionBanner";
 import { isDesktopHost } from "@/lib/desktop-host";
 import { isManagerRole, isNavActive, navItemsFor, topBarActions, usesRepHome, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
@@ -222,6 +223,8 @@ const DashboardLayout = () => {
             <AvatarMenu billing={billing} />
           </div>
         </header>
+
+        <DesktopPermissionBanner />
 
         {homeColumn ? (
           <div className="flex min-h-0 flex-1">

@@ -6,7 +6,7 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 const MODIFIER_CODES = new Set(["MetaLeft", "MetaRight", "AltLeft", "AltRight", "ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight"]);
 
 /** The Mac app's global shortcut to start and stop recording. Only inside the app. */
-export const RecordShortcutSettings = () => {
+export const RecordShortcutSettings = ({ className }: { className?: string }) => {
   const { t } = useLanguage();
   const shortcut = getDesktopBridge()?.shortcut;
   const [state, setState] = useState<RecordShortcutState | null>(null);
@@ -46,8 +46,8 @@ export const RecordShortcutSettings = () => {
   if (!shortcut || !state) return null;
 
   return (
-    <div className="mt-6">
-      <p className={`${THEME_TOKENS.typography.capsLabel} mb-2`}>{t.product.recordShortcutTitle}</p>
+    <div className={className}>
+      <h3 className={`${THEME_TOKENS.typography.sectionTitle} mb-3`}>{t.product.recordShortcutTitle}</h3>
       <div className="flex items-center gap-2">
         <button
           type="button"
