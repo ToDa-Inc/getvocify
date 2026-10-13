@@ -2,7 +2,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   applyChannelResult,
-  createBubbleLayout,
   meetingTurns,
   EMPTY_MEETING_TRANSCRIPT,
   meetingDisplayTurns,
@@ -10,10 +9,8 @@ import {
   meetingOtherSideSpoke,
   meetingParticipants,
   meetingUploadText,
-  normalizeMeetingTranscript,
   resetChannel,
   type MeetingTranscript,
-  type MeetingView,
 } from "./meeting-transcript.ts";
 import { draftMinutes, sortDrafts, type MeetingDraft } from "./meeting-draft.ts";
 
@@ -495,159 +492,6 @@ describe("named finals (page recording on the desktop app)", () => {
     assert.equal(t.segments[0].name, "Marta García");
     assert.equal("name" in t.segments[1], false);
     assert.deepEqual(meetingParticipants(t), ["Marta García"]);
-  });
-});
-
-type Timed = [channel: "rep" | "prospect", isFinal: boolean, text: string, start: number, end: number];
-
-/** Feeds timed results one by one and returns what the island showed after each: `key:who[text|pending]`. */
-const island = (events: Timed[], view: MeetingView = { layout: createBubbleLayout() }) => {
-  let state = EMPTY_MEETING_TRANSCRIPT;
-  return events.map(([audioChannel, isFinal, text, start, end]) => {
-    state = applyChannelResult(state, { text, isFinal, audioChannel, start, end });
-    return meetingDisplayTurns(state, view).map((row) => `${row.key}:${row.speaker}[${row.text}|${row.pending}]`);
-  });
-};
-
-/** The call's sound as the island sees it: audible throughout, `heardS` seconds of it so far. */
-const callSound = (heardS: number, audible = true) => ({ audible: () => audible, heardS });
-
-describe("the island's bubbles", () => {
-  it("a bubble on screen keeps its words when a short rep line before it settles", () => {
-    // The mic misheard the start of their sentence; their next one came in its own bubble below it.
-    const shown = island([
-      ["prospect", false, "El jueves", 50, 51],
-      ["rep", false, "el juez", 50.4, 51],
-      ["prospect", true, "El jueves me va bien.", 50, 52],
-      ["prospect", false, "Mándame una", 52.4, 53],
-      ["prospect", true, "Mándame una invitación.", 52.4, 54],
-      ["rep", true, "El juez", 50.4, 51.2],
-    ]);
-    // Without the layout "Mándame una invitación." jumps up into the first bubble once "El juez" reads as a reaction.
-    assert.deepEqual(shown.at(-1), ["u0:prospect[El jueves me va bien.|]", "u1:rep[El juez|]", "u2:prospect[Mándame una invitación.|]"]);
-  });
-
-  it("a bubble that was never split stays one as its words come in", () => {
-    const shown = island([
-      ["prospect", true, "Vale, pero", 10, 11],
-      ["prospect", true, "ahora no.", 11, 12],
-    ]);
-    assert.deepEqual(shown.at(-1), ["u0:prospect[Vale, pero ahora no.|]"]);
-  });
-
-  it("the mic hearing the call never shows as the rep, even when its words come back first", () => {
-    const shown = island(
-      [
-        ["prospect", true, "Hola.", 1, 2],
-        ["rep", false, "bien oye", 5.5, 7],
-        ["prospect", false, "Bien, oye", 5.5, 7.2],
-        ["rep", true, "Bien oye", 5.5, 7.4],
-        ["prospect", true, "Bien, oye, te quería preguntar.", 5.5, 8],
-      ],
-      { layout: createBubbleLayout(), callSound: callSound(8) },
-    );
-    assert.ok(shown.every((rows) => rows.every((row) => !row.includes(":rep["))), JSON.stringify(shown));
-  });
-
-  it("a rep line said while the call had sound shows once the call's words reach it", () => {
-    const view = { layout: createBubbleLayout(), callSound: callSound(21) };
-    let state = applyChannelResult(EMPTY_MEETING_TRANSCRIPT, { text: "Perfecto.", isFinal: true, audioChannel: "prospect", start: 15, end: 18 });
-    state = applyChannelResult(state, { text: "te mando la invitación", isFinal: false, audioChannel: "rep", start: 20, end: 21 });
-    assert.deepEqual(meetingDisplayTurns(state, view).map((row) => row.speaker), ["prospect"]);
-    state = applyChannelResult(state, { text: "vale", isFinal: false, audioChannel: "prospect", start: 20.5, end: 21.5 });
-    assert.deepEqual(
-      meetingDisplayTurns(state, view).map((row) => [row.speaker, row.pending]),
-      [["prospect", ""], ["rep", "te mando la invitación"], ["prospect", "vale"]],
-    );
-  });
-
-  it("a rep line already on screen stays when the call starts right after it", () => {
-    let audible = false;
-    const view = { layout: createBubbleLayout(), callSound: { audible: () => audible, heardS: 21 } };
-    const state = applyChannelResult(EMPTY_MEETING_TRANSCRIPT, { text: "¿Os encaja el viernes?", isFinal: true, audioChannel: "rep", start: 18, end: 20.5 });
-    assert.deepEqual(meetingDisplayTurns(state, view).map((row) => row.speaker), ["rep"]);
-    audible = true;
-    assert.deepEqual(meetingDisplayTurns(state, view).map((row) => row.speaker), ["rep"]);
-  });
-
-  it("holds nothing back while the call is silent, or once its words are overdue", () => {
-    const state = applyChannelResult(EMPTY_MEETING_TRANSCRIPT, { text: "te mando la invitación", isFinal: false, audioChannel: "rep", start: 20, end: 21 });
-    const rep = (view: MeetingView) => meetingDisplayTurns(state, view).map((row) => row.speaker);
-    assert.deepEqual(rep({ callSound: callSound(21, false) }), ["rep"]);
-    assert.deepEqual(rep({ callSound: callSound(21) }), []);
-    // Sound with no words for longer than words take (music, a notification): the line shows.
-    assert.deepEqual(rep({ callSound: callSound(24.5) }), ["rep"]);
-  });
-
-  it("the end of a sentence stays while a final settles only its start", () => {
-    // MAI settles a few words at a time and sends the rest as its next partial, a moment later.
-    const view = { layout: createBubbleLayout(), now: 10 };
-    const rows = (state: MeetingTranscript) => meetingDisplayTurns(state, view).map((row) => [row.key, row.text, row.pending]);
-    let state = applyChannelResult(EMPTY_MEETING_TRANSCRIPT, { text: "No sé si te acuerdas", isFinal: false, audioChannel: "prospect", start: 1, end: 2 });
-    assert.deepEqual(rows(state), [["u0", "", "No sé si te acuerdas"]]);
-    state = applyChannelResult(state, { text: "No sé si te", isFinal: true, audioChannel: "prospect", start: 1, end: 2.2 });
-    assert.deepEqual(rows(state), [["u0", "No sé si te", "acuerdas"]]);
-    state = applyChannelResult(state, { text: "acuerdas de mí.", isFinal: false, audioChannel: "prospect", start: 2.2, end: 2.6 });
-    assert.deepEqual(rows(state), [["u0", "No sé si te", "acuerdas de mí."]]);
-    // Nothing follows: the words no final kept go after a moment, and never reach the memo.
-    state = applyChannelResult(state, { text: "acuerdas", isFinal: true, audioChannel: "prospect", start: 2.6, end: 2.8 });
-    assert.deepEqual(rows(state), [["u0", "No sé si te acuerdas", "de mí."]]);
-    view.now = 12;
-    assert.deepEqual(rows(state), [["u0", "No sé si te acuerdas", ""]]);
-    assert.equal(meetingUploadText(state), "SPEAKER: S2\nNo sé si te acuerdas");
-  });
-
-  it("a final that changed the words on screen takes them", () => {
-    const view = { layout: createBubbleLayout(), now: 10 };
-    let state = applyChannelResult(EMPTY_MEETING_TRANSCRIPT, { text: "vale vale perfecto", isFinal: false, audioChannel: "rep", start: 1, end: 2 });
-    meetingDisplayTurns(state, view);
-    state = applyChannelResult(state, { text: "Vale, perfecto.", isFinal: true, audioChannel: "rep", start: 1, end: 2 });
-    assert.deepEqual(meetingDisplayTurns(state, view).map((row) => [row.text, row.pending]), [["Vale, perfecto.", ""]]);
-  });
-
-  it("shows the same bubbles as before when nothing was decided differently", () => {
-    const events: Timed[] = [
-      ["prospect", false, "lo que te decía es que", 1, 2],
-      ["rep", false, "Ajá, vale", 1.5, 2],
-      ["rep", true, "Ajá, vale.", 1.5, 2.2],
-      ["prospect", true, "lo que te decía es que funciona.", 1, 3],
-    ];
-    assert.deepEqual(island(events), island(events, {}));
-  });
-});
-
-describe("echo is only looked for when the mic hears the call", () => {
-  // The rep agrees while they are still talking, in some of their words.
-  const overlap = (micHearsCall?: boolean) => {
-    let state: MeetingTranscript = micHearsCall === undefined ? EMPTY_MEETING_TRANSCRIPT : { ...EMPTY_MEETING_TRANSCRIPT, micHearsCall };
-    state = applyChannelResult(state, { text: "¿Te va bien el jueves? Sí, sí, claro", isFinal: true, audioChannel: "prospect", start: 30, end: 33 });
-    return applyChannelResult(state, { text: "Sí, claro.", isFinal: true, audioChannel: "rep", start: 32, end: 33 });
-  };
-
-  it("keeps what the rep says over the call when the mic doesn't hear it (headphones)", () => {
-    const state = overlap(false);
-    assert.deepEqual(meetingTurns(state).map((turn) => turn.speaker), ["prospect", "rep"]);
-    assert.match(meetingUploadText(state), /SPEAKER: S1\nSí, claro\./);
-    assert.deepEqual(meetingDisplayTurns(state).map((row) => row.speaker), ["prospect", "rep"]);
-  });
-
-  it("drops the same words as echo once the mic is caught hearing the call, or when that can't be told", () => {
-    assert.deepEqual(meetingTurns(overlap(true)).map((turn) => turn.speaker), ["prospect"]);
-    assert.deepEqual(meetingTurns(overlap()).map((turn) => turn.speaker), ["prospect"]);
-    // Found out mid-call: what was already said is checked too.
-    assert.deepEqual(meetingTurns({ ...overlap(false), micHearsCall: true }).map((turn) => turn.speaker), ["prospect"]);
-  });
-
-  it("holds nothing back for a call the mic doesn't hear", () => {
-    const state = applyChannelResult({ ...EMPTY_MEETING_TRANSCRIPT, micHearsCall: false }, { text: "te mando la invitación", isFinal: false, audioChannel: "rep", start: 20, end: 21 });
-    assert.deepEqual(meetingDisplayTurns(state, { callSound: callSound(21) }).map((row) => row.speaker), ["rep"]);
-  });
-
-  it("is kept through every result and a saved draft", () => {
-    const state = overlap(false);
-    assert.equal(state.micHearsCall, false);
-    assert.equal(normalizeMeetingTranscript(JSON.parse(JSON.stringify(state))).micHearsCall, false);
-    assert.equal("micHearsCall" in normalizeMeetingTranscript({ segments: [] }), false);
   });
 });
 

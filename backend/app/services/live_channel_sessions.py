@@ -588,9 +588,6 @@ class MaiStream(LiveStream):
         # A word the last delta may not have finished, and when the words now changing first showed.
         self.carry = ""
         self.shown_at: Optional[float] = None
-        # When this side started speaking again after a pause (seconds, like `last_end`). MAI gives no
-        # times, so words after a pause start here, not where the side's previous words ended.
-        self.onsets: list[float] = []
 
     def url(self) -> str:
         return MAI_GATEWAY_URL
@@ -613,10 +610,8 @@ class MaiStream(LiveStream):
         """Sends speech (with a little before and after it), then the quiet after it until MAI
         has settled what was said; holds the rest of the silence back."""
         seconds = len(pcm) / BYTES_PER_SECOND
-        loud = speech_level(pcm) >= SPEECH_RMS
-        if loud and self.hang <= 1e-6:
-            self.onsets.append(self.offset_s + self.heard_s)
         self.heard_s += seconds
+        loud = speech_level(pcm) >= SPEECH_RMS
         if loud:
             self.tail_s = 0.0
         settling = self.unsettled.strip() != "" and self.tail_s < SETTLE_TAIL_S - 1e-6
@@ -650,8 +645,7 @@ class MaiStream(LiveStream):
     def events(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         """`transcript-delta` is newly settled text (it can end mid-word: "acuer" + "das");
         `transcript-partial` is only the still-changing end after it. Neither carries times, so
-        a sentence ends where the audio fed so far ends, and starts where the side began speaking
-        after its last settled words."""
+        a sentence ends where the audio fed so far ends."""
         kind = data.get("type")
         now = time.monotonic()
         # A stream reopened mid-call is given its offset after it was built: its first sentence starts there.
@@ -662,8 +656,7 @@ class MaiStream(LiveStream):
             settled = self._settle(data.get("delta") or "")
             if not settled:
                 return []
-            start = self._start()
-            end = max(start, self.offset_s + self.heard_s)
+            start, end = self.last_end, max(self.last_end, self.offset_s + self.heard_s)
             self.last_end = end
             event = {"kind": "final", "transcript": settled, "words": [], "start": start, "end": end, "timed": False}
             if self.shown_at is not None:
@@ -677,18 +670,16 @@ class MaiStream(LiveStream):
                 return []
             if self.shown_at is None:
                 self.shown_at = now
-            start = self._start()
-            end = max(start, self.offset_s + self.heard_s)
-            return [{"kind": "partial", "transcript": text, "words": [], "start": start, "end": end, "timed": False}]
+            end = max(self.last_end, self.offset_s + self.heard_s)
+            return [{"kind": "partial", "transcript": text, "words": [], "start": self.last_end, "end": end, "timed": False}]
         if kind in ("transcript-final", "finish"):
             self.unsettled = ""
             # The whole item again: already sent as deltas; only a held last word is left.
             rest, self.carry = self.carry.strip(), ""
             out = []
             if rest:
-                start = self._start()
-                end = max(start, self.offset_s + self.heard_s)
-                out.append({"kind": "final", "transcript": rest, "words": [], "start": start, "end": end, "timed": False})
+                end = max(self.last_end, self.offset_s + self.heard_s)
+                out.append({"kind": "final", "transcript": rest, "words": [], "start": self.last_end, "end": end, "timed": False})
                 self.last_end = end
             if kind == "finish":
                 out.append({"kind": "done"})
@@ -698,12 +689,6 @@ class MaiStream(LiveStream):
             reason = error.get("message") if isinstance(error, dict) else str(error or "MAI error")
             return [{"kind": "error", "reason": reason}]
         return []
-
-    def _start(self) -> float:
-        """Where the words after the last settled ones begin: the first time the side spoke again
-        after them, or right after them when it never paused."""
-        self.onsets = [at for at in self.onsets if at > self.last_end]
-        return self.onsets[0] if self.onsets else self.last_end
 
     def _settle(self, delta: str) -> str:
         """Settled text up to a whole word. The last word waits for the next delta, which may
