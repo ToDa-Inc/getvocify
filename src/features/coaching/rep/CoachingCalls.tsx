@@ -23,6 +23,8 @@ import { useCoachCalls } from "./useRepCoaching";
 
 const TONE_TEXT = { success: "text-success", warning: "text-warning", destructive: "text-destructive", muted: "text-foreground" } as const;
 const ROW = "rounded-xl px-3 py-2.5 transition-colors duration-150 hover:bg-secondary/60 motion-reduce:transition-none";
+// The page spans the layout's width; a paragraph keeps a width that reads in one sweep.
+const READING = "max-w-3xl";
 
 function localeOf(language: string) {
   return language === "EN" ? "en-GB" : "es-ES";
@@ -61,32 +63,34 @@ function ImproveItem({ item, weeks }: { item: CoachImprove; weeks: number }) {
   const p = t.product;
   const before = improveBeforeLine(p, item, weeks);
   return (
-    <article className="space-y-3 border-t border-border/60 py-5 first:border-t-0 first:pt-1" data-testid="coach-improve-item">
-      <div className="space-y-0.5">
-        <h3 className={THEME_TOKENS.typography.itemTitle}>{item.label}</h3>
-        <p className="text-sm text-warning">{improveCountLine(p, item)}</p>
+    <article className="border-t border-border/60 py-5 first:border-t-0 first:pt-1" data-testid="coach-improve-item">
+      <div className={`space-y-3 ${READING}`}>
+        <div className="space-y-0.5">
+          <h3 className={THEME_TOKENS.typography.itemTitle}>{item.label}</h3>
+          <p className="text-sm text-warning">{improveCountLine(p, item)}</p>
+        </div>
+        {item.criterion ? (
+          <div>
+            <p className={THEME_TOKENS.typography.fieldLabel}>{p.coachImproveAsks}</p>
+            <p className={THEME_TOKENS.typography.itemBody}>{item.criterion}</p>
+          </div>
+        ) : null}
+        {item.example ? (
+          <div className="space-y-1.5">
+            <p className={THEME_TOKENS.typography.fieldLabel}>
+              {fill(p.coachImproveInCall, { date: dayLabel(item.example.observed_at, language) })}
+              {" · "}
+              <Link to={`/dashboard/memos/${item.example.memo_id}`} className="underline-offset-2 hover:text-foreground hover:underline">
+                {p.coachOpenCall}
+              </Link>
+            </p>
+            {item.example.reason ? <p className={THEME_TOKENS.typography.itemBody}>{item.example.reason}</p> : null}
+            {item.example.quote ? <Quote text={item.example.quote} /> : null}
+          </div>
+        ) : null}
+        {item.how ? <NextTime text={item.how} /> : null}
+        {before ? <p className="text-xs text-muted-foreground">{before}</p> : null}
       </div>
-      {item.criterion ? (
-        <div>
-          <p className={THEME_TOKENS.typography.fieldLabel}>{p.coachImproveAsks}</p>
-          <p className={THEME_TOKENS.typography.itemBody}>{item.criterion}</p>
-        </div>
-      ) : null}
-      {item.example ? (
-        <div className="space-y-1.5">
-          <p className={THEME_TOKENS.typography.fieldLabel}>
-            {fill(p.coachImproveInCall, { date: dayLabel(item.example.observed_at, language) })}
-            {" · "}
-            <Link to={`/dashboard/memos/${item.example.memo_id}`} className="underline-offset-2 hover:text-foreground hover:underline">
-              {p.coachOpenCall}
-            </Link>
-          </p>
-          {item.example.reason ? <p className={THEME_TOKENS.typography.itemBody}>{item.example.reason}</p> : null}
-          {item.example.quote ? <Quote text={item.example.quote} /> : null}
-        </div>
-      ) : null}
-      {item.how ? <NextTime text={item.how} /> : null}
-      {before ? <p className="text-xs text-muted-foreground">{before}</p> : null}
     </article>
   );
 }
@@ -177,7 +181,7 @@ function CallRow({ call }: { call: CoachCall }) {
           {body}
           <ChevronDown size={16} strokeWidth={1.5} className="mt-1 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
         </CollapsibleTrigger>
-        <CollapsibleContent className="ml-3 border-l border-border/60 pb-2 pl-4">
+        <CollapsibleContent className={`ml-3 border-l border-border/60 pb-2 pl-4 ${READING}`}>
           <ul>
             {call.slips.map((slip) => (
               <SlipDetail key={slip.step_id} slip={slip} />

@@ -26,8 +26,9 @@ export default function CoachPage() {
   // null = the backend picks the type the rep had most conversations of.
   const [type, setType] = useState<string | null>(null);
   const calls = useCoachCalls(type);
+  // Edge to edge within the page's margins, like Inicio; long text keeps a reading width (CoachingCalls).
   return (
-    <main className={`max-w-3xl mx-auto space-y-8 ${THEME_TOKENS.motion.fadeIn}`}>
+    <main className={`w-full space-y-8 ${THEME_TOKENS.motion.fadeIn}`}>
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className={THEME_TOKENS.typography.pageTitle}>{playbook ? p.coachTabPlaybook : p.navCoach}</h1>
