@@ -160,6 +160,11 @@ function newDraftId(): string {
 }
 
 
+const SYSTEM_SETTINGS = "/dashboard/settings/system";
+
+/** A recording that can't start because the mic or call audio isn't allowed (or isn't reachable). */
+class PermissionMissing extends Error {}
+
 /** The Vocify call's source on its memo draft: always a phone call. */
 const VOCIFY_CALL_SOURCE: CallSourceInfo = { name: "Vocify", kind: "call" };
 
@@ -287,10 +292,17 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     setPhaseState(next);
   }, []);
 
-  const fail = useCallback((message: string) => {
-    setError(message);
-    toast.error(message);
-  }, []);
+  /** `fixInSettings`: a permission is what's missing, so the toast takes the rep to where it is turned on. */
+  const fail = useCallback(
+    (message: string, fixInSettings = false) => {
+      setError(message);
+      toast.error(
+        message,
+        fixInSettings ? { action: { label: "Open Settings", onClick: () => navigate(SYSTEM_SETTINGS) } } : undefined,
+      );
+    },
+    [navigate],
+  );
 
   const currentDraft = useCallback((): MeetingDraft | null => {
     const meta = draftRef.current;
@@ -979,19 +991,19 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       if (!call) {
         const perm = await bridge.permissions.status();
         if (normalizePermissionStatus(perm.microphone) !== "authorized") {
-          throw new Error("Allow Microphone in the panel above, then try again.");
+          throw new PermissionMissing("Vocify can't use your microphone. Allow it in Settings › System, then record again.");
         }
         if (normalizePermissionStatus(perm.systemAudio) !== "authorized") {
-          throw new Error("Allow system audio in the panel above, then try again.");
+          throw new PermissionMissing("Vocify can't hear call audio. Allow it in Settings › System, then record again.");
         }
       }
 
       const systemAudioError = (reason?: string) => {
         const isMac = desktopPlatform() === "darwin";
         if (reason === "needs_restart" && isMac) {
-          return new Error("System audio is on but Vocify needs a restart. Quit (⌘Q) and reopen, then record again.");
+          return new PermissionMissing("Call audio is on but Vocify needs a restart. Quit (⌘Q) and reopen, then record again.");
         }
-        return new Error("Allow system audio in the panel above, then try again.");
+        return new PermissionMissing("Vocify couldn't capture call audio. Check it in Settings › System, then record again.");
       };
 
       // The live service takes no session of its own: a ticket from the API, valid for the day.
@@ -1005,7 +1017,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       if (recorder) {
         const started = await recorder.start({ url: liveTranscriptionWsUrl(user.id), ticket: ticketRef.current ?? undefined });
         if (!started.ok) {
-          if (started.reason === "no_microphone") throw new Error("Could not open the microphone.");
+          if (started.reason === "no_microphone") throw new PermissionMissing("Could not open the microphone. Check it in Settings › System.");
           throw systemAudioError(started.reason);
         }
         nativeRef.current = true;
@@ -1016,7 +1028,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
             })
             .catch(() => {
-              throw new Error("Could not open the microphone.");
+              throw new PermissionMissing("Could not open the microphone. Check it in Settings › System.");
             });
           micRef.current = micStream;
 
@@ -1195,7 +1207,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       wsRef.current?.close();
       wsRef.current = null;
       setPhase("idle");
-      fail(e instanceof Error && e.message ? e.message : "Could not start recording.");
+      fail(e instanceof Error && e.message ? e.message : "Could not start recording.", e instanceof PermissionMissing);
       // A start from the notch island happens with Vocify in the background: bring the error forward.
       void bridge.shell.hideOverlay();
       bridge.shell.command("show");

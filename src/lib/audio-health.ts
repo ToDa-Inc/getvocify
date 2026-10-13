@@ -12,7 +12,10 @@ export const SILENT_PEAK = 2;
 const SPEAKING_PEAK = 1500;
 
 export const MIC_SILENT_MS = 8_000;
+/** The earliest the other side is called missing: a meeting's first half minute can be all the rep. */
 export const CALL_SILENT_MS = 30_000;
+/** And only once the rep has talked this long in total: someone was there to answer. */
+export const CALL_TALKED_MS = 15_000;
 
 /** Loudness of one PCM16 chunk, eased so normal speech sits around 0.5. */
 export function pcmLevel(pcm: ArrayBuffer): number {
@@ -40,32 +43,52 @@ export function peak(samples: Int16Array): number {
 
 export class AudioHealth {
   private soundAt: { you: number; them: number };
-  private spokeAt = Number.NEGATIVE_INFINITY;
+  private startedAt: number;
+  /** Any sound at all from the other side since the start: after that, their silence is just listening. */
+  private themEverHeard = false;
+  private talkedMs = 0;
+  private lastSpokeAt: number | null = null;
   private readonly watchCall: boolean;
 
   /** `watchCall`: false when the other side's audio needs no permission (a Vocify call's own stream). */
   constructor(now: number, { watchCall }: { watchCall: boolean }) {
     this.soundAt = { you: now, them: now };
+    this.startedAt = now;
     this.watchCall = watchCall;
   }
 
   /** One chunk as it arrived (for the mic, before echo removal: that can zero out a live mic). */
   hear(side: "you" | "them", samples: Int16Array, now: number): void {
     const loudest = peak(samples);
-    if (loudest > SILENT_PEAK) this.soundAt[side] = now;
-    if (side === "you" && loudest >= SPEAKING_PEAK) this.spokeAt = now;
+    if (loudest > SILENT_PEAK) {
+      this.soundAt[side] = now;
+      if (side === "them") this.themEverHeard = true;
+    }
+    if (side === "you" && loudest >= SPEAKING_PEAK) {
+      // Time between two loud chunks counts as talking when they are close (a sentence, not two).
+      if (this.lastSpokeAt !== null && now - this.lastSpokeAt < 1_000) this.talkedMs += now - this.lastSpokeAt;
+      this.lastSpokeAt = now;
+    }
   }
 
   /** After a pause: the silence while paused proves nothing. */
   restart(now: number): void {
     this.soundAt = { you: now, them: now };
-    this.spokeAt = Number.NEGATIVE_INFINITY;
+    this.lastSpokeAt = null;
   }
 
   issue(now: number): AudioIssue {
     if (now - this.soundAt.you >= MIC_SILENT_MS) return "mic";
-    // The other side being quiet is normal: only a rep who has been talking to nobody for the whole wait counts.
-    if (this.watchCall && now - this.soundAt.them >= CALL_SILENT_MS && now - this.spokeAt < CALL_SILENT_MS) return "call";
+    // The other side listening is silence too (muted on Zoom is pure zeros), so a pitch must never trip this: only
+    // call audio that has carried nothing since the start, after the rep has clearly been talking to someone.
+    if (
+      this.watchCall &&
+      !this.themEverHeard &&
+      now - this.startedAt >= CALL_SILENT_MS &&
+      this.talkedMs >= CALL_TALKED_MS
+    ) {
+      return "call";
+    }
     return null;
   }
 }
@@ -84,12 +107,12 @@ export function audioIssueCopy(
   }
   return platform === "darwin"
     ? {
-        title: "Vocify can't hear the other side",
-        body: "Turn on Vocify in Screen & System Audio Recording, then relaunch Vocify.",
+        title: "No sound from the other side yet",
+        body: "If they have spoken, turn on Vocify in Screen & System Audio Recording, then relaunch Vocify.",
         settings: "systemAudio",
       }
     : {
-        title: "Vocify can't hear the other side",
+        title: "No sound from the other side yet",
         body: "Check the call's sound plays on this computer.",
         settings: null,
       };
