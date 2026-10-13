@@ -20,7 +20,8 @@ import {
   peerMedianLabel,
   stateView,
   stepsDone,
-  stepsDoneLine,
+  countTone,
+  cleanSummaryLine,
   trendArrow,
   trendOf,
   weekTotalLine,
@@ -85,12 +86,22 @@ describe("sentences", () => {
     assert.match(text ?? "", /40 %.*10 %.*10 y 20/);
     assert.match(conversionSentence(EN, { complete_rate: null, incomplete_rate: 0.1, complete_n: 5, incomplete_n: 6 }) ?? "", /—/);
   });
-  it("counts steps done over done + missing only", () => {
-    const steps = [{ state: "done" }, { state: "done" }, { state: "missing" }, { state: "no_evidence" }, { state: "not_reached" }];
+  it("counts steps done like the backend: improvable is done, unknown and not reached never count", () => {
+    const steps = [{ state: "done" }, { state: "improvable" }, { state: "missing" }, { state: "no_evidence" }, { state: "not_reached" }];
     assert.deepEqual(stepsDone(steps), { done: 2, total: 3 });
-    assert.equal(stepsDoneLine(ES, steps), "Pasos hechos: 2 de 3");
-    assert.equal(stepsDoneLine(ES, [{ state: "not_reached" }]), null);
-    assert.equal(stepsDoneLine(ES, []), null);
+    assert.deepEqual(stepsDone([{ state: "not_reached" }]), { done: 0, total: 0 });
+    assert.deepEqual(stepsDone([]), { done: 0, total: 0 });
+  });
+  it("tones a count as all, none or some", () => {
+    assert.equal(countTone(3, 3), "success");
+    assert.equal(countTone(0, 4), "destructive");
+    assert.equal(countTone(2, 4), "warning");
+    assert.equal(countTone(0, 0), "muted");
+  });
+  it("cleans the markdown the extraction leaves in a summary", () => {
+    assert.equal(cleanSummaryLine("Resultado:** Sin conversación."), "Sin conversación.");
+    assert.equal(cleanSummaryLine("Dijo que **no** ve prioridad"), "Dijo que no ve prioridad");
+    assert.equal(cleanSummaryLine(null), "");
   });
   it("formats duration and peer median", () => {
     assert.equal(durationLabel(ES, null), null);

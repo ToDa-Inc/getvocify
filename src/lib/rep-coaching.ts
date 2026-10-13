@@ -162,12 +162,13 @@ export function conversionSentence(
   });
 }
 
-/** "steps done: X of Y": only done + missing count; unknown and not-reached never penalise. */
+/** Steps done over steps judged, as the backend counts them (rep_coaching.step_rates): improvable
+ * is done, missing is not, and no_evidence / not_reached never penalise. */
 export function stepsDone(steps: { state: string }[]): { done: number; total: number } {
   let done = 0;
   let total = 0;
   for (const step of steps) {
-    if (step.state === "done") {
+    if (step.state === "done" || step.state === "improvable") {
       done += 1;
       total += 1;
     } else if (step.state === "missing") total += 1;
@@ -175,9 +176,15 @@ export function stepsDone(steps: { state: string }[]): { done: number; total: nu
   return { done, total };
 }
 
-export function stepsDoneLine(p: Product, steps: { state: string }[]): string | null {
-  const { done, total } = stepsDone(steps);
-  return total === 0 ? null : fill(p.coachStepsDone, { done, total });
+/** All, none or some done: the only three tones a count gets, so no threshold is invented. */
+export function countTone(done: number, total: number): "success" | "warning" | "destructive" | "muted" {
+  if (!total) return "muted";
+  return done === total ? "success" : done === 0 ? "destructive" : "warning";
+}
+
+/** The extraction sometimes leaves markdown in the summary ("Resultado:** …"). */
+export function cleanSummaryLine(line: string | null | undefined): string {
+  return String(line ?? "").replace(/^\s*\**\s*Resultado:\s*\**\s*/i, "").replace(/\*\*/g, "").trim();
 }
 
 export function durationLabel(p: Product, seconds: number | null | undefined): string | null {
