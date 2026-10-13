@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
+from app.services.playbooks.step_identity import StepMatcher
 from app.services.team_insights.aggregate import _current_scores, _parse_instant
 from app.services.team_insights.objections import objection_counts
 
@@ -61,6 +62,11 @@ def consider_memos(
 def memo_observations(memo: dict) -> dict[str, str]:
     """{step_id: status} of a memo. extraction.intelligence first, then the flat
     extraction.playbook_observations. The first entry of a step wins."""
+    return {step_id: status for step_id, (_, status) in _memo_verdicts(memo).items()}
+
+
+def _memo_verdicts(memo: dict) -> dict[str, tuple[str, str]]:
+    """{step_id: (criterion it was judged on, status)}, read like memo_observations."""
     extraction = memo.get("extraction")
     if isinstance(extraction, str):
         try:
@@ -73,28 +79,35 @@ def memo_observations(memo: dict) -> dict[str, str]:
     observations = intelligence.get("playbook_observations") if isinstance(intelligence, dict) else None
     if not isinstance(observations, list):
         observations = extraction.get("playbook_observations")
-    by_step: dict[str, str] = {}
+    by_step: dict[str, tuple[str, str]] = {}
     for item in observations if isinstance(observations, list) else []:
         if not isinstance(item, dict):
             continue
         step_id = str(item.get("step_id") or "").strip()
         if step_id and step_id not in by_step:
-            by_step[step_id] = str(item.get("status") or "").strip().lower()
+            by_step[step_id] = (str(item.get("criterion") or ""), str(item.get("status") or "").strip().lower())
     return by_step
 
 
 def step_insights(memos: list[dict], steps: list[dict]) -> list[dict]:
-    """One entry per step of the active version, in its order. Step ids the version does
-    not have are ignored; not_applicable and unknown are not counted."""
+    """One entry per step of the active version, in its order. A verdict counts for the step
+    with its criterion (step_identity); others are ignored. not_applicable and unknown are not
+    counted."""
     order: list[str] = []
     for step in steps or []:
         step_id = str(step.get("step_id") or "").strip() if isinstance(step, dict) else ""
         if step_id and step_id not in order:
             order.append(step_id)
     tallies = {step_id: {"met": 0, "missed": 0} for step_id in order}
+    matcher = StepMatcher(steps)
     for memo in memos:
-        for step_id, status in memo_observations(memo).items():
-            tally = tallies.get(step_id)
+        counted: set[str] = set()
+        for step_id, (criterion, status) in _memo_verdicts(memo).items():
+            live_id = matcher.match(step_id, criterion)
+            if live_id is None or live_id in counted:
+                continue
+            counted.add(live_id)  # one verdict per step and call, as in the rep engine
+            tally = tallies.get(live_id)
             if tally is not None and status in tally:
                 tally[status] += 1
     out: list[dict] = []

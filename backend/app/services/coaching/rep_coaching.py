@@ -7,6 +7,7 @@ from statistics import median
 from zoneinfo import ZoneInfo
 
 from app.services.playbooks.outcome_steps import MEETING_BOOKED, status_from_rep_outcome
+from app.services.playbooks.step_identity import StepMatcher
 
 _MADRID = ZoneInfo("Europe/Madrid")
 
@@ -104,6 +105,8 @@ def interaction_row(memo: dict) -> dict | None:
         steps.append({
             "step_id": step_id,
             "label": str(item.get("label") or step_id),
+            # What the step asked when this call was judged: a changed criterion stops counting.
+            "criterion": item.get("criterion") or None,
             "state": state,
             "quote": item.get("quote") or None,
             "advice": item.get("advice") or None,
@@ -131,12 +134,23 @@ def _rate(done: int, applicable: int) -> float | None:
 
 def step_rates(rows: list[dict], steps: list[dict]) -> list[dict]:
     """Per published step: done / (done + missing). no_evidence and not_reached do not count,
-    and neither do non-conversations (voicemail, no answer, < 30 s): activity, not evaluated."""
+    and neither do non-conversations (voicemail, no answer, < 30 s): activity, not evaluated.
+    A verdict counts for the published step with its criterion (step_identity)."""
     out = []
-    conversations = [row for row in rows if row.get("is_conversation", True)]
+    matcher = StepMatcher(steps)
+    states_of: dict[str, list[str]] = {}
+    for row in rows:
+        if not row.get("is_conversation", True):
+            continue
+        counted: set[str] = set()
+        for s in row["steps"]:
+            live_id = matcher.match(s["step_id"], s.get("criterion"))
+            if live_id is not None and live_id not in counted:
+                counted.add(live_id)
+                states_of.setdefault(live_id, []).append(s["state"])
     for step in steps:
         step_id = str(step.get("step_id"))
-        states = [s["state"] for row in conversations for s in row["steps"] if s["step_id"] == step_id]
+        states = states_of.get(step_id, [])
         improvable = states.count("improvable")
         done, missing = states.count("done") + improvable, states.count("missing")
         out.append({
@@ -183,13 +197,14 @@ def choose_focus(rows_prev_week: list[dict], steps: list[dict], peer_rates: dict
     }
 
 
-def _step_counts(rows: list[dict], step_id: str) -> tuple[int, int]:
-    rate = step_rates(rows, [{"step_id": step_id}])[0]
+def _step_counts(rows: list[dict], step: dict) -> tuple[int, int]:
+    rate = step_rates(rows, [step])[0]
     return rate["done"], rate["applicable"]
 
 
-def focus_progress(rows_this_week: list[dict], step_id: str, week_start) -> dict:
-    """Mon-Fri counts for the focus step plus the week total. achieved: rate >= 0.8 on >= 3."""
+def focus_progress(rows_this_week: list[dict], step: dict, week_start) -> dict:
+    """Mon-Fri counts for the focus step (its published definition) plus the week total.
+    achieved: rate >= 0.8 on >= 3."""
     monday = week_start.astimezone(_MADRID).date() if isinstance(week_start, datetime) else week_start
     by_day: dict[date, list[dict]] = {}
     for row in rows_this_week:
@@ -199,9 +214,9 @@ def focus_progress(rows_this_week: list[dict], step_id: str, week_start) -> dict
     progress = []
     for offset in range(5):
         day = monday + timedelta(days=offset)
-        done, applicable = _step_counts(by_day.get(day, []), step_id)
+        done, applicable = _step_counts(by_day.get(day, []), step)
         progress.append({"date": day.isoformat(), "done": done, "applicable": applicable})
-    done, applicable = _step_counts(rows_this_week, step_id)
+    done, applicable = _step_counts(rows_this_week, step)
     rate = _rate(done, applicable)
     return {
         "progress": progress,

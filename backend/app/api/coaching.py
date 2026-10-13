@@ -20,6 +20,7 @@ from app.services.activity_scope import effective_visibility, memo_readable_by
 from app.services.company import CompanyService, Membership
 from app.services.feature_flags import is_enabled
 from app.services.playbooks.catalog import INTERNAL_KEY
+from app.services.playbooks.step_identity import StepMatcher
 from app.services.team_insights.aggregate import load_team_reps, madrid_week_bounds
 from app.services.team_insights.objections import objection_counts
 
@@ -354,23 +355,28 @@ def _numbers(rows: list[dict]) -> dict:
 def _example_for(step: dict, peer_rows: list[dict]) -> Optional[str]:
     if step.get("example"):
         return str(step["example"])
-    moments = _moments(peer_rows, str(step["step_id"]))
+    moments = _moments(peer_rows, step)
     return moments[0]["quote"] if moments else None
 
 
-def _moments(peer_rows: list[dict], step_id: str) -> list[dict]:
+def _moments(peer_rows: list[dict], step: dict) -> list[dict]:
     """Anonymous quotes of a step done in a conversation that ended with a meeting. Empty
     unless at least _MIN_PEERS distinct peers contributed one: with fewer, a quote is
     attributable."""
+    step_id, matcher = str(step["step_id"]), StepMatcher([step])
     seen: set[str] = set()
     contributors: set[str] = set()
     out: list[dict] = []
     for row in sorted(peer_rows, key=lambda r: r["observed_at"], reverse=True):
         if not (row["is_conversation"] and row["meeting_agreed"]):
             continue
-        for step in row["steps"]:
-            quote = step["quote"]
-            if step["step_id"] == step_id and step["state"] == "done" and quote:
+        for observed in row["steps"]:
+            quote = observed["quote"]
+            if (
+                matcher.match(observed["step_id"], observed.get("criterion")) == step_id
+                and observed["state"] == "done"
+                and quote
+            ):
                 contributors.add(row["user_id"])
                 if quote not in seen:
                     seen.add(quote)
@@ -476,7 +482,7 @@ async def get_my_coaching_summary(
             "criterion": str(definition.get("criterion") or ""),
             "example": _example_for(definition, peer_rows),
             "why": {k: chosen[k] for k in ("rate", "applicable", "missing", "peer_median")},
-            **engine.focus_progress(this_week, chosen["step_id"], ctx["week_start"]),
+            **engine.focus_progress(this_week, definition, ctx["week_start"]),
         }
     body["conversion"] = engine.conversion_split(ctx["own"], ctx["flow"])
     return body
@@ -493,6 +499,8 @@ async def get_my_coaching_interactions(
     supabase=Depends(get_supabase),
 ):
     ctx = _rep_context(supabase, membership, peers=False, flow=flow)
+    # A call judged on an earlier criterion of the step is history, not this step.
+    matcher = StepMatcher(ctx["playbook"]["steps"])
 
     def keep(row: dict) -> bool:
         if meeting is not None and row["meeting_agreed"] != meeting:
@@ -500,12 +508,18 @@ async def get_my_coaching_interactions(
         if step_id is None and state is None:
             return True
         return any(
-            (step_id is None or s["step_id"] == step_id) and (state is None or s["state"] == state)
+            (step_id is None or matcher.match(s["step_id"], s.get("criterion")) == step_id)
+            and (state is None or s["state"] == state)
             for s in row["steps"]
         )
 
     rows = sorted((r for r in ctx["own"] if keep(r)), key=lambda r: r["observed_at"], reverse=True)
-    return {"items": rows[:limit]}
+    # The criterion is only for matching: repeated on every step of every call, it is dead weight.
+    items = [
+        {**r, "steps": [{k: v for k, v in s.items() if k != "criterion"} for s in r["steps"]]}
+        for r in rows[:limit]
+    ]
+    return {"items": items}
 
 
 @router.get("/coaching/me/process")
@@ -561,7 +575,7 @@ async def get_coaching_examples(
             "label": str(step.get("label") or step["step_id"]),
             "criterion": str(step.get("criterion") or ""),
             "example": step.get("example") or None,
-            "moments": _moments(peer_rows, str(step["step_id"])),
+            "moments": _moments(peer_rows, step),
         })
     patterns = reads.load_patterns(supabase, [r["memo_id"] for r in [*ctx["own"], *peer_rows]])
     window_start = ctx["week_starts"][-1] - timedelta(weeks=_PEER_WEEKS - 1)

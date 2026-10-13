@@ -156,7 +156,7 @@ def test_focus_progress_per_weekday_and_achieved():
         _row({"a": "done"}, at="2026-09-23T12:00:00+00:00"),
         _row({"b": "done"}, at="2026-09-24T12:00:00+00:00"),
     ]
-    result = focus_progress(rows, "a", WEEK_START)
+    result = focus_progress(rows, {"step_id": "a"}, WEEK_START)
     days = {d["date"]: (d["done"], d["applicable"]) for d in result["progress"]}
     assert list(days) == ["2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25"]
     assert days["2026-09-21"] == (2, 2) and days["2026-09-22"] == (0, 0) and days["2026-09-23"] == (2, 3)
@@ -165,9 +165,9 @@ def test_focus_progress_per_weekday_and_achieved():
 
 
 def test_focus_progress_not_achieved():
-    few = focus_progress([_row({"a": "done"}), _row({"a": "done"})], "a", WEEK_START)
+    few = focus_progress([_row({"a": "done"}), _row({"a": "done"})], {"step_id": "a"}, WEEK_START)
     assert few["achieved"] is False  # applicable < 3
-    low = focus_progress([_row({"a": "done"}), _row({"a": "missing"}), _row({"a": "done"})], "a", WEEK_START)
+    low = focus_progress([_row({"a": "done"}), _row({"a": "missing"}), _row({"a": "done"})], {"step_id": "a"}, WEEK_START)
     assert low["achieved"] is False and low["week_total"]["rate"] == 0.6667
 
 
