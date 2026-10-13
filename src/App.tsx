@@ -40,7 +40,7 @@ import CallingSection from "./pages/dashboard/settings/CallingSection";
 import SystemSection from "./pages/dashboard/settings/SystemSection";
 import { CalendarSettings } from "@/components/dashboard/settings/CalendarSettings";
 import OfferSection from "./pages/dashboard/settings/OfferSection";
-import GlossarySection from "./pages/dashboard/settings/GlossarySection";
+import TranscriptionSection from "./pages/dashboard/settings/TranscriptionSection";
 import BriefHighlightSection from "./pages/dashboard/settings/BriefHighlightSection";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
@@ -189,7 +189,7 @@ const App = () => (
                 <Route path="calling" element={<CallingSection />} />
                 <Route path="calendar" element={<CalendarSettings />} />
                 <Route path="offer" element={<OfferSection />} />
-                <Route path="glossary" element={<GlossarySection />} />
+                <Route path="transcription" element={<TranscriptionSection />} />
                 <Route path="brief" element={<BriefHighlightSection />} />
                 <Route path="team" element={<TeamPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
@@ -214,6 +214,7 @@ const App = () => (
               <Route path="team" element={<Navigate to="/dashboard/settings/team" replace />} />
               <Route path="billing" element={<Navigate to="/dashboard/settings/billing" replace />} />
               <Route path="calling" element={<Navigate to="/dashboard/settings/calling" replace />} />
+              <Route path="settings/glossary" element={<Navigate to="/dashboard/settings/transcription" replace />} />
               <Route path="usage" element={<Navigate to="/dashboard/settings/usage" replace />} />
               <Route path="copilot" element={<ObjectionCopilotPage />} />
               <Route path="*" element={<NotFound />} />

@@ -104,7 +104,12 @@ export type CallingAccess = {
   /** The company's plan includes the dialer. */
   canDial: boolean;
   callerId: string | null;
+  /** Vocify calling is off on this computer: the call opens on the rep's own phone, recorded like any detected call. */
+  onPhone?: boolean;
 };
+
+/** Who the rep's own phone calls. */
+export type PhoneTarget = { to: string; name: string | null; contactId: string | null };
 
 export type DialIsland = {
   phase: "connecting" | "ringing" | "active" | "ended";
@@ -133,24 +138,31 @@ export type CallCommand =
 export const ENDED_HOLD_MS = 4000;
 
 export function onScreenFromPreview(preview: CallPreview | null | undefined, access: CallingAccess): OnScreen | null {
-  if (!access.canDial || !preview?.record || !preview.provider) return null;
+  // On the rep's phone the call needs neither the dialer plan nor a caller ID: it is their own line.
+  if ((!access.canDial && !access.onPhone) || !preview?.record || !preview.provider) return null;
   const crmLabel = CALLABLE_CRMS[preview.provider];
   if (!crmLabel) return null;
-  const base = { provider: preview.provider, crmLabel, callerId: access.callerId };
+  const base = { provider: preview.provider, crmLabel, callerId: access.onPhone ? null : access.callerId };
   const callee = preview.callee;
   if (!callee) {
     return (preview.contacts_count ?? 0) > 1 ? { ...base, name: null, phone: null, state: "needs_contact" } : null;
   }
   const shown = { ...base, name: callee.name, phone: callee.phone };
   if (!callee.phone) return { ...shown, state: "no_phone" };
-  if (!access.callerId) return { ...shown, state: "no_caller_id" };
+  if (!access.onPhone && !access.callerId) return { ...shown, state: "no_caller_id" };
   return { ...shown, state: "callable" };
+}
+
+export function phoneTargetFor(preview: CallPreview | null | undefined, access: CallingAccess): PhoneTarget | null {
+  const callee = preview?.callee;
+  if (!access.onPhone || onScreenFromPreview(preview, access)?.state !== "callable" || !callee?.phone) return null;
+  return { to: callee.phone, name: callee.name, contactId: callee.contact_id };
 }
 
 export function dialTargetFor(preview: CallPreview | null | undefined, access: CallingAccess): DialTarget | null {
   const onScreen = onScreenFromPreview(preview, access);
   const callee = preview?.callee;
-  if (onScreen?.state !== "callable" || !callee?.phone || !access.callerId) return null;
+  if (access.onPhone || onScreen?.state !== "callable" || !callee?.phone || !access.callerId) return null;
   return {
     to: callee.phone,
     name: callee.name,

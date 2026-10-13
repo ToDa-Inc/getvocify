@@ -135,6 +135,9 @@ type DesktopMeeting = {
   startCall: (session: VocifyCallSession) => Promise<void>;
   /** A Vocify call ended without a live session (its audio never reached the page): still follow its memo. */
   followCall: (callSid: string, contactName: string | null) => void;
+  /** The island opened a call on the rep's own phone: the recording it starts next is with this contact, in that app.
+   * Null forgets it (the phone could not open the call). */
+  expectPhoneCall: (call: { contact: MeetingDraft["contact"] | null; source: CallSourceInfo } | null) => void;
   stop: () => Promise<void>;
   retryPending: () => Promise<void>;
 };
@@ -1493,6 +1496,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     [followCallMemo],
   );
 
+  const expectPhoneCall = useCallback((call: { contact: MeetingDraft["contact"] | null; source: CallSourceInfo } | null) => {
+    callContactRef.current = call?.contact ?? null;
+    callSourceRef.current = call?.source ?? null;
+    getDesktopBridge()?.shell.setState({ callContact: call?.contact?.name ? { name: call.contact.name } : null });
+  }, []);
+
   const value = useMemo<DesktopMeeting>(
     () => ({
       available,
@@ -1518,10 +1527,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       startHere,
       startCall,
       followCall,
+      expectPhoneCall,
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startHere, startCall, followCall, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startHere, startCall, followCall, expectPhoneCall, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;
