@@ -9,7 +9,7 @@ export type AudioIssue = "mic" | "call" | null;
 /** No sample above this (out of 32768) is digital silence, not a quiet room. */
 export const SILENT_PEAK = 2;
 /** The rep is talking: loud enough that the other side would normally answer within the wait. */
-const SPEAKING_PEAK = 1500;
+export const SPEAKING_PEAK = 1500;
 
 export const MIC_SILENT_MS = 8_000;
 /** The earliest the other side is called missing: a meeting's first half minute can be all the rep. */

@@ -88,7 +88,7 @@ import { afterCallPoll, afterCallResolution, type CallSummary } from "@/lib/afte
 import { callsApi } from "@/features/calls/api";
 import { callEngine, reportCallStep } from "@/features/calling/callEngine";
 import { isCallUp } from "@/lib/call-engine-state";
-import { AudioHealth, pcmLevel, type AudioIssue } from "@/lib/audio-health";
+import { AudioHealth, peak, pcmLevel, SILENT_PEAK, SPEAKING_PEAK, type AudioIssue } from "@/lib/audio-health";
 import { isBrokenGrant, reportCallAudio, reportMicSilent } from "@/lib/audio-fix";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
@@ -1141,6 +1141,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         // Only a meeting's call audio needs a permission; a Vocify call's other side is its own stream.
         healthRef.current = new AudioHealth(performance.now(), { watchCall: !call });
         let levelsSentAt = 0;
+        // Each second: did the call side play any sound, did the rep speak. A call on the phone heard through the PC's
+        // sound (Windows) ends when neither happens for a while (the island decides; other recordings ignore it).
+        const activity = { them: false, you: false, at: performance.now() };
         const send = (channel: MeetingSpeaker) => (heard: ArrayBuffer) => {
           const side = channel === "rep" ? "you" : "them";
           let pcm = heard;
@@ -1155,6 +1158,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           if (!pausedRef.current) {
             // What arrived, before echo removal: that can silence a mic that works.
             healthRef.current?.hear(side, new Int16Array(heard), performance.now());
+            const loudest = peak(new Int16Array(heard));
+            if (side === "them" ? loudest > SILENT_PEAK : loudest >= SPEAKING_PEAK) activity[side] = true;
+            if (performance.now() - activity.at >= 1000) {
+              bridge.shell.setState({ callActivity: { them: activity.them, you: activity.you } });
+              activity.them = false;
+              activity.you = false;
+              activity.at = performance.now();
+            }
             levelRef.current[side] = Math.max(levelRef.current[side] * 0.85, pcmLevel(pcm));
             // Pushed from the audio callbacks, not a timer: timers stall while Vocify is behind the call.
             const now = performance.now();
