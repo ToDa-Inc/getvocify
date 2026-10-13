@@ -1,29 +1,24 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Segmented } from "@/components/ui/segmented";
-import { CoachingExamples } from "@/features/coaching/rep/CoachingExamples";
-import { CoachingInteractions } from "@/features/coaching/rep/CoachingInteractions";
+import { CoachingCalls } from "@/features/coaching/rep/CoachingCalls";
 import { CoachingPlaybook } from "@/features/coaching/rep/CoachingPlaybook";
-import { CoachingProcess } from "@/features/coaching/rep/CoachingProcess";
-import { CoachingSummary } from "@/features/coaching/rep/CoachingSummary";
-import { useCoachSummary } from "@/features/coaching/rep/useRepCoaching";
-import { useAuth } from "@/features/auth";
+import { useCoachCalls } from "@/features/coaching/rep/useRepCoaching";
 import { useLanguage } from "@/lib/i18n";
-import { canPickFlow, interactionsTabKey, viewingFlowKey, type CoachFlow } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { parseTab } from "@/lib/url-tab";
 
-const TABS = ["summary", "interactions", "process", "playbook", "examples"] as const;
-type Tab = (typeof TABS)[number];
+const TABS = ["calls", "playbook"] as const;
 
-// The rep's own coaching page (docs/features/COACHING_V1_IMPLEMENTATION.md §5). It only composes.
+// The rep's own coaching (docs/superpowers/plans/2026-10-13-coaching-v2-comercial-y-conclusiones.md §2):
+// what to improve and the calls behind it, and the playbook to read. It only composes.
 export default function CoachPage() {
   const { t } = useLanguage();
   const p = t.product;
-  // The selected tab lives in the URL (?tab=), so /dashboard/playbook and Ask can link to one.
+  // The selected tab lives in the URL (?tab=), so /dashboard/playbook and Ask can link to one; an old
+  // link (?tab=summary, process, examples…) lands on the calls.
   const [params, setParams] = useSearchParams();
-  const tab = parseTab(params.get("tab"), TABS, "summary");
+  const tab = parseTab(params.get("tab"), TABS, "calls");
   const setTab = (next: string) =>
     setParams(
       (previous) => {
@@ -33,21 +28,9 @@ export default function CoachPage() {
       },
       { replace: true },
     );
-  const { user } = useAuth();
-  const salesRole = user?.company?.salesRole;
-  // null = let the backend resolve the default; only a general rep ever sets it.
-  const [picked, setPicked] = useState<CoachFlow | null>(null);
-  const summary = useCoachSummary(picked);
-  const flow: CoachFlow | null = summary.data?.flow ?? picked;
-  const showToggle = canPickFlow(salesRole, summary.data?.available_flows);
-  const viewingKey = viewingFlowKey(salesRole, summary.data?.available_flows, summary.data?.flow);
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "summary", label: p.coachTabSummary },
-    { id: "interactions", label: String(p[interactionsTabKey(flow)]) },
-    { id: "process", label: p.coachTabProcess },
-    { id: "playbook", label: p.coachTabPlaybook },
-    { id: "examples", label: p.coachTabExamples },
-  ];
+  // null = the backend picks the type the rep had most conversations of.
+  const [type, setType] = useState<string | null>(null);
+  const calls = useCoachCalls(type);
   return (
     <main className={`max-w-3xl mx-auto space-y-6 ${THEME_TOKENS.motion.fadeIn}`}>
       <div>
@@ -55,46 +38,19 @@ export default function CoachPage() {
         <p className={THEME_TOKENS.typography.body}>{p.coachSubtitle}</p>
       </div>
       <Tabs value={tab} onValueChange={setTab} className="space-y-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <TabsList aria-label={p.navCoach} className={THEME_TOKENS.interaction.segmentList}>
-            {tabs.map((option) => (
-              <TabsTrigger key={option.id} value={option.id} data-testid={`coach-tab-${option.id}`} className={THEME_TOKENS.interaction.segmentTab}>
-                {option.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          {/* The playbook has its own type picker: the SDR/AE flow says nothing there. */}
-          {tab === "playbook" ? null : showToggle ? (
-            <Segmented<"sdr" | "ae">
-              value={flow ?? "sdr"}
-              onValueChange={setPicked}
-              options={[
-                { value: "sdr", label: p.coachFlowCalls },
-                { value: "ae", label: p.coachFlowMeetings },
-              ]}
-              aria-label={p.coachFlowLabel}
-              className="data-testid=coach-flow-toggle"
-            />
-          ) : viewingKey ? (
-            <p className="text-xs text-muted-foreground" data-testid="coach-viewing-flow">
-              {p[viewingKey]}
-            </p>
-          ) : null}
-        </div>
-        <TabsContent value="summary" className="mt-0">
-          <CoachingSummary flow={picked} onOpenProcess={() => setTab("process")} />
-        </TabsContent>
-        <TabsContent value="interactions" className="mt-0">
-          <CoachingInteractions flow={picked} />
-        </TabsContent>
-        <TabsContent value="process" className="mt-0">
-          <CoachingProcess flow={picked} />
+        <TabsList aria-label={p.navCoach} className={THEME_TOKENS.interaction.segmentList}>
+          <TabsTrigger value="calls" data-testid="coach-tab-calls" className={THEME_TOKENS.interaction.segmentTab}>
+            {p.coachTabCalls}
+          </TabsTrigger>
+          <TabsTrigger value="playbook" data-testid="coach-tab-playbook" className={THEME_TOKENS.interaction.segmentTab}>
+            {p.coachTabPlaybook}
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="calls" className="mt-0">
+          <CoachingCalls type={type} onType={setType} />
         </TabsContent>
         <TabsContent value="playbook" className="mt-0">
-          <CoachingPlaybook coachedMotion={summary.data?.motion} />
-        </TabsContent>
-        <TabsContent value="examples" className="mt-0">
-          <CoachingExamples flow={picked} />
+          <CoachingPlaybook coachedMotion={calls.data?.type} />
         </TabsContent>
       </Tabs>
     </main>

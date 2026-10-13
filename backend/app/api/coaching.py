@@ -23,7 +23,6 @@ from app.services.feature_flags import is_enabled
 from app.services.playbooks.catalog import INTERNAL_KEY
 from app.services.playbooks.step_identity import StepMatcher
 from app.services.team_insights.aggregate import load_team_reps, madrid_week_bounds
-from app.services.team_insights.objections import objection_counts
 
 router = APIRouter(prefix="/api/v1", tags=["coaching"])
 
@@ -383,24 +382,6 @@ def _moments(peer_rows: list[dict], step: dict) -> list[dict]:
     return out[:_MAX_MOMENTS]
 
 
-def _peer_objection_contributors(
-    patterns: list[dict], memo_users: dict[str, str], *, start: datetime, end: datetime
-) -> dict[str, set[str]]:
-    """category -> the peers with a resolved, worded response in [start, end)."""
-    found: dict[str, set[str]] = {}
-    for row in patterns:
-        if row.get("superseded") or row.get("kind") != "objection" or row.get("resolution") != "resolved":
-            continue
-        if not str(row.get("response") or "").strip() or not row.get("category"):
-            continue
-        instant = engine.parse_instant(row.get("created_at"))
-        user = memo_users.get(str(row.get("memo_id")))
-        if user is None or instant is None or not (start <= instant < end):
-            continue
-        found.setdefault(str(row["category"]).strip().lower(), set()).add(user)
-    return found
-
-
 @router.get("/coaching/me/summary")
 async def get_my_coaching_summary(
     flow: Optional[Flow] = Query(None),
@@ -485,132 +466,88 @@ async def get_my_coaching_summary(
     return body
 
 
-@router.get("/coaching/me/interactions")
-async def get_my_coaching_interactions(
-    step_id: Optional[str] = Query(None),
-    state: Optional[Literal["done", "improvable", "missing", "no_evidence", "not_reached"]] = Query(None),
-    meeting: Optional[bool] = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-    flow: Optional[Flow] = Query(None),
+_CALLS_WEEKS = STEP_WINDOW_WEEKS
+_MAX_CALLS = 50
+
+
+def _type_labels(supabase, company_id: str) -> dict[str, str]:
+    """The company's own names for its interaction types; catalog types fall back to the app's."""
+    try:
+        from app.services.playbooks.repository import get_playbook_repository
+
+        types = get_playbook_repository().list_types(company_id, include_draft=False)
+    except Exception:
+        return {}
+    return {key: str(row.get("label")) for key, row in types.items() if row.get("label")}
+
+
+@router.get("/coaching/me/calls")
+async def get_my_coaching_calls(
+    type_key: Optional[str] = Query(None, alias="type", max_length=64),
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    ctx = _rep_context(supabase, membership, peers=False, flow=flow)
-    # A call judged on an earlier criterion of the step is history, not this step.
-    matcher = StepMatcher(ctx["playbook"]["steps"])
+    """The rep's coaching, one interaction type at a time, only against their own playbook: the one
+    or two steps they slip on most in the last _CALLS_WEEKS weeks (with a call that shows it and how
+    to do it next time) and every conversation with something to improve, step by step."""
+    starts = _week_starts(2 * _CALLS_WEEKS)
+    window_start, before_start = starts[-_CALLS_WEEKS], starts[0]
+    _, week_end = madrid_week_bounds()
+    memos = reads.load_memos(supabase, membership.company_id, [membership.user_id], start=before_start)
+    rows = [row for row in _rows_of(memos) if row["motion"] and row["motion"] != INTERNAL_KEY]
+    playbooks: dict[str, dict] = {}
 
-    def keep(row: dict) -> bool:
-        if meeting is not None and row["meeting_agreed"] != meeting:
-            return False
-        if step_id is None and state is None:
-            return True
-        return any(
-            (step_id is None or matcher.match(s["step_id"], s.get("criterion")) == step_id)
-            and (state is None or s["state"] == state)
-            for s in row["steps"]
-        )
+    def playbook_for(motion: str) -> dict:
+        if motion not in playbooks:
+            playbooks[motion] = reads.load_published_playbook(supabase, membership.company_id, motion)
+        return playbooks[motion]
 
-    rows = sorted((r for r in ctx["own"] if keep(r)), key=lambda r: r["observed_at"], reverse=True)
-    # The criterion is only for matching: repeated on every step of every call, it is dead weight.
-    items = [
-        {**r, "steps": [{k: v for k, v in s.items() if k != "criterion"} for s in r["steps"]]}
-        for r in rows[:limit]
-    ]
-    return {"items": items}
-
-
-@router.get("/coaching/me/process")
-async def get_my_coaching_process(
-    weeks: int = Query(_OWN_WEEKS, ge=1, le=12),
-    flow: Optional[Flow] = Query(None),
-    membership: Membership = Depends(get_membership),
-    supabase=Depends(get_supabase),
-):
-    ctx = _rep_context(supabase, membership, weeks=weeks, flow=flow)
-    starts = ctx["week_starts"]
-    ends = starts[1:] + [ctx["week_end"]]
-    steps = ctx["playbook"]["steps"]
-    body = {"weeks": [engine.madrid_day(s).isoformat() for s in starts], "steps": [], "objections": []}
-    if not ctx["playbook"]["published"]:
+    recent = _in_window(rows, window_start, week_end)
+    counts: dict[str, int] = {}
+    for row in recent:
+        if row["is_conversation"]:
+            counts[row["motion"]] = counts.get(row["motion"], 0) + 1
+    # The types the rep had conversations of, most first; with none yet, the one their role is coached on.
+    types = [m for m in sorted(counts, key=lambda m: (-counts[m], m)) if playbook_for(m)["published"]]
+    if not types:
+        flow = resolve_flow(membership.sales_role, recent, published_flows(playbook_for))
+        fallback = motion_for_flow(flow, recent, playbook_for)
+        if playbook_for(fallback)["published"]:
+            types = [fallback]
+    chosen = type_key if type_key in types else (types[0] if types else None)
+    labels = _type_labels(supabase, membership.company_id) if types else {}
+    body: dict = {
+        "types": [{"key": m, "label": labels.get(m), "conversations": counts.get(m, 0)} for m in types],
+        "type": chosen,
+        "window_weeks": _CALLS_WEEKS,
+        "conversations": 0,
+        "improve": [],
+        "calls": [],
+        "calls_clean": 0,
+    }
+    if chosen is None:
         return body
-    per_week = [engine.step_rates(_in_window(ctx["own"], s, e), steps) for s, e in zip(starts, ends)]
-    for index, total in enumerate(engine.step_rates(ctx["own"], steps)):
-        body["steps"].append({
-            "step_id": total["step_id"],
-            "label": total["label"],
-            "by_week": [
-                {"done": w[index]["done"], "applicable": w[index]["applicable"], "rate": w[index]["rate"]}
-                for w in per_week
-            ],
-            "rate": total["rate"],
-            "done": total["done"],
-            "applicable": total["applicable"],
-            "peer_median": ctx["peer_medians"].get(total["step_id"]),
+    own = [row for row in rows if row["motion"] == chosen]
+    window = _in_window(own, window_start, week_end)
+    conversations = sorted((r for r in window if r["is_conversation"]), key=lambda r: r["observed_at"], reverse=True)
+    body["conversations"] = len(conversations)
+    body["improve"] = engine.improvement_steps(window, _in_window(own, before_start, window_start), playbook_for(chosen)["steps"])
+    calls: list[dict] = []
+    for row in conversations:
+        slips = engine.call_slips(row)
+        if not slips:
+            body["calls_clean"] += 1
+            continue
+        part = engine.adherence_part(row) or {}
+        calls.append({
+            "memo_id": row["memo_id"],
+            "observed_at": row["observed_at"],
+            "duration_s": row["duration_s"],
+            "summary_line": row["summary_line"],
+            "meeting_agreed": row["meeting_agreed"],
+            "done": part.get("met_steps", 0),
+            "applicable": part.get("met_steps", 0) + part.get("missed_steps", 0),
+            "slips": slips,
         })
-    patterns = reads.load_patterns(supabase, [r["memo_id"] for r in ctx["own"]])
-    body["objections"] = [
-        {"category": o["name"], "total": o["count"], "resolved": o["resolved"], "open": o["open"]}
-        for o in objection_counts(patterns, start=starts[0], end=ctx["week_end"])
-    ]
-    return body
-
-
-@router.get("/coaching/examples")
-async def get_coaching_examples(
-    flow: Optional[Flow] = Query(None),
-    membership: Membership = Depends(get_membership),
-    supabase=Depends(get_supabase),
-):
-    ctx = _rep_context(supabase, membership, flow=flow)
-    body: dict = {"steps": [], "objections": []}
-    if not ctx["playbook"]["published"]:
-        return body
-    peer_rows = [r for rows in ctx["peers"].values() for r in rows]
-    for step in ctx["playbook"]["steps"]:
-        body["steps"].append({
-            "step_id": str(step["step_id"]),
-            "label": str(step.get("label") or step["step_id"]),
-            "criterion": str(step.get("criterion") or ""),
-            "example": step.get("example") or None,
-            "moments": _moments(peer_rows, step),
-        })
-    patterns = reads.load_patterns(supabase, [r["memo_id"] for r in [*ctx["own"], *peer_rows]])
-    window_start = ctx["week_starts"][-1] - timedelta(weeks=_PEER_WEEKS - 1)
-    counted = objection_counts(
-        patterns,
-        start=window_start,
-        end=ctx["week_end"],
-        playbook_entries=ctx["playbook"]["entries"],
-        include_guidance=True,
-    )
-    memo_users = {r["memo_id"]: r["user_id"] for r in peer_rows}
-    contributors = _peer_objection_contributors(patterns, memo_users, start=window_start, end=ctx["week_end"])
-    # The company's own objection ("Mándame un email") shows by its name, not as "custom".
-    own_labels = [
-        " ".join(str(entry.get("label")).split()) for entry in ctx["playbook"]["entries"]
-        if str(entry.get("category") or "").strip().lower() == "custom" and entry.get("label")
-    ]
-    seen = set()
-    for item in counted:
-        seen.add(item["name"])
-        # An anonymous response needs _MIN_PEERS distinct peers behind it.
-        enough = len(contributors.get(item["name"], ())) >= _MIN_PEERS
-        body["objections"].append(
-            {
-                "category": item["name"],
-                "label": own_labels[0] if item["name"] == "custom" and len(own_labels) == 1 else None,
-                "guidance": item["how_to"],
-                "best_response": item["best_example"] if enough else None,
-            }
-        )
-    for entry in ctx["playbook"]["entries"]:
-        category = str(entry.get("category") or "").strip().lower()
-        if category and category not in seen and entry.get("guidance"):
-            seen.add(category)
-            body["objections"].append({
-                "category": category,
-                "label": " ".join(str(entry.get("label")).split()) if category == "custom" and entry.get("label") else None,
-                "guidance": " ".join(str(entry["guidance"]).split()),
-                "best_response": None,
-            })
+    body["calls"] = calls[:_MAX_CALLS]
     return body

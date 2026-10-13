@@ -112,7 +112,8 @@ def interaction_row(memo: dict) -> dict | None:
             continue
         seen_steps.add(step_id)
         status = item.get("status")
-        if item.get("judged_by") == "rep_outcome" and status == "unknown":
+        outcome_step = item.get("judged_by") == "rep_outcome"
+        if outcome_step and status == "unknown":
             status = status_from_rep_outcome(str(item.get("outcome") or ""), rep_outcome)
         state = _STATE.get(status, "no_evidence")
         if state == "done" and item.get("quality") == "improvable":
@@ -124,7 +125,11 @@ def interaction_row(memo: dict) -> dict | None:
             "criterion": item.get("criterion") or None,
             "state": state,
             "quote": item.get("quote") or None,
+            # What went wrong, to the rep as "tú" (C04 v8), and what to say next time.
+            "reason": item.get("reason") or None,
             "advice": item.get("advice") or None,
+            # Settled by what the rep declared (the meeting), not behaviour to coach.
+            "outcome": outcome_step,
         })
     return {
         "memo_id": str(memo.get("id") or ""),
@@ -195,6 +200,77 @@ def adherence_part(row: dict | None) -> dict | None:
     for step in row["steps"]:
         part[_PART_KEY.get(step["state"], "unknown_steps")] += 1
     return part
+
+
+IMPROVE_LIMIT = 2
+SLIP_STATES = ("missing", "improvable")
+
+
+def call_slips(row: dict) -> list[dict]:
+    """What to improve in one conversation: the steps not done or done halfway, as the call was
+    judged (what went wrong, the moment, what to try). Outcome steps are not behaviour."""
+    if not row.get("is_conversation", True):
+        return []
+    return [
+        {key: step.get(key) for key in ("step_id", "label", "criterion", "state", "reason", "quote", "advice")}
+        for step in row["steps"]
+        if step["state"] in SLIP_STATES and not step.get("outcome")
+    ]
+
+
+def _latest_slip(rows: list[dict], step: dict) -> dict | None:
+    """The most recent conversation where this step slipped: one not done before one done halfway,
+    and one that says what to try before one that does not."""
+    matcher = StepMatcher([step])
+    found: list[tuple[tuple, dict]] = []
+    for row in rows:
+        if not row.get("is_conversation", True):
+            continue
+        for observed in row["steps"]:
+            if observed["state"] not in SLIP_STATES or matcher.match(observed["step_id"], observed.get("criterion")) is None:
+                continue
+            rank = (observed["state"] == "missing", bool(observed.get("advice")), bool(observed.get("quote")), row["observed_at"])
+            found.append((rank, {
+                "memo_id": row["memo_id"],
+                "observed_at": row["observed_at"],
+                **{key: observed.get(key) for key in ("state", "reason", "quote", "advice")},
+            }))
+            break
+    return max(found, key=lambda item: item[0])[1] if found else None
+
+
+def improvement_steps(rows: list[dict], rows_before: list[dict], steps: list[dict], limit: int = IMPROVE_LIMIT) -> list[dict]:
+    """The one or two steps the rep slips on most in `rows` (not done first, then done halfway),
+    each with the latest call that shows it and the same counts over `rows_before`, only against
+    themselves. A step needs FOCUS_MIN_APPLICABLE conversations where it applied and
+    FOCUS_MIN_MISSING slips: fewer is not a pattern. Outcome steps (the meeting the rep declares)
+    are not behaviour to coach."""
+    coachable = [step for step in steps if not step.get("outcome")]
+    before = {rate["step_id"]: rate for rate in step_rates(rows_before, coachable)}
+    candidates = []
+    for order, rate in enumerate(step_rates(rows, coachable)):
+        if rate["applicable"] < FOCUS_MIN_APPLICABLE or rate["missing"] + rate["improvable"] < FOCUS_MIN_MISSING:
+            continue
+        candidates.append(((-rate["missing"], -rate["improvable"], order), rate))
+    out = []
+    for _, rate in sorted(candidates, key=lambda item: item[0])[:limit]:
+        step = next(s for s in coachable if str(s.get("step_id")) == rate["step_id"])
+        example = _latest_slip(rows, step)
+        prev = before.get(rate["step_id"]) or {}
+        out.append({
+            "step_id": rate["step_id"],
+            "label": rate["label"],
+            "criterion": str(step.get("criterion") or ""),
+            "missing": rate["missing"],
+            "improvable": rate["improvable"],
+            "applicable": rate["applicable"],
+            "before": {"missing": prev.get("missing", 0), "improvable": prev.get("improvable", 0),
+                       "applicable": prev.get("applicable", 0)},
+            "example": example,
+            # This call's own advice first; else the playbook's example phrase.
+            "how": (example or {}).get("advice") or (str(step.get("example") or "") or None),
+        })
+    return out
 
 
 def process_complete(row: dict) -> bool:

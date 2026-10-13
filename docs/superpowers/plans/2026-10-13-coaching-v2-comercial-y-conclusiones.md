@@ -30,22 +30,24 @@ objeción es la correcta) es un servicio de onboarding, no una función del prod
 
 ## 2. Coaching del comercial
 
-Tres sitios, todos filtrables por tipo de interacción (frío, inbound, discovery, demo…). El filtro
-sustituye al interruptor "Llamadas / Reuniones".
+Hecho el 13 oct, lo más sencillo posible: dos pestañas (`/dashboard/coach`, `GET /coaching/me/calls`).
 
-1. **Qué mejorar.** Los 1–2 pasos que más se salta en ese tipo. Para cada uno:
-   - **Qué ha hecho mal:** el paso y lo que pide el playbook, en una frase.
-   - **Lo que dijo él:** su frase real de una llamada reciente. Si se saltó el paso entero, lo que
-     dijo en el momento en que tocaba ese paso.
-   - **Cómo hacerlo la próxima vez:** una frase concreta que se pueda decir.
-   - Su evolución en ese paso, solo contra sí mismo.
-2. **Mis llamadas.** Cada llamada con los pasos hechos y no hechos. Al abrirla, el mismo trío (qué
-   falló, lo que dijo, cómo hacerlo) por cada paso no seguido.
-3. **Playbook.** Solo de consulta.
+1. **Mis llamadas**, con un filtro por tipo de interacción (frío, inbound, discovery, demo…) cuando
+   el comercial tiene más de uno:
+   - **En qué mejorar** arriba: los 1–2 pasos que más se le escapan en las últimas 4 semanas (no
+     hechos primero, a medias después; hace falta un patrón: 3 conversaciones donde aplicaba y 2
+     fallos). Para cada uno: cuántas veces, qué pide el playbook, una llamada reciente que lo
+     muestra (qué falló, el momento citado) y **la próxima vez** (el consejo de esa llamada, o el
+     ejemplo del playbook). Debajo, las 4 semanas anteriores, solo contra sí mismo.
+   - Debajo, **las llamadas con algo que mejorar**: cerradas dicen qué pasos no hizo o hizo a
+     medias; abiertas, cada paso con qué falló, el momento y la próxima vez.
+   - El paso de reunión (lo declara el comercial) no es conducta y no sale aquí.
+2. **Playbook**, solo de consulta, abierto en el tipo que se está viendo.
 
-Se quita del comercial: la nota 0–10, la mediana del equipo, las frases de compañeros, la conversión
-con o sin proceso (es una conclusión sobre el playbook) y las pestañas Mi proceso y Ejemplos (su
-contenido útil pasa a Qué mejorar).
+Se quitó del comercial: Resumen, Mi proceso, Ejemplos, el interruptor Llamadas/Reuniones, la
+mediana del equipo, las frases y las "mejores llamadas" de compañeros y la conversión con o sin
+proceso. Sigue pendiente: la nota 0–10 y la tarjeta "Prueba con…" en el detalle de cada llamada, y
+la cualificación y las objeciones como apartados propios de "En qué mejorar".
 
 ## 3. Conclusiones del Head of Sales
 
