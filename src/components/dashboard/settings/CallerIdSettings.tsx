@@ -268,13 +268,9 @@ export const CallerIdSettings = () => {
         <ul className="space-y-3">
           {ids.map((row) => {
             const ready = row.status === "verified" && !row.callBlocked;
-            const statusLabel = row.callBlocked
-              ? null
-              : ready
-                ? row.isDefault
-                  ? "Ready · default"
-                  : "Ready"
-                : "Waiting for the code";
+            // Only what the rep acts on: which number is the default (when there is a choice), and a code still due.
+            const statusLabel =
+              row.status !== "verified" ? "Waiting for the code" : row.isDefault && callableCount > 1 ? "Default" : null;
             return (
               <li
                 key={row.phoneNumber}
@@ -282,9 +278,11 @@ export const CallerIdSettings = () => {
               >
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-foreground">{row.phoneNumber}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {[row.label, statusLabel, row.notice].filter(Boolean).join(" · ")}
-                  </p>
+                  {row.label || statusLabel ? (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {[row.label, statusLabel].filter(Boolean).join(" · ")}
+                    </p>
+                  ) : null}
                 </div>
                 {ready && !row.isDefault && callableCount > 1 ? (
                   <Button

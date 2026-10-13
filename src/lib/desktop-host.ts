@@ -4,6 +4,9 @@ export type DesktopPermissionStatus = "authorized" | "denied" | "never_requested
 /** `label` is null when the shortcut is off. */
 export type RecordShortcutState = { label: string | null; defaultLabel: string };
 
+/** Vocify calling on this computer: `onPhone`, the island's Call opens in `phoneApp` (null: this computer has none). */
+export type DesktopCalling = { onPhone: boolean; phoneApp: string | null };
+
 export type VocifyDesktopBridge = {
   platform: "darwin" | "win32";
   systemAudio: {
@@ -83,6 +86,13 @@ export type VocifyDesktopBridge = {
    */
   speakers?: {
     onSpeaking?(cb: (payload: { names: string[] }) => void): () => void;
+  };
+  /** Vocify calling on this computer; off, the island's Call opens on the rep's own phone. Missing in older builds. */
+  calling?: {
+    get(): Promise<DesktopCalling>;
+    set(onPhone: boolean): Promise<DesktopCalling>;
+    /** Opens the call there; the island then records it. */
+    dialOnPhone(number: string): Promise<{ ok: boolean; reason?: string }>;
   };
   /** The global record shortcut. Missing in older builds. */
   shortcut?: {

@@ -1,7 +1,7 @@
 /**
  * Which Settings tabs a role can see (Lista 3, item 2; Lista 4 E6). Company-wide sections
  * (CRM, Offer/strategy, Brief/timing, Team, Billing; the playbook editor lives in Proceso de venta) are the
- * Head of Sales's (owner/admin's) call; a rep sees Calling, the shared Glossary and Usage. The
+ * Head of Sales's (owner/admin's) call; a rep sees Calling, Transcription (with the shared glossary) and Usage. The
  * Head of Sales sees those too: they record and transcribe calls with their own caller-id and
  * transcription languages. Language and theme live in the avatar menu, not here.
  *
@@ -14,7 +14,7 @@ export type SettingsTabId =
   | "calling"
   | "calendar"
   | "offer"
-  | "glossary"
+  | "transcription"
   | "brief"
   | "team"
   | "usage"
@@ -44,7 +44,8 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   // Everyone who takes meetings, the Head of Sales included: their own calendar for the meeting bot.
   { id: "calendar", to: "/dashboard/settings/calendar", labelKey: "settingsNavCalendar", managerOnly: false, flag: "RECALL_BOT_ENABLED" },
   { id: "offer", to: "/dashboard/settings/offer", labelKey: "settingsNavOffer", managerOnly: true },
-  { id: "glossary", to: "/dashboard/settings/glossary", labelKey: "settingsNavGlossary", managerOnly: false },
+  // Everyone's own transcription languages, and the company glossary (read-only for a rep).
+  { id: "transcription", to: "/dashboard/settings/transcription", labelKey: "settingsNavTranscription", managerOnly: false },
   { id: "brief", to: "/dashboard/settings/brief", labelKey: "settingsNavBrief", managerOnly: true },
   { id: "team", to: "/dashboard/settings/team", labelKey: "settingsNavTeam", managerOnly: true },
   { id: "usage", to: "/dashboard/settings/usage", labelKey: "settingsNavUsage", managerOnly: false },
