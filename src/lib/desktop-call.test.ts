@@ -89,6 +89,8 @@ describe("calls on the rep's own phone (Vocify calling off)", () => {
     const onScreen = onScreenFromPreview(CONTACT_PAGE, ON_PHONE);
     assert.equal(onScreen?.state, "callable");
     assert.equal(onScreen?.callerId, null);
+    assert.equal(onScreen?.onPhone, true, "the island says the call goes to the phone");
+    assert.equal(onScreenFromPreview(CONTACT_PAGE, ACCESS)?.onPhone, undefined);
     assert.deepEqual(phoneTargetFor(CONTACT_PAGE, ON_PHONE), { to: "+34600111222", name: "Ana Ruiz", contactId: "901" });
   });
 
@@ -306,5 +308,11 @@ describe("islandBrief", () => {
 describe("the island's Fix for a browser macOS refused", () => {
   it("opens how to allow it", () => {
     assert.deepEqual(parseCallCommand("open-crm-access"), { kind: "open-crm-access" });
+  });
+});
+
+describe("parseCallCommand: setting up calls from the phone", () => {
+  it("is the island's Set up after a call that never connected", () => {
+    assert.deepEqual(parseCallCommand("open-phone-setup"), { kind: "open-phone-setup" });
   });
 });

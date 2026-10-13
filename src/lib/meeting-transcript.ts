@@ -634,6 +634,11 @@ export function meetingHasSpeech(state: MeetingTranscript): boolean {
   return state.segments.length > 0 || Object.values(state.interims).some(Boolean);
 }
 
+/** Whether the other side of the call said anything (an unanswered call has only the rep). */
+export function meetingOtherSideSpoke(state: MeetingTranscript): boolean {
+  return state.segments.some((segment) => segment.speaker === "prospect" && segment.text.trim() !== "") || Boolean(state.interims.prospect?.trim());
+}
+
 export function meetingUploadText(state: MeetingTranscript): string {
   return meetingTurns(settleMeeting(state))
     .map((turn) => (turn.speaker ? `SPEAKER: ${SPEAKER_ID[turn.speaker]}\n${turn.text}` : turn.text))

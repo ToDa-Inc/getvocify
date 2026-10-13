@@ -91,8 +91,10 @@ export type VocifyDesktopBridge = {
   calling?: {
     get(): Promise<DesktopCalling>;
     set(onPhone: boolean): Promise<DesktopCalling>;
-    /** Opens the call there; the island then records it. */
+    /** Opens the call there; the island records it once it connects. */
     dialOnPhone(number: string): Promise<{ ok: boolean; reason?: string }>;
+    /** Opens where calls from the phone are set up (Mac: FaceTime; Windows: Default apps). Missing in older builds. */
+    setup?(): Promise<unknown>;
   };
   /** The global record shortcut. Missing in older builds. */
   shortcut?: {
