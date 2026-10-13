@@ -37,6 +37,8 @@ export interface SuggestRequest {
   objection_type?: string;
   /** The filler line the rep is already saying: the answer is the next sentence after it. */
   filler?: string;
+  /** The lines live help already showed in this call, oldest first: the new one must differ. */
+  previous_answers?: string[];
 }
 
 export interface SuggestResultEvent {

@@ -234,3 +234,31 @@ def test_what_stays_the_same_through_a_call_comes_before_what_changes_every_turn
     )
     assert prompt.index("Vendemos X") < prompt.index("PLAYBOOK") < prompt.index("COMPANY KNOWLEDGE") < prompt.index("ROLLING TRANSCRIPT (recent):")
     assert prompt.index("ROLLING TRANSCRIPT (recent):") < prompt.index("LATEST TURN (trigger):") < prompt.index("Coach the rep NOW")
+
+
+def test_a_repeated_objection_is_answered_differently_from_what_help_already_showed():
+    prompt = build_user_prompt(
+        transcript_window="Them: es caro\nYou: ¿Caro comparado con qué?\nThem: sigue siendo caro para nosotros",
+        latest_turn="Them: sigue siendo caro para nosotros",
+        product_context=None,
+        language="es",
+        call_mode="meeting",
+        objection_type="price",
+        previous_answers=["¿Caro comparado con qué?"],
+    )
+    assert 'ALREADY SUGGESTED TO THE REP IN THIS CALL (oldest first):\n- "¿Caro comparado con qué?"' in prompt
+    assert "say_this must be different from every line above" in prompt
+    # It changes every turn, so it sits with the transcript, after what the provider can reuse.
+    assert prompt.index("LATEST TURN (trigger):") < prompt.index("ALREADY SUGGESTED") < prompt.index("Coach the rep NOW")
+
+
+def test_nothing_shown_yet_adds_no_block():
+    prompt = build_user_prompt(
+        transcript_window="Them: es caro",
+        latest_turn="Them: es caro",
+        product_context=None,
+        language="es",
+        call_mode="meeting",
+        previous_answers=["", "  "],
+    )
+    assert "ALREADY SUGGESTED" not in prompt

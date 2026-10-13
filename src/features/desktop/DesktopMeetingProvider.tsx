@@ -653,31 +653,40 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       }
 
       const contactId = memo.hubspotContactId || undefined;
-      const [preview, proposal, playbook] = await Promise.all([
+      // The CRM changes are the slow part (the preview reads the CRM). It starts now, and the card
+      // shows what is already known - the type, the call note, the meeting - without waiting for it.
+      const previewRequest: Promise<{ proposed_updates?: ProposedUpdate[] } | null> =
         memo.status === "pending_review"
           ? (crmApi.getPreview(memoId, undefined, contactId ? { contactId } : undefined).catch(() => null) as Promise<
               { proposed_updates?: ProposedUpdate[] } | null
             >)
-          : Promise.resolve(null),
+          : Promise.resolve(null);
+      const [proposal, playbook] = await Promise.all([
         api.get<{ proposal: Record<string, unknown> | null }>(`/memos/${memoId}/meeting-proposal`).catch(() => null),
         api
           .get<Parameters<typeof callTypeFrom>[0]>(`/memos/${encodeURIComponent(memoId)}/playbook`)
           .catch(() => null),
       ]);
       if (run.cancelled || !postCallRef.current) return;
-      postCallRef.current.proposed = preview?.proposed_updates ?? [];
       postCallRef.current.typeOrder = (playbook?.options ?? []).map((option) => option.key);
       const type = callTypeFrom(playbook, typeName);
-      const crm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, preview?.proposed_updates);
-      postCallRef.current.crm = crm;
       postCallRef.current.contactId = contactId;
+      // The card stays on "writing the update" and cannot be approved until the changes below arrive.
       showPostCall({
         type,
-        ...crmForType(type?.key, crm),
-        crmUrl: crm.stage === "done" ? contactUrlRef.current(contactId) : null,
         meeting: meetingFrom(proposal?.proposal ?? null),
         notes: Boolean(memo.extraction?.summary?.trim() || memo.userNotes?.trim()),
         summary: summaryLines(memo.extraction?.summary),
+      });
+
+      const preview = await previewRequest;
+      if (run.cancelled || !postCallRef.current) return;
+      postCallRef.current.proposed = preview?.proposed_updates ?? [];
+      const crm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, preview?.proposed_updates);
+      postCallRef.current.crm = crm;
+      showPostCall({
+        ...crmForType(type?.key, crm),
+        crmUrl: crm.stage === "done" ? contactUrlRef.current(contactId) : null,
       });
 
       // The email draft is written after the CRM changes: the card says it's on its way,

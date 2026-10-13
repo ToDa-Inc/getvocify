@@ -4,9 +4,11 @@ import {
   answerCard,
   assistContext,
   BACKSTOP_MS,
+  coolingDown,
   draftCard,
   nextStep,
   PAUSE_MS,
+  previousAnswers,
   prospectSilent,
   turnCheck,
   type AssistCard,
@@ -76,6 +78,8 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
   const checkRef = useRef<AbortController | null>(null);
   const answerRef = useRef<AbortController | null>(null);
   const backstopRef = useRef<number | undefined>(undefined);
+  /** Every card shown in this call, oldest first: for the same-type cooldown and so answers never repeat. */
+  const shownRef = useRef<AssistCard[]>([]);
 
   const found = enabled ? assistContext(turns, askedRef.current) : null;
   const context = found
@@ -90,6 +94,10 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
 
   /** Shows a new card, moving whatever was up into "Earlier". */
   const present = (card: AssistCard) => {
+    const shown = shownRef.current;
+    shownRef.current = shown.some((item) => item.id === card.id)
+      ? shown.map((item) => (item.id === card.id ? card : item))
+      : [...shown, card];
     setActive((current) => {
       if (current && current.id !== card.id && current.stage === "ready") setEarlier((list) => addCard(list, current));
       return card;
@@ -114,7 +122,10 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       present(card);
     };
     // The answer is written for the type on screen, as the next sentence after its filler line.
-    const asked = type && draft ? { ...ctx, objectionType: type, filler: draft.bridge } : ctx;
+    // It also carries the lines already shown in this call (not this card's): the new one must differ.
+    const previous = previousAnswers(shownRef.current.filter((card) => card.id !== draft?.id));
+    const told = previous.length ? { ...ctx, previousAnswers: previous } : ctx;
+    const asked = type && draft ? { ...told, objectionType: type, filler: draft.bridge } : told;
     let done = false;
     const finish = (results: (AssistCard | null)[], late = false) => {
       if (done || controller.signal.aborted) return;
@@ -158,6 +169,11 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       // These words are handled: the next check is about what they say after.
       askedRef.current = { turnKey: ctx.turnKey, length: ctx.length };
       if (step.do === "skip") return;
+      // The same objection again within the cooldown: the card for it is still being read out loud.
+      if (step.do === "answer" && coolingDown(shownRef.current, step.type, Date.now())) {
+        note("cooldown", { type: step.type, latest: ctx.latestTurn });
+        return;
+      }
       answer(ctx, step.do === "answer" ? step.type : null, since);
     });
   };
@@ -182,6 +198,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     window.clearTimeout(backstopRef.current);
     setThinking(false);
     setActive(null);
+    shownRef.current = [];
   }, [enabled]);
 
   useEffect(

@@ -17,6 +17,8 @@ export type AssistContext = {
   objectionType?: string;
   /** The filler line the rep is already saying: the answer is the next sentence after it. */
   filler?: string;
+  /** The lines help already showed in this call, oldest first: the new answer must not repeat them. */
+  previousAnswers?: string[];
 };
 
 /** One piece of live help, whatever produced it. */
@@ -26,6 +28,8 @@ export type AssistCard = {
   source: string;
   /** Pushback to handle, or a product question to answer. */
   kind: "objection" | "question";
+  /** The objection type it answers ("price", "question"…), for the same-type cooldown. */
+  type?: string;
   /** "draft" while the answer is being written: only the label and a bridge line. */
   stage: "draft" | "ready";
   /** Something natural to say straight away while the real answer arrives. */
@@ -144,6 +148,7 @@ export function draftCard(type: string, latestTurn: string, at: number): AssistC
     id: `objection-${at}`,
     source: "objection",
     kind: type === "question" ? "question" : "objection",
+    type,
     stage: "draft",
     bridge: bridgeLine(type, latestTurn),
     label: OBJECTION_LABEL[type] ?? "Objection",
@@ -197,7 +202,7 @@ export function nextStep(reading: TurnReading | null, final: boolean): TurnStep 
 export function answerCard(draft: AssistCard | null, answer: AssistCard | null): AssistCard | null {
   if (!draft) return answer;
   if (!answer) return { ...draft, stage: "ready" };
-  return { ...answer, id: draft.id, at: draft.at, kind: draft.kind, label: draft.label, bridge: draft.bridge };
+  return { ...answer, id: draft.id, at: draft.at, kind: draft.kind, type: draft.type, label: draft.label, bridge: draft.bridge };
 }
 
 /** What a turn says on screen: its settled words, then the ones still settling. */
@@ -244,12 +249,32 @@ export function objectionCard(suggestion: ObjectionSuggestion | null, at: number
     id: `objection-${at}`,
     source: "objection",
     kind: type === "question" ? "question" : "objection",
+    type,
     stage: "ready",
     bridge: bridgeLine(type, latestTurn),
     label: OBJECTION_LABEL[type] ?? "Objection",
     sayThis,
     at,
   };
+}
+
+/**
+ * After a card of one type, the same type gets no new card for this long: the prospect is usually
+ * still on the same objection, and a new card would replace the one the rep is reading out loud.
+ * Counted from when that card showed. Other types are answered at once.
+ */
+export const SAME_TYPE_COOLDOWN_MS = 20000;
+
+export function coolingDown(shown: AssistCard[], type: string, now: number): boolean {
+  return shown.some((card) => card.type === type && now - card.at < SAME_TYPE_COOLDOWN_MS);
+}
+
+const PREVIOUS_ANSWERS = 6;
+
+/** The lines already shown in this call, oldest first and each once: the next answer must differ. */
+export function previousAnswers(shown: AssistCard[]): string[] {
+  const lines = shown.map((card) => card.sayThis.trim()).filter(Boolean);
+  return [...new Set(lines)].slice(-PREVIOUS_ANSWERS);
 }
 
 /** Newest first, without repeating the same advice back to back. */
