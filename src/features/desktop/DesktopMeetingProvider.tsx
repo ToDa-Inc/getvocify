@@ -21,6 +21,7 @@ import { api } from "@/shared/lib/api-client";
 import { liveTickets } from "./liveTickets";
 import { ROUTES } from "@/shared/lib/constants";
 import { EchoSuppressor } from "@/lib/echo-suppressor";
+import { SteadyTails } from "@/lib/steady-tail";
 import {
   encodeChannelAudio,
   hookMicPcm,
@@ -290,6 +291,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const ticketRef = useRef<string | null>(null);
   /** The Mac app is recording this meeting itself; the page only mirrors its transcript. */
   const nativeRef = useRef(false);
+  /** What the island shows of the words still being transcribed (see SteadyTails). */
+  const steadyRef = useRef(new SteadyTails());
+  const overlaySentRef = useRef("");
   const ctxRef = useRef<AudioContext | null>(null);
   const micRef = useRef<MediaStream | null>(null);
   /** The desktop app captures the mic with the call (raw, on the call audio's clock): the server takes the echo out. */
@@ -411,18 +415,31 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     applyCallType(withProposal(callTypeRef.current, guess.type));
   }, [applyCallType]);
 
+  /**
+   * The island's transcript, with the words still being transcribed shown only once they stop changing (the
+   * transcript itself keeps the live guess). Sent again from the clock while words wait, only when it changed.
+   */
+  const sendOverlay = useCallback((state: MeetingTranscript) => {
+    // A native recording draws the island itself.
+    if (nativeRef.current) return;
+    const view = steadyRef.current.view(state, performance.now());
+    const prospect = vocifyCallRef.current?.contact?.name ?? null;
+    const update = { lastLine: meetingLastLine(view), overlay: meetingOverlay(view, { prospect }) };
+    const sent = JSON.stringify(update);
+    if (sent === overlaySentRef.current) return;
+    overlaySentRef.current = sent;
+    getDesktopBridge()?.shell.setState(update);
+  }, []);
+
   const updateTranscript = useCallback(
     (next: MeetingTranscript) => {
+      if (next === EMPTY_MEETING_TRANSCRIPT) steadyRef.current = new SteadyTails();
       transcriptRef.current = next;
       setTranscript(next);
-      // A native recording draws the island itself.
-      if (!nativeRef.current) {
-        const prospect = vocifyCallRef.current?.contact?.name ?? null;
-        getDesktopBridge()?.shell.setState({ lastLine: meetingLastLine(next), overlay: meetingOverlay(next, { prospect }) });
-      }
+      sendOverlay(next);
       if (draftRef.current) scheduleSave();
     },
-    [scheduleSave],
+    [scheduleSave, sendOverlay],
   );
 
   const setNotes = useCallback(
@@ -1295,6 +1312,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         const now = Date.now();
         const held = pausedTotalRef.current + (pausedRef.current ? now - pausedAtRef.current : 0);
         setElapsed(formatElapsed(now - startedAt - held));
+        // Words waiting to stop changing appear on time even when nothing new arrives.
+        if (steadyRef.current.waiting()) sendOverlay(transcriptRef.current);
       }, 125);
       bridge.shell.setState({
         listening: true,
@@ -1336,7 +1355,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       void bridge.shell.hideOverlay();
       bridge.shell.command("show");
     }
-  }, [applyCallType, clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, setPhase, t, typeName, updateTranscript, user?.id]);
+  }, [applyCallType, clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, sendOverlay, setPhase, t, typeName, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(
