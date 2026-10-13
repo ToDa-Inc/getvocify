@@ -18,7 +18,8 @@ export type SettingsTabId =
   | "brief"
   | "team"
   | "usage"
-  | "billing";
+  | "billing"
+  | "system";
 
 export interface SettingsTab {
   id: SettingsTabId;
@@ -30,7 +31,12 @@ export interface SettingsTab {
   managerOnly: boolean;
   /** Only while this company feature flag is on (e.g. the Recall meeting bot). */
   flag?: string;
+  /** Only inside the desktop app (its permissions, audio check and shortcut have nothing to set on the web). */
+  desktopOnly?: boolean;
 }
+
+/** Where Settings is open: the desktop app has its own System tab. */
+export type SettingsHost = { desktop?: boolean };
 
 export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: "crm", to: "/dashboard/settings", labelKey: "settingsNavCrm", end: true, managerOnly: true },
@@ -43,16 +49,29 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: "team", to: "/dashboard/settings/team", labelKey: "settingsNavTeam", managerOnly: true },
   { id: "usage", to: "/dashboard/settings/usage", labelKey: "settingsNavUsage", managerOnly: false },
   { id: "billing", to: "/dashboard/settings/billing", labelKey: "settingsNavBilling", managerOnly: true },
+  // Everyone's own machine: permissions, audio check, shortcut. Later device settings go here too.
+  { id: "system", to: "/dashboard/settings/system", labelKey: "settingsNavSystem", managerOnly: false, desktopOnly: true },
 ] as const;
 
-export function visibleSettingsTabs(isManager: boolean, features: readonly string[] = []): SettingsTab[] {
+export function visibleSettingsTabs(
+  isManager: boolean,
+  features: readonly string[] = [],
+  host: SettingsHost = {},
+): SettingsTab[] {
   return SETTINGS_TABS.filter(
-    (tab) => (isManager || !tab.managerOnly) && (!tab.flag || features.includes(tab.flag)),
+    (tab) =>
+      (isManager || !tab.managerOnly) &&
+      (!tab.flag || features.includes(tab.flag)) &&
+      (!tab.desktopOnly || host.desktop === true),
   );
 }
 
-export function firstAllowedSettingsPath(isManager: boolean, features: readonly string[] = []): string {
-  return visibleSettingsTabs(isManager, features)[0]?.to ?? "/dashboard/settings";
+export function firstAllowedSettingsPath(
+  isManager: boolean,
+  features: readonly string[] = [],
+  host: SettingsHost = {},
+): string {
+  return visibleSettingsTabs(isManager, features, host)[0]?.to ?? "/dashboard/settings";
 }
 
 /** Whether a (possibly nested) settings pathname is one this role may land on directly. */
@@ -60,8 +79,9 @@ export function isSettingsPathAllowed(
   pathname: string,
   isManager: boolean,
   features: readonly string[] = [],
+  host: SettingsHost = {},
 ): boolean {
-  return visibleSettingsTabs(isManager, features).some((tab) =>
+  return visibleSettingsTabs(isManager, features, host).some((tab) =>
     tab.end ? pathname === tab.to : pathname === tab.to || pathname.startsWith(`${tab.to}/`),
   );
 }

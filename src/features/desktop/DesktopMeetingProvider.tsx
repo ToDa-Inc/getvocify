@@ -87,6 +87,7 @@ import { afterCallPoll, afterCallResolution, type CallSummary } from "@/lib/afte
 import { callsApi } from "@/features/calls/api";
 import { callEngine, reportCallStep } from "@/features/calling/callEngine";
 import { isCallUp } from "@/lib/call-engine-state";
+import { AudioHealth, pcmLevel, type AudioIssue } from "@/lib/audio-health";
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
 
@@ -107,6 +108,8 @@ type DesktopMeeting = {
   resume: () => void;
   /** 0–1 loudness of each side, for the live bars. */
   levels: { you: number; them: number };
+  /** Audio that should be arriving isn't (a muted mic, call audio macOS won't hand over); null while it flows. */
+  audioIssue: AudioIssue;
   error: string | null;
   warning: string | null;
   turns: MeetingDisplayTurn[];
@@ -150,20 +153,6 @@ function formatElapsed(ms: number): string {
   const m = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
   const s = String(total % 60).padStart(2, "0");
   return h ? `${h}:${m}:${s}` : `${m}:${s}`;
-}
-
-/** Loudness of one PCM16 chunk, eased so normal speech sits around 0.5. */
-function pcmLevel(pcm: ArrayBuffer): number {
-  const samples = new Int16Array(pcm);
-  let sum = 0;
-  let count = 0;
-  for (let i = 0; i < samples.length; i += 8) {
-    const v = samples[i] / 32768;
-    sum += v * v;
-    count++;
-  }
-  const rms = count ? Math.sqrt(sum / count) : 0;
-  return Math.min(1, Math.sqrt(rms * 6));
 }
 
 function newDraftId(): string {
@@ -211,6 +200,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const pausedTotalRef = useRef(0);
   const [levels, setLevels] = useState({ you: 0, them: 0 });
   const levelRef = useRef({ you: 0, them: 0 });
+  const [audioIssue, setAudioIssue] = useState<AudioIssue>(null);
+  const healthRef = useRef<AudioHealth | null>(null);
+  const audioIssueRef = useRef<AudioIssue>(null);
+  /** The call audio's process died (the Mac's own report); silence checks never clear that. */
+  const callAudioDiedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [pending, setPending] = useState<MeetingDraft[]>([]);
@@ -445,6 +439,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     }
     levelRef.current = { you: 0, them: 0 };
     setLevels({ you: 0, them: 0 });
+    healthRef.current = null;
+    callAudioDiedRef.current = false;
+    audioIssueRef.current = null;
+    setAudioIssue(null);
     releaseAudioRef.current.forEach((release) => release());
     releaseAudioRef.current = [];
     speakersRef.current = null;
@@ -583,6 +581,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     pausedTotalRef.current += Date.now() - pausedAtRef.current;
     pausedRef.current = false;
     setPaused(false);
+    healthRef.current?.restart(performance.now());
     if (nativeRef.current) void getDesktopBridge()?.recorder?.pause(false);
     getDesktopBridge()?.shell.setState({ paused: false, clock: meetingClock() });
   }, [meetingClock]);
@@ -1060,6 +1059,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       const onCallAudioLost = () => {
         // The Mac already tried to restart it: the island must say so, the window may be hidden.
         setWarning("Meeting audio stopped. Your mic is still recording.");
+        callAudioDiedRef.current = true;
         bridge.shell.setState({ callAudioLost: true });
       };
       if (recorder) {
@@ -1084,6 +1084,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         // A Vocify call has the two sides as separate streams already; a meeting is the mic plus what the PC plays.
         echoRef.current = call ? null : new EchoSuppressor();
         openSocket();
+        // Only a meeting's call audio needs a permission; a Vocify call's other side is its own stream.
+        healthRef.current = new AudioHealth(performance.now(), { watchCall: !call });
         let levelsSentAt = 0;
         const send = (channel: MeetingSpeaker) => (heard: ArrayBuffer) => {
           const side = channel === "rep" ? "you" : "them";
@@ -1097,6 +1099,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           // Paused: send silence so the session stays open and both channels keep one clock.
           const audio = pausedRef.current ? new ArrayBuffer(pcm.byteLength) : pcm;
           if (!pausedRef.current) {
+            // What arrived, before echo removal: that can silence a mic that works.
+            healthRef.current?.hear(side, new Int16Array(heard), performance.now());
             levelRef.current[side] = Math.max(levelRef.current[side] * 0.85, pcmLevel(pcm));
             // Pushed from the audio callbacks, not a timer: timers stall while Vocify is behind the call.
             const now = performance.now();
@@ -1141,6 +1145,16 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             : { you: levelStep(you), them: levelStep(them) },
         );
         levelRef.current = { you: you * 0.6, them: them * 0.6 };
+        const health = healthRef.current;
+        if (health && !pausedRef.current) {
+          const issue = health.issue(performance.now());
+          if (issue !== audioIssueRef.current) {
+            audioIssueRef.current = issue;
+            setAudioIssue(issue);
+            // The island stays on it until the audio is back: the window may be hidden behind the call.
+            bridge.shell.setState({ micSilent: issue === "mic", callAudioLost: issue === "call" || callAudioDiedRef.current });
+          }
+        }
         // Computed every tick from the wall clock, so a throttled timer never shows a stale time.
         const now = Date.now();
         const held = pausedTotalRef.current + (pausedRef.current ? now - pausedAtRef.current : 0);
@@ -1149,6 +1163,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       bridge.shell.setState({
         listening: true,
         callAudioLost: false,
+        micSilent: false,
         paused: false,
         clock: meetingClock(),
         levels: { you: 0, them: 0 },
@@ -1451,6 +1466,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       pause,
       resume,
       levels,
+      audioIssue,
       error,
       warning,
       turns,
@@ -1469,7 +1485,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startHere, startCall, followCall, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startHere, startCall, followCall, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

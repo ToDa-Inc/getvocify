@@ -413,6 +413,7 @@ export const productCatalog = {
     settingsNavTeam: "Team",
     settingsNavUsage: "Usage",
     settingsNavBilling: "Billing",
+    settingsNavSystem: "System",
     offerSectionTitle: "Product & offer",
     offerSectionHelper:
       "What you sell, who it is for, and proof points. Used as reference when extracting call notes — it is not copied into CRM summaries. Owners and admins set this for the workspace.",
@@ -1815,6 +1816,7 @@ export const productCatalog = {
     settingsNavTeam: "Equipo",
     settingsNavUsage: "Uso",
     settingsNavBilling: "Facturación",
+    settingsNavSystem: "Sistema",
     offerSectionTitle: "Producto y oferta",
     offerSectionHelper:
       "Qué vendes, para quién y pruebas de valor. Se usa como referencia al extraer notas de llamada; no se copia en los resúmenes del CRM. Lo configuran propietarios y administradores del espacio.",

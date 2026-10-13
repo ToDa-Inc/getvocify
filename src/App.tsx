@@ -37,6 +37,7 @@ import IntegrationsPage from "./pages/dashboard/IntegrationsPage";
 import SettingsPage from "./pages/dashboard/SettingsPage";
 import SettingsLayout from "./pages/dashboard/settings/SettingsLayout";
 import CallingSection from "./pages/dashboard/settings/CallingSection";
+import SystemSection from "./pages/dashboard/settings/SystemSection";
 import { CalendarSettings } from "@/components/dashboard/settings/CalendarSettings";
 import OfferSection from "./pages/dashboard/settings/OfferSection";
 import GlossarySection from "./pages/dashboard/settings/GlossarySection";
@@ -194,6 +195,7 @@ const App = () => (
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="usage" element={<UsagePage />} />
                 <Route path="billing" element={<BillingPage />} />
+                <Route path="system" element={<SystemSection />} />
               </Route>
               <Route path="insights" element={<InsightsRoute />} />
               {/* Proceso de venta: the playbook editor (Head of Sales). Its health and objections are in Equipo. */}

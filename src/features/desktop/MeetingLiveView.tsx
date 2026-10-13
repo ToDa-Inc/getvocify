@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Calendar, ChevronDown, ChevronUp, Copy, Minus, Pause, Play, Search, Square, X } from "lucide-react";
+import { AlertCircle, Calendar, ChevronDown, ChevronUp, Copy, Minus, Pause, Play, Search, Square, X } from "lucide-react";
 import { toast } from "sonner";
 import { LiveTranscript } from "@/features/recording/components";
 import {
@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/tooltip";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
-import { getDesktopBridge, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
+import { desktopPlatform, getDesktopBridge, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
+import { audioIssueCopy } from "@/lib/audio-health";
 import { useDesktopMeeting } from "./DesktopMeetingProvider";
 import { LiveAssistPanel } from "./assist/LiveAssistPanel";
 import { useLiveAssist, useLiveAssistEnabled } from "./assist/useLiveAssist";
@@ -186,7 +187,9 @@ export function MeetingLiveView() {
               </div>
             </div>
 
-            {live && meeting.warning ? (
+            {live && meeting.audioIssue && !meeting.paused ? (
+              <AudioIssueLine issue={meeting.audioIssue} />
+            ) : live && meeting.warning ? (
               <p
                 className="border-t border-border/50 px-5 py-2 text-xs text-muted-foreground"
                 aria-live="polite"
@@ -196,11 +199,8 @@ export function MeetingLiveView() {
             ) : null}
 
             <div className="flex items-center gap-3 border-t border-border/50 px-4 py-3">
-              <LevelBars
-                level={
-                  live ? Math.max(meeting.levels.you, meeting.levels.them) : 0
-                }
-              />
+              <LevelBars label="You" level={live ? meeting.levels.you : 0} silent={live && meeting.audioIssue === "mic"} />
+              <LevelBars label="Them" level={live ? meeting.levels.them : 0} silent={live && meeting.audioIssue === "call"} />
               {live ? (
                 <TooltipProvider delayDuration={300}>
                   <Tooltip>
@@ -312,21 +312,49 @@ function DockIcon({
 }
 
 /** Four bars that move with whoever is talking; flat when silent. */
-function LevelBars({ level }: { level: number }) {
+/** One side's loudness, named, so a side that stays flat is visible while the other talks. */
+function LevelBars({ label, level, silent }: { label: string; level: number; silent: boolean }) {
   return (
-    <div
-      className="flex h-5 w-6 items-center justify-center gap-[3px]"
-      aria-hidden
-    >
-      {BAR_SHAPE.map((shape, index) => (
-        <span
-          key={index}
-          className="w-[3px] rounded-full bg-beige transition-[height] duration-150 ease-out motion-reduce:transition-none"
-          style={{
-            height: `${Math.max(4, Math.round(20 * shape * (0.2 + 0.8 * level)))}px`,
-          }}
-        />
-      ))}
+    <div className="flex items-center gap-1.5" aria-hidden>
+      <div className="flex h-5 w-6 items-center justify-center gap-[3px]">
+        {BAR_SHAPE.map((shape, index) => (
+          <span
+            key={index}
+            className={cn(
+              "w-[3px] rounded-full transition-[height] duration-150 ease-out motion-reduce:transition-none",
+              silent ? "bg-warning" : "bg-beige",
+            )}
+            style={{
+              height: `${Math.max(4, Math.round(20 * shape * (0.2 + 0.8 * level)))}px`,
+            }}
+          />
+        ))}
+      </div>
+      <span className={cn("text-[11px]", silent ? "text-warning" : "text-muted-foreground")}>{label}</span>
+    </div>
+  );
+}
+
+/** Audio that should be arriving isn't: what to check, and the system setting that fixes it. */
+function AudioIssueLine({ issue }: { issue: "mic" | "call" }) {
+  const copy = audioIssueCopy(issue, desktopPlatform());
+  const settings = copy.settings;
+  return (
+    <div className="flex items-start gap-2 border-t border-border/50 px-5 py-2.5" role="status" aria-live="polite">
+      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+      <div className="min-w-0 flex-1 text-xs">
+        <p className="font-medium text-foreground">{copy.title}</p>
+        <p className="text-muted-foreground">{copy.body}</p>
+      </div>
+      {settings ? (
+        <button
+          type="button"
+          onClick={() => void getDesktopBridge()?.permissions.open(settings)}
+          className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        >
+          Open Settings
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -18,7 +18,7 @@ describe("visibleSettingsTabs", () => {
   it("keeps the spec's order", () => {
     assert.deepEqual(
       SETTINGS_TABS.map((t) => t.id),
-      ["crm", "calling", "calendar", "offer", "glossary", "brief", "team", "usage", "billing"],
+      ["crm", "calling", "calendar", "offer", "glossary", "brief", "team", "usage", "billing", "system"],
     );
   });
 
@@ -61,7 +61,7 @@ describe("firstAllowedSettingsPath", () => {
 describe("isSettingsPathAllowed", () => {
   it("lets the Head of Sales onto every tab, flagged ones aside", () => {
     for (const tab of SETTINGS_TABS) {
-      assert.equal(isSettingsPathAllowed(tab.to, true), !tab.flag, tab.id);
+      assert.equal(isSettingsPathAllowed(tab.to, true), !tab.flag && !tab.desktopOnly, tab.id);
     }
     assert.equal(isSettingsPathAllowed("/dashboard/settings/calling", true), true);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/usage", true), true);
@@ -96,6 +96,17 @@ describe("the Calendar tab", () => {
       assert.equal(visibleSettingsTabs(isManager, ["RECALL_BOT_ENABLED"]).some((t) => t.id === "calendar"), true);
       assert.equal(isSettingsPathAllowed("/dashboard/settings/calendar", isManager), false);
       assert.equal(isSettingsPathAllowed("/dashboard/settings/calendar", isManager, ["RECALL_BOT_ENABLED"]), true);
+    }
+  });
+});
+
+describe("System tab", () => {
+  it("shows only inside the desktop app, to managers and reps alike", () => {
+    for (const isManager of [true, false]) {
+      assert.equal(visibleSettingsTabs(isManager).some((t) => t.id === "system"), false);
+      assert.equal(visibleSettingsTabs(isManager, [], { desktop: true }).some((t) => t.id === "system"), true);
+      assert.equal(isSettingsPathAllowed("/dashboard/settings/system", isManager), false);
+      assert.equal(isSettingsPathAllowed("/dashboard/settings/system", isManager, [], { desktop: true }), true);
     }
   });
 });
