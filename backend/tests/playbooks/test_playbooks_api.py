@@ -116,3 +116,28 @@ def test_owner_sees_every_motion_regardless_of_sales_role(monkeypatch):
         assert body["motions"]["closing"] == "published"
     finally:
         set_playbook_repository(None)
+
+
+def test_a_rep_opens_exactly_the_types_the_list_gives_them(monkeypatch):
+    """Coaching → Playbook opens a listed type: what the list shows the editor must serve."""
+    monkeypatch.setattr(settings, "SALES_ROLES_ENABLED", True)
+    store = _store()
+    store.set_meta("co-1", "closing", applies_to={"role": "any"})  # saved for every role
+    client = _client(store, role="member", sales_role="sdr")
+    try:
+        listed = {k for k, s in client.get("/api/v1/playbooks").json()["motions"].items() if s == "published"}
+        assert listed == {"discovery", "closing"}
+        for key in listed:
+            assert client.get(f"/api/v1/playbooks/{key}/editor").status_code == 200, key
+    finally:
+        set_playbook_repository(None)
+
+
+def test_a_rep_cannot_open_the_other_roles_type(monkeypatch):
+    monkeypatch.setattr(settings, "SALES_ROLES_ENABLED", True)
+    client = _client(_store(), role="member", sales_role="sdr")
+    try:
+        assert client.get("/api/v1/playbooks/closing/editor").status_code == 404
+        assert client.get("/api/v1/playbooks/discovery/editor").status_code == 200
+    finally:
+        set_playbook_repository(None)

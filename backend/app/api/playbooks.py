@@ -408,15 +408,22 @@ async def get_playbook_editor(
 ):
     """The playbook as steps and objection answers. A Head of Sales gets the pending draft
     when there is one (else the live version); a rep only ever reads the live version,
-    and only of a flow their role can see (D5)."""
+    and only of a type GET /playbooks lists them (D5)."""
     manager = membership.role in MANAGE_ROLES
+    repository = get_playbook_repository()
+    # The same rule as GET /playbooks, so a type the rep is listed is a type they can open: with
+    # types by channel every member reads every type; with roles only, their role's types under the
+    # type's saved rule (a type saved for "any" role is visible to all).
     if (
         not manager
+        and not is_enabled(supabase, membership.company_id, channel_types.FLAG)
         and is_enabled(supabase, membership.company_id, SALES_ROLES_FLAG)
-        and not visible_to_role(sales_motion_key, membership.sales_role)
     ):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook no encontrado")
-    snapshot = get_playbook_repository().editor_snapshot(membership.company_id, sales_motion_key, include_draft=manager)
+        types = repository.list_types(membership.company_id, include_draft=False)
+        detail = build_details(*motions_and_stored(types)).get(sales_motion_key) or {}
+        if not visible_to_role(sales_motion_key, membership.sales_role, detail.get("applies_to")):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook no encontrado")
+    snapshot = repository.editor_snapshot(membership.company_id, sales_motion_key, include_draft=manager)
     return editor_response(sales_motion_key, snapshot)
 
 

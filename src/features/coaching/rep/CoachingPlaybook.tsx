@@ -30,8 +30,9 @@ const FLOWS: { flow: keyof BestByFlow; motion: "discovery" | "closing" }[] = [
   { flow: "ae", motion: "closing" },
 ];
 
-/** Playbooks v2 (plan §4.4): the rep reads the process they are scored against, read-only. */
-function YourProcess() {
+/** Playbooks v2 (plan §4.4): the rep reads the process they are scored against, read-only.
+ * `coached` is the type coaching reads for them: it opens first, not the alphabetically first one. */
+function YourProcess({ coached }: { coached?: string | null }) {
   const { t, language } = useLanguage();
   const copy = t.product.pb2;
   const lang = language === "EN" ? "en" : "es";
@@ -40,7 +41,8 @@ function YourProcess() {
     .filter(([, status]) => status === "published")
     .map(([key]) => key);
   const [picked, setPicked] = useState<string | null>(null);
-  const active = picked && live.includes(picked) ? picked : live[0] ?? null;
+  const fallback = coached && live.includes(coached) ? coached : live[0] ?? null;
+  const active = picked && live.includes(picked) ? picked : fallback;
   const name = (key: string) =>
     list.data?.details?.[key]?.label || copy.typeLabels[key] || motionLabel(key, t.product.motions);
 
@@ -85,7 +87,7 @@ function YourCompany() {
 }
 
 /** Coaching → Playbook: the process the rep is scored against, the company story, the best calls. */
-export function CoachingPlaybook() {
+export function CoachingPlaybook({ coachedMotion }: { coachedMotion?: string | null }) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const p = t.product;
@@ -104,7 +106,7 @@ export function CoachingPlaybook() {
 
   return (
     <div className="space-y-6" data-testid="coach-playbook">
-      <YourProcess />
+      <YourProcess coached={coachedMotion} />
       <YourCompany />
       {bestEnabled ? <h2 className={THEME_TOKENS.typography.sectionTitle}>{p.pb2.bestHeading}</h2> : null}
       {query.isLoading && bestEnabled ? <p className={THEME_TOKENS.typography.body}>{p.teamLoading}</p> : null}

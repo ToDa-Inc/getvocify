@@ -88,8 +88,11 @@ def test_without_the_flag_the_list_is_unchanged(monkeypatch):
 def test_a_rep_sees_every_type_whatever_their_role(by_channel, monkeypatch):
     monkeypatch.setattr(settings, "SALES_ROLES_ENABLED", True)
     store = InMemoryPlaybookRepository({"co-1": {"discovery": "published", "closing": "published"}})
-    body = _client(store, role="member", sales_role="sdr").get("/api/v1/playbooks").json()
+    client = _client(store, role="member", sales_role="sdr")
+    body = client.get("/api/v1/playbooks").json()
     assert set(body["motions"]) == {"discovery", "closing"}
+    # ...and can open each one (Coaching → Playbook was a 404 on the other role's type).
+    assert client.get("/api/v1/playbooks/closing/editor").status_code == 200
 
 
 # --- the recognition sentence, drafted --------------------------------------------------------------

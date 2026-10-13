@@ -91,7 +91,7 @@ export default function CoachPage() {
           <CoachingProcess flow={picked} />
         </TabsContent>
         <TabsContent value="playbook" className="mt-0">
-          <CoachingPlaybook />
+          <CoachingPlaybook coachedMotion={summary.data?.motion} />
         </TabsContent>
         <TabsContent value="examples" className="mt-0">
           <CoachingExamples flow={picked} />
