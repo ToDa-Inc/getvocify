@@ -110,6 +110,6 @@ describe("catalog", () => {
     }
     assert.equal(EN.navCoach, "Coaching");
     assert.equal(ES.navCoach, "Coaching");
-    assert.equal(ES.coachTabCalls, "Mis llamadas");
+    assert.equal(ES.coachCallsHeading, "Tus llamadas");
   });
 });

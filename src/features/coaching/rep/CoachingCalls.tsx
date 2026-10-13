@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ChevronDown } from "lucide-react";
+import { ArrowRight, ChevronDown } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Segmented } from "@/components/ui/segmented";
 import { useLanguage } from "@/lib/i18n";
@@ -22,14 +22,22 @@ import { CoachEmpty, CoachError, CoachLoading } from "./CoachingState";
 import { useCoachCalls } from "./useRepCoaching";
 
 const TONE_TEXT = { success: "text-success", warning: "text-warning", destructive: "text-destructive", muted: "text-foreground" } as const;
+const ROW = "rounded-xl px-3 py-2.5 transition-colors duration-150 hover:bg-secondary/60 motion-reduce:transition-none";
 
-function dateLine(iso: string | null, language: string, withTime = true): string {
-  if (!iso) return "";
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return "";
-  const locale = language === "EN" ? "en-GB" : "es-ES";
-  const day = at.toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short" });
-  return withTime ? `${day} · ${at.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}` : day;
+function localeOf(language: string) {
+  return language === "EN" ? "en-GB" : "es-ES";
+}
+
+function dayLabel(iso: string | null, language: string): string {
+  const at = iso ? new Date(iso) : null;
+  if (!at || Number.isNaN(at.getTime())) return "";
+  return at.toLocaleDateString(localeOf(language), { weekday: "short", day: "numeric", month: "short" });
+}
+
+function timeLabel(iso: string | null, language: string): string {
+  const at = iso ? new Date(iso) : null;
+  if (!at || Number.isNaN(at.getTime())) return "";
+  return at.toLocaleTimeString(localeOf(language), { hour: "2-digit", minute: "2-digit" });
 }
 
 /** The moment of the call, as said. */
@@ -53,7 +61,7 @@ function ImproveItem({ item, weeks }: { item: CoachImprove; weeks: number }) {
   const p = t.product;
   const before = improveBeforeLine(p, item, weeks);
   return (
-    <article className="space-y-3 border-t border-border/60 pt-4 first:border-t-0 first:pt-0" data-testid="coach-improve-item">
+    <article className="space-y-3 border-t border-border/60 py-5 first:border-t-0 first:pt-1" data-testid="coach-improve-item">
       <div className="space-y-0.5">
         <h3 className={THEME_TOKENS.typography.itemTitle}>{item.label}</h3>
         <p className="text-sm text-warning">{improveCountLine(p, item)}</p>
@@ -65,11 +73,11 @@ function ImproveItem({ item, weeks }: { item: CoachImprove; weeks: number }) {
         </div>
       ) : null}
       {item.example ? (
-        <div className={`space-y-2 ${THEME_TOKENS.radius.control} bg-secondary/40 p-3.5`}>
-          <p className={THEME_TOKENS.typography.capsLabel}>
-            {fill(p.coachImproveInCall, { date: dateLine(item.example.observed_at, language, false) })}
+        <div className="space-y-1.5">
+          <p className={THEME_TOKENS.typography.fieldLabel}>
+            {fill(p.coachImproveInCall, { date: dayLabel(item.example.observed_at, language) })}
             {" · "}
-            <Link to={`/dashboard/memos/${item.example.memo_id}`} className="underline-offset-2 hover:underline">
+            <Link to={`/dashboard/memos/${item.example.memo_id}`} className="underline-offset-2 hover:text-foreground hover:underline">
               {p.coachOpenCall}
             </Link>
           </p>
@@ -83,11 +91,27 @@ function ImproveItem({ item, weeks }: { item: CoachImprove; weeks: number }) {
   );
 }
 
+/** "No hecho: A · B · Mejorable: C", or "Todo hecho": what slipped, before opening the call. */
+function SlipLine({ slips }: { slips: CoachSlip[] }) {
+  const { t } = useLanguage();
+  const p = t.product;
+  if (!slips.length) return <span className="text-success">{p.coachCallAllDone}</span>;
+  const missing = slips.filter((slip) => slip.state === "missing").map((slip) => slip.label);
+  const halfway = slips.filter((slip) => slip.state === "improvable").map((slip) => slip.label);
+  return (
+    <span data-testid="coach-call-slips">
+      {missing.length ? <><span className="text-destructive">{p.coachStateMissing}:</span> {missing.join(" · ")}</> : null}
+      {missing.length && halfway.length ? " · " : null}
+      {halfway.length ? <><span className="text-warning">{p.coachStateImprovable}:</span> {halfway.join(" · ")}</> : null}
+    </span>
+  );
+}
+
 function SlipDetail({ slip }: { slip: CoachSlip }) {
   const { t } = useLanguage();
   const view = stateView(slip.state);
   return (
-    <li className="space-y-1.5 border-t border-border/60 py-3 first:border-t-0">
+    <li className="space-y-1.5 py-2.5">
       <p className="text-sm">
         <span className="font-medium text-foreground">{slip.label}</span>
         <span className={`ml-2 text-xs ${slip.state === "missing" ? "text-destructive" : "text-warning"}`}>
@@ -101,57 +125,70 @@ function SlipDetail({ slip }: { slip: CoachSlip }) {
   );
 }
 
-/** "No hecho: A · B · Mejorable: C": which steps slipped, before opening the call. */
-function SlipLine({ slips }: { slips: CoachSlip[] }) {
-  const { t } = useLanguage();
-  const p = t.product;
-  const missing = slips.filter((slip) => slip.state === "missing").map((slip) => slip.label);
-  const halfway = slips.filter((slip) => slip.state === "improvable").map((slip) => slip.label);
-  return (
-    <p className="text-[13px] text-muted-foreground" data-testid="coach-call-slips">
-      {missing.length ? <><span className="text-destructive">{p.coachStateMissing}:</span> {missing.join(" · ")}</> : null}
-      {missing.length && halfway.length ? " · " : null}
-      {halfway.length ? <><span className="text-warning">{p.coachStateImprovable}:</span> {halfway.join(" · ")}</> : null}
-    </p>
-  );
-}
-
-/** A call with something to improve: closed it says when, how it ended, the steps done and which slipped;
- * open, each slip with what went wrong, the moment and what to try. */
-function CallItem({ call }: { call: CoachCall }) {
+/** One call of the record, as a row like Inicio's: what happened, steps done and what slipped, and when.
+ * A call with something to improve opens in place; one with nothing to improve opens the call. */
+function CallRow({ call }: { call: CoachCall }) {
   const { t, language } = useLanguage();
   const p = t.product;
   const duration = durationLabel(p, call.duration_s);
-  return (
-    <li className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`} data-testid="coach-call">
-      <Collapsible>
-        <CollapsibleTrigger className="group flex w-full items-start gap-4 p-5 text-left">
-          <div className="min-w-0 flex-1 space-y-1">
-            <p className={THEME_TOKENS.typography.capsLabel}>
-              {dateLine(call.observed_at, language)}
-              {duration ? ` · ${duration}` : ""}
-            </p>
-            <p className="line-clamp-2 text-[15px] leading-snug text-foreground">{cleanSummaryLine(call.summary_line)}</p>
-            <p className="text-[13px] text-muted-foreground">
-              {p.coachCardSteps}{" "}
-              <span className={`tabular-nums ${TONE_TEXT[countTone(call.done, call.applicable)]}`}>
-                {call.applicable ? `${call.done}/${call.applicable}` : "—"}
-              </span>
-              {/* Only a "yes": the meeting comes from what the rep declared, and no declaration is not a "no". */}
-              {call.meeting_agreed ? <span className="text-success"> · {p.coachCardMeeting} · {p.coachCardYes}</span> : null}
-            </p>
+  const body = (
+    <>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[15px] leading-snug text-foreground">{cleanSummaryLine(call.summary_line)}</p>
+        {!call.applicable && !call.slips.length ? (
+          // A follow-up or a call cut short where no step applied: nothing was judged, so nothing is "done".
+          <p className="mt-0.5 text-[13px] text-muted-foreground">{p.coachCallNothingJudged}</p>
+        ) : (
+          <p className="mt-0.5 line-clamp-2 text-[13px] text-muted-foreground">
+            {p.coachCardSteps}{" "}
+            <span className={`tabular-nums ${TONE_TEXT[countTone(call.done, call.applicable)]}`}>
+              {call.applicable ? `${call.done}/${call.applicable}` : "—"}
+            </span>
+            {/* Only a "yes": the meeting comes from what the rep declared, and no declaration is not a "no". */}
+            {call.meeting_agreed ? <span className="text-success"> · {p.coachCardMeeting} · {p.coachCardYes}</span> : null}
+            {" · "}
             <SlipLine slips={call.slips} />
-          </div>
+          </p>
+        )}
+      </div>
+      <div className="w-[5.5rem] shrink-0 text-right text-xs leading-tight tabular-nums text-muted-foreground">
+        <span className="block text-[13px] text-foreground/85">{dayLabel(call.observed_at, language)}</span>
+        <span className="mt-0.5 block text-[11.5px]">
+          {timeLabel(call.observed_at, language)}
+          {duration ? ` · ${duration}` : ""}
+        </span>
+      </div>
+    </>
+  );
+  if (!call.slips.length) {
+    return (
+      <li>
+        <Link to={`/dashboard/memos/${call.memo_id}`} className={`flex items-start gap-3.5 ${ROW}`} data-testid="coach-call">
+          {body}
+          <span className="w-4 shrink-0" aria-hidden />
+        </Link>
+      </li>
+    );
+  }
+  return (
+    <li data-testid="coach-call">
+      <Collapsible>
+        <CollapsibleTrigger className={`group flex w-full items-start gap-3.5 text-left ${ROW}`}>
+          {body}
           <ChevronDown size={16} strokeWidth={1.5} className="mt-1 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
         </CollapsibleTrigger>
-        <CollapsibleContent className="px-5 pb-4">
+        <CollapsibleContent className="ml-3 border-l border-border/60 pb-2 pl-4">
           <ul>
             {call.slips.map((slip) => (
               <SlipDetail key={slip.step_id} slip={slip} />
             ))}
           </ul>
-          <Link to={`/dashboard/memos/${call.memo_id}`} className={THEME_TOKENS.interaction.quietAction}>
-            {p.coachOpenCall} →
+          <Link
+            to={`/dashboard/memos/${call.memo_id}`}
+            className="inline-flex items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {p.coachOpenCall}
+            <ArrowRight aria-hidden className="h-3.5 w-3.5" />
           </Link>
         </CollapsibleContent>
       </Collapsible>
@@ -159,8 +196,8 @@ function CallItem({ call }: { call: CoachCall }) {
   );
 }
 
-/** Coaching → Mis llamadas: what to improve first, then every call with something to improve. Only the
- * rep against their own playbook, one interaction type at a time. */
+/** Coaching: what to improve first, then the record of the rep's calls, on one plane. Only the rep
+ * against their own playbook, one interaction type at a time. */
 export function CoachingCalls({ type, onType }: { type: string | null; onType: (type: string) => void }) {
   const { t } = useLanguage();
   const p = t.product;
@@ -172,7 +209,7 @@ export function CoachingCalls({ type, onType }: { type: string | null; onType: (
   const name = (key: string, label: string | null) => label || p.pb2.typeLabels[key as keyof typeof p.pb2.typeLabels] || motionLabel(key, p.motions);
   const weeks = data.window_weeks;
   return (
-    <div className="space-y-6" data-testid="coach-calls">
+    <div className="space-y-10" data-testid="coach-calls">
       {data.types.length > 1 ? (
         <Segmented
           value={data.type}
@@ -181,34 +218,32 @@ export function CoachingCalls({ type, onType }: { type: string | null; onType: (
           aria-label={p.coachTypeLabel}
         />
       ) : null}
-      <section aria-labelledby="coach-improve" className={`space-y-4 ${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 md:p-6`}>
+      <section aria-labelledby="coach-improve" className="space-y-3">
         <div className="space-y-0.5">
           <h2 id="coach-improve" className={THEME_TOKENS.typography.sectionTitle}>{p.coachImproveHeading}</h2>
           <p className={THEME_TOKENS.typography.capsLabel}>{fill(p.coachImproveWindow, { weeks, count: data.conversations })}</p>
         </div>
         {data.improve.length ? (
-          data.improve.map((item) => <ImproveItem key={item.step_id} item={item} weeks={weeks} />)
+          <div>
+            {data.improve.map((item) => (
+              <ImproveItem key={item.step_id} item={item} weeks={weeks} />
+            ))}
+          </div>
         ) : (
           <p className={THEME_TOKENS.typography.body}>
             {data.conversations ? fill(p.coachImproveNone, { count: data.conversations }) : fill(p.coachImproveNoCalls, { weeks })}
           </p>
         )}
       </section>
-      {data.conversations ? (
-        <section aria-labelledby="coach-calls-heading" className="space-y-3">
+      {data.calls.length ? (
+        <section aria-labelledby="coach-calls-heading" className="space-y-2">
           <h2 id="coach-calls-heading" className={THEME_TOKENS.typography.sectionTitle}>{p.coachCallsHeading}</h2>
-          {data.calls.length ? (
-            <ul className="space-y-3">
-              {data.calls.map((call) => (
-                <CallItem key={call.memo_id} call={call} />
-              ))}
-            </ul>
-          ) : (
-            <p className={THEME_TOKENS.typography.body}>{fill(p.coachCallsNone, { weeks })}</p>
-          )}
-          {data.calls_clean ? (
-            <p className="text-xs text-muted-foreground">{fill(p.coachCallsClean, { count: data.calls_clean })}</p>
-          ) : null}
+          {/* The rows' text lines up with the headings; their hover reaches past them, as in Inicio. */}
+          <ul className="-mx-3 space-y-0.5">
+            {data.calls.map((call) => (
+              <CallRow key={call.memo_id} call={call} />
+            ))}
+          </ul>
         </section>
       ) : null}
     </div>

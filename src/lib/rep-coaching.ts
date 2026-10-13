@@ -59,6 +59,7 @@ export type CoachCall = {
   meeting_agreed: boolean;
   done: number;
   applicable: number;
+  /** Empty when there was nothing to improve in this call. */
   slips: CoachSlip[];
 };
 export type CoachCalls = {
@@ -68,7 +69,6 @@ export type CoachCalls = {
   conversations: number;
   improve: CoachImprove[];
   calls: CoachCall[];
-  calls_clean: number;
 };
 
 type Product = ProductTranslations;

@@ -30,19 +30,22 @@ objeción es la correcta) es un servicio de onboarding, no una función del prod
 
 ## 2. Coaching del comercial
 
-Hecho el 13 oct, lo más sencillo posible: dos pestañas (`/dashboard/coach`, `GET /coaching/me/calls`).
+Hecho el 13 oct, lo más sencillo posible: una sola pantalla plana, sin pestañas ni cajas, como Inicio
+(`/dashboard/coach`, `GET /coaching/me/calls`). El botón **Playbook** junto al título abre el playbook
+(`?tab=playbook`) y otro botón vuelve a Coaching.
 
-1. **Mis llamadas**, con un filtro por tipo de interacción (frío, inbound, discovery, demo…) cuando
+1. **Coaching**, con un filtro por tipo de interacción (frío, inbound, discovery, demo…) cuando
    el comercial tiene más de uno:
    - **En qué mejorar** arriba: los 1–2 pasos que más se le escapan en las últimas 4 semanas (no
      hechos primero, a medias después; hace falta un patrón: 3 conversaciones donde aplicaba y 2
      fallos). Para cada uno: cuántas veces, qué pide el playbook, una llamada reciente que lo
      muestra (qué falló, el momento citado) y **la próxima vez** (el consejo de esa llamada, o el
      ejemplo del playbook). Debajo, las 4 semanas anteriores, solo contra sí mismo.
-   - Debajo, **las llamadas con algo que mejorar**: cerradas dicen qué pasos no hizo o hizo a
-     medias; abiertas, cada paso con qué falló, el momento y la próxima vez.
+   - Debajo, **Tus llamadas**: el registro de todas sus conversaciones del tipo (4 semanas), filas
+     como las de Inicio. Cada una dice qué pasos no hizo o hizo a medias ("Todo hecho" si nada); las
+     que tienen algo que mejorar se abren ahí mismo con qué falló, el momento y la próxima vez.
    - El paso de reunión (lo declara el comercial) no es conducta y no sale aquí.
-2. **Playbook**, solo de consulta, abierto en el tipo que se está viendo.
+2. **Playbook** (botón junto al título), solo de consulta, abierto en el tipo que se está viendo.
 
 Se quitó del comercial: Resumen, Mi proceso, Ejemplos, el interruptor Llamadas/Reuniones, la
 mediana del equipo, las frases y las "mejores llamadas" de compañeros y la conversión con o sin

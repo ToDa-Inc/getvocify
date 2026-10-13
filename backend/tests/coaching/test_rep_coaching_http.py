@@ -288,7 +288,7 @@ def test_calls_names_the_steps_slipped_most_with_a_call_that_shows_it():
     memos = [_obs_memo(f"m{i}", {"open": "met", "pain": "missed"}, days_ago=i + 1,
                        reason="No preguntaste qué les cuesta.", quote="Vale, te mando info.",
                        advice="Cuando dijo que captan por LinkedIn, pregúntale cuánto les cuesta.") for i in range(4)]
-    memos.append(_obs_memo("ok", {"open": "met", "pain": "met"}, days_ago=2))
+    memos.append(_obs_memo("ok", {"open": "met", "pain": "met"}, days_ago=2.5))
     body = _client(memos).get("/api/v1/coaching/me/calls").json()
     assert body["type"] == "discovery" and body["types"][0]["key"] == "discovery"
     assert body["conversations"] == 5
@@ -298,7 +298,9 @@ def test_calls_names_the_steps_slipped_most_with_a_call_that_shows_it():
     assert pain["example"]["memo_id"] == "m0"  # the latest call that shows it
     assert pain["example"]["quote"] == "Vale, te mando info."
     assert pain["how"].startswith("Cuando dijo")
-    assert [c["memo_id"] for c in body["calls"]] == ["m0", "m1", "m2", "m3"] and body["calls_clean"] == 1
+    # The record holds every conversation, newest first; "ok" has nothing to improve.
+    assert [c["memo_id"] for c in body["calls"]] == ["m0", "m1", "ok", "m2", "m3"]
+    assert next(c for c in body["calls"] if c["memo_id"] == "ok")["slips"] == []
     slip = body["calls"][0]["slips"][0]
     assert (slip["step_id"], slip["state"], slip["reason"]) == ("pain", "missing", "No preguntaste qué les cuesta.")
     assert (body["calls"][0]["done"], body["calls"][0]["applicable"]) == (1, 2)
@@ -335,4 +337,4 @@ def test_calls_leave_out_the_meeting_the_rep_declares_and_other_reps():
     memo["rep_outcome"] = "follow_up"  # the meeting step is "not done", but it is an outcome, not behaviour
     peer = _memo("p", PEER, {"open": "missed"}, days_ago=1)
     body = _client([memo, peer]).get("/api/v1/coaching/me/calls").json()
-    assert body["calls"] == [] and body["calls_clean"] == 1
+    assert [c["memo_id"] for c in body["calls"]] == ["m"] and body["calls"][0]["slips"] == []

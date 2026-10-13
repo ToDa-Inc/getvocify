@@ -489,7 +489,7 @@ async def get_my_coaching_calls(
 ):
     """The rep's coaching, one interaction type at a time, only against their own playbook: the one
     or two steps they slip on most in the last _CALLS_WEEKS weeks (with a call that shows it and how
-    to do it next time) and every conversation with something to improve, step by step."""
+    to do it next time) and the record of their conversations, each with what slipped step by step."""
     starts = _week_starts(2 * _CALLS_WEEKS)
     window_start, before_start = starts[-_CALLS_WEEKS], starts[0]
     _, week_end = madrid_week_bounds()
@@ -523,7 +523,6 @@ async def get_my_coaching_calls(
         "conversations": 0,
         "improve": [],
         "calls": [],
-        "calls_clean": 0,
     }
     if chosen is None:
         return body
@@ -534,10 +533,6 @@ async def get_my_coaching_calls(
     body["improve"] = engine.improvement_steps(window, _in_window(own, before_start, window_start), playbook_for(chosen)["steps"])
     calls: list[dict] = []
     for row in conversations:
-        slips = engine.call_slips(row)
-        if not slips:
-            body["calls_clean"] += 1
-            continue
         part = engine.adherence_part(row) or {}
         calls.append({
             "memo_id": row["memo_id"],
@@ -547,7 +542,7 @@ async def get_my_coaching_calls(
             "meeting_agreed": row["meeting_agreed"],
             "done": part.get("met_steps", 0),
             "applicable": part.get("met_steps", 0) + part.get("missed_steps", 0),
-            "slips": slips,
+            "slips": engine.call_slips(row),  # empty: nothing to improve in this one
         })
     body["calls"] = calls[:_MAX_CALLS]
     return body

@@ -28,7 +28,7 @@ function YourProcess({ coached }: { coached?: string | null }) {
     list.data?.details?.[key]?.label || copy.typeLabels[key] || motionLabel(key, t.product.motions);
 
   return (
-    <section aria-labelledby="your-process" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-4 p-5 md:p-6`}>
+    <section aria-labelledby="your-process" className="space-y-4">
       <h2 id="your-process" className={THEME_TOKENS.typography.sectionTitle}>{copy.repHeading}</h2>
       {list.isLoading ? <p className={THEME_TOKENS.typography.body}>{t.product.playbookEditorLoading}</p> : null}
       {list.isError ? <p className={THEME_TOKENS.typography.body}>{t.product.playbookEditorLoadFailed}</p> : null}
@@ -60,7 +60,7 @@ function YourCompany() {
   const company = useQuery({ queryKey: COMPANY_KEY, queryFn: playbooksApi.company, retry: false });
   if (!company.data || isEmptyKnowledge(company.data.knowledge)) return null;
   return (
-    <section aria-labelledby="your-company" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} space-y-4 p-5 md:p-6`}>
+    <section aria-labelledby="your-company" className="space-y-4">
       <h2 id="your-company" className={THEME_TOKENS.typography.sectionTitle}>{t.product.pb2.companyReadHeading}</h2>
       <CompanyKnowledge canEdit={false} />
     </section>
@@ -72,7 +72,7 @@ function YourCompany() {
  * Nothing about teammates: coaching is the rep against their own playbook. */
 export function CoachingPlaybook({ coachedMotion }: { coachedMotion?: string | null }) {
   return (
-    <div className="space-y-6" data-testid="coach-playbook">
+    <div className="space-y-10" data-testid="coach-playbook">
       <YourProcess coached={coachedMotion} />
       <YourCompany />
     </div>
