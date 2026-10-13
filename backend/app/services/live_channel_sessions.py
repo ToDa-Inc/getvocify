@@ -722,8 +722,19 @@ class ChannelSessions:
         detect: bool,
         user_id: Optional[str] = None,
         service: str = "live",
+        echo_cancel: bool = False,
     ) -> None:
         self.client = client_ws
+        # A meeting heard through speakers: the call is taken out of the rep's mic before it is transcribed.
+        self.echo: Optional[Any] = None
+        if echo_cancel and "rep" in labels and "prospect" in labels:
+            try:
+                from app.services.echo_canceller import EchoCanceller
+
+                self.echo = EchoCanceller()
+            except Exception:
+                # Never at the cost of the call: without it the mic is transcribed as it arrives.
+                logger.exception("Live channels: echo canceller unavailable, transcribing the mic as it is")
         self.user_id = user_id
         self.labels = labels
         self.profile = normalize_stt_languages(profile_languages)
@@ -841,9 +852,22 @@ class ChannelSessions:
                     pcm = base64.b64decode(data["data"])
                 except ValueError:
                     continue
+                self.report.audio(channel, len(pcm))
+                if self.echo is not None:
+                    try:
+                        if channel == "prospect":
+                            self.echo.call(pcm)
+                        elif channel == "rep":
+                            # The mic comes out cleaned a moment later, once the call audio for it has arrived.
+                            pcm = self.echo.mic(pcm)
+                            if not pcm:
+                                continue
+                    except Exception:
+                        # Never at the cost of the call: the rest of the mic goes out as it arrives.
+                        logger.exception("Live channels: echo canceller failed, turned off for this call")
+                        self.echo = None
                 self.buffers[channel].append(pcm)
                 self.active[channel].feed(pcm)
-                self.report.audio(channel, len(pcm))
                 if channel in self.shadows:
                     self.shadows[channel].feed(pcm)
             elif kind in ("Finalize", "ForceEndOfUtterance"):
@@ -856,6 +880,17 @@ class ChannelSessions:
 
     async def _finish(self) -> None:
         self.closing = True
+        if self.echo is not None and "rep" in self.active:
+            # The mic still held back for its call audio goes out before the stream ends.
+            try:
+                rest = self.echo.flush()
+            except Exception:
+                logger.exception("Live channels: echo canceller failed at the end")
+                rest = b""
+            if rest:
+                self.buffers["rep"].append(rest)
+                self.active["rep"].feed(rest)
+            logger.info("Live channels: echo canceller %s", self.echo.stats)
         for stream in [*self.active.values(), *self.shadows.values()]:
             stream.end()
         current = list(self.active.values())

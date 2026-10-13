@@ -590,6 +590,7 @@ async def serve_live(websocket: WebSocket, user_id: Optional[str], *, service: s
             detect=True,
             user_id=user_id if user_id and user_id != "anonymous" else None,
             service=service,
+            echo_cancel=websocket.query_params.get("aec") == "1",
         )
         with usage_scope(
             "live_stt",

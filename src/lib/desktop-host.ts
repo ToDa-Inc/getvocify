@@ -10,7 +10,11 @@ export type DesktopCalling = { onPhone: boolean; phoneApp: string | null };
 export type VocifyDesktopBridge = {
   platform: "darwin" | "win32";
   systemAudio: {
-    start(): Promise<{ ok: boolean; backend?: string; reason?: string }>;
+    /**
+     * `mic`: the app also captures the rep's microphone with the call where it can, answered `mic: true` (then
+     * `nativeMic` carries it). Builds without it ignore the option and answer without `mic`.
+     */
+    start(options?: { mic?: boolean }): Promise<{ ok: boolean; backend?: string; reason?: string; mic?: boolean }>;
     stop(): Promise<void>;
     onPcm(cb: (buffer: ArrayBuffer) => void): () => void;
     onLost?(cb: (payload: { reason?: string }) => void): () => void;
@@ -86,6 +90,20 @@ export type VocifyDesktopBridge = {
    */
   speakers?: {
     onSpeaking?(cb: (payload: { names: string[] }) => void): () => void;
+  };
+  /**
+   * The microphone the app captured with the call (`systemAudio.start({ mic: true })` answered `mic: true`), raw, in
+   * 100 ms PCM frames, each just before the call's frame of the same moment. Missing in older builds.
+   */
+  nativeMic?: {
+    onPcm(cb: (pcm: ArrayBuffer) => void): () => void;
+  };
+  /**
+   * Only in the desktop app run from source: keeps a recording's raw audio per side on the computer, to replay real
+   * calls offline. Missing everywhere else.
+   */
+  devTrace?: {
+    audio(side: string, pcm: ArrayBuffer, at: number, recording: number): void;
   };
   /** Vocify calling on this computer; off, the island's Call opens on the rep's own phone. Missing in older builds. */
   calling?: {

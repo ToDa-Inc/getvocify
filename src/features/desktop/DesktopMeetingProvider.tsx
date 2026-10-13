@@ -89,7 +89,11 @@ import { callsApi } from "@/features/calls/api";
 import { callEngine, reportCallStep } from "@/features/calling/callEngine";
 import { isCallUp } from "@/lib/call-engine-state";
 import { AudioHealth, peak, pcmLevel, SILENT_PEAK, SPEAKING_PEAK, type AudioIssue } from "@/lib/audio-health";
+import { MicGain } from "@/lib/mic-gain";
 import { isBrokenGrant, reportCallAudio, reportMicSilent } from "@/lib/audio-fix";
+
+/** The app's own mic that is only digital silence this long has not been handed over: the page opens its own. */
+const NATIVE_MIC_SILENT_MS = 3000;
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
 
@@ -288,6 +292,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const nativeRef = useRef(false);
   const ctxRef = useRef<AudioContext | null>(null);
   const micRef = useRef<MediaStream | null>(null);
+  /** The desktop app captures the mic with the call (raw, on the call audio's clock): the server takes the echo out. */
+  const nativeMicRef = useRef(false);
   const releaseAudioRef = useRef<Array<() => void>>([]);
   const timerRef = useRef<number | null>(null);
   const reconnectsRef = useRef(0);
@@ -485,7 +491,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const openSocket = useCallback(() => {
     // A new session times its audio from zero again: who spoke is timed from its first audio too.
     if (speakersRef.current) speakersRef.current = { timeline: new SpeakerTimeline(), clockAt: null };
-    const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current));
+    const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current, { echoCancel: nativeMicRef.current }));
     wsRef.current = ws;
     ws.onopen = () => {
       if (vocifyCallRef.current) reportCallStep("session-socket-open");
@@ -1043,6 +1049,16 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       const recorder = call ? undefined : bridge.recorder;
       let ctx: AudioContext | null = null;
       let micStream: MediaStream | null = null;
+      const openMic = async () => {
+        micStream = await navigator.mediaDevices
+          .getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          })
+          .catch(() => {
+            throw new PermissionMissing("Could not open the microphone. Check it in Settings › System.");
+          });
+        micRef.current = micStream;
+      };
       if (recorder) {
         const started = await recorder.start({ url: liveTranscriptionWsUrl(user.id), ticket: ticketRef.current ?? undefined });
         if (!started.ok) {
@@ -1051,29 +1067,36 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         }
         nativeRef.current = true;
       } else {
+        nativeMicRef.current = false;
         if (!call) {
-          micStream = await navigator.mediaDevices
-            .getUserMedia({
-              audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-            })
-            .catch(() => {
-              throw new PermissionMissing("Could not open the microphone. Check it in Settings › System.");
-            });
-          micRef.current = micStream;
+          // Apps that capture the mic with the call (`nativeMic`) are asked to; the others, or one that could not
+          // (no microphone permission yet), leave it to the page, which opens it first as before.
+          const askNative = Boolean(bridge.nativeMic);
+          if (!askNative) await openMic();
 
-          let native = await bridge.systemAudio.start();
+          let native = await bridge.systemAudio.start({ mic: askNative });
           // Written to the desktop app's log (it keeps every "call:" line), so a refusal says why.
           reportCallStep("system-audio-start", { ok: native.ok, reason: native.reason ?? null, backend: native.backend ?? null });
           if (!native.ok && native.reason !== "permission_denied" && native.reason !== "needs_restart") {
             // The Mac's first capture after launch can outlast its 5 s wait, or meet one still letting go: once more.
             await new Promise((resolve) => window.setTimeout(resolve, 1000));
-            native = await bridge.systemAudio.start();
+            native = await bridge.systemAudio.start({ mic: askNative });
             reportCallStep("system-audio-retry", { ok: native.ok, reason: native.reason ?? null, backend: native.backend ?? null });
           }
           // What the permission rows show next: the fix steps after a refusal while allowed, "Ready" once it works.
           if (native.ok && native.backend !== "none") reportCallAudio("worked");
           else if (!native.ok && desktopPlatform() === "darwin" && isBrokenGrant(native.reason)) reportCallAudio("failed");
           if (!native.ok) throw systemAudioError(native.reason);
+          nativeMicRef.current = native.mic === true && Boolean(bridge.nativeMic);
+          reportCallStep("microphone", { native: nativeMicRef.current });
+          if (askNative && !nativeMicRef.current) {
+            try {
+              await openMic();
+            } catch (error) {
+              await bridge.systemAudio.stop();
+              throw error;
+            }
+          }
         }
 
         ctx = new AudioContext({ sampleRate: LIVE_STT_SAMPLE_RATE });
@@ -1132,11 +1155,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           recorder.onWarning(({ text }) => setWarning(text)),
           bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
         ];
-      } else if (ctx && (micStream || call)) {
+      } else if (ctx && (micStream || call || nativeMicRef.current)) {
         // A Vocify call knows who it is with; a meeting recorded here is named from the meeting app's readings.
         speakersRef.current = call ? null : { timeline: new SpeakerTimeline(), clockAt: null };
         // A Vocify call has the two sides as separate streams already; a meeting is the mic plus what the PC plays.
-        echoRef.current = call ? null : new EchoSuppressor();
+        // The server takes the echo out of the app's own mic (it has the call on the same clock); the page's mic, here.
+        echoRef.current = call || nativeMicRef.current ? null : new EchoSuppressor();
+        // What the app's raw mic sounds like once the server raises it: what the meter and the checks measure.
+        const micGain = nativeMicRef.current ? new MicGain() : null;
         openSocket();
         // Only a meeting's call audio needs a permission; a Vocify call's other side is its own stream.
         healthRef.current = new AudioHealth(performance.now(), { watchCall: !call });
@@ -1144,9 +1170,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         // Each second: did the call side play any sound, did the rep speak. A call on the phone heard through the PC's
         // sound (Windows) ends when neither happens for a while (the island decides; other recordings ignore it).
         const activity = { them: false, you: false, themPeak: 0, youPeak: 0, at: performance.now() };
-        const send = (channel: MeetingSpeaker) => (heard: ArrayBuffer) => {
+        const send = (channel: MeetingSpeaker) => (raw: ArrayBuffer) => {
           const side = channel === "rep" ? "you" : "them";
-          let pcm = heard;
+          let pcm = raw;
+          // Measured as it will be heard (the app's raw mic raised as the server does); always sent raw.
+          const heard = side === "you" && micGain ? (micGain.apply(new Int16Array(raw)).buffer as ArrayBuffer) : raw;
           const echo = echoRef.current;
           if (echo) {
             // The mic hears the meeting through the speakers: what is only that echo is not the rep.
@@ -1171,7 +1199,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               activity.youPeak = 0;
               activity.at = performance.now();
             }
-            levelRef.current[side] = Math.max(levelRef.current[side] * 0.85, pcmLevel(pcm));
+            levelRef.current[side] = Math.max(levelRef.current[side] * 0.85, pcmLevel(micGain && side === "you" ? heard : pcm));
             // Pushed from the audio callbacks, not a timer: timers stall while Vocify is behind the call.
             const now = performance.now();
             if (now - levelsSentAt > 100) {
@@ -1179,6 +1207,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               bridge.shell.setState({ levels: { ...levelRef.current } });
             }
           }
+          // The desktop app run from source keeps the raw audio, to replay real calls offline.
+          if (bridge.devTrace && draftRef.current) bridge.devTrace.audio(channel === "rep" ? "mic" : "call", raw, performance.now(), draftRef.current.startedAt);
           const ws = wsRef.current;
           if (ws?.readyState === WebSocket.OPEN) {
             ws.send(encodeChannelAudio(channel, audio));
@@ -1187,11 +1217,41 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             if (channel === "prospect" && speakers && speakers.clockAt === null) speakers.clockAt = performance.now();
           }
         };
+        /**
+         * The app's own mic, or the page's when it is only digital silence for its first seconds: a mic the system
+         * hands over as zeros (a permission it did not apply) would otherwise leave the rep out of the transcript.
+         */
+        const nativeRep = (native: NonNullable<typeof bridge.nativeMic>, audioContext: AudioContext) => {
+          const toRep = send("rep");
+          const startedAt = performance.now();
+          let sound = false;
+          let fallback: (() => void) | null = null;
+          let off: (() => void) | null = native.onPcm((pcm) => {
+            if (!sound && peak(new Int16Array(pcm)) > SILENT_PEAK) sound = true;
+            if (!sound && performance.now() - startedAt > NATIVE_MIC_SILENT_MS) {
+              off?.();
+              off = null;
+              reportCallStep("microphone", { native: false, reason: "silent" });
+              void openMic().then(
+                () => {
+                  if (micStream) fallback = hookMicPcm(audioContext, micStream, toRep);
+                },
+                () => setWarning("Could not open the microphone. Check it in Settings › System."),
+              );
+              return;
+            }
+            toRep(pcm);
+          });
+          return () => {
+            off?.();
+            fallback?.();
+          };
+        };
         releaseAudioRef.current = call
           ? // The call's own two sides: nothing else on the Mac reaches the prospect's channel.
             [hookMicPcm(ctx, call.streams.local, send("rep")), hookMicPcm(ctx, call.streams.remote, send("prospect"))]
           : [
-              hookMicPcm(ctx, micStream as MediaStream, send("rep")),
+              nativeMicRef.current && bridge.nativeMic ? nativeRep(bridge.nativeMic, ctx) : hookMicPcm(ctx, micStream as MediaStream, send("rep")),
               bridge.systemAudio.onPcm(send("prospect")),
               bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
               // Who the meeting app shows speaking (the desktop app reads Zoom, and Meet through the extension).

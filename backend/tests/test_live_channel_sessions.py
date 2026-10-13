@@ -468,3 +468,59 @@ def test_a_session_is_live_for_the_recording_webhook_until_it_finishes(monkeypat
     assert seen["during"]
     assert live_activity._open.get("rep-1") is None
     assert "rep-1" in live_activity._ended_at
+
+
+def _audio_messages(chunks):
+    """The client's socket: each (channel, pcm) as AddChannelAudio, then it closes."""
+    import base64
+    import json
+
+    messages = [{"type": "websocket.receive", "text": json.dumps({"type": "AddChannelAudio", "channel": ch, "data": base64.b64encode(pcm).decode()})} for ch, pcm in chunks]
+    messages.append({"type": "websocket.disconnect"})
+
+    async def receive():
+        return messages.pop(0)
+
+    return receive
+
+
+def _echo_sessions(monkeypatch, canceller):
+    from app.services import echo_canceller
+    from app.services import live_channel_sessions as live
+
+    monkeypatch.setattr(live.settings, "AI_GATEWAY_API_KEY", "k")
+    monkeypatch.setattr(live.settings, "LIVE_STT_PROVIDER", "mai")
+    monkeypatch.setitem(live.STREAMS, "mai", _FakeStream)
+    monkeypatch.setattr(echo_canceller, "EchoCanceller", canceller)
+    _FakeStream.made = []
+    _FakeStream.starts = True
+    return live, live.ChannelSessions(_FakeClient(), labels=["prospect", "rep"], language="multi", profile_languages=["es"], glossary=[], detect=False, echo_cancel=True)
+
+
+def test_an_echo_canceller_that_cannot_start_leaves_the_mic_as_it_is(monkeypatch):
+    def broken():
+        raise OSError("liblivekit_ffi.so: cannot open shared object file")
+
+    _, sessions = _echo_sessions(monkeypatch, broken)
+    assert sessions.echo is None
+
+
+def test_an_echo_canceller_that_fails_mid_call_is_turned_off_and_the_mic_still_goes_through(monkeypatch):
+    import asyncio
+
+    class Failing:
+        stats: dict = {}
+
+        def call(self, pcm):
+            pass
+
+        def mic(self, pcm):
+            raise ValueError("boom")
+
+    live, sessions = _echo_sessions(monkeypatch, Failing)
+    rep = _FakeStream("rep", "es", None, vocab=[], offset_s=0.0, on_event=None)
+    sessions.active["rep"] = rep
+    sessions.client.receive = _audio_messages([("rep", b"\x01\x00" * 1600), ("rep", b"\x02\x00" * 1600)])
+    asyncio.run(sessions._read_client())
+    assert sessions.echo is None
+    assert bytes(rep.fed) == b"\x01\x00" * 1600 + b"\x02\x00" * 1600
