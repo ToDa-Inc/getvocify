@@ -95,11 +95,11 @@ import { isBrokenGrant, reportCallAudio, reportMicSilent } from "@/lib/audio-fix
 /** The app's own mic that is only digital silence this long has not been handed over: the page opens its own. */
 const NATIVE_MIC_SILENT_MS = 3000;
 /**
- * Off: the app's own mic (captured with the call, for the server's echo removal) is not asked for. In a signed build
- * on a Mac (2026-10-14) macOS never ran the capture with the mic, and building it disturbed the mic for the page too
- * ("Your mic isn't sending audio"). Back on once it records a real call in an installed build.
+ * Where the app's own mic is asked for (Mac builds read it in a helper of its own, next to the call's audio). None yet:
+ * on the same capture the server removed ~10 dB of echo from it against ~50 dB from the page's mic (2026-10-14, reason
+ * not found), so the page's mic goes to the server's echo removal everywhere.
  */
-const ASK_NATIVE_MIC = false;
+const ASK_NATIVE_MIC_ON = new Set<string>();
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
 
@@ -1089,7 +1089,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         if (!call) {
           // Apps that capture the mic with the call (`nativeMic`) are asked to; the others, or one that could not
           // (no microphone permission yet), leave it to the page, which opens it first as before.
-          const askNative = ASK_NATIVE_MIC && Boolean(bridge.nativeMic);
+          const askNative = ASK_NATIVE_MIC_ON.has(desktopPlatform() ?? "") && Boolean(bridge.nativeMic);
           if (!askNative) await openMic();
 
           let native = await bridge.systemAudio.start({ mic: askNative });
@@ -1236,25 +1236,35 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         const nativeRep = (native: NonNullable<typeof bridge.nativeMic>, audioContext: AudioContext) => {
           const toRep = send("rep");
           const startedAt = performance.now();
+          let lastFrameAt = startedAt;
           let sound = false;
           let fallback: (() => void) | null = null;
           let off: (() => void) | null = native.onPcm((pcm) => {
+            lastFrameAt = performance.now();
             if (!sound && peak(new Int16Array(pcm)) > SILENT_PEAK) sound = true;
-            if (!sound && performance.now() - startedAt > NATIVE_MIC_SILENT_MS) {
-              off?.();
-              off = null;
-              reportCallStep("microphone", { native: false, reason: "silent" });
-              void openMic().then(
-                () => {
-                  if (micStream) fallback = hookMicPcm(audioContext, micStream, toRep);
-                },
-                () => setWarning("Could not open the microphone. Check it in Settings › System."),
-              );
-              return;
-            }
             toRep(pcm);
           });
+          const switchToPageMic = (reason: "silent" | "stopped") => {
+            window.clearInterval(watch);
+            off?.();
+            off = null;
+            reportCallStep("microphone", { native: false, reason });
+            void openMic().then(
+              () => {
+                if (micStream) fallback = hookMicPcm(audioContext, micStream, toRep);
+              },
+              () => setWarning("Could not open the microphone. Check it in Settings › System."),
+            );
+          };
+          // On a clock: a mic that stops sending says nothing. Only digital silence from the start, or no audio at all
+          // for a while, hands the rep to the page's own mic for the rest of the recording.
+          const watch = window.setInterval(() => {
+            const now = performance.now();
+            if (!sound && !pausedRef.current && now - startedAt > NATIVE_MIC_SILENT_MS) switchToPageMic("silent");
+            else if (now - lastFrameAt > NATIVE_MIC_SILENT_MS) switchToPageMic("stopped");
+          }, 500);
           return () => {
+            window.clearInterval(watch);
             off?.();
             fallback?.();
           };
