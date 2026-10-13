@@ -6,6 +6,7 @@ import json
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from supabase import Client
@@ -15,7 +16,7 @@ from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
 from app.services.copilot.contact_history import load_contact_history
 from app.services.copilot.context import live_assist_kind_from_call_mode, resolve_suggest_context
-from app.services.copilot import call_type, turn
+from app.services.copilot import call_type, playbook_objections, turn
 from app.services.copilot.checklist import build_meeting_checklist
 from app.services.copilot.load_grounding import (
     load_company_knowledge,
@@ -50,6 +51,8 @@ class SuggestRequest(BaseModel):
     sales_motion_key: Optional[str] = Field(default=None, max_length=64)
     # The objection the turn check already put on screen: the answer is written for it.
     objection_type: Optional[str] = Field(default=None, max_length=32)
+    # The playbook's own objection the turn check matched (objection_type "custom"): its answer is followed.
+    entry_id: Optional[str] = Field(default=None, max_length=200)
     # The filler line the rep is already saying for it: the answer is the next sentence.
     filler: Optional[str] = Field(default=None, max_length=200)
     # The lines live help already showed in this call, oldest first: the new one must differ.
@@ -83,6 +86,16 @@ def _empty_objection(event: dict) -> bool:
     """A result that flags an objection with no line to say: shown, it would vanish at once."""
     suggestion = event.get("suggestion") or {}
     return suggestion.get("is_objection") is True and not str(suggestion.get("say_this") or "").strip()
+
+
+def _matched_entry(grounding, entry_id: Optional[str]) -> Optional[dict]:
+    """The playbook entry the turn check matched, when it is one of this call's published answers."""
+    wanted = (entry_id or "").strip()
+    entries = (grounding.playbook_snapshot or {}).get("entries") if grounding else None
+    return next(
+        (e for e in entries or [] if isinstance(e, dict) and wanted and e.get("entry_id") == wanted and e.get("guidance")),
+        None,
+    )
 
 
 def _sse(events: list[dict]) -> StreamingResponse:
@@ -177,6 +190,7 @@ async def suggest_objection_handling(
             company_knowledge=company_knowledge,
             contact_history=contact_history,
             objection_type=body.objection_type if body.objection_type in turn.OBJECTIONS else None,
+            entry=_matched_entry(grounding, body.entry_id),
             filler=body.filler,
             previous_answers=body.previous_answers,
         )
@@ -216,13 +230,16 @@ async def suggest_objection_handling(
 async def check_turn(
     body: TurnRequest,
     user_id: str = Depends(get_user_id),
+    supabase: Client = Depends(get_supabase),
 ):
     """About 0.3 s: has the prospect finished, and which objection is it. Nulls mean no classifier.
-    A signed-in rep is enough: it runs on every pause, so it does no database lookup."""
-    del user_id
-    if (body.sales_motion_key or "").strip() == INTERNAL_KEY:
+    It runs on every pause, so the type's own objections (custom playbook entries) are looked up once
+    and kept for a minute, off the event loop; without a type there is nothing to look up."""
+    motion = (body.sales_motion_key or "").strip()
+    if motion == INTERNAL_KEY:
         return {"finished": True, "objection": "none"}
-    return await turn.read_turn(body.transcript_window, body.latest_turn)
+    custom = await run_in_threadpool(playbook_objections.custom_for, supabase, user_id, motion) if motion else None
+    return await turn.read_turn(body.transcript_window, body.latest_turn, custom)
 
 
 @router.post("/call-type/guess")

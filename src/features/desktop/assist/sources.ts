@@ -27,6 +27,7 @@ const objectionSource: AssistSource = {
           ...(context.contactId && { contact_id: context.contactId }),
           ...(context.typeKey && { sales_motion_key: context.typeKey }),
           ...(context.objectionType && { objection_type: context.objectionType }),
+          ...(context.entryId && { entry_id: context.entryId }),
           ...(context.filler && { filler: context.filler }),
           ...(context.previousAnswers?.length && { previous_answers: context.previousAnswers }),
         },

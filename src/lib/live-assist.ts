@@ -15,6 +15,8 @@ export type AssistContext = {
   typeKey?: string;
   /** The objection already on screen (from the turn check): the answer is written for it. */
   objectionType?: string;
+  /** The playbook's own objection the turn check matched (objectionType "custom"): its answer is followed. */
+  entryId?: string;
   /** The filler line the rep is already saying: the answer is the next sentence after it. */
   filler?: string;
   /** The lines help already showed in this call, oldest first: the new answer must not repeat them. */
@@ -88,6 +90,8 @@ const OBJECTION_LABEL: Record<string, string> = {
   trust: "Trust",
   question: "Question",
   other: "Objection",
+  // One of the playbook's own objections: the card carries the entry's name.
+  custom: "Objection",
 };
 
 /**
@@ -141,14 +145,14 @@ export function streamedDraft(streamed: string, latestTurn: string, at: number):
   return type ? draftCard(type, latestTurn, at) : null;
 }
 
-export function draftCard(type: string, latestTurn: string, at: number): AssistCard {
+export function draftCard(type: string, latestTurn: string, at: number, label?: string): AssistCard {
   return {
     id: `objection-${at}`,
     source: "objection",
     kind: type === "question" ? "question" : "objection",
     stage: "draft",
     bridge: bridgeLine(type, latestTurn),
-    label: OBJECTION_LABEL[type] ?? "Objection",
+    label: label || (OBJECTION_LABEL[type] ?? "Objection"),
     sayThis: "",
     at,
   };
@@ -180,16 +184,29 @@ export function turnCheck(input: { settled: boolean; paused: boolean | null }): 
 }
 
 /** What the turn check found; nulls when the classifier could not be reached. */
-export type TurnReading = { finished: boolean | null; objection: string | null };
+export type TurnReading = {
+  finished: boolean | null;
+  objection: string | null;
+  /** With objection "custom": which of the playbook's own objections it is, and its name. */
+  entry_id?: string;
+  label?: string;
+};
 
-export type TurnStep = { do: "answer"; type: string } | { do: "wait" } | { do: "skip" } | { do: "ask" };
+export type TurnStep =
+  | { do: "answer"; type: string; entryId?: string; label?: string }
+  | { do: "wait" }
+  | { do: "skip" }
+  | { do: "ask" };
 
 /** answer: show the card now and write its answer; ask: no classifier, let the answer model decide. */
 export function nextStep(reading: TurnReading | null, final: boolean): TurnStep {
   if (!reading || reading.finished === null) return { do: "ask" };
   if (!reading.finished && !final) return { do: "wait" };
   const type = reading.objection;
-  return type && type !== "none" && type in OBJECTION_LABEL ? { do: "answer", type } : { do: "skip" };
+  if (type === "custom" && reading.entry_id) {
+    return { do: "answer", type, entryId: reading.entry_id, ...(reading.label && { label: reading.label }) };
+  }
+  return type && type !== "none" && type !== "custom" && type in OBJECTION_LABEL ? { do: "answer", type } : { do: "skip" };
 }
 
 /**
