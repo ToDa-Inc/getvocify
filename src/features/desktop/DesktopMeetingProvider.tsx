@@ -48,6 +48,7 @@ import {
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
 import { SpeakerTimeline } from "@/lib/speaker-timeline";
+import { CALL_UPLOAD_RETRY_DELAYS_MS, withTransientRetries } from "@/lib/transient-retry";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, desktopPlatform, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
 import { islandCallContact, islandRecordContact, latestOnly, type CallPreview } from "@/lib/call-contact";
@@ -956,22 +957,28 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       bridge?.shell.setState({ finish: { step: "uploading" } });
       const contactName = draft?.contact?.name ?? null;
       // The live transcript is the memo, seconds after hang-up. Twilio's recording joins the same memo
-      // later (playback, CRM call log); if this upload fails, the recording makes the memo as before.
+      // later (playback, CRM call log). A send that got no answer is sent again (the server keeps one memo
+      // per call); if it still fails, the recording makes the memo as before.
       if (draft && meetingHasSpeech(draft.transcript)) {
+        const callDurationSeconds = Math.round((Date.now() - draft.startedAt) / 1000);
         try {
-          const memo = await memosApi.uploadTranscriptAndExtract(meetingUploadText(draft.transcript), {
-            interactionKind: "call",
-            sourceType: "meeting_transcript",
-            speakersVerified: true,
-            notes: draft.notes,
-            hubspotContactId: draft.contact?.hubspotId,
-            callSource: VOCIFY_CALL_SOURCE.name,
-            salesMotionKey: draft.type,
-            typeSource: draft.typeSource ?? "vocify",
-            participants: meetingParticipants(draft.transcript),
-            callSid: call.callSid,
-            callDurationSeconds: Math.round((Date.now() - draft.startedAt) / 1000),
-          });
+          const memo = await withTransientRetries(
+            () =>
+              memosApi.uploadTranscriptAndExtract(meetingUploadText(draft.transcript), {
+                interactionKind: "call",
+                sourceType: "meeting_transcript",
+                speakersVerified: true,
+                notes: draft.notes,
+                hubspotContactId: draft.contact?.hubspotId,
+                callSource: VOCIFY_CALL_SOURCE.name,
+                salesMotionKey: draft.type,
+                typeSource: draft.typeSource ?? "vocify",
+                participants: meetingParticipants(draft.transcript),
+                callSid: call.callSid,
+                callDurationSeconds,
+              }),
+            CALL_UPLOAD_RETRY_DELAYS_MS,
+          );
           reportCallStep("live-memo", { memoId: memo.id });
           queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
           bridge?.shell.setState({ finish: null });

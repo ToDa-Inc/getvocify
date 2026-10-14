@@ -144,7 +144,7 @@ class TestCallingConfigProvider:
             patch("app.api.calls.telephony_configured", return_value=False),
             patch("app.api.calls.calling_provider", return_value="twilio"),
         ):
-            result = await get_calling_config(
+            result = get_calling_config(
                 supabase=MagicMock(), user_id="user-1"
             )
         assert result["provider"] == "twilio"
@@ -158,7 +158,7 @@ class TestCallingConfigProvider:
             patch("app.api.calls.list_caller_ids", return_value=[]),
         ):
             supabase = MagicMock()
-            result = await get_calling_config(
+            result = get_calling_config(
                 supabase=supabase, user_id="user-1"
             )
         ensure.assert_called_once_with(supabase, "user-1")
@@ -173,7 +173,7 @@ class TestCreateVoiceToken:
             patch("app.api.calls.calling_provider", return_value="twilio"),
             patch("app.api.calls.mint_voice_access_token", return_value="twilio-jwt"),
         ):
-            result = await create_voice_token(
+            result = create_voice_token(
                 supabase=MagicMock(), user_id="user-1"
             )
         assert result == {
@@ -197,7 +197,7 @@ class TestCreateVoiceToken:
                 "expiresIn": 86400,
                 "provider": "telnyx",
             }
-            result = await create_voice_token(
+            result = create_voice_token(
                 supabase=MagicMock(), user_id="user-1"
             )
 
@@ -220,7 +220,7 @@ class TestCreateVoiceToken:
             ),
         ):
             with pytest.raises(HTTPException) as exc:
-                await create_voice_token(supabase=MagicMock(), user_id="user-1")
+                create_voice_token(supabase=MagicMock(), user_id="user-1")
 
         assert exc.value.status_code == 503
 
@@ -237,6 +237,6 @@ class TestCreateVoiceToken:
             ),
         ):
             with pytest.raises(HTTPException) as exc:
-                await get_calling_config(supabase=MagicMock(), user_id="user-1")
+                get_calling_config(supabase=MagicMock(), user_id="user-1")
 
         assert exc.value.status_code == 503

@@ -344,7 +344,7 @@ def _bearer_token_from_request(request: Request) -> Optional[str]:
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user(
+def get_current_user(
     request: Request,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
@@ -700,7 +700,7 @@ def _reissue_session_for_verified_claims(claims: dict) -> RefreshResponse:
 
 @router.post("/refresh", response_model=RefreshResponse)
 @limiter.limit("60/minute")
-async def refresh_token(
+def refresh_token(
     request: Request,
     body: RefreshRequest,
     supabase: Client = Depends(get_supabase_auth),

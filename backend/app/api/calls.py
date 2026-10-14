@@ -137,7 +137,7 @@ def _require_dialer(supabase: Client, user_id: str) -> None:
 
 
 @router.get("/config")
-async def get_calling_config(
+def get_calling_config(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
@@ -173,7 +173,7 @@ async def get_calling_config(
 
 
 @router.post("/token")
-async def create_voice_token(
+def create_voice_token(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
@@ -195,7 +195,7 @@ async def create_voice_token(
 
 
 @router.get("/outbound/latest-disposition")
-async def get_latest_outbound_disposition(
+def get_latest_outbound_disposition(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
@@ -401,7 +401,7 @@ def _memo_status_by_id(supabase: Client, memo_ids: list) -> dict:
 
 
 @router.get("/history")
-async def list_call_history(
+def list_call_history(
     limit: int = Query(20, ge=1, le=100),
     contactId: Optional[str] = None,
     dealId: Optional[str] = None,
@@ -466,7 +466,7 @@ async def list_call_history(
 
 
 @router.get("/{call_sid}")
-async def get_call(
+def get_call(
     call_sid: str,
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
