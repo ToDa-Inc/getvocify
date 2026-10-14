@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 TASK_DUE_TZ = ZoneInfo("Europe/Madrid")
 TASK_DEFAULT_DUE_HOUR = 9
 TASK_DEFAULT_DUE_MINUTE = 0
+# A task nobody gave a day for is due this many days out.
+DEFAULT_TASK_DUE_DAYS = 3
 
 _EXPLICIT_TIME_RE = re.compile(
     r"(?:a las|at)\s+(\d{1,2})(?::(\d{2}))?\s*(h|hrs?|horas?|am|pm)?",
@@ -62,6 +64,11 @@ def _at_default_task_hour(dt: datetime) -> datetime:
         0,
         tzinfo=TASK_DUE_TZ,
     )
+
+
+def default_task_due_iso() -> str:
+    """The day a task without a date is written for (what the review shows as suggested)."""
+    return _default_task_due_in_days(DEFAULT_TASK_DUE_DAYS).date().isoformat()
 
 
 def _default_task_due_in_days(days: int) -> datetime:
@@ -220,6 +227,12 @@ def _should_skip_next_step(text: str) -> bool:
     return False
 
 
+_MONTH_NAMES_FOR_PATTERN = (
+    "enero", "gener", "febrero", "febrer", "marzo", "mar[cç]", "abril", "mayo", "maig", "junio", "juny",
+    "julio", "juliol", "agosto", "septiembre", "setembre", "octubre", "noviembre", "novembre", "diciembre",
+    "desembre",
+)
+
 _SCHEDULE_PATTERNS = [
     r"\bel\s+(?:pr[oó]ximo\s+|proximo\s+)?(?:lunes|martes|mi[eé]rcoles|miercoles|jueves|viernes|s[aá]bado|sabado|domingo)\b",
     r"\b(?:el\s+)?(?:lunes|martes|mi[eé]rcoles|miercoles|jueves|viernes|s[aá]bado|sabado|domingo)\s+que\s+viene\b",
@@ -229,7 +242,8 @@ _SCHEDULE_PATTERNS = [
     r"\ba\s+las\s+\d{1,2}(?::\d{2})?\s*(?:h|hrs?|horas?)?\b",
     r"\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|h|hrs?)?\b",
     r"\bel\s+d[ií]a\s+\d{1,2}\b",
-    r"\b(?:en|within)\s+\d+\s+d[ií]as?\b",
+    r"\b(?:en|dentro\s+de|in|within)\s+\d+\s+(?:d[ií]as?|semanas?|days?|weeks?)\b",
+    r"\b(?:el\s+)?\d{1,2}\s+de\s+(?:" + "|".join(_MONTH_NAMES_FOR_PATTERN) + r")\b",
     r"\bque\s+viene\b|\bsiguiente\b",
     r"\b(?:a\s+)?(?:principios?|principis?|comienzos?|inici(?:s)?|beginning|start)\s+(?:de\s+|d[''']?)?"
     r"(?:enero|gener|febrero|febrer|marzo|mar[cç]|abril|mayo|maig|junio|juny|julio|juliol|agosto|"
@@ -258,7 +272,8 @@ def _strip_scheduling_phrases(text: str) -> str:
     cleaned = text or ""
     for pattern in _SCHEDULE_PATTERNS:
         cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\bcon\s+(?:[eé]l|ella|him|her|them)\b", " ", cleaned, flags=re.IGNORECASE)
+    # "con él" is the person, "con el director" is not: only the accented pronoun (or a trailing "con el").
+    cleaned = re.sub(r"\bcon\s+(?:él|ella|him|her|them)\b|\bcon\s+el\s*$", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-")
     return cleaned
 
@@ -278,26 +293,28 @@ def _apply_time_from_text(text: str, base: datetime) -> datetime:
     return datetime(day.year, day.month, day.day, hour, minute, 0, tzinfo=TASK_DUE_TZ)
 
 
+_CALL_WORDS = r"\b(hablar|llamar|llamada|call|phone|telefonear|ring|parlar|trucar|contactar|contact)\b"
+_PURPOSE_RE = re.compile(r"\b(?:para|por|sobre|acerca de|about)\s+(.{4,})", re.IGNORECASE)
+TITLE_MAX_CHARS = 80
+
+
+def _shorten(text: str, limit: int = TITLE_MAX_CHARS) -> str:
+    """At most `limit` characters, cut at a word."""
+    text = text.strip(" .,;:-")
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0].rstrip(" .,;:-") + "…"
+
+
 def _infer_task_title(cleaned: str, original: str, contact_name: Optional[str]) -> str:
     source = cleaned or original
     lower = source.lower()
 
-    if re.search(
-        r"\b(hablar|llamar|llamada|call|phone|telefonear|ring|parlar|trucar|contactar|contact)\b",
-        lower,
-    ):
-        if contact_name:
-            first = contact_name.strip().split()[0]
-            return f"Llamada con {first}"
-        return "Llamada de seguimiento"
-
-    topic_match = re.search(r"(?:por|per|sobre|about|re:|re\.)\s+(.+)", lower)
-    if topic_match:
-        topic = topic_match.group(1).strip(" .")[:60]
-        if topic and re.search(
-            r"\b(llamar|call|hablar|parlar|phone|telefonear|trucar|contactar)\b", lower
-        ):
-            return f"Llamar por {topic[0].upper()}{topic[1:]}" if len(topic) <= 40 else f"Llamada: {topic[:40]}"
+    if re.search(_CALL_WORDS, lower):
+        who = f"Llamada con {contact_name.strip().split()[0]}" if contact_name and contact_name.strip() else "Llamada de seguimiento"
+        # What the call is for is the part of the task that says what to do: keep it.
+        purpose = _PURPOSE_RE.search(source)
+        return _shorten(f"{who}: {purpose.group(1)}") if purpose else who
 
     action_match = re.search(
         r"\b(enviar|mandar|send|revisar|review|preparar|prepare|agendar|schedule|confirmar|confirm)\b[^,.]*",
@@ -305,7 +322,7 @@ def _infer_task_title(cleaned: str, original: str, contact_name: Optional[str]) 
         re.IGNORECASE,
     )
     if action_match:
-        title = action_match.group(0).strip()
+        title = _shorten(action_match.group(0))
         return title[0].upper() + title[1:]
 
     if re.search(r"\bdemo\b", lower):
@@ -313,8 +330,8 @@ def _infer_task_title(cleaned: str, original: str, contact_name: Optional[str]) 
     if re.search(r"\b(reuni[oó]n|meeting|presentaci[oó]n)\b", lower):
         return "Reunión de seguimiento"
 
-    if cleaned and len(cleaned) <= 60:
-        return cleaned[0].upper() + cleaned[1:]
+    if cleaned:
+        return cleaned[0].upper() + _shorten(cleaned)[1:]
 
     return "Seguimiento"
 
@@ -348,7 +365,7 @@ def format_next_step_task(
     if parsed:
         due_date = parsed
     else:
-        due_date = _default_task_due_in_days(3)
+        due_date = _default_task_due_in_days(DEFAULT_TASK_DUE_DAYS)
     if _has_explicit_time_in_text(time_source):
         due_date = _apply_time_from_text(time_source, due_date)
     else:
@@ -398,6 +415,40 @@ def _parse_month_from_text(text: str, now: datetime) -> Optional[datetime]:
     return datetime(year, matched_month, 1)
 
 
+_RELATIVE_SPAN_RE = re.compile(
+    r"\b(?:en|dentro\s+de|in|within)\s+(\d{1,3})\s+(d[ií]as?|semanas?|days?|weeks?)\b"
+)
+_CALENDAR_MONTH_RE = re.compile(
+    r"\b(\d{1,2})\s+de\s+(" + "|".join(sorted(_MONTH_NAME_TO_NUM, key=len, reverse=True)) + r")\b"
+)
+_DAY_OF_MONTH_RE = re.compile(r"\bel\s+d[ií]a\s+(\d{1,2})\b")
+
+
+def _parse_calendar_day(lower: str, now: datetime) -> Optional[datetime]:
+    """"el 15 de octubre", "el día 15": the next such day (never one already past)."""
+    today = now.date()
+    named = _CALENDAR_MONTH_RE.search(lower)
+    try:
+        if named:
+            month = _MONTH_NAME_TO_NUM[named.group(2)]
+            day = datetime(today.year, month, int(named.group(1)))
+            if day.date() < today:
+                day = day.replace(year=today.year + 1)
+            return day
+        plain = _DAY_OF_MONTH_RE.search(lower)
+        if plain:
+            number = int(plain.group(1))
+            year, month = today.year, today.month
+            if number <= today.day:
+                month += 1
+                if month > 12:
+                    year, month = year + 1, 1
+            return datetime(year, month, number)
+    except ValueError:
+        return None  # "el 31 de febrero", "el día 31" in a 30-day month: no date rather than a wrong one
+    return None
+
+
 def _parse_date_from_text(text: str) -> Optional[datetime]:
     """
     Parse a date from Spanish/English phrases like:
@@ -438,6 +489,16 @@ def _parse_date_from_text(text: str) -> Optional[datetime]:
     if "mañana" in lower or "manana" in lower or "tomorrow" in lower:
         return now + timedelta(days=1)
 
+    explicit = _parse_calendar_day(lower, now)
+    if explicit is not None:
+        return explicit
+
+    # "en 3 días", "dentro de 2 semanas", "in 2 weeks"
+    span = _RELATIVE_SPAN_RE.search(lower)
+    if span:
+        count = int(span.group(1))
+        return now + timedelta(days=count * (7 if span.group(2).startswith(("semana", "week")) else 1))
+
     # "el martes", "next tuesday", "el próximo martes"
     for day_name, day_num in dias.items():
         if day_name in lower:
@@ -450,7 +511,7 @@ def _parse_date_from_text(text: str) -> Optional[datetime]:
             return now + timedelta(days=days_ahead)
 
     # "la próxima semana" / "next week"
-    if "próxima semana" in lower or "proxima semana" in lower or "next week" in lower:
+    if "próxima semana" in lower or "proxima semana" in lower or "semana que viene" in lower or "next week" in lower:
         return now + timedelta(days=7)
 
     month_date = _parse_month_from_text(text, now)
@@ -770,7 +831,7 @@ class HubSpotTasksService:
         ]
         for task in tasks:
             norm = _normalize_task_subject(task.text)
-            due = task.due_at or _default_task_due_in_days(3)
+            due = task.due_at or _default_task_due_in_days(DEFAULT_TASK_DUE_DAYS)
             day = _day_in(due, due.tzinfo or TASK_DUE_TZ)
             same = next(
                 (tid for subject, other, tid in candidates if subject == norm and _day_in(other, due.tzinfo or TASK_DUE_TZ) == day),

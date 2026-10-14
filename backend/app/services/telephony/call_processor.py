@@ -324,6 +324,8 @@ async def process_vocify_call_background(
         supabase.table("outbound_calls").update(
             {"status": "failed", "error_message": str(e)[:2000]}
         ).eq("carrier_call_id", call_sid).execute()
+        # The call happened and its recording is kept: HubSpot still gets the call, saying it was not transcribed.
+        await log_call_engagement(supabase, call_sid, duration, screening_outcome="unprocessed")
         if pipeline_started_at is not None:
             # The `with pipeline_run()` block above has already unwound its
             # contextvar by the time we get here (on any exit, including via
@@ -345,9 +347,11 @@ async def finalize_screened_out_memo(
     transcript: str,
     duration: float,
     outcome: str,
-    call_sid: str,
+    call_sid: Optional[str] = None,
+    *,
+    extra_update: Optional[dict[str, Any]] = None,
 ) -> None:
-    """Persist transcript without running LLM extraction."""
+    """Persist transcript without running LLM extraction. `call_sid` is the Vocify-placed call, if it is one."""
     summaries = {
         "voicemail": "Buzon de voz detectado; extraccion omitida.",
         "no_response": "Sin conversacion real detectada; extraccion omitida.",
@@ -355,6 +359,7 @@ async def finalize_screened_out_memo(
     now = datetime.now(timezone.utc).isoformat()
     supabase.table("memos").update(
         {
+            **(extra_update or {}),
             "status": "pending_review",
             "transcript": transcript,
             "screening_outcome": outcome,
@@ -368,9 +373,10 @@ async def finalize_screened_out_memo(
             "error_message": None,
         }
     ).eq("id", memo_id).execute()
-    supabase.table("outbound_calls").update(
-        {"call_disposition": outcome}
-    ).eq("carrier_call_id", call_sid).execute()
+    if call_sid:
+        supabase.table("outbound_calls").update(
+            {"call_disposition": outcome}
+        ).eq("carrier_call_id", call_sid).execute()
 
 
 def _hubspot_call_time(started_at: Optional[str], seconds: float = 0.0) -> str:
@@ -500,10 +506,12 @@ async def log_missed_call_activity(
 
         row = await attach_hubspot_contact_by_phone(supabase, row)
         if not row.get("hubspot_contact_id"):
+            logger.info("HubSpot missed-call logging skipped for %s: no contact matches the dialed number", call_sid)
             return
 
         conn_row = _company_hubspot_connection(supabase, row["user_id"])
         if not conn_row:
+            logger.info("HubSpot missed-call logging skipped for %s: the company has no HubSpot connection", call_sid)
             return
 
         client = get_hubspot_client_from_connection(row["user_id"], supabase)
@@ -637,10 +645,12 @@ async def log_call_engagement(
             return
         row = await attach_hubspot_contact_by_phone(supabase, row)
         if not row.get("hubspot_contact_id"):
+            logger.info("HubSpot call logging skipped for %s: no contact matches the dialed number", call_sid)
             return
 
         conn_row = _company_hubspot_connection(supabase, row["user_id"])
         if not conn_row:
+            logger.info("HubSpot call logging skipped for %s: the company has no HubSpot connection", call_sid)
             return
 
         client = get_hubspot_client_from_connection(row["user_id"], supabase)
@@ -666,7 +676,14 @@ async def log_call_engagement(
             row.get("to_number") or "",
         )
         # The rep approved before the call was logged: the call carries the write-up (summary, updates, transcript).
+        # Otherwise it carries the transcript right away; the write-up replaces it when the rep approves.
         pending = call_entry.pending_call_body(supabase, row.get("memo_id"))
+        body = (
+            pending[1]
+            if pending
+            else call_entry.transcript_call_body(supabase, row.get("memo_id"), screening_outcome)
+            or hubspot_call_body_for_disposition(screening_outcome)
+        )
         properties = build_call_properties(
             # When the call ended, as a call logged at hang-up always showed.
             occurred_at=_hubspot_call_time(row.get("answered_at"), duration),
@@ -678,7 +695,7 @@ async def log_call_engagement(
             app_id=str(settings.HUBSPOT_APP_ID or ""),
             owner_id=owner_id,
             title=call_title,
-            body=pending[1] if pending else hubspot_call_body_for_disposition(screening_outcome),
+            body=body,
             call_status=hubspot_call_status_for_disposition(screening_outcome),
             disposition=screening_outcome,
         )
@@ -718,16 +735,18 @@ async def log_call_engagement(
                 call_sid,
                 rec_err,
             )
-        try:
-            supabase.table("outbound_calls").update(
-                {"call_disposition": screening_outcome}
-            ).eq("carrier_call_id", call_sid).execute()
-        except Exception:
-            logger.warning(
-                "Could not persist call_disposition for %s",
-                call_sid,
-                exc_info=True,
-            )
+        # "unprocessed" is only what HubSpot is told; outbound_calls.call_disposition has no such value.
+        if screening_outcome != "unprocessed":
+            try:
+                supabase.table("outbound_calls").update(
+                    {"call_disposition": screening_outcome}
+                ).eq("carrier_call_id", call_sid).execute()
+            except Exception:
+                logger.warning(
+                    "Could not persist call_disposition for %s",
+                    call_sid,
+                    exc_info=True,
+                )
     except Exception as e:
         logger.warning("HubSpot call logging failed for %s: %s", call_sid, e)
     finally:

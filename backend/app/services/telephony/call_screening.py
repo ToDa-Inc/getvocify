@@ -33,9 +33,16 @@ _SHORT_REPLY = re.compile(
     r"^(s[ií]|vale+|ok+|okay|claro|de acuerdo|perfecto|genial|yes|yeah)\.?!?$",
     re.IGNORECASE,
 )
+# What a carrier's voicemail or a recorded announcement says, in the languages the team calls in.
 _VOICEMAIL_HINT = re.compile(
-    r"despu[eé]s del tono|buz[oó]n de voz|leave (?:a |your )?message|"
-    r"no puedo atender|no est[aá] disponible|voicemail",
+    r"despu[eé]s (?:del|de la) (?:tono|se[ñn]al)|tras (?:el|la) (?:tono|se[ñn]al)|"
+    r"dej(?:e|a|ar)\s+(?:su|tu|un)\s+mensaje|grab(?:e|a|ar)\s+(?:su|tu|un)\s+mensaje|"
+    r"buz[oó]n de (?:voz|mensajes)|contestador|"
+    r"no puedo atender|no est[aá] disponible|no se encuentra disponible|fuera de cobertura|"
+    r"apagado o fuera|el n[uú]mero (?:al que llama|que ha marcado|marcado)|la persona a la que llama|"
+    r"deixa(?:'t| el teu)?\s+(?:un\s+)?missatge|b[uú]stia de veu|despr[eé]s del senyal|"
+    r"leave (?:a |your )?message|after the (?:tone|beep)|at the tone|record your message|"
+    r"voice ?mail|mailbox|(?:is|isn't|is not) available|person you are trying to reach",
     re.IGNORECASE,
 )
 
@@ -121,26 +128,42 @@ def resolve_screening_outcome(
     return None
 
 
-def classify_call_outcome(transcript: str, duration: float) -> ScreeningOutcome:
-    """Classify a connected call from its diarized transcript."""
+def classify_call_outcome(
+    transcript: str,
+    duration: float,
+    *,
+    carrier_hint: ScreeningOutcome | None = None,
+) -> ScreeningOutcome:
+    """Classify a connected call from its diarized transcript.
+
+    `carrier_hint` is what the phone system itself reported (a HubSpot call marked no answer or voicemail): it
+    decides unless the two sides really talked, because a rep's mislabel must not hide a conversation.
+    """
     cleaned = (transcript or "").strip()
     if not cleaned:
         return "no_response"
 
     stats = _speaker_stats(cleaned)
     one_sided = len(stats) <= 1
+    two_way = looks_like_two_way_exchange(cleaned)
+
+    if carrier_hint and carrier_hint != "connected" and not two_way:
+        return carrier_hint
+
+    # A voicemail greeting, whoever the diarization says spoke it and even when the rep then left a message:
+    # nobody answered. A real exchange of 30s or more that mentions it in passing is still a conversation.
+    if (
+        looks_like_voicemail(cleaned)
+        and not looks_like_collapsed_dialogue(cleaned)
+        and (one_sided or not two_way or duration < MIN_CONNECTED_DURATION_SEC)
+    ):
+        return "voicemail"
 
     if duration >= MIN_CONNECTED_DURATION_SEC:
-        if (
-            one_sided
-            and looks_like_voicemail(cleaned)
-            and not looks_like_collapsed_dialogue(cleaned)
-        ):
-            return "voicemail"
         return "connected"
 
     if one_sided:
         return "voicemail"
-    if looks_like_two_way_exchange(cleaned) and not looks_like_voicemail(cleaned):
+    if two_way:
         return "connected"
     return "no_response"

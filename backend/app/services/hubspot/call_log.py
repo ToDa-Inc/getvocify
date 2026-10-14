@@ -34,16 +34,19 @@ HUBSPOT_STATUS_BY_DISPOSITION: dict[str, str] = {
     "no_answer": "NO_ANSWER",
     "failed": "FAILED",
     "canceled": "CANCELED",
+    "unprocessed": "COMPLETED",
 }
 
 HUBSPOT_BODY_BY_DISPOSITION: dict[str, str] = {
-    "connected": "Transcripcion y extraccion disponibles en Vocify.",
-    "voicemail": "Buzon de voz. Transcripcion disponible en Vocify.",
-    "no_response": "Sin respuesta / posible IVR. Transcripcion disponible en Vocify.",
+    "connected": "Llamada realizada con Vocify.",
+    "voicemail": "Buzon de voz.",
+    "no_response": "Sin respuesta o posible IVR.",
     "busy": "Ocupado.",
     "no_answer": "Sin respuesta.",
     "failed": "Llamada fallida.",
     "canceled": "Llamada cancelada.",
+    # The call happened and was recorded, but the recording could not be turned into a transcript.
+    "unprocessed": "Llamada realizada con Vocify. La grabación no se pudo transcribir.",
 }
 
 # HubSpot timeline "Call outcome" reads hs_call_disposition (GUID), not

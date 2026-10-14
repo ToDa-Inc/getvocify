@@ -115,19 +115,26 @@ function summaryForApprove(
   return baseSummary || String(desc?.new_value ?? "").trim();
 }
 
-function nextStepsForApprove(
-  base: Record<string, unknown>,
-  updates: Array<{ field_name?: string; new_value?: unknown }>,
-): string[] {
-  const tasks = updates
+/** The task rows the rep kept, in order: what each says and the day it is due. */
+function taskRowsForApprove(
+  updates: Array<{ field_name?: string; new_value?: unknown; due_date?: string | null }>,
+): Array<{ step: string; due: string }> {
+  return updates
     .filter((u) => String(u.field_name || "").startsWith("next_step_task_"))
     .sort(
       (a, b) =>
         parseInt(String(a.field_name).replace("next_step_task_", ""), 10) -
         parseInt(String(b.field_name).replace("next_step_task_", ""), 10),
     )
-    .map((u) => String(u.new_value ?? "").trim())
-    .filter(Boolean);
+    .map((u) => ({ step: String(u.new_value ?? "").trim(), due: u.due_date ?? "" }))
+    .filter((row) => row.step);
+}
+
+function nextStepsForApprove(
+  base: Record<string, unknown>,
+  updates: Array<{ field_name?: string; new_value?: unknown }>,
+): string[] {
+  const tasks = taskRowsForApprove(updates).map((row) => row.step);
   if (tasks.length) return tasks;
   const hs = updates.find((u) => u.field_name === "hs_next_step");
   if (hs?.new_value) return [String(hs.new_value).trim()].filter(Boolean);
@@ -669,6 +676,8 @@ export const HubSpotSyncPreview = ({
       omittedKeys: omitted,
       summary: summaryForApprove(base as Record<string, unknown>, effectiveUpdates, editedUpdates),
       nextSteps: nextStepsForApprove(base as Record<string, unknown>, effectiveUpdates),
+      // One day per kept row, so a removed task cannot shift the dates of the ones after it.
+      nextStepSchedules: taskRowsForApprove(effectiveUpdates).map((row) => row.due),
     });
   };
 
@@ -936,6 +945,16 @@ export const HubSpotSyncPreview = ({
                   {isCrmDateField(update)
                     ? formatCrmDateForDisplay(String(update.new_value ?? "")) || update.new_value || "—"
                     : optionLabelFor(update.new_value, update.options)}
+                </p>
+              )}
+
+              {currentObject === "task" && !isEditing && (
+                <p className="text-[11px] text-muted-foreground">
+                  {update.due_date
+                    ? `Due ${formatCrmDateForDisplay(String(update.due_date)) || update.due_date}${
+                        update.due_date_inferred ? " · suggested, no day was said" : ""
+                      }`
+                    : "No due date"}
                 </p>
               )}
             </div>

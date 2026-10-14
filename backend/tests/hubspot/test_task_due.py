@@ -104,3 +104,58 @@ def test_build_task_body_skips_duplicate_step_when_same_as_title():
     )
     assert "Llamada de seguimiento" not in body.split("---")[0]
     assert "Note body" in body
+
+
+NOW = datetime(2026, 10, 14, 10, 0, tzinfo=TASK_DUE_TZ)  # a Wednesday
+
+
+def _freeze(monkeypatch):
+    monkeypatch.setattr("app.services.hubspot.tasks._task_tz_now", lambda: NOW)
+
+
+def test_day_of_the_month_is_the_next_one(monkeypatch):
+    _freeze(monkeypatch)
+    assert detected_task_due_iso("Volver a hablar el día 15") == "2026-10-15"
+    assert detected_task_due_iso("Volver a hablar el día 10") == "2026-11-10"
+
+
+def test_the_last_day_of_the_month_is_this_month(monkeypatch):
+    _freeze(monkeypatch)
+    assert detected_task_due_iso("Llamar el día 31") == "2026-10-31"
+
+
+def test_named_month_day_rolls_to_next_year_when_past(monkeypatch):
+    _freeze(monkeypatch)
+    assert detected_task_due_iso("Llamar el 3 de noviembre") == "2026-11-03"
+    assert detected_task_due_iso("Llamar el 3 de marzo") == "2027-03-03"
+
+
+def test_spans_of_days_and_weeks(monkeypatch):
+    _freeze(monkeypatch)
+    assert detected_task_due_iso("Seguimiento en 2 semanas") == "2026-10-28"
+    assert detected_task_due_iso("Confirmar dentro de 5 días") == "2026-10-19"
+    assert detected_task_due_iso("Follow up in 3 days") == "2026-10-17"
+    assert detected_task_due_iso("Hablar la semana que viene") == "2026-10-21"
+
+
+def test_call_title_keeps_what_the_call_is_for(monkeypatch):
+    _freeze(monkeypatch)
+    formatted = format_next_step_task(
+        "Llamar a Juan el martes para confirmar el presupuesto", contact_name="Juan Pérez"
+    )
+    assert formatted.subject == "Llamada con Juan: confirmar el presupuesto"
+    assert formatted.due_date.date().isoformat() == "2026-10-20"
+
+
+def test_the_date_phrase_never_stays_in_the_title(monkeypatch):
+    _freeze(monkeypatch)
+    formatted = format_next_step_task("Confirmar precio con el director dentro de 5 días")
+    assert formatted.subject == "Confirmar precio con el director"
+
+
+def test_a_long_step_is_cut_at_a_word_not_replaced_by_a_generic_title(monkeypatch):
+    _freeze(monkeypatch)
+    step = "Valorar internamente si la integración con el sistema de facturación del cliente encaja con su calendario de despliegue"
+    subject = format_next_step_task(step).subject
+    assert subject.startswith("Valorar internamente si la integración")
+    assert len(subject) <= 81 and subject.endswith("…")

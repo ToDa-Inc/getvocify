@@ -456,6 +456,82 @@ class TestLogCallEngagement:
         assert log_call.call_args.kwargs["properties"]["hs_call_body"] == "<p>Resumen de la llamada</p>"
         assert written == [("upd-1", "519000")]
 
+    def _log_with_row(self, row, outcome="connected", pending=None):
+        import asyncio
+        from types import SimpleNamespace
+
+        from app.services.telephony.call_processor import log_call_engagement
+
+        supabase = MagicMock()
+        table = MagicMock()
+        supabase.table.return_value = table
+        for name in ("select", "update", "eq", "is_", "limit", "order"):
+            getattr(table, name).return_value = table
+        table.execute.return_value = SimpleNamespace(data=[row])
+        log_call = AsyncMock(return_value="519000")
+        with patch(
+            "app.services.telephony.call_processor._company_hubspot_connection",
+            return_value={"metadata": {"portal_id": "147506535"}},
+        ), patch(
+            "app.api.crm.get_hubspot_client_from_connection", return_value=MagicMock()
+        ), patch(
+            "app.services.telephony.call_processor._hubspot_owner_id_for_caller",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "app.services.telephony.call_processor.settings"
+        ) as settings, patch(
+            "app.services.hubspot.call_log.log_call_to_hubspot", new=log_call,
+        ), patch(
+            "app.services.hubspot.call_log.mark_recording_ready", new=AsyncMock(return_value=None),
+        ), patch(
+            "app.services.hubspot.call_entry.pending_call_body", return_value=pending,
+        ):
+            settings.HUBSPOT_APP_ID = "app-1"
+            asyncio.run(log_call_engagement(supabase, "CAxxx", 42.0, screening_outcome=outcome))
+        return log_call.call_args.kwargs["properties"]["hs_call_body"]
+
+    def _row(self, **extra):
+        return {
+            "user_id": "u1",
+            "memo_id": "memo-1",
+            "to_number": "+34600000000",
+            "from_number": "+34900000000",
+            "hubspot_contact_id": "755",
+            "hubspot_deal_id": None,
+            "hubspot_engagement_id": None,
+            **extra,
+        }
+
+    def test_the_call_carries_its_transcript_before_anyone_approves(self):
+        body = self._log_with_row(
+            self._row(transcript="SPEAKER: S1\nHola, soy Ana de Vocify. ¿Tienes un minuto?\n\nSPEAKER: S2\nHola Ana, dime.")
+        )
+
+        assert "Hola, soy Ana de Vocify." in body
+        assert "Comercial" in body and "Contacto" in body
+        assert "extraccion disponibles" not in body
+
+    def test_a_voicemail_says_so_and_keeps_what_was_heard(self):
+        body = self._log_with_row(
+            self._row(transcript="SPEAKER: S1\nNo estoy disponible, deje su mensaje después del tono."),
+            outcome="voicemail",
+        )
+
+        assert "Buzón de voz" in body
+        assert "deje su mensaje" in body
+
+    def test_without_a_transcript_the_call_only_says_how_it_ended(self):
+        body = self._log_with_row(self._row(), outcome="voicemail")
+
+        assert body == "Buzon de voz."
+
+    def test_an_approved_write_up_is_not_replaced_by_the_transcript(self):
+        body = self._log_with_row(
+            self._row(transcript="SPEAKER: S1\nHola."), pending=("upd-1", "<p>Resumen</p>")
+        )
+
+        assert body == "<p>Resumen</p>"
+
     def test_resolves_and_caches_missing_portal_id(self):
         import asyncio
         from types import SimpleNamespace
@@ -629,3 +705,26 @@ class TestHubSpotCallTime:
 
         assert _hubspot_call_time("2026-09-28T08:29:20.123456+00:00") == "2026-09-28T08:29:20.123456Z"
         assert _hubspot_call_time("not a date").endswith("Z")
+
+
+class TestRecordingThatCannotBeTranscribed:
+    def test_the_call_is_still_logged_in_hubspot_and_says_so(self):
+        import asyncio
+
+        from app.services.telephony.call_processor import process_vocify_call_background
+
+        supabase = MagicMock()
+        logged = AsyncMock()
+        with patch(
+            "app.services.telephony.call_processor.transcribe_audio",
+            new=AsyncMock(side_effect=RuntimeError("deepgram 400")),
+        ), patch("app.services.telephony.call_processor.log_call_engagement", new=logged), patch(
+            "app.services.telephony.call_processor.persist_pipeline_meta"
+        ):
+            asyncio.run(process_vocify_call_background("m1", "u1", "CA1", b"RIFF", 12.0, supabase))
+
+        assert logged.call_args.kwargs["screening_outcome"] == "unprocessed"
+        from app.services.hubspot.call_log import hubspot_call_body_for_disposition, hubspot_call_disposition_guid
+
+        assert "no se pudo transcribir" in hubspot_call_body_for_disposition("unprocessed")
+        assert hubspot_call_disposition_guid("unprocessed") is None

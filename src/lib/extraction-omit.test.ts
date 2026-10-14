@@ -57,3 +57,26 @@ describe("stripOmittedFields + approve", () => {
     assert.equal(proposedFieldKey(original[0]), "contacts:phone");
   });
 });
+
+describe("next step schedules follow the kept steps", () => {
+  const base = { raw_extraction: { nextStepSchedules: ["2026-10-20", "2026-10-22", "2026-10-30"] } };
+
+  it("keeps each date with its task when the rep removed one in the middle", () => {
+    const next = buildApproveExtraction({
+      memoExtraction: base,
+      nextSteps: ["Call Ana", "Send the deck"],
+      nextStepSchedules: ["2026-10-20", "2026-10-30"],
+    });
+    assert.deepEqual((next.raw_extraction as Record<string, unknown>).nextStepSchedules, ["2026-10-20", "2026-10-30"]);
+  });
+
+  it("leaves a row without a day empty", () => {
+    const next = buildApproveExtraction({ nextSteps: ["Call Ana", "Send the deck"], nextStepSchedules: ["2026-10-20"] });
+    assert.deepEqual((next.raw_extraction as Record<string, unknown>).nextStepSchedules, ["2026-10-20", ""]);
+  });
+
+  it("keeps the extraction's own schedules when none are given", () => {
+    const next = buildApproveExtraction({ memoExtraction: base, nextSteps: ["Call Ana"] });
+    assert.deepEqual((next.raw_extraction as Record<string, unknown>).nextStepSchedules, ["2026-10-20", "2026-10-22", "2026-10-30"]);
+  });
+});
