@@ -16,7 +16,9 @@ class UncertainOperation(Exception):
 # WhatsApp session plumbing: the web has a New chat button, and its prompt carries what the skills said.
 WEB_HIDDEN_TOOLS = frozenset({"load_skill", "remember", "reset_session"})
 # The Vocify-data tools (flag ASK_VOCIFY_DATA_TOOLS_ENABLED) serve WhatsApp; the web assistant has richer ones.
-from app.services.crm_copilot.tools import ASK_DATA_TOOLS as _WHATSAPP_DATA_TOOLS  # noqa: E402
+from app.services.crm_copilot.tools import ASK_DATA_TOOLS as _WHATSAPP_DATA_TOOLS, WRITE_TOOLS  # noqa: E402
+# Ask without a screen (MCP): no writes, nothing that drafts one, no buttons to pick from.
+READ_ONLY_HIDDEN_TOOLS = frozenset(WRITE_TOOLS | {"preview_write", "extract_sales_update", "offer_user_choices"})
 _STORED_KEYS = (
     "question", "coverage", "item_count", "choices", "confirmation", "call_targets", "steps",
     "evidence", "coverage_note", "memory", "cards",
@@ -407,8 +409,13 @@ def _as_list(value) -> list:
     return list(value) if isinstance(value, (list, tuple)) else []
 
 
-async def live_ask_loop(text: str, confirm: bool | None = None, on_event=None):
-    """Same copilot loop as WhatsApp. A failure returns None so the turn can fail."""
+async def live_ask_loop(
+    text: str, confirm: bool | None = None, on_event=None, *, read_only: bool = False, max_rounds: int | None = None,
+):
+    """Same copilot loop as WhatsApp. A failure returns None so the turn can fail.
+
+    read_only (the MCP server's ask_vocify) leaves out every tool that writes or prepares a write, and the
+    choice buttons: the caller is another agent, with no screen to confirm or click on."""
     import logging
 
     from app.config import settings
@@ -451,6 +458,7 @@ async def live_ask_loop(text: str, confirm: bool | None = None, on_event=None):
 
     team = team_roster(ctx, actor) if actor.is_team_reader else None
     effort = await choose_effort(text) if settings.ASK_EFFORT_ROUTING and confirm is None else LOW
+    hidden = WEB_HIDDEN_TOOLS | _WHATSAPP_DATA_TOOLS | (READ_ONLY_HIDDEN_TOOLS if read_only else frozenset())
     try:
         with usage_scope("ask", user_id=actor.user_id):
             result = await run_copilot_turn(
@@ -458,14 +466,14 @@ async def live_ask_loop(text: str, confirm: bool | None = None, on_event=None):
                 artifacts=artifacts,
                 llm=LLMClient(),
                 execute=execute_tool,
-                tools=[*(t for t in OPENAI_TOOLS if t["function"]["name"] not in WEB_HIDDEN_TOOLS | _WHATSAPP_DATA_TOOLS), *intel_tools_for(actor)],
+                tools=[*(t for t in OPENAI_TOOLS if t["function"]["name"] not in hidden), *intel_tools_for(actor)],
                 system=build_system_prompt(artifacts, web=True, manager=actor.is_team_reader, tz=actor.timezone, team=team),
                 confirm=confirm,
                 ctx=ctx,
                 model=model_profile.ask_model(),
                 fallback_model=model_profile.ask_fallback_model(),
                 verify_numbers=True,
-                max_rounds=settings.ASK_MAX_ROUNDS,
+                max_rounds=max_rounds or settings.ASK_MAX_ROUNDS,
                 effort=effort,
                 retry_empty=True,
                 with_data=False,

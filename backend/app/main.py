@@ -55,6 +55,9 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
             or path == "/metrics"
             or path == "/health"
             or path == "/"
+            # MCP: ask_vocify has its own wait budget (MCP_ASK_WAIT_SECONDS) and answers before this would.
+            or path == "/mcp"
+            or path.startswith("/.well-known/")
         ):
             return await call_next(request)
         
@@ -397,6 +400,7 @@ async def startup_event():
     from app.services import loop_monitor
 
     loop_monitor.start()
+    await _mcp_lifespan.enter_async_context(_mcp_server.session_manager.run())
 
 
 @app.on_event("shutdown")
@@ -406,6 +410,7 @@ async def shutdown_event():
 
     loop_monitor.stop()
     await stop_worker()
+    await _mcp_lifespan.aclose()
 
 
 @app.get("/")
@@ -418,3 +423,17 @@ async def root():
     }
 
 
+# MCP server: /mcp and its OAuth protected resource metadata, as two exact routes into the MCP app (which
+# carries its own bearer-auth middleware). Not a mount at "/": that would swallow every unknown path and
+# the trailing-slash redirects of the routes above. Its session manager runs with the app.
+from contextlib import AsyncExitStack  # noqa: E402
+
+from starlette.routing import Route as _Route  # noqa: E402
+
+from app.services.mcp.server import asgi_app as _mcp_asgi_app, get_server as _get_mcp_server  # noqa: E402
+
+_mcp_lifespan = AsyncExitStack()
+_mcp_app = _mcp_asgi_app()
+_mcp_server = _get_mcp_server()
+for _mcp_path in ("/mcp", "/.well-known/oauth-protected-resource/mcp"):
+    app.router.routes.append(_Route(_mcp_path, endpoint=_mcp_app))

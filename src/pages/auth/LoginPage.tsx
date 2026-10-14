@@ -1,6 +1,6 @@
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/features/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,10 @@ const LoginPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const { login, hasStoredSession, logout } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  // Only the OAuth consent screen sends people here to come back (an AI app asking for access).
+  const next = params.get("next");
+  const returnTo = next && next.startsWith("/oauth/consent") ? next : "/dashboard";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,7 +28,7 @@ const LoginPage = () => {
     try {
       await login({ email, password });
       toast.success("Welcome back!");
-      navigate("/dashboard");
+      navigate(returnTo);
     } catch (error: unknown) {
       toast.error(errorDetail(error, "Login failed. Please check your credentials."));
     } finally {

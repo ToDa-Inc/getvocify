@@ -41,6 +41,8 @@ import { CalendarSettings } from "@/components/dashboard/settings/CalendarSettin
 import OfferSection from "./pages/dashboard/settings/OfferSection";
 import TranscriptionSection from "./pages/dashboard/settings/TranscriptionSection";
 import BriefHighlightSection from "./pages/dashboard/settings/BriefHighlightSection";
+import AgentsSection from "./pages/dashboard/settings/AgentsSection";
+import ConsentPage from "./pages/oauth/ConsentPage";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
@@ -158,6 +160,7 @@ const App = () => (
             <Route path="/docs/hubspot" element={<DocsPage />} />
             <Route path="/support" element={<SupportPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/oauth/consent" element={<ConsentPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
@@ -192,6 +195,7 @@ const App = () => (
                 <Route path="team" element={<TeamPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="usage" element={<UsagePage />} />
+                <Route path="agents" element={<AgentsSection />} />
                 <Route path="billing" element={<BillingPage />} />
                 <Route path="system" element={<SystemSection />} />
               </Route>

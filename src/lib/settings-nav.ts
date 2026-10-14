@@ -19,6 +19,7 @@ export type SettingsTabId =
   | "team"
   | "usage"
   | "billing"
+  | "agents"
   | "system";
 
 export interface SettingsTab {
@@ -49,6 +50,8 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: "brief", to: "/dashboard/settings/brief", labelKey: "settingsNavBrief", managerOnly: true },
   { id: "team", to: "/dashboard/settings/team", labelKey: "settingsNavTeam", managerOnly: true },
   { id: "usage", to: "/dashboard/settings/usage", labelKey: "settingsNavUsage", managerOnly: false },
+  // Everyone's own API key and connected apps; owners and admins also get the workspace switches there.
+  { id: "agents", to: "/dashboard/settings/agents", labelKey: "settingsNavAgents", managerOnly: false },
   { id: "billing", to: "/dashboard/settings/billing", labelKey: "settingsNavBilling", managerOnly: true },
   // Everyone's own machine: permissions, audio check, shortcut. Later device settings go here too.
   { id: "system", to: "/dashboard/settings/system", labelKey: "settingsNavSystem", managerOnly: false, desktopOnly: true },

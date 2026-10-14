@@ -422,8 +422,12 @@ def _user_turns(user_id: str, conversation_id: str | None = None) -> list[dict]:
 @router.get("/conversations")
 async def list_conversations(membership: Membership = Depends(get_membership)):
     """One row per conversation, newest first. The title is the first question."""
+    from app.services.mcp.ask_runs import is_mcp_conversation
+
     grouped: dict[str, list[dict]] = {}
     for turn in _user_turns(membership.user_id):
+        if is_mcp_conversation(turn["conversation_id"]):  # an agent's ask_vocify question, not a chat of theirs
+            continue
         grouped.setdefault(turn["conversation_id"], []).append(turn)
     rows = []
     for cid, turns in grouped.items():
