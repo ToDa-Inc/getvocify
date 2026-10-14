@@ -37,13 +37,16 @@ Hecho el 13 oct, lo más sencillo posible: una sola pantalla plana, sin pestaña
 1. **Coaching**, con un filtro por tipo de interacción (frío, inbound, discovery, demo…) cuando
    el comercial tiene más de uno. Diseño sobrio (guía: taste-skill `redesign` + `minimalist`): poco
    texto, color solo con significado (rojo sin hacer, ámbar a medias, verde hecho).
-   - **En qué mejorar** (izquierda): los 1–2 pasos que más se le escapan en las últimas 4 semanas y la
-     objeción que más deja sin resolver (objeciones, no obstáculos; hace falta que se repita: 2
-     abiertas). Cada uno: etiqueta Paso/Objeción, título, "4/5 sin hacer", qué pasó, la frase de la
-     llamada (en una objeción, también lo que respondió) y la próxima vez en verde (el consejo de la
-     llamada, o la respuesta del playbook a esa objeción).
-   - **Tus pasos** (derecha en escritorio): cada paso con barra, % (o "1 de 2" con menos de 3
-     llamadas) y flecha frente a las 4 semanas anteriores.
+   - **En qué mejorar**, dos tablas una al lado de la otra (una debajo de otra en el móvil), elegidas
+     el 14 oct con el skill `prototype` (variantes en la rama local
+     `prototype/coaching-improve-variants`; ganó la C, "tabla densa"):
+     - **Pasos**: cada paso que se le escapó en las últimas 4 semanas (sin hacer en rojo, a medias en
+       ámbar), con veces, barra y última fecha.
+     - **Objeciones**: cada objeción que le pusieron (no obstáculos), las que más dejó sin resolver
+       primero.
+     - Por defecto solo una línea por fila; al abrirla, la próxima vez en verde (el consejo de su
+       última llamada o el ejemplo del playbook; en una objeción, la respuesta del playbook), entera,
+       y cada llamada: qué falló y la frase, o lo que dijo el cliente y lo que respondió.
    - **Tus llamadas** (debajo): todas las conversaciones del tipo en 4 semanas, una mini barra de
      pasos por llamada; las que tienen algo que mejorar se abren con el mismo detalle.
    - El paso de reunión (lo declara el comercial) no es conducta y no sale en "En qué mejorar".

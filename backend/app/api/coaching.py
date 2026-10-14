@@ -487,13 +487,12 @@ async def get_my_coaching_calls(
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    """The rep's coaching, one interaction type at a time, only against their own playbook: the one
-    or two steps they slip on most in the last _CALLS_WEEKS weeks (with a call that shows it and how
-    to do it next time) and the record of their conversations, each with what slipped step by step."""
-    starts = _week_starts(2 * _CALLS_WEEKS)
-    window_start, before_start = starts[-_CALLS_WEEKS], starts[0]
+    """The rep's coaching over the last _CALLS_WEEKS weeks, one interaction type at a time, only
+    against their own playbook: every step they slipped on and every objection they were given, each
+    with the calls it happened in, and the record of their conversations step by step."""
+    window_start = _week_starts(_CALLS_WEEKS)[0]
     _, week_end = madrid_week_bounds()
-    memos = reads.load_memos(supabase, membership.company_id, [membership.user_id], start=before_start)
+    memos = reads.load_memos(supabase, membership.company_id, [membership.user_id], start=window_start)
     rows = [row for row in _rows_of(memos) if row["motion"] and row["motion"] != INTERNAL_KEY]
     playbooks: dict[str, dict] = {}
 
@@ -521,8 +520,8 @@ async def get_my_coaching_calls(
         "type": chosen,
         "window_weeks": _CALLS_WEEKS,
         "conversations": 0,
-        "improve": [],
-        "steps": [],
+        "slipped_steps": [],
+        "objections": [],
         "calls": [],
     }
     if chosen is None:
@@ -531,13 +530,10 @@ async def get_my_coaching_calls(
     window = _in_window(own, window_start, week_end)
     conversations = sorted((r for r in window if r["is_conversation"]), key=lambda r: r["observed_at"], reverse=True)
     body["conversations"] = len(conversations)
-    before = _in_window(own, before_start, window_start)
     playbook = playbook_for(chosen)
-    # Steps first, then the objection left open most: the one to three things to work on.
-    body["improve"] = engine.improvement_steps(window, before, playbook["steps"]) + engine.objection_improvements(
-        window, playbook["entries"]
-    )
-    body["steps"] = engine.step_board(window, before, playbook["steps"])
+    # Everything to go through one by one: each slipped step and each objection, with its calls.
+    body["slipped_steps"] = engine.slipped_steps(window, playbook["steps"])
+    body["objections"] = engine.objection_breakdown(window, playbook["entries"])
     calls: list[dict] = []
     for row in conversations:
         part = engine.adherence_part(row) or {}

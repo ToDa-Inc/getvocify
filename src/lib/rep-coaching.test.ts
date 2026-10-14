@@ -8,8 +8,6 @@ import {
   durationLabel,
   focusTitle,
   formatPercent,
-  boardTrend,
-  boardValue,
   peerMedianLabel,
   stateView,
   trendArrow,
@@ -79,17 +77,6 @@ describe("sentences", () => {
     assert.equal(durationLabel(ES, 300), "5 min");
     assert.equal(peerMedianLabel(ES, null), null);
     assert.equal(peerMedianLabel(ES, 0.5), "Mediana del puesto 50 %");
-  });
-});
-
-describe("steps board", () => {
-  it("a rate needs three calls behind it; fewer show the count and no arrow", () => {
-    assert.equal(boardValue(ES, { done: 0, applicable: 0, rate: null }), "—");
-    assert.equal(boardValue(ES, { done: 1, applicable: 2, rate: 0.5 }), "1 de 2");
-    assert.equal(boardValue(ES, { done: 5, applicable: 6, rate: 5 / 6 }), "83 %");
-    assert.equal(boardTrend({ applicable: 2, rate: 1, prev_rate: 0 }), null);
-    assert.equal(boardTrend({ applicable: 6, rate: 0.83, prev_rate: 0.5 }), "up");
-    assert.equal(boardTrend({ applicable: 6, rate: 0.83, prev_rate: null }), null);
   });
 });
 

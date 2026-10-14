@@ -216,7 +216,6 @@ def adherence_part(row: dict | None) -> dict | None:
     return part
 
 
-IMPROVE_LIMIT = 2
 SLIP_STATES = ("missing", "improvable")
 
 
@@ -232,63 +231,6 @@ def call_slips(row: dict) -> list[dict]:
     ]
 
 
-def _latest_slip(rows: list[dict], step: dict) -> dict | None:
-    """The most recent conversation where this step slipped: one not done before one done halfway,
-    and one that says what to try before one that does not."""
-    matcher = StepMatcher([step])
-    found: list[tuple[tuple, dict]] = []
-    for row in rows:
-        if not row.get("is_conversation", True):
-            continue
-        for observed in row["steps"]:
-            if observed["state"] not in SLIP_STATES or matcher.match(observed["step_id"], observed.get("criterion")) is None:
-                continue
-            rank = (observed["state"] == "missing", bool(observed.get("advice")), bool(observed.get("quote")), row["observed_at"])
-            found.append((rank, {
-                "memo_id": row["memo_id"],
-                "observed_at": row["observed_at"],
-                **{key: observed.get(key) for key in ("state", "reason", "quote", "advice")},
-            }))
-            break
-    return max(found, key=lambda item: item[0])[1] if found else None
-
-
-def improvement_steps(rows: list[dict], rows_before: list[dict], steps: list[dict], limit: int = IMPROVE_LIMIT) -> list[dict]:
-    """The one or two steps the rep slips on most in `rows` (not done first, then done halfway),
-    each with the latest call that shows it and the same counts over `rows_before`, only against
-    themselves. A step needs FOCUS_MIN_APPLICABLE conversations where it applied and
-    FOCUS_MIN_MISSING slips: fewer is not a pattern. Outcome steps (the meeting the rep declares)
-    are not behaviour to coach."""
-    coachable = [step for step in steps if not step.get("outcome")]
-    before = {rate["step_id"]: rate for rate in step_rates(rows_before, coachable)}
-    candidates = []
-    for order, rate in enumerate(step_rates(rows, coachable)):
-        if rate["applicable"] < FOCUS_MIN_APPLICABLE or rate["missing"] + rate["improvable"] < FOCUS_MIN_MISSING:
-            continue
-        candidates.append(((-rate["missing"], -rate["improvable"], order), rate))
-    out = []
-    for _, rate in sorted(candidates, key=lambda item: item[0])[:limit]:
-        step = next(s for s in coachable if str(s.get("step_id")) == rate["step_id"])
-        example = _latest_slip(rows, step)
-        prev = before.get(rate["step_id"]) or {}
-        out.append({
-            "kind": "step",
-            "step_id": rate["step_id"],
-            "label": rate["label"],
-            "criterion": str(step.get("criterion") or ""),
-            "missing": rate["missing"],
-            "improvable": rate["improvable"],
-            "applicable": rate["applicable"],
-            "before": {"missing": prev.get("missing", 0), "improvable": prev.get("improvable", 0),
-                       "applicable": prev.get("applicable", 0)},
-            "example": example,
-            # This call's own advice first; else the playbook's example phrase.
-            "how": (example or {}).get("advice") or (str(step.get("example") or "") or None),
-        })
-    return out
-
-
-OBJECTION_IMPROVE_LIMIT = 1
 _CUSTOM_ENTRY_PREFIX = "objection:custom:"
 
 
@@ -310,63 +252,81 @@ def _objection_answers(entries: list[dict]) -> dict[str, dict]:
     return out
 
 
-def objection_improvements(rows: list[dict], entries: list[dict], limit: int = OBJECTION_IMPROVE_LIMIT) -> list[dict]:
-    """The objection the rep leaves unresolved most in these conversations, with the latest time it
-    stayed open (what the prospect said and what the rep replied) and the playbook's answer. A
-    pattern needs FOCUS_MIN_MISSING unresolved ones; an objection whose outcome is unclear does not count."""
+OCCURRENCE_LIMIT = 10
+
+
+def slipped_steps(rows: list[dict], steps: list[dict], limit: int = OCCURRENCE_LIMIT) -> list[dict]:
+    """Every coachable step the rep slipped on in these conversations (not done or halfway), worst
+    first, each with the calls it slipped in, newest first: what went wrong, the moment, what to try."""
+    coachable = [step for step in steps if not step.get("outcome")]
+    by_id = {str(step.get("step_id")): step for step in coachable}
+    out = []
+    for rate in step_rates(rows, coachable):
+        if not rate["missing"] and not rate["improvable"]:
+            continue
+        step = by_id[rate["step_id"]]
+        matcher = StepMatcher([step])
+        occurrences = []
+        for row in sorted(rows, key=lambda r: r["observed_at"], reverse=True):
+            if not row.get("is_conversation", True):
+                continue
+            for observed in row["steps"]:
+                if observed["state"] in SLIP_STATES and matcher.match(observed["step_id"], observed.get("criterion")) == rate["step_id"]:
+                    occurrences.append({
+                        "memo_id": row["memo_id"],
+                        "observed_at": row["observed_at"],
+                        **{key: observed.get(key) for key in ("state", "reason", "quote", "advice")},
+                    })
+                    break
+        out.append({
+            "step_id": rate["step_id"],
+            "label": rate["label"],
+            "criterion": str(step.get("criterion") or ""),
+            "missing": rate["missing"],
+            "improvable": rate["improvable"],
+            "applicable": rate["applicable"],
+            "example": str(step.get("example") or "") or None,
+            "occurrences": occurrences[:limit],
+        })
+    return sorted(out, key=lambda item: (-item["missing"], -item["improvable"]))
+
+
+def objection_breakdown(rows: list[dict], entries: list[dict], limit: int = OCCURRENCE_LIMIT) -> list[dict]:
+    """Every objection the prospects raised in these conversations (objections, not obstacles), the
+    ones left open most first: how many, how each went (what they said, what the rep replied) and the
+    playbook's answer."""
     answers = _objection_answers(entries)
     tally: dict[str, dict] = {}
     for row in sorted(rows, key=lambda r: r["observed_at"], reverse=True):
         if not row.get("is_conversation", True):
             continue
         for item in row.get("objections") or []:
-            # Coached: a concern about the offer or the fit. "I'm driving" is an obstacle, not a miss.
-            if item.get("kind") != "objection" or item.get("resolution") not in ("open", "resolved"):
+            if item.get("kind") != "objection":
                 continue
             custom = f"custom:{item['objection_id']}" if item.get("objection_id") else None
             key = custom if custom in answers else item["category"]
-            entry = tally.setdefault(key, {"open": 0, "total": 0, "example": None})
+            entry = tally.setdefault(key, {"total": 0, "open": 0, "resolved": 0, "occurrences": []})
             entry["total"] += 1
-            if item["resolution"] == "open":
-                entry["open"] += 1
-                if entry["example"] is None:
-                    entry["example"] = {
-                        "memo_id": row["memo_id"],
-                        "observed_at": row["observed_at"],
-                        "quote": item.get("quote"),
-                        "response": item.get("response"),
-                    }
-    ranked = sorted(
-        ((key, entry) for key, entry in tally.items() if entry["open"] >= FOCUS_MIN_MISSING),
-        key=lambda pair: (-pair[1]["open"], -pair[1]["total"], pair[0]),
-    )
+            if item.get("resolution") in ("open", "resolved"):
+                entry[item["resolution"]] += 1
+            if len(entry["occurrences"]) < limit:
+                entry["occurrences"].append({
+                    "memo_id": row["memo_id"],
+                    "observed_at": row["observed_at"],
+                    "resolution": item.get("resolution") or "unknown",
+                    "quote": item.get("quote"),
+                    "response": item.get("response"),
+                })
     return [
         {
-            "kind": "objection",
             "key": key,
             "category": key.split(":", 1)[0] if key.startswith("custom:") else key,
             "label": (answers.get(key) or {}).get("label"),
-            "open": entry["open"],
-            "total": entry["total"],
-            "example": entry["example"],
             "how": (answers.get(key) or {}).get("how"),
+            **entry,
         }
-        for key, entry in ranked[:limit]
+        for key, entry in sorted(tally.items(), key=lambda pair: (-pair[1]["open"], -pair[1]["total"], pair[0]))
     ]
-
-
-def step_board(rows: list[dict], rows_before: list[dict], steps: list[dict]) -> list[dict]:
-    """"Tus pasos": each published step over `rows` against `rows_before`, the rep only against
-    themselves. The rate before is only given when it rests on FOCUS_MIN_APPLICABLE calls."""
-    before = {rate["step_id"]: rate for rate in step_rates(rows_before, steps)}
-    out = []
-    for rate in step_rates(rows, steps):
-        prev = before.get(rate["step_id"]) or {}
-        out.append({
-            **{key: rate[key] for key in ("step_id", "label", "done", "improvable", "missing", "applicable", "rate")},
-            "prev_rate": prev.get("rate") if prev.get("applicable", 0) >= FOCUS_MIN_APPLICABLE else None,
-        })
-    return out
 
 
 def process_complete(row: dict) -> bool:
