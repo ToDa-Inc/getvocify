@@ -21,7 +21,7 @@ from tests.reporting.fake_db import FakeDB
 UTC = timezone.utc
 MADRID = "Europe/Madrid"
 FRIDAY_1805 = datetime(2026, 9, 25, 16, 5, tzinfo=UTC)
-FRIDAY_1759 = datetime(2026, 9, 25, 15, 59, tzinfo=UTC)
+FRIDAY_1459 = datetime(2026, 9, 25, 12, 59, tzinfo=UTC)
 SATURDAY = datetime(2026, 9, 26, 9, 0, tzinfo=UTC)
 COMPANY = "88888888-8888-8888-8888-888888888888"
 OTHER_COMPANY = "77777777-7777-7777-7777-777777777777"
@@ -100,9 +100,9 @@ def test_friday_and_saturday_ticks_create_one_weekly_report_and_one_notification
     assert notes[0]["read_at"] is None
 
 
-def test_before_friday_1800_local_nothing_is_generated():
+def test_before_friday_1500_local_nothing_is_generated():
     db = _db()
-    ensure_weekly_reports_for_tick(db, FRIDAY_1759)
+    ensure_weekly_reports_for_tick(db, FRIDAY_1459)
     assert _reports(db, report_type="weekly") == []
 
 

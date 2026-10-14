@@ -39,8 +39,8 @@ def test_week_after_the_dst_change_starts_at_local_midnight():
     "instant, expected",
     [
         (datetime(2026, 9, 23, 12, 0, tzinfo=UTC), False),  # Wednesday: due nowhere
-        (datetime(2026, 9, 25, 3, 59, tzinfo=UTC), False),  # before Friday 18:00 in UTC+14
-        (datetime(2026, 9, 25, 4, 0, tzinfo=UTC), True),  # Friday 18:00 in UTC+14
+        (datetime(2026, 9, 25, 0, 59, tzinfo=UTC), False),  # before Friday 15:00 in UTC+14
+        (datetime(2026, 9, 25, 1, 0, tzinfo=UTC), True),  # Friday 15:00 in UTC+14
         (datetime(2026, 9, 26, 12, 0, tzinfo=UTC), True),
         (datetime(2026, 9, 28, 11, 59, tzinfo=UTC), True),  # still Sunday in UTC-12
         (datetime(2026, 9, 28, 12, 0, tzinfo=UTC), False),
@@ -59,20 +59,20 @@ def test_weekend_ticks_report_the_same_week_as_friday():
 @pytest.mark.parametrize(
     "instant, expected",
     [
-        (datetime(2026, 9, 25, 15, 59, tzinfo=UTC), False),
-        (datetime(2026, 9, 25, 16, 0, tzinfo=UTC), True),
+        (datetime(2026, 9, 25, 12, 59, tzinfo=UTC), False),
+        (datetime(2026, 9, 25, 13, 0, tzinfo=UTC), True),
         (datetime(2026, 9, 26, 9, 0, tzinfo=UTC), True),
         (datetime(2026, 9, 27, 21, 59, tzinfo=UTC), True),
         (datetime(2026, 9, 27, 22, 0, tzinfo=UTC), False),
         (datetime(2026, 9, 24, 17, 0, tzinfo=UTC), False),
     ],
 )
-def test_weekly_is_due_from_friday_1800_local_until_monday(instant, expected):
+def test_weekly_is_due_from_friday_1500_local_until_monday(instant, expected):
     assert weekly_due(instant, MADRID) is expected
 
 
 def test_weekly_due_follows_the_recipient_zone():
-    # 18:05 in Madrid is 12:05 in New York: not due there yet.
+    # 18:05 in Madrid is 12:05 in New York: not due there yet (15:00 local).
     assert weekly_due(FRIDAY_1805, "America/New_York") is False
 
 

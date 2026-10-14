@@ -22,7 +22,7 @@ PROMPT_VERSION = "report_feedback_v1"
 _PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"{PROMPT_VERSION}.md"
 MAX_ITEMS = 3
 MAX_ITEM_CHARS = 220
-MAX_HEADLINE_CHARS = 160
+MAX_HEADLINE_CHARS = 200
 TIMEOUT_S = 60.0
 
 
@@ -47,6 +47,15 @@ def _items(value) -> list[str]:
     return [item for item in (_clip(raw, MAX_ITEM_CHARS) for raw in value) if item][:MAX_ITEMS]
 
 
+_MARKING = ("marca", "marcar", "marques", "registra", "anota", "deja registrado")
+_OUTCOME = ("resultado", "terminaron", "acabaron", "terminó", "acabó", "cómo termina", "cómo acaba")
+
+
+def _is_marking_reminder(text: str) -> bool:
+    folded = text.casefold()
+    return any(word in folded for word in _MARKING) and any(word in folded for word in _OUTCOME)
+
+
 def shape(raw, *, audience: str, names: list[str] | None = None) -> dict | None:
     """The model's answer, clipped; None when it has no headline. For the Head of Sales, only notes about
     reps that are in the facts are kept."""
@@ -55,11 +64,14 @@ def shape(raw, *, audience: str, names: list[str] | None = None) -> dict | None:
     headline = _clip(raw.get("headline"), MAX_HEADLINE_CHARS)
     if not headline:
         return None
+    focus = _clip(raw.get("focus"), MAX_ITEM_CHARS) or None
+    if focus and _is_marking_reminder(focus):
+        focus = None  # a reminder to mark outcomes is never the one thing to work on
     out = {
         "headline": headline,
-        "went_well": _items(raw.get("went_well")),
+        "went_well": [item for item in _items(raw.get("went_well")) if not _is_marking_reminder(item)],
         "to_improve": _items(raw.get("to_improve")),
-        "focus": _clip(raw.get("focus"), MAX_ITEM_CHARS) or None,
+        "focus": focus,
     }
     if audience == "head_of_sales":
         allowed = {name.casefold() for name in names or []}
