@@ -51,129 +51,8 @@ export function adherenceParams(input: {
   return params.toString();
 }
 
-export type Delta = { text: string; direction: "up" | "down" | "flat" } | null;
-
-/** Math.round sends -22.5 to -22 but 22.5 to 23: round the magnitude so a change's size
- * does not depend on its sign. */
-function roundSymmetric(value: number): number {
-  // Snap float noise first: (0.675 - 0.9) * 100 is -22.4999..., which is -22.5.
-  const magnitude = Math.round(Math.abs(value) * 1e6) / 1e6;
-  return Math.sign(value) * Math.round(magnitude);
-}
-
-export function countDelta(current: number | null | undefined, previous: number | null | undefined): Delta {
-  if (current == null || previous == null) return null;
-  if (!current && !previous) return null;
-  if (!previous) return { text: "new", direction: "up" };
-  const pct = roundSymmetric(((current - previous) / previous) * 100);
-  if (pct === 0) return { text: "0%", direction: "flat" };
-  return { text: `${pct > 0 ? "+" : ""}${pct}%`, direction: pct > 0 ? "up" : "down" };
-}
-
-/** Rates change in percentage points. */
-export function rateDelta(current: number | null | undefined, previous: number | null | undefined): Delta {
-  if (current == null || previous == null) return null;
-  const pts = roundSymmetric((current - previous) * 100);
-  if (pts === 0) return { text: "0 pts", direction: "flat" };
-  return { text: `${pts > 0 ? "+" : ""}${pts} pts`, direction: pts > 0 ? "up" : "down" };
-}
-
-export function shareOf(part: number, whole: number): number | null {
-  return whole > 0 ? part / whole : null;
-}
-
 export function percentText(rate: number | null | undefined): string {
   return rate == null ? "—" : `${Math.round(rate * 100)}%`;
-}
-
-export type RepActivityRow = {
-  userId: string;
-  name: string;
-  salesRole: string | null;
-  attempts: number;
-  connected: number;
-  meetings: number;
-  connectionRate: number | null;
-  /** undefined = the backend did not send the field; null = no focus. */
-  focus?: HosFocus | null;
-  flows?: { sdr: number | null; ae: number | null };
-};
-
-/** Alphabetical, like the rest of the Team page: this is not a leaderboard. */
-export function repActivityRows(reps: HosRep[]): RepActivityRow[] {
-  return [...reps]
-    .sort((a, b) => a.name.localeCompare(b.name, "es"))
-    .map((rep) => {
-      const a = rep.activity ?? { attempts: 0, connected: 0, meetings: 0 };
-      return {
-        userId: rep.userId,
-        name: rep.name,
-        salesRole: rep.salesRole ?? null,
-        attempts: a.attempts,
-        connected: a.connected,
-        meetings: a.meetings,
-        connectionRate: shareOf(a.connected, a.attempts),
-        focus: rep.coaching_focus,
-        flows: rep.flows,
-      };
-    });
-}
-
-function median(values: number[]): number | null {
-  if (!values.length) return null;
-  const sorted = [...values].sort((x, y) => x - y);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-/** Median over people with at least one attempt (an idle seat is not the reference); total over all. */
-export function teamActivityFooter(rows: RepActivityRow[]) {
-  const active = rows.filter((row) => row.attempts > 0);
-  const total = rows.reduce(
-    (acc, row) => ({
-      attempts: acc.attempts + row.attempts,
-      connected: acc.connected + row.connected,
-      meetings: acc.meetings + row.meetings,
-    }),
-    { attempts: 0, connected: 0, meetings: 0 },
-  );
-  const rates = active.map((row) => row.connectionRate).filter((r): r is number => r != null);
-  return {
-    median: {
-      people: active.length,
-      attempts: median(active.map((r) => r.attempts)),
-      connected: median(active.map((r) => r.connected)),
-      meetings: median(active.map((r) => r.meetings)),
-      connectionRate: median(rates),
-    },
-    total: { ...total, connectionRate: shareOf(total.connected, total.attempts) },
-  };
-}
-
-/** Spreadsheet apps run a cell that starts with = + - @ (or tab/CR) as a formula: text cells
- * get a leading apostrophe. Numbers are written as numbers, so a negative one stays a number. */
-export function csvCell(value: string | number | null): string {
-  let text = value == null ? "" : String(value);
-  if (typeof value === "string" && /^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-export function repActivityCsv(rows: RepActivityRow[], copy: ProductTranslations): string {
-  const header = [copy.hosColName, copy.hosColRole, copy.hosColAttempts, copy.hosColConversations, copy.hosColConnection, copy.hosColMeetings, copy.hosColFocusWeek];
-  const lines = rows.map((row) =>
-    [
-      row.name,
-      row.salesRole,
-      row.attempts,
-      row.connected,
-      row.connectionRate == null ? null : Math.round(row.connectionRate * 1000) / 10,
-      row.meetings,
-      row.focus?.label ?? null,
-    ]
-      .map(csvCell)
-      .join(","),
-  );
-  return [header.map(csvCell).join(","), ...lines].join("\n");
 }
 
 export type ProcessHealthVerdict =
@@ -281,23 +160,6 @@ export function summaryDiagnosis(input: {
   }
   if (picked.length) return picked;
   return [{ tone: "neutral", key: "hosDiagCollecting", motion: null, href: PROCESS_HREF }];
-}
-
-export type HosOutcomes = { won: number; lost: number; winRate: number | null };
-
-/** Win rate + won + lost for Resumen. Null (row hidden) unless the CRM reported both counts and
- * coverage is not "unavailable". A rate is only quoted on complete coverage with something closed. */
-export function hosOutcomes(input: {
-  won: number | null | undefined;
-  lost: number | null | undefined;
-  crmCoverage: unknown;
-  sampleLimited?: boolean;
-}): HosOutcomes | null {
-  if (input.won == null || input.lost == null) return null;
-  if (input.crmCoverage !== "complete" && input.crmCoverage !== "partial") return null;
-  const closed = input.won + input.lost;
-  const winRate = input.crmCoverage === "complete" && !input.sampleLimited && closed > 0 ? input.won / closed : null;
-  return { won: input.won, lost: input.lost, winRate };
 }
 
 /** Short name for a flow inside a sentence: "SDR" / "AE" for the two role flows. */

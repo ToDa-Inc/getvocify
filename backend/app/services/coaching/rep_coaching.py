@@ -133,10 +133,11 @@ def interaction_row(memo: dict) -> dict | None:
         })
     objections = []
     for item in intel.get("objections") or []:
-        # Only a concern about the offer or the fit: "I'm driving" is an obstacle, not an objection.
-        if isinstance(item, dict) and item.get("kind", "objection") == "objection":
+        # Every time the prospect resisted: an objection (the offer or the fit) or an obstacle ("I'm driving").
+        if isinstance(item, dict):
             response = item.get("response") if isinstance(item.get("response"), dict) else {}
             objections.append({
+                "kind": "obstacle" if item.get("kind") == "obstacle" else "objection",
                 "category": str(item.get("category") or "other"),
                 "objection_id": item.get("objection_id") or None,
                 "resolution": item.get("resolution"),
@@ -319,7 +320,8 @@ def objection_improvements(rows: list[dict], entries: list[dict], limit: int = O
         if not row.get("is_conversation", True):
             continue
         for item in row.get("objections") or []:
-            if item.get("resolution") not in ("open", "resolved"):
+            # Coached: a concern about the offer or the fit. "I'm driving" is an obstacle, not a miss.
+            if item.get("kind") != "objection" or item.get("resolution") not in ("open", "resolved"):
                 continue
             custom = f"custom:{item['objection_id']}" if item.get("objection_id") else None
             key = custom if custom in answers else item["category"]

@@ -56,18 +56,22 @@ la cualificación y las objeciones como apartados propios de "En qué mejorar".
 
 ## 3. Conclusiones del Head of Sales
 
-- **Adherencia:** por comercial, por paso y por tipo de interacción.
-- **¿Funciona el playbook?:** paso a paso, si quienes lo siguen consiguen más el objetivo del tipo.
-  - SDR: reunión agendada, declarada por el comercial o por la etapa del CRM (nunca leída por la IA).
-  - AE: avance del deal según la etapa del CRM (solo lectura).
-- **¿Por qué perdemos?:**
-  - Se dispara cuando algo se marca como lost o no cualificado, tanto en el resultado de la llamada
-    en Vocify como en la etapa del CRM.
-  - Se analiza la última interacción y se saca la causa principal, con cita.
-  - Si la última no tiene contexto, se mira el historial del contacto o del deal.
-  - Si nunca hubo conversación (por ejemplo, 7 llamadas sin respuesta y se marca lost), la causa es
-    "nunca se llegó a hablar". Se asigna sin IA, para que no se invente una causa.
-  - Las causas no son una lista cerrada: salen de la llamada y se agrupan para el Head of Sales.
+Hecho el 14 oct en **Equipo** (`/dashboard/insights`, `GET /team/coaching`), con las mismas reglas de
+diseño que Coaching: una pantalla plana, márgenes de Inicio, poco texto, color solo con significado.
+Filtros: periodo, puesto (SDR/AE) y tipo de interacción.
+
+- **¿Siguen el playbook?** El % del equipo (y el del periodo anterior) y un mapa de calor
+  comercial × paso: verde ≥ 80 %, ámbar ≥ 50 %, rojo por debajo; con menos de 3 llamadas, la
+  cuenta ("1/2") en gris. Mismo cálculo que el coaching del comercial.
+- **¿Funciona el playbook?** El proceso completo y cada paso: % de reuniones con el paso y sin él, y
+  un veredicto (marca diferencia / no cambia nada / va peor). Sin veredicto con menos de 5 llamadas
+  a cada lado o menos de 3 reuniones; hasta entonces, una sola línea. Objetivo: la reunión que
+  declara el comercial (en Vocify o en la etapa del CRM), también en AE por ahora; el avance del
+  deal por etapa del CRM para AE queda pendiente.
+- **¿Por qué perdemos?** Las llamadas marcadas no interesado / no cualificado en Vocify y las de
+  deals perdidos en HubSpot (etapa `closedlost` del pipeline por defecto, solo lectura). La causa
+  sale de la propia llamada, sin IA nueva: la objeción que quedó abierta, si no el obstáculo, si
+  no el historial de ese contacto; "nunca se llegó a hablar" si no hubo conversación.
 
 ## 4. Historial cuando cambia el playbook
 

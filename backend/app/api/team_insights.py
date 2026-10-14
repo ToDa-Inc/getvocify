@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -162,3 +162,117 @@ async def get_team_rep_detail(
         "sales_role": sales_role,
         "handoffs": handoffs,
     })
+
+
+_COACHING_MARGIN = timedelta(days=1)
+
+
+@router.get("/coaching")
+async def get_team_coaching(
+    period: Literal["week", "month", "last_30", "quarter"] = Query("month"),
+    sales_role: Optional[Literal["sdr", "ae"]] = Query(None),
+    type_key: Optional[str] = Query(None, alias="type", max_length=64),
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    """Equipo for the Head of Sales, one interaction type at a time (team_coaching): do they follow
+    the playbook, does it work, and why we lose. Owner/admin only, before any read."""
+    if membership.role not in _TEAM_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No puedes ver el equipo")
+    from app.services.coaching import rep_coaching as engine
+    from app.services.coaching import rep_coaching_reads as reads
+    from app.services.coaching.crm_meetings import crm_lost_calls
+    from app.services.playbooks.catalog import INTERNAL_KEY
+    from app.services.team_insights import team_coaching as answers
+    from app.services.team_insights.aggregate import load_team_reps, reps_for_sales_role
+
+    current, previous = period_windows(period, now=_trend_now())
+    reps = reps_for_sales_role(load_team_reps(supabase, membership.company_id, exclude_managers=True), sales_role)
+    body: dict = {
+        "period": period,
+        "types": [],
+        "type": None,
+        "goal": "meeting_booked",
+        "follow": {"adherence": None, "prev_adherence": None, "conversations": 0, "steps": [], "reps": []},
+        "works": {"process": None, "steps": []},
+        "losses": {"total": 0, "by_source": {"not_interested": 0, "disqualified": 0, "crm_lost": 0}, "causes": []},
+    }
+    if not reps:
+        return body
+    names = {str(rep["userId"]): rep.get("name") or "" for rep in reps}
+    memos = [
+        memo for memo in reads.load_memos(
+            supabase, membership.company_id, list(names), start=previous.start - _COACHING_MARGIN
+        )
+        if memo.get("sales_motion_key") and memo.get("sales_motion_key") != INTERNAL_KEY
+    ]
+
+    def in_window(instant, window) -> bool:
+        return instant is not None and window.start <= instant < window.end
+
+    rows = [row for row in (engine.interaction_row(memo) for memo in memos) if row is not None]
+    now_rows = [row for row in rows if in_window(engine.parse_instant(row["observed_at"]), current)]
+    playbooks: dict[str, dict] = {}
+
+    def playbook_for(motion: str) -> dict:
+        if motion not in playbooks:
+            playbooks[motion] = reads.load_published_playbook(supabase, membership.company_id, motion)
+        return playbooks[motion]
+
+    counts: dict[str, int] = {}
+    for row in now_rows:
+        if row["is_conversation"]:
+            counts[row["motion"]] = counts.get(row["motion"], 0) + 1
+    types = [motion for motion in sorted(counts, key=lambda m: (-counts[m], m)) if playbook_for(motion)["published"]]
+    labels = {}
+    if types:
+        try:
+            from app.services.playbooks.repository import get_playbook_repository
+
+            labels = {
+                key: str(row.get("label"))
+                for key, row in get_playbook_repository().list_types(membership.company_id, include_draft=False).items()
+                if row.get("label")
+            }
+        except Exception:
+            labels = {}
+    chosen = type_key if type_key in types else (types[0] if types else None)
+    body["types"] = [{"key": motion, "label": labels.get(motion), "conversations": counts[motion]} for motion in types]
+    body["type"] = chosen
+    if chosen is None:
+        return body
+    playbook = playbook_for(chosen)
+    steps = playbook["steps"]
+    own = [row for row in now_rows if row["motion"] == chosen]
+    before = [
+        row for row in rows
+        if row["motion"] == chosen and in_window(engine.parse_instant(row["observed_at"]), previous)
+    ]
+    by_user: dict[str, list[dict]] = {}
+    for row in own:
+        by_user.setdefault(row["user_id"], []).append(row)
+    team = answers.adherence_of(own)
+    body["follow"] = {
+        **team,
+        "prev_adherence": answers.adherence_of(before)["adherence"],
+        "steps": [
+            {key: rate[key] for key in ("step_id", "label", "done", "applicable", "rate")}
+            for rate in engine.step_rates(own, steps)
+        ],
+        "reps": [rep for rep in answers.rep_matrix(by_user, reps, steps) if rep["conversations"]],
+    }
+    body["works"] = {"process": answers.process_effect(own), "steps": answers.step_effects(own, steps)}
+    # Why we lose: every call of the type in the period (voicemails too: seven no-answers is a cause).
+    signals = [
+        signal for signal in (answers.call_signals(memo) for memo in memos)
+        if signal is not None and signal["motion"] == chosen and in_window(signal["observed_at"], current)
+    ]
+    history = [signal for signal in (answers.call_signals(memo) for memo in memos) if signal is not None]
+    lost_ids = set(crm_lost_calls(supabase, membership.company_id, memos))
+    custom_labels = {
+        f"custom:{str(entry.get('entry_id'))[len('objection:custom:'):]}": " ".join(str(entry.get("label") or "").split())
+        for entry in playbook["entries"]
+        if entry.get("category") == "custom" and str(entry.get("entry_id") or "").startswith("objection:custom:")
+    }
+    body["losses"] = answers.losses(signals, lost_ids, custom_labels, names, history=history)
+    return body

@@ -25,7 +25,7 @@ MEETING_BOOKED = "meeting_booked"
 CREDIT_WINDOW = timedelta(days=7)
 CACHE_SECONDS = 600
 TIMEOUT_SECONDS = 8.0
-_cache: dict[str, tuple[float, list[dict]]] = {}
+_cache: dict[tuple[str, str], tuple[float, list[dict]]] = {}  # (company, stage) -> deals that entered it
 _lock = threading.Lock()
 
 
@@ -141,7 +141,7 @@ def credit_calls(deals: list[dict], memos: list[dict]) -> dict[str, datetime]:
 
 def _hubspot_deals(supabase: Any, company_id: str, stage_id: str) -> list[dict]:
     with _lock:
-        hit = _cache.get(company_id)
+        hit = _cache.get((company_id, stage_id))
         if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
             return hit[1]
     import httpx
@@ -167,7 +167,7 @@ def _hubspot_deals(supabase: Any, company_id: str, stage_id: str) -> list[dict]:
 
         deals = booked_deals_from_hubspot(get, post, stage_id)
     with _lock:
-        _cache[company_id] = (time.monotonic(), deals)
+        _cache[(company_id, stage_id)] = (time.monotonic(), deals)
     return deals
 
 
@@ -190,6 +190,48 @@ def apply_crm_meetings(supabase: Any, company_id: Optional[str], memos: list[dic
         {**memo, "rep_outcome": MEETING_BOOKED} if str(memo.get("id")) in credited and not memo.get("rep_outcome") else memo
         for memo in memos
     ]
+
+
+# HubSpot's lost stage in the default pipeline. A custom pipeline's own lost stage is not read yet.
+HUBSPOT_LOST_STAGE = "closedlost"
+
+
+def lost_calls(deals: list[dict], memos: list[dict]) -> dict[str, datetime]:
+    """memo_id -> when its deal was lost: per lost deal, the last call on the deal or one of its
+    contacts before it was lost (however long before: the last interaction is the one to read)."""
+    by_key: dict[str, list[tuple[datetime, str]]] = {}
+    for memo in memos:
+        at = _instant(memo.get("capture_started_at")) or _instant(memo.get("created_at"))
+        memo_id = str(memo.get("id") or "")
+        if not at or not memo_id:
+            continue
+        for key in (memo.get("hubspot_contact_id"), memo.get("hubspot_deal_id")):
+            if key:
+                by_key.setdefault(str(key), []).append((at, memo_id))
+    lost: dict[str, datetime] = {}
+    for deal in deals:
+        entered = deal["entered_at"]
+        candidates = [
+            (at, memo_id)
+            for key in [deal["deal_id"], *deal["contact_ids"]]
+            for at, memo_id in by_key.get(key, [])
+            if at <= entered + timedelta(hours=1)
+        ]
+        if candidates:
+            lost[max(candidates)[1]] = entered
+    return lost
+
+
+def crm_lost_calls(supabase: Any, company_id: Optional[str], memos: list[dict]) -> dict[str, datetime]:
+    """The calls whose deal the rep marked lost in HubSpot (read only). Empty for another CRM or on
+    any failure: the Head of Sales then sees the losses declared in Vocify only. Never raises."""
+    if not company_id or not memos:
+        return {}
+    try:
+        return lost_calls(_hubspot_deals(supabase, str(company_id), HUBSPOT_LOST_STAGE), memos)
+    except Exception:
+        logger.warning("crm lost deals: read failed; losses come from Vocify outcomes only", exc_info=True)
+        return {}
 
 
 # Proposal decisions where the rep confirmed the meeting in Vocify (meetings/accept.py).
