@@ -26,7 +26,7 @@ export function LiveAssistPanel({
         </div>
         <Switch checked={enabled} onCheckedChange={onEnabledChange} aria-label="Live assist" />
       </div>
-      <p className="-mt-3 text-[11px] text-muted-foreground/80">Not from your playbook yet. General objection help.</p>
+      <p className="-mt-3 text-[11px] text-muted-foreground/80">Answers follow your playbook for this call type, when it has one.</p>
 
       {/* Reserved line so the status never pushes the cards around. */}
       <p className="flex h-5 items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
