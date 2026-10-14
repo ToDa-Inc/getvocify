@@ -83,6 +83,12 @@ def seed() -> FakeDB:
             {"company_id": COMPANY, "flag": "MCP_ENABLED", "enabled": True},
             {"company_id": OTHER_COMPANY, "flag": "MCP_ENABLED", "enabled": False},
         ],
+        memo_scores=[
+            {"memo_id": M_PRICE, "revision_seq": 1, "input_revision": "r1", "created_at": "2026-10-10T10:05:00+00:00",
+             "score": {"value": 8, "adherence": 0.8, "coverage": 0.5, "strengths": ["Opened with a frame"], "improvements": ["Ask a follow-up"]}},
+            {"memo_id": M_MEETING, "revision_seq": 1, "input_revision": "r1", "created_at": "2026-10-09T10:05:00+00:00",
+             "score": {"value": None, "adherence": None, "coverage": 0.0}},
+        ],
         memos=[
             _memo(
                 M_PRICE, REP, "2026-10-10T10:00:00+00:00", outcome="follow_up", transcript=TRANSCRIPT,

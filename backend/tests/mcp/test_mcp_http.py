@@ -185,9 +185,21 @@ def test_the_full_record_has_what_the_memo_page_shows(mcp_client, key_for):
     assert record["summary"].startswith("Pricing call")
     assert record["objections"][0]["category"] == "price" and record["objections"][0]["state"] == "open"
     assert record["commitments"] == [{"text": "Send the proposal", "due_at": "2026-10-17", "by": "rep"}]
-    assert record["evidence"][0] == {"id": "ev1", "quote": "It's too expensive for us", "speaker": "prospect", "at_ms": 61000}
-    assert record["coaching"] == {"status": "not_scored", "reason": "not_scored"}
+    assert record["evidence"][0] == {"id": "ev1", "quote": "It's too expensive for us", "speaker": "prospect", "at_ms": 61000}  # not an objection quote, so kept
     assert "transcript" not in record
+
+
+def test_the_coaching_numbers_say_what_they_are(mcp_client, key_for):
+    _, record = call(mcp_client, key_for(REP), "get_interaction", {"id": M_PRICE})
+    assert record["coaching"] == {
+        "score": 8, "score_out_of": 10, "playbook_steps_met_pct": 80, "playbook_steps_judged_pct": 50,
+        "strengths": ["Opened with a frame"], "improvements": ["Ask a follow-up"],
+    }
+
+
+def test_an_interaction_without_a_mark_is_not_scored_rather_than_a_zero(mcp_client, key_for):
+    _, record = call(mcp_client, key_for(REP), "get_interaction", {"id": M_MEETING})
+    assert record["coaching"] == {"status": "not_scored", "reason": "too_few_playbook_steps_judged"}
 
 
 def test_a_record_still_processing_says_so(mcp_client, key_for):
@@ -333,3 +345,29 @@ def test_the_per_minute_limit_says_when_to_retry(mcp_client, key_for, monkeypatc
     assert call(mcp_client, key, "list_interactions")[0] is False
     is_error, text = call(mcp_client, key, "list_interactions")
     assert is_error and "2 per minute" in text and "Retry in" in text
+
+
+# ----- what the record and the list say about themselves --------------------------------------------------
+
+
+def test_a_quote_already_under_an_objection_is_not_repeated_under_evidence(mcp_client, key_for, db):
+    memo = next(m for m in db.tables["memos"] if m["id"] == M_PRICE)
+    memo["extraction"]["intelligence"]["evidence"].append({"id": "ev2", "quote": "It's too expensive", "speaker_role": "prospect", "start_ms": 5})
+    _, record = call(mcp_client, key_for(REP), "get_interaction", {"id": M_PRICE})
+    assert [e["id"] for e in record["evidence"]] == ["ev1"]
+    assert record["objections"][0]["quote"] == "It's too expensive"
+
+
+def test_an_empty_page_that_is_not_the_end_says_how_far_it_looked(mcp_client, key_for, monkeypatch):
+    from app.services.mcp import interactions
+
+    monkeypatch.setattr(interactions, "_BATCHES", 1)
+    monkeypatch.setattr(interactions, "_MIN_BATCH", 1)
+    _, body = call(mcp_client, key_for(MANAGER), "list_interactions", {"q": "no such text", "limit": 1})
+    assert body["interactions"] == [] and body["next_cursor"]
+    assert "Searched back to 2026-10" in body["note"] and "next_cursor" in body["note"]
+
+
+def test_a_search_that_reached_the_end_has_no_cursor_and_no_note(mcp_client, key_for):
+    _, body = call(mcp_client, key_for(MANAGER), "list_interactions", {"q": "no such text"})
+    assert body == {"interactions": [], "count": 0, "next_cursor": None}
