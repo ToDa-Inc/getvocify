@@ -11,6 +11,13 @@ drops it, nor the order of the saved memo, can line the two up.
 The mic's own count of samples is the clock (both sides of one call arrive together). A call that is behind it after a
 stretch of quiet was quiet for that long, so the time is put back as silence. After sound it is not (a stall delivers the
 audio late, it does not lose it), unless it is so far behind that no stall is.
+
+The mic can lose audio too, and then it is the mic that falls behind the call. Measured on a real recording in the app:
+the mic delivered 1.3 s less audio than time elapsed within 10 s (3 s over 110 s) with no gap in its chunks (the page's
+audio thread dropped blocks while the machine was busy), while the call stayed within 0.1 s of real time. Every lost
+fraction of a second moved the mic against the call's audio, the delay the echo removal had locked was no longer
+right from then on, and by 45 s there was no match left within a second and a half. A page stall delays both sides
+alike, so a mic behind the call by this much lost audio, and the time is put back as silence in front of its next chunk.
 """
 
 from __future__ import annotations
@@ -22,6 +29,8 @@ RATE = 16000
 HOLE_MIN_S = 0.4
 # Behind by more than this, no stall explains it, whatever the call last sounded like.
 HOLE_SURE_S = 3.0
+# The mic behind the call by more than this lost audio (chunks of both sides arrive together, within a few hundred ms).
+MIC_LOST_MIN_S = 0.35
 # The last 100 ms of a call chunk below this is quiet (16-bit RMS).
 QUIET_RMS = 300.0
 
@@ -34,9 +43,18 @@ class StreamClock:
         self._call = 0
         self._quiet = False  # unknown until a chunk of the call has been heard
         self.filled_s = 0.0
+        self.mic_filled_s = 0.0
 
-    def heard_mic(self, pcm: bytes) -> None:
-        self._mic += len(pcm) // 2
+    def mic(self, pcm: bytes) -> bytes:
+        """The mic's chunk, with the audio it lost put back as silence in front of it."""
+        samples = len(pcm) // 2
+        lost = self._call - self._mic - samples
+        fill = 0
+        if lost > RATE * MIC_LOST_MIN_S:
+            fill = lost
+            self.mic_filled_s += fill / RATE
+        self._mic += fill + samples
+        return bytes(fill * 2) + pcm if fill else pcm
 
     def call(self, pcm: bytes) -> bytes:
         """The call's chunk, with the silence it missed put back in front of it."""

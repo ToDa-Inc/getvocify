@@ -9,7 +9,7 @@ def _pcm(seconds: float, level: float = 0.0) -> bytes:
 
 def _run(clock: StreamClock, mic_s: float, call: bytes) -> bytes:
     """The mic delivered `mic_s` seconds, and then the call's chunk arrives."""
-    clock.heard_mic(_pcm(mic_s, 1000))
+    clock.mic(_pcm(mic_s, 1000))
     return clock.call(call)
 
 
@@ -28,7 +28,7 @@ def test_a_call_that_hands_over_its_quiet_in_a_fraction_of_real_time_is_put_back
 def test_a_call_that_stalls_in_the_middle_of_sound_is_left_as_it_is():
     clock = StreamClock()
     out = clock.call(_pcm(0.1, 3000))  # sound
-    clock.heard_mic(_pcm(1.2, 1000))  # then the call is 1.1 s late, which after sound is a stall, not lost time
+    clock.mic(_pcm(1.2, 1000))  # then the call is 1.1 s late, which after sound is a stall, not lost time
     assert clock.call(_pcm(0.1, 3000)) == _pcm(0.1, 3000)
     assert clock.filled_s == 0
     assert out == _pcm(0.1, 3000)
@@ -37,7 +37,7 @@ def test_a_call_that_stalls_in_the_middle_of_sound_is_left_as_it_is():
 def test_a_call_far_behind_is_put_back_even_after_sound():
     clock = StreamClock()
     clock.call(_pcm(0.1, 3000))
-    clock.heard_mic(_pcm(5, 1000))  # 5 s later no stall explains it
+    clock.mic(_pcm(5, 1000))  # 5 s later no stall explains it
     out = clock.call(_pcm(0.1, 3000))
     assert abs(len(out) // 2 / RATE - 4.9) < 0.25
     assert clock.filled_s > 4
@@ -46,7 +46,7 @@ def test_a_call_far_behind_is_put_back_even_after_sound():
 def test_a_call_in_step_with_the_mic_is_untouched():
     clock = StreamClock()
     for _ in range(50):
-        clock.heard_mic(_pcm(0.1, 1000))
+        clock.mic(_pcm(0.1, 1000))
         chunk = _pcm(0.1)
         assert clock.call(chunk) == chunk
     assert clock.filled_s == 0
@@ -54,11 +54,32 @@ def test_a_call_in_step_with_the_mic_is_untouched():
 
 def test_the_first_chunk_of_a_call_that_began_after_the_mic_is_placed_where_it_began():
     clock = StreamClock()
-    clock.heard_mic(_pcm(0.9, 1000))
+    clock.mic(_pcm(0.9, 1000))
     chunk = _pcm(0.1, 3000)  # loud from its very first sample: not quiet, not a stall, simply where the call began
     out = clock.call(chunk)
     assert abs(len(out) // 2 / RATE - 0.9) < 0.05
     assert clock.filled_s > 0.75
     # And only once: later chunks are in step.
-    clock.heard_mic(_pcm(0.1, 1000))
+    clock.mic(_pcm(0.1, 1000))
     assert clock.call(chunk) == chunk
+
+
+def test_a_mic_that_loses_audio_is_put_back_on_the_clock_of_the_call():
+    clock = StreamClock()
+    sent = 0
+    # The call is real time; the mic drops 1 s of every 10 s with no gap in its chunks (as measured on a real recording).
+    for step in range(100):
+        clock.call(_pcm(0.1, 1000))
+        if step % 10 != 9:  # the 10th mic chunk of every ten never arrives
+            sent += len(clock.mic(_pcm(0.1, 1000))) // 2
+    assert abs(sent / RATE - 10) < 0.6
+    assert clock.mic_filled_s > 0.5
+
+
+def test_a_mic_in_step_with_the_call_is_untouched():
+    clock = StreamClock()
+    for _ in range(50):
+        clock.call(_pcm(0.1, 1000))
+        chunk = _pcm(0.1, 1000)
+        assert clock.mic(chunk) == chunk
+    assert clock.mic_filled_s == 0

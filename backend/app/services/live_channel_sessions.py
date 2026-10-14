@@ -879,7 +879,7 @@ class ChannelSessions:
                 if self.clock is not None:
                     # Both sides on the mic's clock, for everything downstream (see StreamClock).
                     if channel == "rep":
-                        self.clock.heard_mic(pcm)
+                        pcm = self.clock.mic(pcm)
                     elif channel == "prospect":
                         pcm = self.clock.call(pcm)
                 if self.echo is not None:
