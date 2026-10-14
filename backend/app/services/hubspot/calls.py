@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 import httpx
 
+from .call_log import HUBSPOT_DISPOSITION_GUID
 from .client import HubSpotClient
 from .exceptions import HubSpotError, HubSpotNotFoundError
 
@@ -16,6 +17,7 @@ from .exceptions import HubSpotError, HubSpotNotFoundError
 CALL_PROPERTIES = (
     "hs_call_recording_url",
     "hs_call_status",
+    "hs_call_disposition",
     "hs_call_duration",
     "hs_call_title",
     "hs_call_from_number",
@@ -65,6 +67,26 @@ def recording_display_title(
     if phone:
         return phone
     return hubspot or "Call"
+
+
+# hs_call_status values that mean nobody spoke with the contact.
+_UNANSWERED_STATUSES = frozenset({"NO_ANSWER", "BUSY", "FAILED", "CANCELED"})
+_DISPOSITION_OUTCOME = {
+    HUBSPOT_DISPOSITION_GUID["voicemail"]: "voicemail",
+    HUBSPOT_DISPOSITION_GUID["no_answer"]: "no_response",
+    HUBSPOT_DISPOSITION_GUID["busy"]: "no_response",
+}
+
+
+def unanswered_outcome(props: dict) -> Optional[str]:
+    """How the phone system itself says a call ended when nobody was reached: "voicemail", "no_response", or
+    None (it says nothing, or says the call connected). The caller still checks the transcript."""
+    disposition = _DISPOSITION_OUTCOME.get(str(props.get("hs_call_disposition") or "").strip().lower())
+    if disposition:
+        return disposition
+    if str(props.get("hs_call_status") or "").strip().upper() in _UNANSWERED_STATUSES:
+        return "no_response"
+    return None
 
 
 def call_duration_ms(props: dict) -> int:

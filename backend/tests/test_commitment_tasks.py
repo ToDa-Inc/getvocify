@@ -571,6 +571,18 @@ def test_v8_next_adds_the_callback_email_and_referral_no_commitment_covers():
     assert by_id["next:referral"].text == "Contactar a Goda (CEO)" and by_id["next:referral"].due_at is None
 
 
+def _callback_text(reason):
+    memo = _with_next(_memo([UNDATED]), {"callback": {"needed": True, "when": None, "reason": reason}})
+    memo["extraction"]["contactName"] = "Marta Ruiz"
+    memo["extraction"]["intelligence"]["input_revision"] = revision_for_memo(memo)  # the name is part of the call's reading
+    return {t.commitment_id: t.text for t in ct.commitment_tasks(memo, tz_name="Europe/Madrid")}["next:callback"]
+
+
+def test_v8_callback_names_the_person_instead_of_saying_nothing():
+    assert _callback_text(None) == "Volver a llamar a Marta"
+    assert _callback_text("tras la reunión") == "Llamar a Marta: tras la reunión"
+
+
 def test_v8_next_never_duplicates_a_commitment_of_the_same_kind():
     nxt = {"callback": {"needed": True, "when": None, "reason": "x"}, "followup_email": {"needed": True, "content": "y"}}
     tasks = ct.commitment_tasks(_with_next(_memo([TIMED, DAY]), nxt), tz_name="Europe/Madrid")

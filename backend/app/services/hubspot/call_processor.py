@@ -27,6 +27,7 @@ from app.services.hubspot.calls import (
     get_call_engagement,
     parse_call_summary,
     parse_hubspot_timestamp_ms,
+    unanswered_outcome,
 )
 from app.services.captures import interaction_kind_for, pin_playbook_on_row, with_author_company
 from app.services.live_calls.linking import link_desktop_call
@@ -34,6 +35,8 @@ from app.services.hubspot.client import HubSpotClient
 from app.services.session_entities import build_page_terms
 from app.services.pipeline_meta import persist_pipeline_meta, pipeline_run
 from app.services.stt_batch import transcribe_audio
+from app.services.telephony.call_processor import finalize_screened_out_memo
+from app.services.telephony.call_screening import classify_call_outcome
 from app.services.transcript_sanitize import sanitize_user_transcript
 
 logger = logging.getLogger(__name__)
@@ -228,8 +231,15 @@ async def process_hubspot_call_background(
             raise RuntimeError("Call engagement not found")
         props = data.get("properties") or {}
         url = (props.get("hs_call_recording_url") or "").strip()
+        carrier_outcome = unanswered_outcome(props)
         t_dl = time.perf_counter()
         if not audio_bytes:
+            if not url and carrier_outcome:
+                # Nobody was reached, so there is no recording to wait for: the call is kept as what it was.
+                await finalize_screened_out_memo(
+                    supabase, memo_id, "", call_duration_seconds(props), carrier_outcome
+                )
+                return
             if not url:
                 raise RuntimeError("No recording URL on call")
             audio_bytes, content_type = await download_recording(url, access_token)
@@ -284,6 +294,18 @@ async def process_hubspot_call_background(
         record_transcription_duration(time.perf_counter() - t0, "hubspot_call")
         persist_pipeline_meta(supabase, memo_id, stages)
 
+        screening_outcome = classify_call_outcome(cleaned, dur, carrier_hint=carrier_outcome)
+        if screening_outcome != "connected":
+            # A voicemail, a ring-out or a recorded announcement: kept with its transcript, nothing to extract.
+            await finalize_screened_out_memo(
+                supabase, memo_id, cleaned, dur, screening_outcome,
+                extra_update={"transcript_raw": transcript},
+            )
+            persist_pipeline_meta(
+                supabase, memo_id, [], run=run_record(run_id, "hubspot_process", started_at, t0, "ok")
+            )
+            return
+
         from app.api.memos import start_extraction_from_transcript
 
         await start_extraction_from_transcript(
@@ -299,6 +321,7 @@ async def process_hubspot_call_background(
             extra_update={
                 "audio_duration": dur,
                 "error_message": None,
+                "screening_outcome": screening_outcome,
                 "transcript_raw": transcript,
                 "transcript_stt_meta": {
                     "provider": "deepgram",

@@ -13,6 +13,10 @@ export type ProposedUpdate = {
   options?: unknown[];
   /** The options are a checkbox list: several values, joined with ";". */
   multiple?: boolean | null;
+  /** YYYY-MM-DD, on a task row. */
+  due_date?: string | null;
+  /** The call gave the task no day: due_date is the default it will be written with. */
+  due_date_inferred?: boolean | null;
 };
 
 export type ExtractionRecord = Record<string, unknown> & {
@@ -218,12 +222,15 @@ export function buildApproveExtraction({
   omittedKeys,
   summary,
   nextSteps,
+  nextStepSchedules,
 }: {
   memoExtraction?: ExtractionRecord | null;
   updates?: ProposedUpdate[] | null;
   omittedKeys?: Array<string | null | undefined> | null;
   summary?: string | null;
   nextSteps?: string[] | null;
+  /** The day of each next step, in the same order; absent keeps what the extraction had. */
+  nextStepSchedules?: string[] | null;
 } = {}): ExtractionRecord {
   let next = applyProposedUpdates(memoExtraction || {}, updates || []);
   next = stripOmittedFields(next, omittedKeys || []);
@@ -237,6 +244,10 @@ export function buildApproveExtraction({
     ? nextSteps.map((s) => String(s || "").trim()).filter(Boolean)
     : [];
   next.nextSteps = selectedSteps;
+  // The schedules follow the steps the rep kept: left as extracted, a removed row shifts every later date.
+  if (Array.isArray(nextStepSchedules)) {
+    next.raw_extraction.nextStepSchedules = selectedSteps.map((_, i) => nextStepSchedules[i] || "");
+  }
   if (selectedSteps[0]) next.raw_extraction.hs_next_step = selectedSteps[0];
   else delete next.raw_extraction.hs_next_step;
 

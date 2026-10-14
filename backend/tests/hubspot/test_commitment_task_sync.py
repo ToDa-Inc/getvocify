@@ -12,7 +12,7 @@ from app.services.commitment_tasks import CommitmentTask
 from app.services.hubspot import sync as sync_module
 from app.services.hubspot import tasks as tasks_module
 from app.services.hubspot.sync import HubSpotSyncService
-from app.services.hubspot.tasks import HubSpotTasksService
+from app.services.hubspot.tasks import HubSpotTasksService, default_task_due_iso
 from tests.hubspot.test_stage_confirm import EXISTING, _Anything, _Schema, _SyncDeals, _preview, _svc
 
 MADRID = ZoneInfo("Europe/Madrid")
@@ -34,7 +34,9 @@ async def test_review_rows_come_from_the_commitments():
     rows = _task_rows(preview)
     assert [r.field_name for r in rows] == ["next_step_task_0", "next_step_task_1", "next_step_task_2"]
     assert [r.new_value for r in rows] == [TIMED.text, DAY.text, UNDATED.text]
-    assert [r.due_date for r in rows] == ["2026-09-29", "2026-09-24", None]
+    # An undated commitment shows the day it will be written for, and says it is a suggestion.
+    assert [r.due_date for r in rows] == ["2026-09-29", "2026-09-24", default_task_due_iso()]
+    assert [r.due_date_inferred for r in rows] == [False, False, True]
     assert rows[0].field_label == "Next Step (Task)"
     assert rows[1].field_label == "Next Step 2 (Task)"
     assert [r.commitment_id for r in rows] == ["com-1", "com-2", "com-3"]

@@ -82,6 +82,12 @@ def commitment_tasks(memo: dict, *, tz_name: str) -> Optional[list[CommitmentTas
     return tasks or None
 
 
+def _first_name(memo: dict) -> str:
+    extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
+    name = " ".join(str(extraction.get("contactName") or "").split())
+    return name.split(" ")[0] if name else ""
+
+
 def _next_tasks(block: dict, memo: dict, existing: list[CommitmentTask], *, tz_name: str) -> list[CommitmentTask]:
     """C04 v8 `next`: what the call leads to, as tasks when no commitment already says it — the
     callback (with its day and time), the promised email, the person they were referred to."""
@@ -93,9 +99,14 @@ def _next_tasks(block: dict, memo: dict, existing: list[CommitmentTask], *, tz_n
     callback = nxt.get("callback") if isinstance(nxt.get("callback"), dict) else {}
     if callback.get("needed") and "call" not in kinds:
         reason = " ".join(str(callback.get("reason") or "").split())
+        who = _first_name(memo)
+        if who:
+            text = f"Llamar a {who}: {reason}" if reason else f"Volver a llamar a {who}"
+        else:
+            text = f"Llamar: {reason}" if reason else "Volver a llamar"
         out.append(CommitmentTask(
             commitment_id="next:callback", kind="call",
-            text=f"Llamar: {reason}" if reason else "Volver a llamar",
+            text=text,
             due_at=task_due({"due_at": callback.get("when"), "temporal_precision": callback.get("temporal_precision")}, tz_name=tz_name),
         ))
     email = nxt.get("followup_email") if isinstance(nxt.get("followup_email"), dict) else {}

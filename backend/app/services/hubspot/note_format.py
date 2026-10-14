@@ -256,6 +256,37 @@ def format_standalone_call_outcome_note_body(*, lost_reason: Optional[str], span
     return format_call_outcome_section(call_outcome="lost", lost_reason=lost_reason, spanish=spanish)
 
 
+def _transcript_html(transcript: str, spanish: bool) -> list[str]:
+    """The transcript section: a heading, then one paragraph per turn with its speaker."""
+    parts = [f"<p><strong>{html.escape('Transcripción' if spanish else 'Transcript')}</strong></p>"]
+    for turn in turns_for_display(parse_transcript_turns(transcript)):
+        text = html.escape(turn["text"]).replace("\n", "<br>")
+        if turn.get("speaker"):
+            label = html.escape(_speaker_display(turn["speaker"], spanish))
+            parts.append(f"<p><strong>{label}:</strong><br>{text}</p>")
+        else:
+            parts.append(f"<p>{text}</p>")
+    return parts
+
+
+_UNREACHED_LINES = {
+    "voicemail": ("Buzón de voz.", "Voicemail."),
+    "no_response": ("Sin respuesta o posible IVR.", "No answer or possible IVR."),
+}
+
+
+def format_call_transcript_body(transcript: str, *, screening_outcome: Optional[str] = None) -> str:
+    """A call's body when it has a transcript and no approved write-up yet: what was said, in HubSpot's timeline.
+    The approved write-up (summary, updated fields, transcript) replaces it."""
+    spanish = looks_spanish(transcript)
+    parts = [f"<p><strong>{html.escape('Llamada (Vocify)' if spanish else 'Call (Vocify)')}</strong></p>"]
+    line = _UNREACHED_LINES.get(screening_outcome or "")
+    if line:
+        parts.append(f"<p><em>{html.escape(line[0] if spanish else line[1])}</em></p>")
+    parts.extend(_transcript_html(transcript, spanish))
+    return "\n".join(parts)[:65536]
+
+
 def format_hubspot_note_body(
     *,
     summary: Optional[str],
@@ -313,20 +344,8 @@ def format_hubspot_note_body(
     if field_html:
         parts.append(field_html)
 
-    # Transcript section
     if transcript:
-        tx_label = "Transcripción" if spanish else "Transcript"
-        parts.append(f"<p><strong>{html.escape(tx_label)}</strong></p>")
-        turns = turns_for_display(parse_transcript_turns(transcript))
-        for turn in turns:
-            text = html.escape(turn["text"]).replace("\n", "<br>")
-            if turn.get("speaker"):
-                label = html.escape(_speaker_display(turn["speaker"], spanish))
-                parts.append(
-                    f"<p><strong>{label}:</strong><br>{text}</p>"
-                )
-            else:
-                parts.append(f"<p>{text}</p>")
+        parts.extend(_transcript_html(transcript, spanish))
 
     if call_outcome == "lost":
         parts.append("<hr>")

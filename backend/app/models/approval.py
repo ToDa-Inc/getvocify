@@ -52,6 +52,10 @@ class ProposedUpdate(BaseModel):
         None,
         description="YYYY-MM-DD due date for HubSpot task rows",
     )
+    due_date_inferred: bool = Field(
+        False,
+        description="True when the call gave the task no day and due_date is the default it will be written with",
+    )
     already_applied: bool = Field(
         False,
         description="True when this field was already written and is shown for correction",

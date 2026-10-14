@@ -13,6 +13,7 @@ from typing import Any, Optional
 from supabase import Client
 
 from app.services.hubspot.call_log import CALLS_OBJECT_PATH
+from app.services.hubspot.note_format import format_call_transcript_body
 
 CALL_BODY_ACTION = "call_body"
 
@@ -52,6 +53,16 @@ def pending_call_body(supabase: Client, memo_id: Optional[str]) -> Optional[tupl
     if data.get("pending") and data.get("body"):
         return str(row["id"]), str(data["body"])
     return None
+
+
+def transcript_call_body(supabase: Client, memo_id: Optional[str], screening_outcome: Optional[str]) -> Optional[str]:
+    """The call's body from its transcript alone: what the Call carries until the rep approves the write-up.
+    None when the memo has no transcript (the Call then says only how it ended)."""
+    if not memo_id:
+        return None
+    found = supabase.table("memos").select("transcript").eq("id", str(memo_id)).limit(1).execute()
+    transcript = str(((found.data or [None])[0] or {}).get("transcript") or "").strip()
+    return format_call_transcript_body(transcript, screening_outcome=screening_outcome) if transcript else None
 
 
 def mark_call_body_written(supabase: Client, update_id: str, engagement_id: str) -> None:

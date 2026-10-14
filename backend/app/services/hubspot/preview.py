@@ -13,7 +13,7 @@ from .client import HubSpotClient
 from app.services.deal_merge import merge_description
 from app.services.deal_stage_confirm import suggested_stage
 from .deals import HubSpotDealService, _sanitize_enum_properties
-from .tasks import format_next_step_task, _next_step_schedule_hints, detected_task_due_iso
+from .tasks import default_task_due_iso, format_next_step_task, _next_step_schedule_hints, detected_task_due_iso
 from .schema import HubSpotSchemaService
 from .associations import HubSpotAssociationService
 from .contacts import HubSpotContactService
@@ -290,7 +290,8 @@ class HubSpotPreviewService:
                 new_value=task.text,
                 extraction_confidence=extraction.confidence.get("fields", {}).get("next_step", 0.8),
                 object_type="task",
-                due_date=task.due_date,
+                due_date=task.due_date or default_task_due_iso(),
+                due_date_inferred=task.due_date is None,
                 commitment_id=task.commitment_id,
             ))
         if commitment_tasks is not None:
@@ -315,7 +316,8 @@ class HubSpotPreviewService:
                     new_value=formatted.subject,
                     extraction_confidence=field_extraction_confidence(extraction, "next_step"),
                     object_type="task",
-                    due_date=due_iso,
+                    due_date=due_iso or formatted.due_date.date().isoformat(),
+                    due_date_inferred=due_iso is None,
                 ))
 
         # For display: use human-readable extraction values when available.

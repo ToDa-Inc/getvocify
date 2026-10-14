@@ -34,14 +34,14 @@ class TestClassifyCallOutcome:
         )
         assert classify_call_outcome(transcript, duration=26.0) == "connected"
 
-    def test_short_exchange_with_voicemail_greeting_is_still_skipped(self):
+    def test_short_exchange_with_voicemail_greeting_is_a_voicemail(self):
         transcript = (
             "SPEAKER: S1\nHola, buenas.\n\n"
             "SPEAKER: S2\nEl número al que llama no está disponible, deje su mensaje después del tono.\n\n"
             "SPEAKER: S1\nHola, soy Dani de Vocify, le llamaba por lo de la demo.\n\n"
             "SPEAKER: S2\nBuzón de voz, grabe su mensaje y pulse almohadilla para terminar."
         )
-        assert classify_call_outcome(transcript, duration=20.0) == "no_response"
+        assert classify_call_outcome(transcript, duration=20.0) == "voicemail"
 
     def test_two_speakers_but_secondary_too_brief_is_connected_after_30s(self):
         """Twilio already marks no-answer. A 40s two-party call must be extracted
@@ -133,6 +133,61 @@ class TestClassifyCallOutcome:
             "De acuerdo, en dos semanas hablamos. Chao."
         )
         assert classify_call_outcome(transcript, duration=63.0) == "connected"
+
+
+class TestVoicemailWhereTheRepSpoke:
+    def test_a_message_left_after_the_greeting_is_still_a_voicemail(self):
+        """45s: the carrier greeting and then the rep's own message, two speakers, nobody answered."""
+        transcript = (
+            "SPEAKER: S1\nEl número al que llama no se encuentra disponible. "
+            "Deje su mensaje después de la señal.\n\n"
+            "SPEAKER: S2\nHola Marta, soy Dani de Vocify. Te llamaba para ver si podemos hablar esta semana "
+            "sobre cómo registráis las llamadas en HubSpot. Mi número es el de siempre. Un saludo."
+        )
+        assert classify_call_outcome(transcript, duration=45.0) == "voicemail"
+
+    @pytest.mark.parametrize(
+        "greeting",
+        [
+            "Ha llamado al buzón de mensajes de Ana. Tras la señal grabe su mensaje.",
+            "Este es el contestador automático de Ana García.",
+            "Hi, you've reached Sam. Please leave a message after the beep.",
+            "El teléfono al que llama está apagado o fuera de cobertura.",
+            "Deixa el teu missatge després del senyal.",
+        ],
+    )
+    def test_common_greetings_are_recognised(self, greeting):
+        assert classify_call_outcome(f"SPEAKER: S1\n{greeting}", duration=40.0) == "voicemail"
+
+    def test_a_real_long_conversation_that_mentions_voicemail_is_connected(self):
+        transcript = (
+            "S1: Hola Toni, te llamo de Vocify, te dejé un mensaje en tu voicemail ayer.\n"
+            "S2: Sí, lo escuché, cuéntame qué ofrecéis.\n"
+            "S1: Registramos las llamadas y actualizamos HubSpot al colgar, sin que nadie escriba nada.\n"
+            "S2: Me interesa, ahora lo hacemos a mano y perdemos mucho tiempo.\n"
+            "S1: Perfecto, te preparo una demo para el jueves.\n"
+            "S2: Vale, mándame la invitación y lo vemos con mi equipo."
+        )
+        assert classify_call_outcome(transcript, duration=95.0) == "connected"
+
+
+class TestCarrierHint:
+    def test_a_call_the_phone_system_marked_unanswered_is_not_extracted(self):
+        transcript = "SPEAKER: S1\nHola, buenas tardes, le llamo de Vocify para comentarle una cosa importante."
+        assert classify_call_outcome(transcript, duration=40.0, carrier_hint="no_response") == "no_response"
+
+    def test_a_voicemail_the_rep_marked_wins_over_a_long_monologue(self):
+        transcript = "SPEAKER: S1\nHola, buenas tardes, le llamo de Vocify para comentarle una cosa importante."
+        assert classify_call_outcome(transcript, duration=40.0, carrier_hint="voicemail") == "voicemail"
+
+    def test_a_real_exchange_beats_a_wrong_mark(self):
+        transcript = (
+            "SPEAKER: S1\nHola Toni, te llamo de Vocify.\n\n"
+            "SPEAKER: S2\nHola, cuéntame.\n\n"
+            "SPEAKER: S1\nQuería saber si tenéis proceso para registrar llamadas.\n\n"
+            "SPEAKER: S2\nSí, ahora usamos notas manuales en HubSpot, me interesa que me mandes info."
+        )
+        assert classify_call_outcome(transcript, duration=55.0, carrier_hint="no_response") == "connected"
 
 
 def test_whatsapp_visit_with_transcript_is_connected():
