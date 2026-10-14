@@ -279,14 +279,21 @@ def list_interactions(
     scores = _scores(supabase, [str(m.get("id")) for m in page])
     items = [_row(m, reps.get(str(m.get("user_id"))), scores.get(str(m.get("id")))) for m in page]
     body: dict = {"interactions": items, "count": len(items), "next_cursor": next_cursor}
-    if next_cursor and len(items) < size and last_scanned:
+    if category and not items:
+        # Nothing has that category among the interactions searched: a typo, or a category this team does not have.
+        known = ", ".join(f"{name} ({count})" for name, count in seen.most_common(12)) or "none yet"
+        if exhausted:
+            body["note"] = f"No interaction has the category {category!r}. Categories in this data: {known}."
+        else:
+            body["note"] = (
+                f"No interaction from {last_scanned[:10]} on has the category {category!r}. Categories seen there: {known}. "
+                "If it is a typo, fix it; otherwise pass next_cursor to search older interactions."
+            )
+    elif next_cursor and len(items) < size and last_scanned:
         body["note"] = (
             f"Searched back to {last_scanned[:10]} without filling the page. There may be more further back: "
             "pass next_cursor to keep searching."
         )
-    elif category and not items and exhausted:
-        known = ", ".join(f"{name} ({count})" for name, count in seen.most_common(12)) or "none yet"
-        body["note"] = f"No interaction has the category {category!r}. Categories in this data: {known}."
     return body
 
 

@@ -453,3 +453,14 @@ def test_missed_steps_and_missed_objections_are_listed_apart(mcp_client, key_for
     assert record["coaching"]["missed_steps"] == ["Dejar hablar y profundizar"]
     assert record["coaching"]["missed_objections"] == ["price"]
     assert "missed" not in record["coaching"]
+
+
+def test_a_category_typo_names_the_real_categories_even_before_the_whole_history_is_searched(mcp_client, key_for, monkeypatch):
+    from app.services.mcp import interactions
+
+    monkeypatch.setattr(interactions, "_BATCHES", 1)  # one scan window, not the end of the history
+    monkeypatch.setattr(interactions, "_MIN_BATCH", 1)
+    _, body = call(mcp_client, key_for(MANAGER), "list_interactions", {"objection_category": "pricee", "limit": 1})
+    assert body["interactions"] == [] and body["next_cursor"]
+    assert "'pricee'" in body["note"] and "Categories seen" in body["note"] and "price (" in body["note"]
+    assert "typo" in body["note"] and "next_cursor" in body["note"]
