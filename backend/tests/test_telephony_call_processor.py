@@ -570,3 +570,62 @@ class TestMissedCallLogging:
         assert any(u.get("hubspot_engagement_id") == "520001" for u in updates)
         assert any(u.get("metadata", {}).get("portal_id") == "147506535" for u in updates)
 
+
+
+class TestHubSpotCallTime:
+    """A call logged late (Twilio retry, reconciler, replay) keeps its own date on the contact's timeline."""
+
+    def _log(self, row, duration=343.0):
+        import asyncio
+        from types import SimpleNamespace
+
+        from app.services.telephony.call_processor import log_call_engagement
+
+        supabase = MagicMock()
+        table = MagicMock()
+        supabase.table.return_value = table
+        for step in ("select", "update", "eq", "limit", "is_"):
+            getattr(table, step).return_value = table
+        table.execute.return_value = SimpleNamespace(data=[row])
+        logged = AsyncMock(return_value="519000")
+        with patch(
+            "app.services.telephony.call_processor._company_hubspot_connection",
+            return_value={"metadata": {"portal_id": "147506535"}},
+        ), patch("app.api.crm.get_hubspot_client_from_connection", return_value=MagicMock()), patch(
+            "app.services.telephony.call_processor._hubspot_owner_id_for_caller", new=AsyncMock(return_value=None)
+        ), patch("app.services.telephony.call_processor._hubspot_call_title", new=AsyncMock(return_value="Call")), patch(
+            "app.services.hubspot.call_entry.pending_call_body", return_value=None
+        ), patch("app.services.hubspot.call_log.log_call_to_hubspot", new=logged), patch(
+            "app.services.hubspot.call_log.mark_recording_ready", new=AsyncMock()
+        ), patch("app.services.telephony.call_processor.settings") as settings:
+            settings.HUBSPOT_APP_ID = "app-1"
+            asyncio.run(log_call_engagement(supabase, "CAxxx", duration))
+        return logged.call_args.kwargs["properties"]["hs_timestamp"]
+
+    def _row(self, **extra):
+        return {
+            "user_id": "u1",
+            "to_number": "+34600000000",
+            "from_number": "+34900000000",
+            "hubspot_contact_id": "755",
+            "hubspot_deal_id": None,
+            "hubspot_engagement_id": None,
+            **extra,
+        }
+
+    def test_an_answered_call_is_dated_when_it_ended_not_when_it_was_logged(self):
+        when = self._log(self._row(answered_at="2026-10-08T15:53:24+00:00"), duration=762.0)
+        assert when == "2026-10-08T16:06:06Z"
+
+    def test_without_an_answer_time_it_is_dated_now_as_before(self):
+        from datetime import datetime, timezone
+
+        when = self._log(self._row(answered_at=None))
+        logged_at = datetime.fromisoformat(when.replace("Z", "+00:00"))
+        assert abs((datetime.now(timezone.utc) - logged_at).total_seconds()) < 60
+
+    def test_a_missed_call_is_dated_when_it_was_dialed(self):
+        from app.services.telephony.call_processor import _hubspot_call_time
+
+        assert _hubspot_call_time("2026-09-28T08:29:20.123456+00:00") == "2026-09-28T08:29:20.123456Z"
+        assert _hubspot_call_time("not a date").endswith("Z")
