@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -24,6 +25,8 @@ MAX_ITEMS = 3
 MAX_ITEM_CHARS = 220
 MAX_HEADLINE_CHARS = 200
 TIMEOUT_S = 60.0
+ATTEMPTS = 3
+RETRY_WAIT_S = 5.0
 
 
 @lru_cache(maxsize=1)
@@ -119,10 +122,17 @@ def write_feedback(
     if isinstance(previous, dict) and previous.get("input_hash") == key:
         return previous
     names = [row.get("name") for row in digest.get("reps") or [] if row.get("name")]
-    try:
-        raw = asyncio.run(_ask(payload, llm))
-    except Exception:
-        logger.warning("report feedback failed", extra={"company_id": company_id}, exc_info=True)
+    raw = None
+    for attempt in range(ATTEMPTS):
+        try:
+            raw = asyncio.run(_ask(payload, llm))
+            break
+        except Exception:
+            # A provider hiccup (503, timeout) at the minute the email goes out must not cost the feedback.
+            logger.warning("report feedback failed (attempt %d)", attempt + 1, extra={"company_id": company_id}, exc_info=True)
+            if attempt + 1 < ATTEMPTS:
+                time.sleep(RETRY_WAIT_S * (attempt + 1))
+    if raw is None:
         return None
     shaped = shape(raw, audience=str(payload.get("audience") or "rep"), names=names)
     if shaped is None:

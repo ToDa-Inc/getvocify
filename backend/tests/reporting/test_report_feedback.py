@@ -129,7 +129,23 @@ def test_head_of_sales_notes_only_about_reps_in_the_facts(flag_on):
     assert shaped["people"] == [{"name": "Ana", "note": "Bien."}]
 
 
+def test_a_passing_provider_error_is_retried(monkeypatch, flag_on):
+    monkeypatch.setattr(feedback_writer, "RETRY_WAIT_S", 0)
+
+    class Flaky(_LLM):
+        async def chat_json(self, messages, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("503 Service unavailable")
+            return self.answer
+
+    llm = Flaky(ANSWER)
+    assert feedback_writer.write_feedback(object(), company_id="co", payload=_payload(), llm=llm)["headline"]
+    assert llm.calls == 2
+
+
 def test_no_feedback_when_off_without_activity_or_on_a_bad_answer(monkeypatch, flag_on):
+    monkeypatch.setattr(feedback_writer, "RETRY_WAIT_S", 0)
     assert feedback_writer.write_feedback(object(), company_id="co", payload=_payload(calls=0), llm=_LLM(ANSWER)) is None
     assert feedback_writer.write_feedback(object(), company_id="co", payload=_payload(), llm=_LLM({"went_well": []})) is None
 
