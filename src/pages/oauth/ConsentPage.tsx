@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { useAuth } from "@/features/auth";
+import { ApiError } from "@/shared/lib/api-client";
 import { mcpApi } from "@/lib/api/mcp";
 import { sessionGateView } from "@/lib/auth-session";
 import { useLanguage } from "@/lib/i18n";
@@ -20,8 +21,8 @@ function hostOf(uri?: string | null): string | null {
 }
 
 /**
- * Supabase Auth's OAuth server sends the browser here (Authorization Path /oauth/consent) when an AI app
- * (Claude, ChatGPT…) asks for access to the user's Vocify account. Approve or deny, then back to the app.
+ * Vocify's OAuth server (api: /oauth/authorize) sends the browser here when an AI app (Claude, ChatGPT…) asks
+ * for access to the user's Vocify account. Allow or deny, then back to the app.
  */
 const ConsentPage = () => {
   const { t } = useLanguage();
@@ -31,7 +32,7 @@ const ConsentPage = () => {
   const { isAuthenticated, isLoading, hasStoredSession } = useAuth();
   const gate = sessionGateView({ isLoading, hasStoredSession, isAuthenticated });
   const [sending, setSending] = useState<"approve" | "deny" | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<"invalid" | "off" | null>(null);
 
   const details = useQuery({
     queryKey: ["oauth-authorization", authorizationId],
@@ -40,12 +41,6 @@ const ConsentPage = () => {
     retry: false,
     staleTime: 0,
   });
-
-  // Already consented: Supabase answers with where to go, no screen needed.
-  const redirect = details.data && "redirect_url" in details.data ? details.data.redirect_url : null;
-  useEffect(() => {
-    if (redirect) window.location.assign(redirect);
-  }, [redirect]);
 
   if (gate === "login") {
     return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
@@ -56,14 +51,15 @@ const ConsentPage = () => {
     try {
       const { redirect_url } = await mcpApi.consent(authorizationId, action);
       window.location.assign(redirect_url);
-    } catch {
-      setFailed(true);
+    } catch (error) {
+      // 409: the workspace has AI agents off. Anything else: the request expired or was never ours.
+      setFailed(error instanceof ApiError && error.status === 409 ? "off" : "invalid");
       setSending(null);
     }
   };
 
-  const invalid = !authorizationId || details.isError || failed;
-  const request = details.data && "authorization_id" in details.data ? details.data : null;
+  const invalid = !authorizationId || details.isError || failed === "invalid";
+  const request = details.data ?? null;
   const appName = request?.client.client_name || t.product.consentUnknownApp;
   const returnHost = hostOf(request?.redirect_uri);
 
@@ -78,7 +74,9 @@ const ConsentPage = () => {
         <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8`}>
           {invalid ? (
             <p className="text-sm text-muted-foreground text-center">{t.product.consentInvalid}</p>
-          ) : gate !== "ok" || details.isLoading || redirect || !request ? (
+          ) : failed === "off" ? (
+            <p className="text-sm text-muted-foreground text-center">{t.product.consentOff}</p>
+          ) : gate !== "ok" || details.isLoading || !request ? (
             <div className="flex justify-center py-6">
               <VocifyLoader size="sm" />
             </div>
@@ -93,6 +91,9 @@ const ConsentPage = () => {
                   <p className="text-xs text-muted-foreground">
                     {t.product.consentReturnTo} <span className="font-medium text-foreground">{returnHost}</span>
                   </p>
+                )}
+                {!request.known && (
+                  <p className="text-xs text-warning" role="status">{t.product.consentUnrecognised}</p>
                 )}
               </div>
               <div className="flex justify-end gap-2">

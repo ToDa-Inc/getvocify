@@ -19,6 +19,12 @@ WEB_HIDDEN_TOOLS = frozenset({"load_skill", "remember", "reset_session"})
 from app.services.crm_copilot.tools import ASK_DATA_TOOLS as _WHATSAPP_DATA_TOOLS, WRITE_TOOLS  # noqa: E402
 # Ask without a screen (MCP): no writes, nothing that drafts one, no buttons to pick from.
 READ_ONLY_HIDDEN_TOOLS = frozenset(WRITE_TOOLS | {"preview_write", "extract_sales_update", "offer_user_choices"})
+READ_ONLY_NOTE = (
+    "\n\nThis question comes from another AI agent over a read-only channel. You cannot create or change anything "
+    "from here (notes, tasks, contacts, deals, CRM fields) and nobody is here to confirm an action. If asked to change "
+    "something, say so in one sentence and where in Vocify or the CRM it can be done, then answer whatever else was "
+    "asked. Answer for a program: the facts first, and no offers to do more."
+)
 _STORED_KEYS = (
     "question", "coverage", "item_count", "choices", "confirmation", "call_targets", "steps",
     "evidence", "coverage_note", "memory", "cards",
@@ -467,7 +473,8 @@ async def live_ask_loop(
                 llm=LLMClient(),
                 execute=execute_tool,
                 tools=[*(t for t in OPENAI_TOOLS if t["function"]["name"] not in hidden), *intel_tools_for(actor)],
-                system=build_system_prompt(artifacts, web=True, manager=actor.is_team_reader, tz=actor.timezone, team=team),
+                system=build_system_prompt(artifacts, web=True, manager=actor.is_team_reader, tz=actor.timezone, team=team)
+                + (READ_ONLY_NOTE if read_only else ""),
                 confirm=confirm,
                 ctx=ctx,
                 model=model_profile.ask_model(),

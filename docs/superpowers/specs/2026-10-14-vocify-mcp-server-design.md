@@ -102,21 +102,12 @@ API key (no new table)
 - Profile (not workspace) because scoping is per user. A workspace-wide key would carry no identity, so it would either see everything or need its own permission rules. Claude's own docs say an org-wide header credential must not be used to identify the user.
 - Endpoints: generate/regenerate, revoke, and status (prefix + created_at) for the caller; list members-with-key and revoke for owner/admin.
 
-OAuth layer
-- Supabase Auth's OAuth 2.1 server is the authorization server. Vocify's API is the resource server.
-- Vocify serves the Protected Resource Metadata document, whose `resource` is exactly the MCP URL users paste and whose first `authorization_servers` entry is the Supabase issuer.
-- Dynamic Client Registration is enabled in Supabase. Supabase does not document CIMD, and Claude falls back to DCR when CIMD isn't advertised.
-- A consent page in the React app (Supabase hosts none). It shows the client name and the redirect host, and says the access is read-only.
-- A "Connected apps" section in Settings to list and revoke OAuth grants.
-- Access tokens are validated against Supabase's JWKS: signature, expiry, and audience (see the verification gate below).
-- Verification gate, to settle on staging before building on it. Supabase's docs don't confirm any of these:
-  1. which key signs OAuth tokens, compared with the HS256 secret the API checks today
-  2. whether tokens can be audience-bound to the MCP URL (RFC 8707 `resource`)
-  3. whether port-agnostic loopback redirects work for Claude Code
-  4. how grants are revoked
-  5. the feature's beta/GA status
-
-  Gate passes when Claude.ai and ChatGPT developer mode both connect end-to-end. If it fails, a different authorization server is chosen before continuing. The API-key path does not depend on this gate and can ship first.
+OAuth layer ("Sign in with Vocify"; changed from Supabase's OAuth server to Vocify's own on 2026-10-14, see the end)
+- Vocify's API is both the resource server (`/mcp`) and the authorization server. It serves the Protected Resource Metadata (whose `resource` is exactly the MCP URL users paste and whose `authorization_servers` entry is the API itself) and the OAuth 2.1 endpoints.
+- It reuses the MCP SDK's authorize and token handlers (PKCE, redirect checks, error shapes). Only the storage side is Vocify's, and it is stateless: signed tokens plus one JSON column on the profile.
+- Dynamic Client Registration (what Claude and ChatGPT both support), with no stored client: the client id is the signed registration.
+- A consent page in the React app: the app's name, where it sends the user back, a warning for apps we don't recognise, and Allow / Deny.
+- A "Connected apps" list in Settings to disconnect.
 
 Tools (all read-only, `readOnlyHint: true`, `openWorldHint: false`, each with a `title`)
 - Every tool runs through the same `AskActor` scoping the dashboard's Ask uses: a member sees only themselves, managers (owner/admin or team visibility) see the team. A `user_id` outside scope returns a forbidden error, not empty data.
@@ -228,10 +219,10 @@ Schema changes
 - Every tool call: `MCP_TOOL_CALLS_PER_MINUTE` (60) per user, per server instance. All four numbers are env settings, chosen as starting values, not measured.
 - Transcripts default off (`MCP_TRANSCRIPTS_ENABLED`); MCP itself defaults off (`MCP_ENABLED`). Both are per-workspace rows in `company_feature_flags`, switched by an owner or admin in Settings → AI agents.
 - A bad, regenerated or revoked key is a 401. A removed member, a workspace with MCP off, or a paywalled plan is a tool error the agent can relay, not a 401 (a 401 would send the client into a sign-in loop).
-- OAuth tokens are verified with the project's JWT secret (HS256) or its JWKS (RS256/ES256). The audience is not checked, because Supabase does not document what `aud` its OAuth tokens carry. The `role` claim must be `authenticated`.
-- The consent screen is `/oauth/consent` in the dashboard. Its calls go through `/api/v1/oauth/*`, which forwards them to Supabase Auth with the user's own session token (the dashboard does not use supabase-js). The endpoints were read from `@supabase/auth-js` 2.117.3.
-- Supabase dashboard settings Dani has to make, for the OAuth half only:
-  - Authentication → OAuth Server: enable it, with Authorization Path `/oauth/consent`.
-  - Turn on dynamic registration.
-  - Site URL is the dashboard origin that serves `/oauth/consent`.
-- Migration `079_mcp_api_keys.sql` adds the three key columns to `user_profiles`. Until it runs, creating a key fails and every key is invalid.
+- **OAuth is Vocify's own, not Supabase's** (Dani, 2026-10-14). The SDK's authorize and token handlers run over a provider with no tables (`services/mcp/oauth.py`): client ids (dynamic registration), consent requests, authorization codes, access tokens (1 h, audience = the MCP URL) and refresh tokens (90 days, rotated) are signed tokens, with a key derived from `JWT_SECRET`. The only stored state is `user_profiles.oauth_grants`, one JSON column holding each connected app and its connections' current refresh token ids; deleting an entry disconnects the app. The issuer is the API itself: `/.well-known/oauth-authorization-server`, `/oauth/register`, `/oauth/authorize`, `/oauth/token`.
+- A replayed old refresh token (past a 60 s grace) ends that one connection only. Public clients only (no client secret); PKCE S256 required; `resource` must be the MCP URL when sent. Redirect URIs: https, loopback http, or an app scheme such as `cursor://`; never `javascript:`, `data:`, `file:` or plain http to another host. Not supported: client-id metadata documents (CIMD), a token revocation endpoint (disconnect in Settings instead).
+- The consent screen is `/oauth/consent` in the dashboard; it shows the app's name, where it sends the user back, and a warning for any app that is not Claude, ChatGPT, Cursor or VS Code (a name is whatever the app called itself). It is reached after the user signs in to the dashboard (`/login?next=`). Consent is refused when the workspace has AI agents off.
+- A dashboard (Supabase) session token is not a credential for `/mcp`: only an API key or one of Vocify's own access tokens.
+- Settings → AI agents is organised by how you connect: "Sign in with Vocify" (Claude on web, desktop and mobile, and ChatGPT; connected apps are listed there) and "API key" (Claude Code, Cursor, Claude Desktop's config file).
+- `ask_vocify` tells the Ask engine it is read-only, so a request to change something is answered with "can't from here" instead of being silently ignored.
+- Migrations: `079_mcp_api_keys.sql` (key columns) and `080_mcp_oauth_grants.sql` (`oauth_grants`). Until 080 runs, signing in cannot finish; API keys are unaffected. No Supabase dashboard setting is needed.

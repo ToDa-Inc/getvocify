@@ -17,21 +17,19 @@ export type McpSettings = {
 
 export type McpCreatedKey = McpKeyStatus & { key: string };
 
-/** An app the user connected through OAuth (Supabase Auth's grant shape). */
+/** An app the user connected by signing in. `client_id` is the id to disconnect it with; `client_uri` its host. */
 export type OAuthGrant = {
-  client: { client_id: string; client_name?: string | null; client_uri?: string | null; logo_uri?: string | null };
-  scopes?: string[];
-  granted_at?: string;
+  client: { client_id: string; client_name?: string | null; client_uri?: string | null };
+  granted_at?: string | null;
 };
 
-export type OAuthAuthorization =
-  | {
-      authorization_id: string;
-      redirect_uri?: string;
-      scope?: string;
-      client: { client_id: string; client_name?: string | null; client_uri?: string | null; logo_uri?: string | null };
-    }
-  | { redirect_url: string };
+/** The app asking to sign in. `known` is false for any app that is not Claude, ChatGPT, Cursor or VS Code. */
+export type OAuthAuthorization = {
+  authorization_id: string;
+  redirect_uri: string;
+  known: boolean;
+  client: { client_id: string; client_name?: string | null };
+};
 
 export const mcpKeys = {
   all: ["mcp"] as const,

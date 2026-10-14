@@ -453,3 +453,7 @@ _mcp_app = _mcp_asgi_app()
 _mcp_server = _get_mcp_server()
 for _mcp_path in ("/mcp", "/.well-known/oauth-protected-resource/mcp"):
     app.router.routes.append(_Route(_mcp_path, endpoint=_mcp_app))
+# Its OAuth server (sign in with a Vocify account): metadata, register, authorize, token.
+from app.services.mcp.oauth import routes as _mcp_oauth_routes  # noqa: E402
+
+app.router.routes.extend(_mcp_oauth_routes())

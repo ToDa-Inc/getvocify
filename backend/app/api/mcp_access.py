@@ -1,9 +1,8 @@
-"""Settings → AI agents: the workspace switches, each user's API key, and the OAuth consent screen's calls.
+"""Settings → AI agents: the workspace switches, each user's API key, the consent screen and connected apps.
 
-The MCP server itself lives at /mcp (app/services/mcp/server.py). These routes are what the dashboard uses
-to manage access to it. The OAuth ones forward to Supabase Auth's OAuth 2.1 server with the signed-in
-user's own session token, the same calls supabase-js makes (`auth.oauth.*`), since the dashboard does not
-use supabase-js.
+The MCP server itself lives at /mcp (app/services/mcp/server.py) and its OAuth server at /oauth/* (services/mcp/
+oauth.py). These routes are what the dashboard calls to manage access to them: the signed-in user answers a
+consent request here, and lists or disconnects the apps they connected.
 """
 
 from __future__ import annotations
@@ -11,20 +10,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 
-from app.config import settings
-from app.deps import get_membership, get_supabase, get_user_id
+from app.deps import get_membership, get_supabase
 from app.services import feature_flags
 from app.services.company import CompanyService, Membership
-from app.services.mcp import access, api_keys
+from app.services.mcp import access, api_keys, oauth
 
 router = APIRouter(prefix="/api/v1/mcp", tags=["mcp"])
 oauth_router = APIRouter(prefix="/api/v1/oauth", tags=["oauth"])
 
-_GOTRUE_VERSION = {"X-Supabase-Api-Version": "2024-01-01"}
 
 
 class WorkspaceSettings(BaseModel):
@@ -121,76 +117,55 @@ def delete_member_key(user_id: str, membership: Membership = Depends(get_members
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# ----- OAuth consent (Supabase Auth OAuth 2.1 server) ---------------------------------------------
+# ----- OAuth: consent and connected apps -----------------------------------------------------------------
 
 
-def _bearer(authorization: Optional[str]) -> str:
-    token = (authorization or "").replace("Bearer ", "", 1).strip()
-    if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing authorization header")
-    return token
-
-
-async def _gotrue(method: str, path: str, token: str, *, json: Optional[dict] = None, params: Optional[dict] = None):
-    apikey = (settings.SUPABASE_ANON_KEY or "").strip() or settings.SUPABASE_SERVICE_ROLE_KEY
-    headers = {"apikey": apikey, "Authorization": f"Bearer {token}", **_GOTRUE_VERSION}
-    url = settings.SUPABASE_URL.rstrip("/") + "/auth/v1" + path
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.request(method, url, headers=headers, json=json, params=params)
-    except httpx.HTTPError as error:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Sign-in service unavailable") from error
-    if response.status_code >= 400:
-        try:
-            body = response.json()
-        except ValueError:
-            body = {}
-        detail = body.get("msg") or body.get("message") or body.get("error_description") or "OAuth request failed"
-        code = body.get("error_code") or body.get("code")
-        raise HTTPException(status_code=response.status_code, detail={"message": detail, "code": code})
-    if response.status_code == 204 or not response.content:
-        return None
-    return response.json()
-
-
-@oauth_router.get("/authorizations/{authorization_id}")
-async def get_authorization(
-    authorization_id: str,
-    _user_id: str = Depends(get_user_id),
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-):
-    """The app asking for access, its redirect and scopes; or {redirect_url} when the user already consented."""
-    return await _gotrue("GET", f"/oauth/authorizations/{authorization_id}", _bearer(authorization))
-
-
-@oauth_router.post("/authorizations/{authorization_id}/consent")
-async def consent(
-    authorization_id: str,
-    payload: ConsentRequest,
-    _user_id: str = Depends(get_user_id),
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-):
-    """{redirect_url} to send the browser back to the app, with a code (approve) or an error (deny)."""
-    return await _gotrue(
-        "POST", f"/oauth/authorizations/{authorization_id}/consent", _bearer(authorization), json={"action": payload.action}
+def _gone() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="This sign-in request expired. Start again from the app."
     )
 
 
-@oauth_router.get("/grants")
-async def list_grants(
-    _user_id: str = Depends(get_user_id),
-    authorization: Optional[str] = Header(None, alias="Authorization"),
+@oauth_router.get("/authorizations/{authorization_id}")
+def get_authorization(authorization_id: str, membership: Membership = Depends(get_membership)):
+    """The app asking for access: its name, where it sends the user back, and whether we recognise it."""
+    request = oauth.read_request(authorization_id)
+    if request is None:
+        raise _gone()
+    return request
+
+
+@oauth_router.post("/authorizations/{authorization_id}/consent")
+def consent(
+    authorization_id: str,
+    payload: ConsentRequest,
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
 ):
-    """The apps this user connected through OAuth."""
-    body = await _gotrue("GET", "/user/oauth/grants", _bearer(authorization))
-    return {"grants": body if isinstance(body, list) else (body or {}).get("grants", [])}
+    """{redirect_url}: back to the app with a code (allow) or an error (deny)."""
+    if payload.action == "approve" and not feature_flags.is_enabled(supabase, membership.company_id, access.FLAG):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI agent access is off for this workspace. An owner or admin can turn it on.",
+        )
+    redirect_url = oauth.decide(authorization_id, membership.user_id, payload.action == "approve")
+    if redirect_url is None:
+        raise _gone()
+    return {"redirect_url": redirect_url}
+
+
+@oauth_router.get("/grants")
+def list_grants(membership: Membership = Depends(get_membership), supabase=Depends(get_supabase)):
+    """The apps this user connected by signing in."""
+    return {"grants": oauth.list_grants(supabase, membership.user_id)}
 
 
 @oauth_router.delete("/grants", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke_grant(
+def revoke_grant(
     client_id: str = Query(..., min_length=1),
-    _user_id: str = Depends(get_user_id),
-    authorization: Optional[str] = Header(None, alias="Authorization"),
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
 ):
-    await _gotrue("DELETE", "/user/oauth/grants", _bearer(authorization), params={"client_id": client_id})
+    """Disconnect an app (client_id is the id list_grants gave): its tokens stop working within 30 seconds."""
+    oauth.revoke_grant(supabase, membership.user_id, client_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

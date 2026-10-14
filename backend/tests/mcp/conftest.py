@@ -120,12 +120,18 @@ def db(monkeypatch):
 
     monkeypatch.setattr(CompanyService, "list_members", list_members)
     monkeypatch.setattr(CompanyService, "get_company", lambda self, company_id: {"id": company_id, "name": "Acme Sales"})
+    from app.services.mcp import oauth
+
     feature_flags.clear_cache()
     access.reset_rate_limits()
     access._paywalled.clear()
+    oauth._grants_cache.clear()
+    oauth._used_codes.clear()
     yield database
     feature_flags.clear_cache()
     access.reset_rate_limits()
+    oauth._grants_cache.clear()
+    oauth._used_codes.clear()
 
 
 @pytest.fixture
@@ -151,6 +157,21 @@ def key_for(db):
     from app.services.mcp import api_keys
 
     return lambda user_id: api_keys.generate_key(db, user_id)["key"]
+
+
+@pytest.fixture
+def oauth_token_for(db):
+    """An access token as the OAuth server would issue it after the user allowed an app."""
+    from app.services.mcp import oauth
+
+    def mint(user_id: str, app: str = "Claude") -> str:
+        key, chain = oauth.grant_key(app, "https://claude.ai/cb"), "chain-1"
+        row = next(r for r in db.tables["user_profiles"] if r["id"] == user_id)
+        row["oauth_grants"] = {key: {"name": app, "host": "claude.ai", "at": "2026-10-14T10:00:00+00:00", "chains": {chain: {"rt": "j0", "at": "x"}}}}
+        oauth._grants_cache.clear()
+        return oauth._issue(user_id, key, chain, "client", "j0").access_token
+
+    return mint
 
 
 HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json", "MCP-Protocol-Version": "2025-11-25"}
