@@ -225,6 +225,50 @@ export function turnCheck(input: { settled: boolean; paused: boolean | null }): 
   return { afterMs: 2500, final: true };
 }
 
+/** Which rule started a check: their audio paused, the words had settled, the slow fallback, or the backstop. */
+export type CheckPath = "pause" | "settled" | "timeout" | "backstop";
+
+/** The path turnCheck takes for these inputs (the same three cases), to say which one fired. */
+export function checkPath(paused: boolean | null, settled: boolean): Exclude<CheckPath, "backstop"> {
+  if (paused) return "pause";
+  return paused === null && settled ? "settled" : "timeout";
+}
+
+/**
+ * What the client saw when a check started, sent with it so the event log can say where the time went:
+ * how long their audio had been quiet, how long since the transcript last changed, and whether the words
+ * were still changing after their audio went quiet (tail_ms > 0: the transcript lags the voice).
+ */
+export type CheckStamps = {
+  path: CheckPath;
+  quiet_ms: number | null;
+  words_age_ms: number;
+  tail_ms: number | null;
+  wait_ms: number;
+  deferred: boolean;
+  final: boolean;
+};
+
+export function checkStamps(input: {
+  path: CheckPath;
+  now: number;
+  quietSince: number | null;
+  changedAt: number;
+  waitMs: number;
+  deferred: boolean;
+  final: boolean;
+}): CheckStamps {
+  return {
+    path: input.path,
+    quiet_ms: input.quietSince === null ? null : Math.max(0, input.now - input.quietSince),
+    words_age_ms: Math.max(0, input.now - input.changedAt),
+    tail_ms: input.quietSince === null ? null : input.changedAt - input.quietSince,
+    wait_ms: input.waitMs,
+    deferred: input.deferred,
+    final: input.final,
+  };
+}
+
 /** What the turn check found; nulls when the classifier could not be reached. */
 export type TurnReading = {
   finished: boolean | null;

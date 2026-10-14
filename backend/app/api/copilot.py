@@ -67,6 +67,9 @@ class TurnRequest(BaseModel):
     transcript_window: str = Field(..., max_length=20000)
     latest_turn: str = Field(..., max_length=4000)
     sales_motion_key: Optional[str] = Field(default=None, max_length=64)
+    # What the client saw as the check started (which rule fired it, how long their audio was quiet, how long since
+    # the words changed): only logged, after the known keys are checked. Never used to decide anything.
+    timing: Optional[dict] = Field(default=None)
 
 
 class CallTypeGuessRequest(BaseModel):
@@ -276,6 +279,7 @@ async def check_turn(
         events.turn_row(
             user_id=user_id, company_id=playbook_objections.company_of(user_id), sales_motion_key=motion,
             latest_turn=body.latest_turn, reading=reading, check_ms=int((time.perf_counter() - started) * 1000),
+            timing=body.timing,
         ),
     )
     return reading

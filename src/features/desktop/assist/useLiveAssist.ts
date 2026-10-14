@@ -3,6 +3,8 @@ import {
   answerCard,
   assistContext,
   BACKSTOP_MS,
+  checkPath,
+  checkStamps,
   checkTiming,
   draftCard,
   nextStep,
@@ -30,13 +32,16 @@ function note(name: string, details: Record<string, unknown> = {}) {
  * Whether the prospect has paused: true once their side has been quiet for PAUSE_MS, false while
  * they speak, null until their audio has been heard at all (then live help reads only the words).
  */
-function useProspectPause(level: number | undefined): boolean | null {
+function useProspectPause(level: number | undefined) {
   const heardRef = useRef(false);
+  /** When their audio last went quiet (null while they speak or before it was heard): for the event log. */
+  const quietSinceRef = useRef<number | null>(null);
   const [paused, setPaused] = useState(false);
   const silent = level === undefined || prospectSilent(level);
   if (!silent) heardRef.current = true;
   useEffect(() => {
     setPaused(false);
+    quietSinceRef.current = silent && heardRef.current ? Date.now() : null;
     if (!silent) return;
     // Logged to time their last word against the card: when their level drops, and when it counts as a pause.
     if (heardRef.current) note("quiet");
@@ -46,7 +51,7 @@ function useProspectPause(level: number | undefined): boolean | null {
     }, PAUSE_MS);
     return () => window.clearTimeout(timer);
   }, [silent]);
-  return heardRef.current ? paused && silent : null;
+  return { paused: heardRef.current ? paused && silent : null, quietSinceRef };
 }
 
 /**
@@ -69,7 +74,9 @@ type Found = NonNullable<ReturnType<typeof assistContext>>;
 export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, call: LiveAssistCall = {}) {
   const [active, setActive] = useState<AssistCard | null>(null);
   const [thinking, setThinking] = useState(false);
-  const paused = useProspectPause(call.prospectLevel);
+  const { paused, quietSinceRef } = useProspectPause(call.prospectLevel);
+  /** When their words last changed (the transcript revising counts), to time a check against it. */
+  const changedAtRef = useRef(0);
   /** The words last checked: the same words are never checked twice. */
   const lastKeyRef = useRef("");
   /** How much of their current turn help already handled: the next check is about what came after. */
@@ -156,7 +163,11 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
   };
 
   /** One turn check on their words. final: they have been quiet long enough that "still going" means done. */
-  const check = (ctx: AssistContext & Found, final: boolean) => {
+  const check = (
+    ctx: AssistContext & Found,
+    final: boolean,
+    how: { path: ReturnType<typeof checkPath> | "backstop"; waitMs: number; deferred: boolean },
+  ) => {
     lastKeyRef.current = ctx.key;
     checkRef.current?.abort();
     const controller = new AbortController();
@@ -164,12 +175,25 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     const since = Date.now();
     // Every check, even one newer words replace: shows how long after they stop the check starts.
     note("check", { latest: ctx.latestTurn, final });
-    void readTurn(ctx, controller.signal).then((reading) => {
+    // What the client saw as this check started, for the event log: where the time went.
+    const stamps = checkStamps({
+      path: how.path,
+      now: since,
+      quietSince: quietSinceRef.current,
+      changedAt: changedAtRef.current,
+      waitMs: how.waitMs,
+      deferred: how.deferred,
+      final,
+    });
+    void readTurn(ctx, controller.signal, stamps).then((reading) => {
       if (controller.signal.aborted) return;
       const step = nextStep(reading, final);
       note("turn", { latest: ctx.latestTurn, ...reading, final, step: step.do, ms: Date.now() - since });
       if (step.do === "wait") {
-        backstopRef.current = window.setTimeout(() => check(ctx, true), BACKSTOP_MS);
+        backstopRef.current = window.setTimeout(
+          () => check(ctx, true, { path: "backstop", waitMs: BACKSTOP_MS, deferred: false }),
+          BACKSTOP_MS,
+        );
         return;
       }
       // These words are handled: the next check is about what they say after.
@@ -178,6 +202,11 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       answer(ctx, step.do === "answer" ? step.type : null, since, step.do === "answer" ? step : undefined);
     });
   };
+
+  // Every change in their words (the transcript revising counts) is stamped, to time a check against it.
+  useEffect(() => {
+    changedAtRef.current = Date.now();
+  }, [key]);
 
   useEffect(() => {
     // While an answer is written nothing new starts: its card is on screen and must not be replaced.
@@ -193,7 +222,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
         askedRef.current = { turnKey: context.turnKey, length: context.length };
         return;
       }
-      check(context, plan.final);
+      check(context, plan.final, { path: checkPath(paused, found!.settled), waitMs, deferred });
     }, waitMs);
     return () => window.clearTimeout(timer);
     // The key captures every change in their words; context is derived from it.

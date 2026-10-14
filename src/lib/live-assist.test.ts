@@ -4,6 +4,8 @@ import {
   answerCard,
   assistContext,
   CARD_COOLDOWN_MS,
+  checkPath,
+  checkStamps,
   checkTiming,
   cooldownLeft,
   repReplied,
@@ -346,5 +348,34 @@ describe("the cooldown after a card", () => {
     assert.equal(repReplied([turn("1", "prospect", "Me parece caro."), turn("2", "rep", "Vale, claro.")], "1"), false);
     assert.equal(repReplied([turn("1", "prospect", `${words} ${words}`), turn("2", "prospect", "y más")], "1"), false);
     assert.equal(repReplied([turn("1", "prospect", "Caro.")], "missing"), false);
+  });
+});
+
+
+describe("what a check records about its own timing", () => {
+  it("names the rule that fired it, the same three cases turnCheck takes", () => {
+    assert.equal(checkPath(true, false), "pause");
+    assert.equal(checkPath(null, true), "settled");
+    assert.equal(checkPath(null, false), "timeout");
+    assert.equal(checkPath(false, true), "timeout");
+    for (const [paused, settled] of [[true, true], [true, false], [null, true], [null, false], [false, true], [false, false]] as const) {
+      const path = checkPath(paused, settled);
+      const { afterMs } = turnCheck({ settled, paused });
+      assert.equal(afterMs === 0, path === "pause");
+      assert.equal(afterMs === 300, path === "settled");
+      assert.equal(afterMs === 2500, path === "timeout");
+    }
+  });
+
+  it("says how long their audio was quiet, how long since the words changed, and whether the words lagged the voice", () => {
+    const lagging = checkStamps({ path: "pause", now: 10_000, quietSince: 9_000, changedAt: 9_700, waitMs: 0, deferred: false, final: false });
+    assert.deepEqual(lagging, { path: "pause", quiet_ms: 1_000, words_age_ms: 300, tail_ms: 700, wait_ms: 0, deferred: false, final: false });
+    // Words that stopped changing before their audio went quiet: the transcript was ahead of the voice.
+    assert.equal(checkStamps({ path: "pause", now: 10_000, quietSince: 9_000, changedAt: 8_800, waitMs: 0, deferred: false, final: false }).tail_ms, -200);
+  });
+
+  it("has no quiet time when their audio was never heard or they are still speaking", () => {
+    const stamps = checkStamps({ path: "timeout", now: 5_000, quietSince: null, changedAt: 4_000, waitMs: 2_500, deferred: true, final: true });
+    assert.deepEqual([stamps.quiet_ms, stamps.tail_ms, stamps.words_age_ms], [null, null, 1_000]);
   });
 });

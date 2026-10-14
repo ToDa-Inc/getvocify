@@ -7,6 +7,7 @@ import {
   type AssistCard,
   type AssistContext,
   type AssistSource,
+  type CheckStamps,
   type TurnReading,
 } from "@/lib/live-assist";
 
@@ -58,7 +59,7 @@ const objectionSource: AssistSource = {
  * The turn check (~0.3 s): has the prospect finished, and which objection is it. Null when it
  * can't be reached, so live help falls back to asking the answer model directly.
  */
-export function readTurn(context: AssistContext, signal: AbortSignal): Promise<TurnReading | null> {
+export function readTurn(context: AssistContext, signal: AbortSignal, timing?: CheckStamps): Promise<TurnReading | null> {
   return api
     .post<TurnReading>(
       "/copilot/turn",
@@ -66,6 +67,7 @@ export function readTurn(context: AssistContext, signal: AbortSignal): Promise<T
         transcript_window: context.transcriptWindow,
         latest_turn: context.latestTurn,
         ...(context.typeKey && { sales_motion_key: context.typeKey }),
+        ...(timing && { timing }),
       },
       { signal, timeoutMs: 2500 },
     )

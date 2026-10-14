@@ -194,3 +194,65 @@ def test_old_rows_are_deleted_at_most_once_an_hour():
     events.record(db, {"kind": "turn", "user_id": "u"})
     events.record(db, {"kind": "turn", "user_id": "u"})
     assert len(db.inserted) == 2 and db.deleted == 1
+
+
+# --- The client's timing stamps ---------------------------------------------------------------------------
+
+
+STAMPS = {"path": "pause", "quiet_ms": 812, "words_age_ms": 240, "tail_ms": -30, "wait_ms": 0, "deferred": False, "final": False}
+
+
+def test_a_turn_check_stores_the_clients_timing(monkeypatch):
+    _classifier(monkeypatch)
+    monkeypatch.setattr(playbook_objections, "custom_for", lambda *_a: {})
+    db = FakeDb()
+    _client(db).post("/api/v1/copilot/turn", json={
+        "transcript_window": "Them: caro", "latest_turn": "me parece caro", "sales_motion_key": "discovery", "timing": STAMPS,
+    })
+    assert db.inserted[0]["client"] == STAMPS
+
+
+def test_only_the_known_timing_keys_with_sane_values_are_stored():
+    cleaned = events.clean_timing({
+        **STAMPS, "path": "somewhere", "quiet_ms": 10**12, "tail_ms": "700", "deferred": "yes",
+        "transcript": "everything they said", "extra": {"nested": 1},
+    })
+    assert cleaned == {"words_age_ms": 240, "wait_ms": 0, "final": False}
+    assert events.clean_timing(None) is None and events.clean_timing("x") is None and events.clean_timing({"a": 1}) is None
+    assert events.clean_timing({"quiet_ms": True}) is None  # a boolean is not a number of milliseconds
+
+
+def test_a_check_without_timing_logs_as_before(monkeypatch):
+    _classifier(monkeypatch)
+    monkeypatch.setattr(playbook_objections, "custom_for", lambda *_a: {})
+    db = FakeDb()
+    _turn(_client(db))
+    assert "client" not in db.inserted[0]
+
+
+class NoClientColumn(FakeDb):
+    """The table exists but migration 080 (the client column) has not been applied."""
+
+    def table(self, name):
+        db = self
+
+        class Table(FakeTable):
+            def insert(self, row):
+                if "client" in row:
+                    db.refused += 1
+                    raise RuntimeError("column live_assist_events.client does not exist")
+                return super().insert(row)
+
+        return Table(self) if name == events.TABLE else Other()
+
+    refused = 0
+
+
+def test_without_the_client_column_the_row_is_kept_and_later_ones_do_not_try_again(monkeypatch):
+    monkeypatch.setattr(events, "_no_client_until", 0.0)
+    db = NoClientColumn()
+    row = {"kind": "turn", "user_id": "u", "client": STAMPS}
+    events.record(db, dict(row))
+    events.record(db, dict(row))
+    assert len(db.inserted) == 2 and all("client" not in r for r in db.inserted)
+    assert db.refused == 1
