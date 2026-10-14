@@ -14,6 +14,10 @@
   --success: 125 32% 30%;
   --destructive: 0 72% 51%;
   --ink: 30 15% 8%;
+  --tone-sand: 38 45% 88%;
+  --tone-clay: 22 55% 89%;
+  --tone-sage: 100 24% 88%;
+  --tone-stone: 210 20% 90%;
   --radius-card: 12px;
   --radius-container: 18px;
   --radius-pill: 999px;
@@ -31,6 +35,10 @@
   --v-success: hsl(125 32% 30%);
   --v-destructive: hsl(0 72% 51%);
   --v-ink: hsl(30 15% 8%);
+  --v-tone-sand: hsl(38 45% 88%);
+  --v-tone-clay: hsl(22 55% 89%);
+  --v-tone-sage: hsl(100 24% 88%);
+  --v-tone-stone: hsl(210 20% 90%);
   --v-radius-card: 12px;
   --v-radius-container: 18px;
   --v-radius-pill: 999px;

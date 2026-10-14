@@ -16,16 +16,16 @@ const PricingSection = () => {
   ];
 
   return (
-    <section id="pricing" className="scroll-mt-24 py-32 bg-background relative overflow-hidden">
+    <section id="pricing" className="relative scroll-mt-24 overflow-hidden bg-ink py-28 text-cream md:py-36">
       <div className="container mx-auto px-6 relative z-10">
         <div className="text-center mb-16">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-            <span className="section-label mb-6">07 — {t.pricing.label}</span>
-            <h2 className="text-3xl md:text-5xl font-semibold text-foreground mb-6 tracking-tighter">
+            <span className="section-label mb-6 text-cream/60">05 — {t.pricing.label}</span>
+            <h2 className="h-display mb-6 text-4xl md:text-6xl">
               {t.pricing.title1}{" "}
-              <span className="text-beige font-serif italic font-medium">{t.pricing.title2}</span>
+              <span className="accent-serif text-cream/70">{t.pricing.title2}</span>
             </h2>
-            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">{t.pricing.subtitle}</p>
+            <p className="mx-auto max-w-2xl text-lg text-cream/60">{t.pricing.subtitle}</p>
           </motion.div>
         </div>
 
@@ -34,28 +34,28 @@ const PricingSection = () => {
             <motion.div
               key={plan.id}
               {...blurReveal(index * 0.08, 24, 0.97)}
-              className={`glass-card rounded-[28px] p-8 md:p-10 flex flex-col ${
-                highlighted ? "border border-beige/30 shadow-float" : ""
+              className={`relative flex flex-col overflow-hidden rounded-3xl border p-8 md:p-10 ${
+                highlighted ? "border-beige/40 bg-white/[0.05]" : "border-white/10 bg-white/[0.03]"
               }`}
             >
               <div className="mb-6">
                 <div className="flex items-center justify-between gap-3 mb-2">
-                  <p className="font-semibold text-foreground text-lg">{plan.name}</p>
+                  <p className="text-lg font-medium text-cream">{plan.name}</p>
                   {highlighted ? (
-                    <span className="text-[11px] font-mono uppercase tracking-[0.15em] text-beige">
+                    <span className="text-xs text-beige-light">
                       {t.pricing.proBadge}
                     </span>
                   ) : null}
                 </div>
-                <p className="text-sm text-muted-foreground">{plan.tagline}</p>
+                <p className="text-sm text-cream/55">{plan.id === "starter" ? t.pricing.starterTagline : t.pricing.proTagline}</p>
               </div>
 
               <div className="mb-6">
-                <p className="text-[2.5rem] leading-none tracking-tight text-foreground">
+                <p className="text-[2.5rem] leading-none tracking-[-0.04em] text-cream">
                   €{plan.monthlyAmount}
-                  <span className="text-base text-muted-foreground font-normal"> {t.pricing.perMonth}</span>
+                  <span className="text-base font-normal text-cream/55"> {t.pricing.perMonth}</span>
                 </p>
-                <p className="text-sm text-muted-foreground mt-2">
+                <p className="mt-2 text-sm text-cream/55">
                   {t.pricing.orYearly
                     .replace("{yearly}", String(plan.yearlyAmount))
                     .replace("{monthly}", String(plan.yearlyMonthlyAmount))}
@@ -65,8 +65,8 @@ const PricingSection = () => {
               <ul className="space-y-3 mb-8 flex-1">
                 {(plan.id === "starter" ? t.pricing.starterFeatures : t.pricing.proFeatures).map(
                   (feature: string) => (
-                    <li key={feature} className="flex items-start gap-2.5 text-sm text-foreground">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-beige" />
+                    <li key={feature} className="flex items-start gap-2.5 text-sm text-cream/90">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-beige-light" />
                       <span>{feature}</span>
                     </li>
                   ),
@@ -77,10 +77,8 @@ const PricingSection = () => {
                 href={DEMO_BOOKING_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`inline-flex w-full items-center justify-center rounded-full py-3 text-sm font-semibold transition-all duration-500 ease-silk active:scale-[0.98] ${
-                  highlighted
-                    ? "bg-beige text-cream hover:bg-beige-dark"
-                    : "border border-border/60 text-foreground hover:bg-beige/5"
+                className={`inline-flex h-12 w-full items-center justify-center rounded-2xl text-sm font-semibold transition-all duration-300 ease-silk active:scale-[0.98] ${
+                  highlighted ? "bg-cream text-ink hover:bg-white" : "border-2 border-white/10 text-cream hover:bg-white/5"
                 }`}
               >
                 {t.pricing.cta}
@@ -89,7 +87,7 @@ const PricingSection = () => {
           ))}
         </div>
 
-        <p className="text-center text-sm text-muted-foreground mt-8 max-w-xl mx-auto">{t.pricing.note}</p>
+        <p className="mx-auto mt-8 max-w-xl text-center text-sm text-cream/45">{t.pricing.note}</p>
       </div>
     </section>
   );

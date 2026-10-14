@@ -4,6 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
+import RoleLandingPage from "./pages/teams/RoleLandingPage";
+import McpPage from "./pages/McpPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import AboutPage from "./pages/AboutPage";
 import BlogPage from "./pages/BlogPage";
@@ -150,6 +152,12 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/en" element={<Index />} />
+            <Route path="/mcp" element={<McpPage />} />
+            <Route path="/teams/sdrs" element={<RoleLandingPage role="sdr" />} />
+            <Route path="/teams/account-executives" element={<RoleLandingPage role="ae" />} />
+            <Route path="/teams/sales-managers" element={<RoleLandingPage role="manager" />} />
+            <Route path="/teams/field-reps" element={<RoleLandingPage role="field" />} />
+            <Route path="/teams/revops" element={<RoleLandingPage role="revops" />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/blog" element={<BlogPage />} />

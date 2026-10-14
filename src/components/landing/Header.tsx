@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Menu } from "lucide-react";
+import { BarChart3, Briefcase, Building, CalendarClock, CheckCheck, ChevronDown, Database, Headphones, Car, Menu, Phone, type LucideIcon } from "lucide-react";
 import { APP_URL, DEMO_BOOKING_URL } from "@/lib/app-url";
 import Logo from "@/components/Logo";
 import { motion } from "framer-motion";
 import { useLanguage } from "@/lib/i18n";
+import { ROLE_PATHS } from "@/lib/landing-roles";
 import { Sheet, SheetContent, SheetTrigger, SheetClose } from "@/components/ui/sheet";
 
 const HEADER_ZONE = 80;
@@ -13,23 +14,42 @@ const Header = () => {
   const { language, setLanguage, t } = useLanguage();
   const [isOverDark, setIsOverDark] = useState(false);
 
-  const navLinks = [
-    { href: "#features", label: t.nav.features },
-    { href: "#pricing", label: t.nav.pricing },
-    { href: "#calculator", label: t.nav.calculator },
-    { href: "#how-it-works", label: t.nav.about },
+  const home = language === "EN" ? "/en" : "/";
+  const [openMenu, setOpenMenu] = useState<"product" | "teams" | null>(null);
+
+  const menus: { id: "product" | "teams"; label: string; items: { icon: LucideIcon; href: string; title: string; desc: string }[] }[] = [
+    {
+      id: "product",
+      label: t.nav.product,
+      items: [
+        { icon: CalendarClock, href: `${home}#demo-before` },
+        { icon: Headphones, href: `${home}#demo-during` },
+        { icon: CheckCheck, href: `${home}#demo-after` },
+        { icon: BarChart3, href: `${home}#coaching` },
+      ].map((item, i) => ({ ...item, ...t.nav.menus.product[i] })),
+    },
+    {
+      id: "teams",
+      label: t.nav.teams,
+      items: [
+        { icon: Phone, href: ROLE_PATHS.sdr },
+        { icon: Building, href: ROLE_PATHS.ae },
+        { icon: Briefcase, href: ROLE_PATHS.manager },
+        { icon: Car, href: ROLE_PATHS.field },
+        { icon: Database, href: ROLE_PATHS.revops },
+      ].map((item, i) => ({ ...item, ...t.nav.menus.teams[i] })),
+    },
   ];
+  const pricingHref = `${home}#pricing`;
 
   useEffect(() => {
     let raf = 0;
     const check = () => {
-      const darkSection = document.querySelector(".bg-ink");
-      if (!darkSection) {
-        setIsOverDark(false);
-        return;
-      }
-      const rect = darkSection.getBoundingClientRect();
-      setIsOverDark(rect.top <= HEADER_ZONE && rect.bottom >= 0);
+      const overDark = Array.from(document.querySelectorAll(".bg-ink")).some((el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.top <= HEADER_ZONE && rect.bottom >= 0;
+      });
+      setIsOverDark(overDark);
     };
     const onScroll = () => {
       cancelAnimationFrame(raf);
@@ -59,23 +79,75 @@ const Header = () => {
           to={language === "EN" ? "/en" : "/"}
           className="shrink-0 transition-opacity hover:opacity-80"
         >
-          <Logo className={`transition-all duration-300 ${isOverDark ? "brightness-0 invert" : ""}`} />
+          <Logo onDark={isOverDark} />
         </Link>
 
-        <nav className="hidden lg:flex flex-1 items-center justify-center gap-1">
-          {navLinks.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                isOverDark
-                  ? "text-cream/60 hover:text-cream hover:bg-white/5"
-                  : "text-foreground/60 hover:text-foreground hover:bg-beige/5"
-              }`}
-            >
-              {link.label}
-            </a>
+        <nav className="hidden lg:flex flex-1 items-center justify-center gap-1" onMouseLeave={() => setOpenMenu(null)}>
+          {menus.map((menu) => (
+            <div key={menu.id} className="relative" onMouseEnter={() => setOpenMenu(menu.id)}>
+              <button
+                type="button"
+                aria-expanded={openMenu === menu.id}
+                onClick={() => setOpenMenu(openMenu === menu.id ? null : menu.id)}
+                onKeyDown={(e) => e.key === "Escape" && setOpenMenu(null)}
+                className={`flex items-center gap-1 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                  isOverDark
+                    ? "text-cream/60 hover:text-cream hover:bg-white/5"
+                    : "text-foreground/60 hover:text-foreground hover:bg-beige/5"
+                } ${openMenu === menu.id ? (isOverDark ? "text-cream" : "text-foreground") : ""}`}
+              >
+                {menu.label}
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-300 ${openMenu === menu.id ? "rotate-180" : ""}`} />
+              </button>
+              {openMenu === menu.id && (
+                <div className="absolute left-1/2 top-full z-50 w-[540px] -translate-x-1/2 pt-4">
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="glass-card-strong grid grid-cols-2 gap-1 rounded-3xl !bg-white p-3 shadow-float"
+                  >
+                    {menu.items.map((item) => (
+                      <Link
+                        key={item.title}
+                        to={item.href}
+                        onClick={() => setOpenMenu(null)}
+                        className="group flex gap-3 rounded-2xl p-3 transition-colors hover:bg-beige/10"
+                      >
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-tone-sand text-beige">
+                          <item.icon className="h-4 w-4" strokeWidth={1.7} />
+                        </span>
+                        <span>
+                          <span className="block text-sm font-semibold text-foreground">{item.title}</span>
+                          <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{item.desc}</span>
+                        </span>
+                      </Link>
+                    ))}
+                  </motion.div>
+                </div>
+              )}
+            </div>
           ))}
+          <Link
+            to={pricingHref}
+            className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+              isOverDark
+                ? "text-cream/60 hover:text-cream hover:bg-white/5"
+                : "text-foreground/60 hover:text-foreground hover:bg-beige/5"
+            }`}
+          >
+            {t.nav.pricing}
+          </Link>
+          <Link
+            to="/mcp"
+            className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+              isOverDark
+                ? "text-cream/60 hover:text-cream hover:bg-white/5"
+                : "text-foreground/60 hover:text-foreground hover:bg-beige/5"
+            }`}
+          >
+            {t.nav.mcp}
+          </Link>
         </nav>
 
         <div className="flex items-center gap-2">
@@ -135,17 +207,40 @@ const Header = () => {
               </button>
             </SheetTrigger>
             <SheetContent side="right" className="bg-cream border-l border-border/50 w-72">
-              <nav className="mt-10 flex flex-col gap-1">
-                {navLinks.map((link) => (
-                  <SheetClose key={link.href} asChild>
-                    <a
-                      href={link.href}
-                      className="rounded-2xl px-4 py-3 text-base font-medium text-foreground/80 transition-colors hover:bg-beige/10 hover:text-foreground"
-                    >
-                      {link.label}
-                    </a>
-                  </SheetClose>
+              <nav className="mt-10 flex flex-col gap-1 overflow-y-auto">
+                {menus.map((menu) => (
+                  <div key={menu.id} className="mb-3">
+                    <p className="px-4 pb-1 text-xs font-medium text-muted-foreground">
+                      {menu.label}
+                    </p>
+                    {menu.items.map((item) => (
+                      <SheetClose key={item.title} asChild>
+                        <Link
+                          to={item.href}
+                          className="block rounded-2xl px-4 py-2.5 text-base font-medium text-foreground/80 transition-colors hover:bg-beige/10 hover:text-foreground"
+                        >
+                          {item.title}
+                        </Link>
+                      </SheetClose>
+                    ))}
+                  </div>
                 ))}
+                <SheetClose asChild>
+                  <Link
+                    to={pricingHref}
+                    className="rounded-2xl px-4 py-3 text-base font-medium text-foreground/80 transition-colors hover:bg-beige/10 hover:text-foreground"
+                  >
+                    {t.nav.pricing}
+                  </Link>
+                </SheetClose>
+                <SheetClose asChild>
+                  <Link
+                    to="/mcp"
+                    className="rounded-2xl px-4 py-3 text-base font-medium text-foreground/80 transition-colors hover:bg-beige/10 hover:text-foreground"
+                  >
+                    {t.nav.mcp}
+                  </Link>
+                </SheetClose>
                 <SheetClose asChild>
                   <a
                     href={`${APP_URL}/dashboard`}

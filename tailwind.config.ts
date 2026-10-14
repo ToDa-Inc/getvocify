@@ -90,6 +90,12 @@ export default {
           DEFAULT: "hsl(var(--ink))",
           foreground: "hsl(var(--ink-foreground))",
         },
+        tone: {
+          sand: "hsl(var(--tone-sand))",
+          clay: "hsl(var(--tone-clay))",
+          sage: "hsl(var(--tone-sage))",
+          stone: "hsl(var(--tone-stone))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

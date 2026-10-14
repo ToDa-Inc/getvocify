@@ -2,15 +2,12 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import Header from "@/components/landing/Header";
 import Hero from "@/components/landing/Hero";
-import ProblemSection from "@/components/landing/ProblemSection";
+import BestRepSection from "@/components/landing/BestRepSection";
 import { DemoVideoProvider } from "@/contexts/DemoVideoContext";
-import SolutionSection from "@/components/landing/SolutionSection";
-import Features from "@/components/landing/Features";
-import SocialProof from "@/components/landing/SocialProof";
-import ROICalculator from "@/components/landing/ROICalculator";
+import CoachingSection from "@/components/landing/CoachingSection";
+import CaptureSection from "@/components/landing/CaptureSection";
 import PricingSection from "@/components/landing/PricingSection";
-import ComparisonSection from "@/components/landing/ComparisonSection";
-import UseCasesSection from "@/components/landing/UseCasesSection";
+import TeamsSection from "@/components/landing/TeamsSection";
 import FAQSection from "@/components/landing/FAQSection";
 import FinalCTA from "@/components/landing/FinalCTA";
 import Footer from "@/components/landing/Footer";
@@ -35,14 +32,11 @@ const Index = () => {
       <Header />
       <main>
         <Hero />
-        <ProblemSection />
-        <SolutionSection />
-        <Features />
-        <SocialProof />
+        <BestRepSection />
+        <CoachingSection />
+        <CaptureSection />
+        <TeamsSection />
         <PricingSection />
-        <ROICalculator />
-        <ComparisonSection />
-        <UseCasesSection />
         <FAQSection />
         <FinalCTA />
       </main>
