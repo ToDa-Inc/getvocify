@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from app.services.playbooks.catalog import (
     CATALOG_KEYS,
+    INTERNAL_KEY,
     catalog_label,
+    catalog_order,
     default_applies_to,
     effective_applies_to,
     is_catalog,
@@ -56,14 +58,27 @@ def _label(key: str, meta: dict, lang: str) -> str:
     return str(meta.get("label") or "").strip() or catalog_label(key, lang) or key
 
 
-def candidate_types(routing: bool, motions: dict, details: dict, lang: str) -> list[dict]:
+def candidate_types(routing: bool, motions: dict, details: dict, lang: str, *, by_channel: bool = False) -> list[dict]:
     """[{key, label, description}] the document can be split into, in catalog order.
 
-    Routing on: the five catalog types plus the company's own types that have a rule.
-    Routing off: only `discovery` and `closing`. `label` is the company's own name for the
-    type when it set one, else the catalog name in `lang`; `description` is for the model."""
+    Types by channel: exactly the company's own list, the types its Proceso de venta shows (not
+    paused, never Interna). Routing on: the five catalog types plus the company's own types that
+    have a rule. Routing off: only `discovery` and `closing`. `label` is the company's own name
+    for the type when it set one, else the catalog name in `lang`; `description` is for the model
+    (the type's own recognition sentence when it has one)."""
     lang = "en" if lang == "en" else "es"
     out: list[dict] = []
+    if by_channel:
+        for key in sorted(motions, key=catalog_order):
+            if key == INTERNAL_KEY or motions[key] == "paused":
+                continue
+            meta = details.get(key) or {}
+            label = _label(key, meta, lang)
+            recognize = str(meta.get("recognize") or "").strip()
+            hint = _HINTS_ROUTING_ON.get(key) or _custom_hint(label, effective_applies_to(key, meta.get("applies_to")) or {})
+            out.append({"key": key, "label": label, "description": f"{recognize} ({hint})" if recognize else hint})
+        if out:
+            return out
     if not routing:
         for key in _FLAG_OFF_KEYS:
             out.append({

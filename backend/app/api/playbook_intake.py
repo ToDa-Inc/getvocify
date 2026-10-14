@@ -13,6 +13,8 @@ from supabase import Client
 
 from app.deps import get_membership, get_supabase
 from app.services.company import Membership
+from app.services.feature_flags import is_enabled
+from app.services.playbooks import channel_types
 from app.services.playbooks.api_support import (
     StructureRequest,
     company_context,
@@ -72,8 +74,13 @@ async def structure_company_source(
     text = await read_source(body)
     lang = detect_language(text)
     routing = routing_enabled(supabase, membership.company_id)
-    motions, stored = motions_and_stored(repository.list_types(membership.company_id, include_draft=False))
-    candidates = candidate_types(routing, motions, stored, lang)
+    types = repository.list_types(membership.company_id, include_draft=False)
+    motions, stored = motions_and_stored(types)
+    for key, row in types.items():
+        stored[key]["recognize"] = row.get("recognize")
+    # The types the company's own Proceso de venta lists: with types by channel that list is the company's.
+    by_channel = is_enabled(supabase, membership.company_id, channel_types.FLAG)
+    candidates = candidate_types(routing, motions, stored, lang, by_channel=by_channel)
     source = _keep_source(repository, membership, None, body, text, lang)
     result = await split_source(text, candidates, lang)
 
