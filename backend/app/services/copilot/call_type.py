@@ -202,13 +202,18 @@ async def propose(
     return proposal
 
 
-def grounding_for_type(supabase: Any, company_id: str, key: str, kind: str) -> Optional[SuggestGrounding]:
-    """Live help grounded in this type's published playbook; None when it has none."""
+def grounding_for_type(
+    supabase: Any, company_id: str, key: str, kind: str, *, strict: bool = False,
+) -> Optional[SuggestGrounding]:
+    """Live help grounded in this type's published playbook; None when it has none. A failed read is also None,
+    unless `strict`: then it raises, so a caller that keeps the result never keeps a failure."""
     if not key or key == INTERNAL_KEY:
         return None
     try:
         snapshot = live_snapshot(supabase, company_id, key)
     except Exception:
+        if strict:
+            raise
         logger.warning("call type: playbook lookup failed", exc_info=True)
         return None
     if snapshot is None:

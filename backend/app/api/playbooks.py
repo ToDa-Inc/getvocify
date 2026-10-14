@@ -353,6 +353,7 @@ async def publish_motion(sales_motion_key: str, membership: Membership = Depends
                 detail="Hay pasos contradictorios. Edita el borrador antes de publicar.",
             )
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No hay un borrador para publicar")
+    _playbooks_changed(membership.company_id)
     motions, _ = motions_and_stored(repository.list_types(membership.company_id))
     return {"motions": motions, "activated": {sales_motion_key: version_id}}
 
@@ -482,6 +483,14 @@ async def discard_structured_playbook_draft(
     return editor_response(sales_motion_key, snapshot)
 
 
+def _playbooks_changed(company_id: str) -> None:
+    """Live help keeps the playbooks it reads for a short time: a change to what applies is live on the next card."""
+    from app.services.copilot import live_context, playbook_objections
+
+    live_context.invalidate_company(company_id)
+    playbook_objections.invalidate_company(company_id)
+
+
 def _lifecycle(action: str, sales_motion_key: str, supabase: Client, membership: Membership) -> dict:
     """Runs pause | resume | archive | restore for the company's type and answers like GET
     /playbooks. 409 {detail: {code}} when it does not apply as things are (not_published,
@@ -494,6 +503,7 @@ def _lifecycle(action: str, sales_motion_key: str, supabase: Client, membership:
         if exc.code == "not_found":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook no encontrado") from exc
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
+    _playbooks_changed(membership.company_id)
     return _playbooks_payload(supabase, membership, repository)
 
 

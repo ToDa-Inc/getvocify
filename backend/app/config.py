@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     COPILOT_DIRECT_API_KEY: Optional[str] = None
     COPILOT_DIRECT_MODEL: Optional[str] = None
     COPILOT_HEDGE_MS: int = 600
+    # How long live help keeps what it reads before a card (offer, company knowledge, call type's playbook, timezone).
+    # 0 reads them again for every card, as before. A playbook publish/pause/restore clears the cache at once.
+    COPILOT_CONTEXT_TTL_S: float = 60.0
     # Keep a small log of what live help did (migration 078): one row per finished-turn check and per card.
     COPILOT_LOG_EVENTS: bool = True
     # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
