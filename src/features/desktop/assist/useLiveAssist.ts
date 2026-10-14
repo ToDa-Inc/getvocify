@@ -4,11 +4,13 @@ import {
   answerCard,
   assistContext,
   BACKSTOP_MS,
+  checkTiming,
   draftCard,
   nextStep,
   PAUSE_MS,
   previousAnswers,
   prospectSilent,
+  skipAnswered,
   turnCheck,
   type AssistCard,
   type AssistContext,
@@ -79,6 +81,11 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
   const backstopRef = useRef<number | undefined>(undefined);
   /** Every card shown in this call, oldest first: so answers never repeat. */
   const shownRef = useRef<AssistCard[]>([]);
+  /** When the newest card appeared: no new check starts until its cooldown is over. */
+  const shownAtRef = useRef<number | null>(null);
+  /** The conversation as of the latest render, for a check that waited and must see what was said meanwhile. */
+  const turnsRef = useRef(turns);
+  turnsRef.current = turns;
 
   const found = enabled ? assistContext(turns, askedRef.current) : null;
   const context = found
@@ -93,6 +100,8 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
 
   /** Shows a new card, moving whatever was up into "Earlier". */
   const present = (card: AssistCard) => {
+    // A card's first appearance starts its cooldown; the answer landing in it later does not restart it.
+    if (!shownRef.current.some((item) => item.id === card.id)) shownAtRef.current = Date.now();
     const shown = shownRef.current;
     shownRef.current = shown.some((item) => item.id === card.id)
       ? shown.map((item) => (item.id === card.id ? card : item))
@@ -179,7 +188,18 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     // While an answer is written nothing new starts: its card is on screen and must not be replaced.
     if (!context || thinking || key === lastKeyRef.current) return;
     const plan = turnCheck({ settled: found!.settled, paused });
-    const timer = window.setTimeout(() => check(context, plan.final), plan.afterMs);
+    // While a card is being read, wait; the words stay unhandled, so the check after it reads what they say by then.
+    const { waitMs, deferred } = checkTiming({ afterMs: plan.afterMs, shownAt: shownAtRef.current, now: Date.now() });
+    const timer = window.setTimeout(() => {
+      // A check that waited is skipped when the rep has answered meanwhile: its card would answer the past.
+      if (skipAnswered(deferred, turnsRef.current, context.turnKey)) {
+        note("skip-answered", { latest: context.latestTurn });
+        lastKeyRef.current = context.key;
+        askedRef.current = { turnKey: context.turnKey, length: context.length };
+        return;
+      }
+      check(context, plan.final);
+    }, waitMs);
     return () => window.clearTimeout(timer);
     // The key captures every change in their words; context is derived from it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,6 +216,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     setThinking(false);
     setActive(null);
     shownRef.current = [];
+    shownAtRef.current = null;
   }, [enabled]);
 
   useEffect(

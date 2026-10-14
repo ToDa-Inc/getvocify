@@ -4,6 +4,11 @@ import {
   addCard,
   answerCard,
   assistContext,
+  CARD_COOLDOWN_MS,
+  checkTiming,
+  cooldownLeft,
+  repReplied,
+  skipAnswered,
   bridgeLine,
   draftCard,
   nextStep,
@@ -311,5 +316,47 @@ describe("previousAnswers", () => {
   it("keeps only the latest few", () => {
     const lines = Array.from({ length: 9 }, (_, i) => card(i, `línea ${i}`));
     assert.deepEqual(previousAnswers(lines), ["línea 3", "línea 4", "línea 5", "línea 6", "línea 7", "línea 8"]);
+  });
+});
+
+
+describe("the cooldown after a card", () => {
+  it("waits out the card being read, and not at all when none is up or it is over", () => {
+    assert.equal(cooldownLeft(null, 5_000), 0);
+    assert.equal(cooldownLeft(1_000, 1_000), CARD_COOLDOWN_MS);
+    assert.equal(cooldownLeft(1_000, 5_000), CARD_COOLDOWN_MS - 4_000);
+    assert.equal(cooldownLeft(1_000, 1_000 + CARD_COOLDOWN_MS + 1), 0);
+  });
+
+  it("defers the next check, never drops it: a new objection inside the cooldown is still checked after it", () => {
+    // The first cooldown (a97cac99) marked their words as handled and dropped the turn, so this was never answered.
+    const timing = checkTiming({ afterMs: 0, shownAt: 10_000, now: 13_000 });
+    assert.deepEqual(timing, { waitMs: CARD_COOLDOWN_MS - 3_000, deferred: true });
+    const turns = [turn("1", "prospect", "Es caro para nosotros."), turn("2", "rep", "Antes de números."), turn("3", "prospect", "Y además no lo decido yo.")];
+    assert.equal(skipAnswered(timing.deferred, turns, "3"), false);
+  });
+
+  it("a check that did not have to wait runs as it always did", () => {
+    const timing = checkTiming({ afterMs: 2_500, shownAt: null, now: 20_000 });
+    assert.deepEqual(timing, { waitMs: 2_500, deferred: false });
+    const answered = [turn("1", "prospect", "Es caro."), turn("2", "rep", "uno dos tres cuatro cinco seis siete ocho nueve diez")];
+    assert.equal(skipAnswered(timing.deferred, answered, "1"), false);
+  });
+
+  it("a check that waited is skipped once the rep has answered them", () => {
+    const answered = [
+      turn("1", "prospect", "Me parece caro."),
+      turn("2", "rep", "Claro, antes de hablar de números", "quiero ver cuánto tiempo os cuesta hoy"),
+    ];
+    assert.equal(repReplied(answered, "1"), true);
+    assert.equal(skipAnswered(true, answered, "1"), true);
+  });
+
+  it("counts only the rep's words after their turn", () => {
+    const words = "uno dos tres cuatro cinco seis siete ocho nueve";
+    assert.equal(repReplied([turn("0", "rep", words), turn("1", "prospect", "Me parece caro.")], "1"), false);
+    assert.equal(repReplied([turn("1", "prospect", "Me parece caro."), turn("2", "rep", "Vale, claro.")], "1"), false);
+    assert.equal(repReplied([turn("1", "prospect", `${words} ${words}`), turn("2", "prospect", "y más")], "1"), false);
+    assert.equal(repReplied([turn("1", "prospect", "Caro.")], "missing"), false);
   });
 });

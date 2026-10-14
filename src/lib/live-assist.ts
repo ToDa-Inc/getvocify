@@ -167,6 +167,48 @@ export const PAUSE_MS = 300;
 /** After the classifier says "still going": this much more quiet and the turn is over. */
 export const BACKSTOP_MS = 2000;
 
+/**
+ * After a card appears the rep is reading it, and saying it. No new check starts for this long, so the next
+ * card never replaces one that is still being read. The prospect's words are not marked as handled meanwhile:
+ * when the time is up, one check reads what they have said by then, so a fresh objection still gets a card.
+ */
+export const CARD_COOLDOWN_MS = 10_000;
+/** A check that waited for the cooldown is skipped when the rep has said this many words since the prospect spoke. */
+export const REP_ANSWERED_WORDS = 8;
+
+/** How much longer to wait before a new check may start; 0 when no card is up or the time has passed. */
+export function cooldownLeft(shownAt: number | null, now: number, cooldownMs = CARD_COOLDOWN_MS): number {
+  return shownAt === null ? 0 : Math.max(0, shownAt + cooldownMs - now);
+}
+
+/**
+ * Whether the rep has already answered the prospect's turn: they have said enough words since it. Then a card
+ * written for it now would answer something already dealt with.
+ */
+export function repReplied(turns: MeetingDisplayTurn[], turnKey: string, minWords = REP_ANSWERED_WORDS): boolean {
+  const at = turns.findIndex((turn) => turn.key === turnKey);
+  if (at < 0) return false;
+  const words = turns
+    .slice(at + 1)
+    .filter((turn) => turn.speaker === "rep")
+    .reduce((total, turn) => total + (spoken(turn) ? spoken(turn).split(/\s+/).length : 0), 0);
+  return words >= minWords;
+}
+
+/**
+ * When the next check may start, decided when it is scheduled: it waits out the cooldown (never dropped: their
+ * words stay unhandled). `deferred` says it had to wait.
+ */
+export function checkTiming(input: { afterMs: number; shownAt: number | null; now: number }): { waitMs: number; deferred: boolean } {
+  const cooldown = cooldownLeft(input.shownAt, input.now);
+  return { waitMs: Math.max(input.afterMs, cooldown), deferred: cooldown > input.afterMs };
+}
+
+/** Decided when the waiting check fires: skipped only if it waited and the rep has answered them meanwhile. */
+export function skipAnswered(deferred: boolean, turns: MeetingDisplayTurn[], turnKey: string): boolean {
+  return deferred && repReplied(turns, turnKey);
+}
+
 /** Their side's level (0–1, as the meter shows it) below which they are not speaking. */
 export function prospectSilent(level: number): boolean {
   return level < 0.15;
