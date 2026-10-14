@@ -141,7 +141,10 @@ def build_server() -> MCPServer:
             "outcome, objection and obstacle categories, competitors, next steps and coaching score, so you can count "
             "and group without opening each one. Filter by date, rep (managers), CRM contact or deal, kind, outcome, "
             "objection category, or text in the contact, company and summary. Page with next_cursor. Use "
-            "get_interaction for one interaction's full record."
+            "get_interaction for one interaction's full record. A date without a time is read as UTC; pass "
+            "timezone (e.g. Europe/Madrid) to read it as a local day. `at` is always UTC. Text search and category "
+            "filters look at the most recent ~300 interactions per call: if the page is short and next_cursor is set, "
+            "pass it to keep searching."
         ),
         annotations=_READ,
     )
@@ -157,12 +160,14 @@ def build_server() -> MCPServer:
         q: Annotated[Optional[str], Field(description="Text to match in contact, company or summary.")] = None,
         cursor: Annotated[Optional[str], Field(description="next_cursor from the previous page.")] = None,
         limit: Annotated[int, Field(ge=1, le=interactions.MAX_LIMIT, description="Rows per page, 1-50.")] = interactions.DEFAULT_LIMIT,
+        timezone: Annotated[Optional[str], Field(description="IANA name, e.g. Europe/Madrid. Applies to date_from and date_to given without a time. Default UTC.")] = None,
     ) -> str:
         async def work(supabase, membership, actor):
             return await _in_thread(
                 interactions.list_interactions, supabase, actor,
                 date_from=date_from, date_to=date_to, rep_id=rep_id, contact_id=contact_id, deal_id=deal_id,
                 kind=kind, outcome=outcome, objection_category=objection_category, q=q, cursor=cursor, limit=limit,
+                timezone_name=timezone,
             )
 
         return await _call("list_interactions", work)
@@ -173,7 +178,8 @@ def build_server() -> MCPServer:
             "One interaction's full record: summary, contact and deal, outcome, commitments with due dates, next "
             "steps, objections with the rep's response and the playbook's approved answer, competitors, coaching "
             "(score, what went well, what to fix), quotes with timestamps, CRM ids and a link to Vocify. Set "
-            "include_transcript only when you need the exact words; long transcripts come in pages."
+            "include_transcript only when you need the exact words; a long transcript comes in pages of about 12,000 "
+            "characters: pass transcript.next_cursor as transcript_cursor for the next page (later pages return only the transcript)."
         ),
         annotations=_READ,
     )
@@ -237,10 +243,15 @@ def build_server() -> MCPServer:
         annotations=_READ,
     )
     async def ask_vocify(
-        question: Annotated[str, Field(min_length=1, max_length=4000, description="The question, in any language.")],
+        question: Annotated[str, Field(description="The question, in any language. Up to 4000 characters.")],
     ) -> str:
         async def work(supabase, membership, actor):
-            return await ask_runs.ask(membership, question, supabase)
+            text = question.strip()
+            if not text:
+                raise interactions.BadInput("question is empty. Ask Vocify something, e.g. 'top objections this month'.")
+            if len(text) > 4000:
+                raise interactions.BadInput(f"question is {len(text)} characters; the limit is 4000. Shorten it.")
+            return await ask_runs.ask(membership, text, supabase)
 
         return await _call("ask_vocify", work)
 
@@ -270,14 +281,32 @@ def get_server() -> MCPServer:
     return _server
 
 
+class _PostOnly:
+    """/mcp answers POST. This server never starts a message of its own, so a GET has nothing to stream: the SDK
+    would hold it open for nothing, and the spec says to answer 405 (the client then carries on without it)."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "http" and scope["method"] == "GET" and scope["path"] == "/mcp":
+            from starlette.responses import Response
+
+            await Response(status_code=405, headers={"Allow": "POST"})(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
 def asgi_app():
     """The Starlette app holding /mcp and /.well-known/oauth-protected-resource/mcp. Mounted last on the API.
 
     DNS-rebinding protection is for servers on localhost; this one is public and every request is authenticated."""
-    return get_server().streamable_http_app(
-        streamable_http_path="/mcp",
-        stateless_http=True,
-        json_response=True,
-        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
-        host="0.0.0.0",
+    return _PostOnly(
+        get_server().streamable_http_app(
+            streamable_http_path="/mcp",
+            stateless_http=True,
+            json_response=True,
+            transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+            host="0.0.0.0",
+        )
     )

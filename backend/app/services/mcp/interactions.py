@@ -13,8 +13,10 @@ import base64
 import binascii
 import json
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Optional
 
 from fastapi import HTTPException
@@ -71,14 +73,24 @@ def _compact(row: dict) -> dict:
     return {k: v for k, v in row.items() if v not in (None, "", [], {})}
 
 
-def _date(value: Optional[str], name: str) -> Optional[datetime]:
+def _zone(name: Optional[str]) -> Any:
+    if not name:
+        return timezone.utc
+    try:
+        return ZoneInfo(name.strip())
+    except (ZoneInfoNotFoundError, ValueError) as error:
+        raise BadInput(f"timezone must be an IANA name like Europe/Madrid or America/New_York, not {name!r}") from error
+
+
+def _date(value: Optional[str], name: str, zone: Any = timezone.utc) -> Optional[datetime]:
+    """An ISO date or datetime. One without an offset is read in `zone` (UTC unless the caller says otherwise)."""
     if not value:
         return None
     try:
         parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
     except ValueError as error:
         raise BadInput(f"{name} must be an ISO date like 2026-10-01 or 2026-10-01T09:00:00Z") from error
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=zone)
 
 
 def _encode_cursor(created_at: str) -> str:
@@ -193,6 +205,7 @@ def list_interactions(
     q: Optional[str] = None,
     cursor: Optional[str] = None,
     limit: Optional[int] = None,
+    timezone_name: Optional[str] = None,
 ) -> dict:
     """Newest first. Raises ScopeError for a rep_id outside the caller's view, BadInput for a bad argument."""
     if kind and kind not in KINDS:
@@ -203,9 +216,14 @@ def list_interactions(
     if not 1 <= int(size) <= MAX_LIMIT:
         raise BadInput(f"limit must be between 1 and {MAX_LIMIT}")
     size = int(size)
-    start, end = _date(date_from, "from"), _date(date_to, "to")
+    zone = _zone(timezone_name)
+    start, end = _date(date_from, "from", zone), _date(date_to, "to", zone)
     if end and len(str(date_to).strip()) == 10:  # a bare date means through the end of that day
         end = end + timedelta(days=1)
+    if start and end and start >= end:
+        raise BadInput(f"from ({date_from}) is after to ({date_to}); swap them")
+    start = start.astimezone(timezone.utc) if start else None  # the database compares instants; send them in UTC
+    end = end.astimezone(timezone.utc) if end else None
     before = _decode_cursor(cursor)
     user_ids = visible_user_ids(actor, _company_service(supabase), rep_id)
     category = (objection_category or "").strip().lower() or None
@@ -213,6 +231,7 @@ def list_interactions(
     reps = _rep_names(_ctx(supabase), actor)
 
     found: list[dict] = []
+    seen: Counter = Counter()
     exhausted = False
     last_scanned: Optional[str] = None
     batch = max(size * 3, _MIN_BATCH)
@@ -238,6 +257,8 @@ def list_interactions(
             query = query.eq("rep_outcome", outcome)
         rows = query.order("created_at", desc=True).limit(batch).execute().data or []
         for memo in rows:
+            if category and memo.get("status") in USABLE and memo.get("sales_motion_key") != INTERNAL_KEY:
+                seen.update({e["category"] for e in _episodes(memo)})
             if _matches(memo, kind=kind, category=category, text=text):
                 found.append(memo)
         if rows:
@@ -263,6 +284,9 @@ def list_interactions(
             f"Searched back to {last_scanned[:10]} without filling the page. There may be more further back: "
             "pass next_cursor to keep searching."
         )
+    elif category and not items and exhausted:
+        known = ", ".join(f"{name} ({count})" for name, count in seen.most_common(12)) or "none yet"
+        body["note"] = f"No interaction has the category {category!r}. Categories in this data: {known}."
     return body
 
 
@@ -275,9 +299,14 @@ def _transcript_page(text: str, cursor: Optional[str]) -> dict:
         raise BadInput("transcript_cursor is out of range; repeat without it to start from the beginning")
     end = min(len(text), offset + TRANSCRIPT_PAGE_CHARS)
     if end < len(text):
-        newline = text.rfind("\n", offset + TRANSCRIPT_PAGE_CHARS // 2, end)
+        floor = offset + TRANSCRIPT_PAGE_CHARS // 2
+        newline = text.rfind("\n", floor, end)
         if newline > offset:
             end = newline + 1
+        else:  # one very long speaker turn: cut at a space instead
+            space = text.rfind(" ", floor, end)
+            if space > offset:
+                end = space + 1
     return _compact(
         {
             "text": text[offset:end],
@@ -308,9 +337,19 @@ def _coaching(score: dict, brief: dict) -> dict:
             "improvements": score.get("improvements"),
             "kept": _compact({"step": kept.get("label"), "quote": kept.get("quote")}) if kept else None,
             "fix": _compact({"step": fix.get("label"), "criterion": fix.get("criterion"), "say": fix.get("say")}) if fix else None,
-            "missed": [m.get("label") for m in brief.get("missed") or [] if isinstance(m, dict) and m.get("label")],
+            "missed_steps": [m["label"] for m in brief.get("missed") or [] if isinstance(m, dict) and m.get("label") and m.get("kind") != "objection"],
+            "missed_objections": [m["label"] for m in brief.get("missed") or [] if isinstance(m, dict) and m.get("label") and m.get("kind") == "objection"],
         }
     )
+
+
+def _transcript_block(memo: dict, allowed: bool, cursor: Optional[str]) -> dict:
+    transcript = str(memo.get("transcript") or "")
+    if not allowed:
+        return {"available": False, "note": "Your workspace admin has turned off transcripts for AI agents."}
+    if not transcript.strip():
+        return {"available": False, "note": "This interaction has no transcript."}
+    return _transcript_page(transcript, cursor)
 
 
 def get_interaction(
@@ -341,6 +380,10 @@ def get_interaction(
         state = "failed" if status == "failed" else "processing"
         note = "Processing failed for this interaction." if state == "failed" else "Still being processed; try again in a few minutes."
         return {"id": memo_id, "status": state, "note": note, "url": dashboard_url(memo_id)}
+
+    if include_transcript and transcript_cursor:
+        # A later page: the transcript alone. The record was in the first page; repeating it costs ~4k characters a page.
+        return {"id": memo_id, "transcript": _transcript_block(memo, transcripts_allowed, transcript_cursor)}
 
     extraction, intel = _extraction(memo), _intel(memo)
     owner = authors.get(str(memo.get("user_id") or "")) or {}
@@ -447,13 +490,7 @@ def get_interaction(
         }
     )
     if include_transcript:
-        transcript = str(memo.get("transcript") or "")
-        if not transcripts_allowed:
-            record["transcript"] = {"available": False, "note": "Your workspace admin has turned off transcripts for AI agents."}
-        elif not transcript.strip():
-            record["transcript"] = {"available": False, "note": "This interaction has no transcript."}
-        else:
-            record["transcript"] = _transcript_page(transcript, transcript_cursor)
+        record["transcript"] = _transcript_block(memo, transcripts_allowed, None)
     return record
 
 

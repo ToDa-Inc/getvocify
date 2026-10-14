@@ -23,7 +23,9 @@ READ_ONLY_NOTE = (
     "\n\nThis question comes from another AI agent over a read-only channel. You cannot create or change anything "
     "from here (notes, tasks, contacts, deals, CRM fields) and nobody is here to confirm an action. If asked to change "
     "something, say so in one sentence and where in Vocify or the CRM it can be done, then answer whatever else was "
-    "asked. Answer for a program: the facts first, and no offers to do more."
+    "asked. Answer for a program: the facts first, and no offers to do more. For every figure say where it comes from "
+    "(Vocify's captured interactions, or the CRM) and the period it covers: the same word, such as 'calls', can be "
+    "counted by both and they differ."
 )
 _STORED_KEYS = (
     "question", "coverage", "item_count", "choices", "confirmation", "call_targets", "steps",

@@ -144,15 +144,15 @@ def db(monkeypatch):
 def mcp_client(db):
     from mcp.server.transport_security import TransportSecuritySettings
 
-    from app.services.mcp.server import build_server
+    from app.services.mcp.server import _PostOnly, build_server
 
-    app = build_server().streamable_http_app(
+    app = _PostOnly(build_server().streamable_http_app(
         streamable_http_path="/mcp",
         stateless_http=True,
         json_response=True,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
         host="0.0.0.0",
-    )
+    ))
     with TestClient(app) as client:
         yield client
 

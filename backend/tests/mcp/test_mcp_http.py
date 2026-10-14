@@ -371,3 +371,85 @@ def test_an_empty_page_that_is_not_the_end_says_how_far_it_looked(mcp_client, ke
 def test_a_search_that_reached_the_end_has_no_cursor_and_no_note(mcp_client, key_for):
     _, body = call(mcp_client, key_for(MANAGER), "list_interactions", {"q": "no such text"})
     assert body == {"interactions": [], "count": 0, "next_cursor": None}
+
+
+# ----- edge cases found by using it on real data ------------------------------------------------------------
+
+
+def test_get_on_mcp_is_answered_405_not_held_open(mcp_client, key_for):
+    response = mcp_client.get("/mcp", headers={"Authorization": f"Bearer {key_for(REP)}", "Accept": "text/event-stream"})
+    assert response.status_code == 405 and response.headers["allow"] == "POST"
+    assert mcp_client.get("/.well-known/oauth-protected-resource/mcp").status_code == 200  # the metadata GET is untouched
+
+
+def test_a_blank_question_is_refused_before_it_costs_a_model_run(mcp_client, key_for, ask_loop, db):
+    key = key_for(REP)
+    for blank in ("", "   ", "\n\t"):
+        is_error, text = call(mcp_client, key, "ask_vocify", {"question": blank})
+        assert is_error and "question is empty" in text and "pydantic" not in text
+    assert "text" not in ask_loop and not db.tables.get("copilot_web_turns")  # the engine never ran, nothing counted
+
+
+def test_a_too_long_question_says_the_limit_in_plain_words(mcp_client, key_for, ask_loop):
+    is_error, text = call(mcp_client, key_for(REP), "ask_vocify", {"question": "a" * 4001})
+    assert is_error and "4001 characters; the limit is 4000" in text and "pydantic" not in text and "aaaa" not in text
+
+
+def test_from_after_to_is_an_error_not_an_empty_list(mcp_client, key_for):
+    is_error, text = call(mcp_client, key_for(REP), "list_interactions", {"date_from": "2026-10-15", "date_to": "2026-10-01"})
+    assert is_error and "is after" in text
+
+
+def test_a_date_is_a_utc_day_unless_a_timezone_is_given(mcp_client, key_for, db):
+    late = dict(next(m for m in db.tables["memos"] if m["id"] == M_PRICE))
+    late.update(id="66666666-6666-4666-8666-666666666666", created_at="2026-10-12T22:30:00+00:00", capture_started_at="2026-10-12T22:30:00+00:00")
+    db.tables["memos"].append(late)  # 22:30 UTC on the 12th is 00:30 on the 13th in Madrid
+    key = key_for(REP)
+    day = {"date_from": "2026-10-13", "date_to": "2026-10-13"}
+    _, utc = call(mcp_client, key, "list_interactions", day)
+    _, madrid = call(mcp_client, key, "list_interactions", {**day, "timezone": "Europe/Madrid"})
+    assert utc["count"] == 0
+    assert [row["id"] for row in madrid["interactions"]] == [late["id"]]
+    is_error, text = call(mcp_client, key, "list_interactions", {**day, "timezone": "Mars/Base"})
+    assert is_error and "IANA" in text
+
+
+def test_a_category_nobody_has_says_which_exist(mcp_client, key_for):
+    _, body = call(mcp_client, key_for(REP), "list_interactions", {"objection_category": "pricee"})
+    assert body["interactions"] == [] and body["next_cursor"] is None
+    assert "'pricee'" in body["note"] and "price (1)" in body["note"] and "timing (1)" in body["note"]
+    _, fine = call(mcp_client, key_for(REP), "list_interactions", {"objection_category": "price"})
+    assert fine["count"] == 1 and "note" not in fine
+
+
+def test_later_transcript_pages_carry_the_transcript_alone_and_never_cut_a_word(mcp_client, key_for, db):
+    db.tables["company_feature_flags"].append({"company_id": COMPANY, "flag": "MCP_TRANSCRIPTS_ENABLED", "enabled": True})
+    from app.services import feature_flags
+
+    feature_flags.clear_cache()
+    one_long_turn = " ".join(f"word{i}" for i in range(5000))  # a single speaker turn: no newline to cut at
+    next(m for m in db.tables["memos"] if m["id"] == M_PRICE)["transcript"] = one_long_turn
+    key, pages, cursor = key_for(REP), [], None
+    for _ in range(10):
+        _, record = call(mcp_client, key, "get_interaction", {"id": M_PRICE, "include_transcript": True, **({"transcript_cursor": cursor} if cursor else {})})
+        if cursor:
+            assert set(record) == {"id", "transcript"}  # not the whole record again
+        else:
+            assert "summary" in record and "objections" in record
+        pages.append(record["transcript"]["text"])
+        cursor = record["transcript"].get("next_cursor")
+        if not cursor:
+            break
+    assert len(pages) >= 3 and "".join(pages) == one_long_turn
+    assert all(page.endswith(" ") for page in pages[:-1])  # every cut is at a space
+
+
+def test_missed_steps_and_missed_objections_are_listed_apart(mcp_client, key_for, db):
+    db.tables["post_interaction_briefs"] = [
+        {"memo_id": M_PRICE, "revision_seq": 1, "status": "ready", "input_revision": "r1", "created_at": "2026-10-10T10:06:00+00:00",
+         "body": {"missed": [{"id": "s1", "kind": "step", "label": "Dejar hablar y profundizar"}, {"id": "o1", "kind": "objection", "label": "price"}]}},
+    ]
+    _, record = call(mcp_client, key_for(REP), "get_interaction", {"id": M_PRICE})
+    assert record["coaching"]["missed_steps"] == ["Dejar hablar y profundizar"]
+    assert record["coaching"]["missed_objections"] == ["price"]
+    assert "missed" not in record["coaching"]
