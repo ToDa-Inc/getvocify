@@ -211,32 +211,47 @@ export function skipAnswered(deferred: boolean, turns: MeetingDisplayTurn[], tur
 
 /** Their side's level (0–1, as the meter shows it) below which they are not speaking, on a clean line. */
 export const SILENT_LEVEL = 0.15;
-/** A line with steady noise (a real microphone, a phone line): quiet is that noise plus a margin, never above this. */
-export const SILENT_LEVEL_MAX = 0.3;
+/** Whatever the line, quiet is never above this: speech is never called quiet. */
+export const SILENT_LEVEL_MAX = 0.4;
+/** Quiet is this far above the line's own noise, and under this share of how loud they have recently been. */
 const SILENT_MARGIN = 0.08;
-/** How far back the noise floor looks, and how much audio it needs before it is trusted. */
+const SILENT_SHARE_OF_PEAK = 0.35;
+/** How far back the noise floor and the speech peak look, and how much audio they need before they are trusted. */
 export const FLOOR_WINDOW_MS = 10_000;
 const FLOOR_MIN_SPAN_MS = 3_000;
 
-/** The level under which they are not speaking: the clean-line level, or the line's own noise floor plus a margin. */
-export function silentLevel(floor: number | null): number {
-  if (floor === null) return SILENT_LEVEL;
-  return Math.min(SILENT_LEVEL_MAX, Math.max(SILENT_LEVEL, floor + SILENT_MARGIN));
-}
+/** What the last seconds of their audio say about the line: its noise (lowest level) and its voice (highest). */
+export type LineLevels = { floor: number; peak: number };
 
-export function prospectSilent(level: number, floor: number | null = null): boolean {
-  return level < silentLevel(floor);
+/**
+ * The line's noise floor and speech peak: the lowest and highest level read in the last FLOOR_WINDOW_MS, once at
+ * least FLOOR_MIN_SPAN_MS of readings exist (null before). Speech never lasts ten seconds without a dip, so the
+ * lowest reading is the noise.
+ */
+export function lineLevels(readings: { t: number; level: number }[], now: number): LineLevels | null {
+  const recent = readings.filter((reading) => now - reading.t <= FLOOR_WINDOW_MS);
+  if (!recent.length || now - recent[0].t < FLOOR_MIN_SPAN_MS) return null;
+  const levels = recent.map((reading) => reading.level);
+  return { floor: Math.min(...levels), peak: Math.max(...levels) };
 }
 
 /**
- * The line's noise floor: the lowest level read in the last FLOOR_WINDOW_MS, once at least FLOOR_MIN_SPAN_MS of
- * readings exist (null before). Speech never lasts ten seconds without a dip, so the lowest reading is the noise.
+ * The level under which they are not speaking. It follows the line, not a fixed number: above the line's own noise
+ * (a real microphone or a phone line is never silent) and under a share of how loud this speaker has been (a quiet
+ * speaker and a loud one both drop well below their own voice when they stop). Before any audio is known, the
+ * clean-line level.
  */
-export function noiseFloor(readings: { t: number; level: number }[], now: number): number | null {
-  const recent = readings.filter((reading) => now - reading.t <= FLOOR_WINDOW_MS);
-  if (!recent.length || now - recent[0].t < FLOOR_MIN_SPAN_MS) return null;
-  return Math.min(...recent.map((reading) => reading.level));
+export function silentLevel(line: LineLevels | null): number {
+  if (line === null) return SILENT_LEVEL;
+  return Math.min(SILENT_LEVEL_MAX, Math.max(SILENT_LEVEL, line.floor + SILENT_MARGIN, line.peak * SILENT_SHARE_OF_PEAK));
 }
+
+export function prospectSilent(level: number, line: LineLevels | null = null): boolean {
+  return level < silentLevel(line);
+}
+
+/** How long a check waits when their audio gives no pause: their words have settled by then (about 0.1-0.5 s after they stop). */
+export const FALLBACK_MS = 1000;
 
 /**
  * When to check their words, and whether that check is final (a "still going" verdict then counts
@@ -246,7 +261,7 @@ export function noiseFloor(readings: { t: number; level: number }[], now: number
 export function turnCheck(input: { settled: boolean; paused: boolean | null }): { afterMs: number; final: boolean } {
   if (input.paused) return { afterMs: 0, final: false };
   if (input.paused === null && input.settled) return { afterMs: 300, final: true };
-  return { afterMs: 2500, final: true };
+  return { afterMs: FALLBACK_MS, final: true };
 }
 
 /** Which rule started a check: their audio paused, the words had settled, the slow fallback, or the backstop. */

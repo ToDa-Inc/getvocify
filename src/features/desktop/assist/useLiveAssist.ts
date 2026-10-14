@@ -10,7 +10,7 @@ import {
   nextStep,
   PAUSE_MS,
   previousAnswers,
-  noiseFloor,
+  lineLevels,
   prospectSilent,
   skipAnswered,
   turnCheck,
@@ -53,10 +53,10 @@ function useProspectPause(level: number | undefined) {
     const timer = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
-  const floor = noiseFloor(readingsRef.current, now);
-  floorRef.current = floor;
+  const line = lineLevels(readingsRef.current, now);
+  floorRef.current = line?.floor ?? null;
   levelRef.current = level ?? null;
-  const silent = level === undefined || prospectSilent(level, floor);
+  const silent = level === undefined || prospectSilent(level, line);
   if (!silent) heardRef.current = true;
   useEffect(() => {
     setPaused(false);
