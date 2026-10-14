@@ -352,3 +352,21 @@ def test_a_busy_opener_is_no_objection_and_being_away_for_a_period_is_timing():
     # 2026-10-14: «dime, pero rápido que estoy liado» raised a Timing card; «viajando todo octubre» raised none.
     assert "dime, pero rápido" in turn.OBJECTIONS["none"]
     assert "travelling" in turn.OBJECTIONS["timing"] and "not buying anything" in turn.OBJECTIONS["timing"]
+
+
+# --- The date the model is told -----------------------------------------------------------------------------
+
+
+def test_the_model_is_told_todays_date_in_the_reps_timezone_and_may_not_invent_one():
+    from datetime import datetime, timezone
+
+    from app.services.copilot.prompts import MEETING_SYSTEM_PROMPT, today_line
+
+    # 2026-10-14 simulated call: «llámame dentro de tres meses» got «te llamo el 12 de mayo».
+    late = datetime(2026, 10, 14, 23, 30, tzinfo=timezone.utc)
+    assert today_line("Europe/Madrid", late) == "TODAY: Thursday 2026-10-15 (Europe/Madrid)"
+    assert today_line("America/Mexico_City", late) == "TODAY: Wednesday 2026-10-14 (America/Mexico_City)"
+    assert today_line("Not/AZone", late) == "TODAY: Wednesday 2026-10-14 (UTC)"
+    assert "Never write a day of the month" in MEETING_SYSTEM_PROMPT and "Give an hour only when" in MEETING_SYSTEM_PROMPT
+    assert "TODAY: Thursday 2026-10-15 (Europe/Madrid)" in _prompt(today=today_line("Europe/Madrid", late))
+    assert "TODAY: " in _prompt()

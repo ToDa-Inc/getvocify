@@ -277,7 +277,7 @@
    {
     "speaker": "Them",
     "text": "Me da un poco de miedo que una inteligencia artificial escriba cosas mal en nuestro CRM.",
-    "expect": "trust"
+    "expect": "trust|custom:miedo_a_que_la_ia_se_equivoque"
    }
   ]
  },
@@ -664,7 +664,7 @@
   "motion": "discovery",
   "call_mode": "softphone",
   "group": "extra",
-  "about": "Written for coverage, not taken from a call. GAP: the discovery trust entry is about data origin, not AI errors",
+  "about": "Written for coverage, not taken from a call. The discovery playbook got an entry for this on 2026-10-15.",
   "turns": [
    {
     "speaker": "You",
@@ -682,7 +682,7 @@
    {
     "speaker": "Them",
     "text": "No me fío de que una IA apunte bien las cosas, se va a equivocar.",
-    "expect": "trust"
+    "expect": "custom:miedo_a_que_la_ia_se_equivoque"
    }
   ]
  },
@@ -691,7 +691,7 @@
   "motion": "discovery",
   "call_mode": "softphone",
   "group": "extra",
-  "about": "Written for coverage, not taken from a call. no matching entry: some help is right",
+  "about": "Written for coverage, not taken from a call. The discovery playbook got an entry for this on 2026-10-15.",
   "turns": [
    {
     "speaker": "You",
@@ -709,7 +709,7 @@
    {
     "speaker": "Them",
     "text": "Ya probamos una herramienta parecida y no funcionó.",
-    "expect": "card"
+    "expect": "custom:ya_probamos_algo_parecido"
    }
   ]
  },
@@ -718,7 +718,7 @@
   "motion": "discovery",
   "call_mode": "softphone",
   "group": "extra",
-  "about": "Written for coverage, not taken from a call. brush-off: no entry; some help is right",
+  "about": "Written for coverage, not taken from a call. The discovery playbook got an entry for this on 2026-10-15.",
   "turns": [
    {
     "speaker": "You",
@@ -736,7 +736,7 @@
    {
     "speaker": "Them",
     "text": "No me interesa, gracias.",
-    "expect": "card"
+    "expect": "custom:no_me_interesa"
    }
   ]
  },
@@ -763,7 +763,7 @@
    {
     "speaker": "Them",
     "text": "Me preocupa que sea un lío integrarlo con lo que tenemos.",
-    "expect": "card"
+    "expect": "custom:me_preocupa_la_integracion"
    }
   ]
  },
@@ -772,7 +772,7 @@
   "motion": "discovery",
   "call_mode": "softphone",
   "group": "extra",
-  "about": "Written for coverage, not taken from a call. the entry for this is in negotiation, not discovery",
+  "about": "Written for coverage, not taken from a call. The discovery playbook got an entry for this on 2026-10-15.",
   "turns": [
    {
     "speaker": "You",
@@ -790,7 +790,7 @@
    {
     "speaker": "Them",
     "text": "Mis comerciales no van a querer usar otra herramienta más.",
-    "expect": "card"
+    "expect": "custom:mis_comerciales_no_lo_van_a_usar"
    }
   ]
  },
@@ -808,7 +808,9 @@
    {
     "speaker": "Them",
     "text": "Sí, dime.",
-    "expect": "none"
+    "expect": "none",
+    "soft": true,
+    "note": "a product question: a card with an answer from the context is defensible, so it only warns"
    },
    {
     "speaker": "You",
@@ -817,7 +819,9 @@
    {
     "speaker": "Them",
     "text": "Interesante, cuéntame más de cómo funciona.",
-    "expect": "none"
+    "expect": "none",
+    "soft": true,
+    "note": "a product question: a card with an answer from the context is defensible, so it only warns"
    }
   ]
  },

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 # v2: the model reads each approved answer, not just its id, so a grounded card says what the team approved.
@@ -109,6 +111,14 @@ IF IT IS A CASE (objection or question)
 IF IT IS NOT
 Return is_objection=false, objection_type="none" and say_this "". Do not coach, do not suggest anything.
 
+DATES
+- TODAY in the message is the only date you know. Never write a day of the month or an exact date ("el 15 de enero"):
+  a model gets them wrong. Name a weekday inside the next two weeks ("el jueves", "mañana", "la semana que viene",
+  "a la vuelta de su viaje") or a month counted from TODAY ("dentro de tres meses" is the month three after this one:
+  "a mediados de enero", "en enero").
+- Give an hour only when the prospect or the transcript gave one: you do not know the rep's calendar. To propose
+  two slots, offer two days ("¿el jueves o el viernes?"), not two invented times.
+
 BANNED
 "I understand your concern", "Great question", "Absolutely", exclamation marks, lists, more than one sentence in say_this.
 
@@ -150,6 +160,17 @@ def _approved_answers(snapshot: dict[str, Any]) -> list[str]:
             says = f' (they say: "{trigger}")' if trigger else ""
             lines.append(f"- {entry_id} · {category}{name}{says}: {guidance}")
     return lines
+
+
+def today_line(tz_name: Optional[str] = None, now: Optional[datetime] = None) -> str:
+    """The date the model is told, in the rep's timezone: it knows no date of its own and invented one
+    («te llamo el 12 de mayo» for «dentro de tres meses» in October)."""
+    try:
+        zone = ZoneInfo(tz_name) if tz_name else ZoneInfo("UTC")
+    except Exception:
+        zone = ZoneInfo("UTC")
+    moment = (now or datetime.now(timezone.utc)).astimezone(zone)
+    return f"TODAY: {moment:%A} {moment:%Y-%m-%d} ({zone.key})"
 
 
 COMPANY_KNOWLEDGE_MAX_CHARS = 2400
@@ -294,6 +315,7 @@ def build_user_prompt(
     filler: str | None = None,
     previous_answers: Optional[list[str]] = None,
     entry: Optional[dict[str, Any]] = None,
+    today: Optional[str] = None,
 ) -> str:
     context = (product_context or "").strip() or "(none provided — stay generic and ask discovery questions)"
     role = (speaker_role or "unknown").strip().lower()
@@ -329,6 +351,7 @@ PREFERRED LANGUAGE HINT: {language}
 PRODUCT / OFFER CONTEXT:
 {context}
 {playbook}{history_block}{knowledge_block}
+{today or today_line()}
 SPEAKER ROLE: {role}
 SPEAKER HINT: {role_hint}
 

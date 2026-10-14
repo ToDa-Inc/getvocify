@@ -23,7 +23,9 @@ from app.services.copilot.load_grounding import (
     load_company_suggest_grounding,
     load_suggest_grounding,
 )
+from app.services.copilot.prompts import today_line
 from app.services.copilot.suggest import silent_suggestion, stream_objection_suggestion
+from app.services.rep_timezone import rep_timezone
 from app.services.playbooks.catalog import INTERNAL_KEY
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
@@ -177,6 +179,8 @@ async def suggest_objection_handling(
             ),
         )
 
+    today = today_line(rep_timezone(membership.user_id))
+
     def ask(with_grounding):
         return stream_objection_suggestion(
             transcript_window=body.transcript_window,
@@ -191,6 +195,7 @@ async def suggest_objection_handling(
             contact_history=contact_history,
             objection_type=body.objection_type if body.objection_type in turn.OBJECTIONS else None,
             entry=_matched_entry(grounding, body.entry_id),
+            today=today,
             filler=body.filler,
             previous_answers=body.previous_answers,
         )
