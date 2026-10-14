@@ -58,8 +58,9 @@
     </div>
     <p class="status" id="status" style="margin:10px 0 0">Not started.</p>
     <div class="row" style="margin-top:12px">
-      <label>Voice threshold: <b id="thrLabel">-42 dBFS</b>
-        <input id="thr" type="range" min="-65" max="-20" step="1" value="-42" /></label>
+      <label>Voice threshold: <b id="thrLabel">auto</b>
+        <input id="thr" type="range" min="-65" max="-20" step="1" value="-42" />
+        <span><input id="auto" type="checkbox" checked /> set it automatically from the room noise</span></label>
       <label>Quiet gap that ends a sentence: <b id="gapLabel">800 ms</b>
         <input id="gap" type="range" min="400" max="1600" step="50" value="800" /></label>
     </div>
@@ -85,7 +86,7 @@
 
 <script type="module">
 import {
-  analyzeUtterances, apiBaseFor, detectUtterances, displayTimeline, levelDb, summarize, userIdFromJwt,
+  analyzeUtterances, apiBaseFor, autoThresholdDb, detectUtterances, displayTimeline, levelDb, summarize, userIdFromJwt,
 } from "./stt-lab-logic.js";
 
 const $ = (id) => document.getElementById(id);
@@ -96,7 +97,7 @@ const FRAME_MS = 20;
 const SEND_EVERY = 5; // frames: 100 ms chunks, like the app
 
 let ws = null, ctx = null, stream = null, tap = null, started = 0, timer = 0, sendBuf = [];
-let frames = [], events = [], messages = 0, results = [];
+let frames = [], events = [], messages = 0, results = [], peakDb = -120;
 
 const log = (line) => { $("log").textContent += `${((performance.now() - started) / 1000).toFixed(1)}s  ${line}\n`; $("log").scrollTop = 1e9; };
 const setStatus = (html) => { $("status").innerHTML = html; };
@@ -143,7 +144,7 @@ function b64(int16) {
 }
 
 async function start() {
-  $("log").textContent = ""; frames = []; events = []; messages = 0; results = []; sendBuf = [];
+  $("log").textContent = ""; frames = []; events = []; messages = 0; results = []; sendBuf = []; peakDb = -120;
   started = performance.now();
   const token = localStorage.getItem("vocify_token");
   if (!token || token === "undefined" || token === "null") {
@@ -158,8 +159,15 @@ async function start() {
     if (!res.ok) throw new Error(`ticket ${res.status}`);
     const { ticket } = await res.json();
 
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    // The same mic settings the app uses (src/lib/rep-mic.ts), so MAI hears what it hears in a call.
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: { ideal: "all" }, noiseSuppression: true, autoGainControl: true } });
+    } catch (err) {
+      if (err && err.name === "NotAllowedError") throw err;
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    }
     ctx = new AudioContext();
+    await ctx.resume();
     const url = new URL(`${LIVE.replace(/^http/, "ws").replace(/\/api\/v1$/, "")}/api/v1/transcription/live`);
     url.searchParams.set("user_id", userId);
     url.searchParams.set("mode", "copilot_channels");
@@ -170,7 +178,7 @@ async function start() {
     ws.onopen = async () => {
       ws.send(JSON.stringify({ type: "Auth", ticket }));
       const blob = URL.createObjectURL(new Blob([TAP], { type: "application/javascript" }));
-      await ctx.audioWorklet.addModule(blob); URL.revokeObjectURL(blob);
+      try { await ctx.audioWorklet.addModule(blob); } catch (err) { setStatus(`The audio tap could not load: <b>${String(err.message || err)}</b>`); return; } finally { URL.revokeObjectURL(blob); }
       const source = ctx.createMediaStreamSource(stream);
       tap = new AudioWorkletNode(ctx, "lab-tap", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
       const mute = ctx.createGain(); mute.gain.value = 0; // nothing plays back
@@ -195,6 +203,7 @@ function onFrame(samples) {
   const t = performance.now() - started;
   const db = levelDb(samples);
   frames.push({ t, db });
+  if (db > peakDb) peakDb = db;
   $("meter").style.width = `${Math.max(0, Math.min(100, ((db + 70) / 70) * 100))}%`;
   $("level").textContent = `${db.toFixed(0)} dBFS`;
   sendBuf.push(toPcm16(samples, ctx.sampleRate));
@@ -220,20 +229,29 @@ function onMessage(raw) {
 }
 
 function render() {
-  const thr = Number($("thr").value), gap = Number($("gap").value);
-  $("thrLabel").textContent = `${thr} dBFS`; $("gapLabel").textContent = `${gap} ms`;
+  const gap = Number($("gap").value);
+  const auto = $("auto").checked;
+  const thr = auto ? autoThresholdDb(frames) : Number($("thr").value);
+  if (auto) $("thr").value = thr;
+  $("thrLabel").textContent = auto ? `${thr} dBFS (auto)` : `${thr} dBFS`; $("gapLabel").textContent = `${gap} ms`;
   const utterances = detectUtterances(frames, { thresholdDb: thr, gapMs: gap, frameMs: FRAME_MS });
   // The last sentence needs its quiet gap before it counts as finished.
   const closed = utterances.filter((u, i) => i < utterances.length - 1 || (frames.length && frames[frames.length - 1].t - u.end > gap));
   results = analyzeUtterances(closed, displayTimeline(events));
-  paint();
+  paint(thr, utterances.length);
 }
 
 const ms = (v) => (v === null || v === undefined ? "-" : `${v} ms`);
 const cls = (v, limit) => (typeof v === "number" && v > limit ? "slow" : "");
-function paint() {
+function paint(thr, voiceSpans = 0) {
   const body = $("rows");
-  if (!results.length) { body.innerHTML = `<tr><td colspan="10" class="status" style="text-align:left">No sentences yet (${messages} messages from the service).</td></tr>`; return; }
+  if (!results.length) {
+    const hint = !frames.length ? "No audio is reaching the page yet."
+      : peakDb < thr ? `No voice above the threshold: your loudest moment was ${peakDb.toFixed(0)} dBFS and the threshold is ${thr} dBFS. Speak closer, or turn the threshold down.`
+      : voiceSpans ? "A sentence is in progress: wait for the quiet gap." : "Waiting for a sentence.";
+    body.innerHTML = `<tr><td colspan="10" class="status" style="text-align:left">No sentences yet. ${hint} (${frames.length} audio frames, ${messages} messages from the service)</td></tr>`;
+    return;
+  }
   body.innerHTML = results.map((r) => `<tr>
     <td class="t num">${r.index}</td><td class="num">${(r.spokeMs / 1000).toFixed(1)} s</td><td class="num">${r.words}</td>
     <td class="num ${r.wordsMissingAtEnd > 1 ? "slow" : ""}">${r.wordsMissingAtEnd}</td>
@@ -267,11 +285,12 @@ $("stop").onclick = () => {
   setStatus(`Stopped. ${results.length} sentences measured. Use <b>Copy results</b> and paste them to Claude.`);
 };
 $("copy").onclick = async () => {
-  const payload = { when: new Date().toISOString(), host: location.hostname, thresholdDb: Number($("thr").value), gapMs: Number($("gap").value), summary: summarize(results), sentences: results };
+  const payload = { when: new Date().toISOString(), host: location.hostname, thresholdDb: Number($("thr").value), autoThreshold: $("auto").checked, peakDb: Math.round(peakDb), gapMs: Number($("gap").value), summary: summarize(results), sentences: results };
   await navigator.clipboard.writeText(JSON.stringify(payload, null, 1));
   setStatus("Copied. Paste it to Claude.");
 };
-$("thr").oninput = $("gap").oninput = render;
+$("thr").oninput = () => { $("auto").checked = false; render(); };
+$("auto").onchange = $("gap").oninput = render;
 </script>
 </body>
 </html>
