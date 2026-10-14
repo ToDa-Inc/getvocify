@@ -12,7 +12,7 @@ from app.services.team_insights.aggregate import activity_counts, activity_row_f
 from app.services.team_insights.objections import objection_counts
 
 WEEKLY_DUE_WEEKDAY = 4
-WEEKLY_DUE_HOUR = 18
+WEEKLY_DUE_HOUR = 15
 WORKING_DAYS = 5
 MAX_OBJECTIONS = 3
 
@@ -34,7 +34,7 @@ def week_bounds(now: datetime, tz_name: str) -> tuple[datetime, datetime]:
 
 
 def weekly_due(now: datetime, tz_name: str) -> bool:
-    """From Friday 18:00 local until the next Monday, so a missed Friday is caught on the weekend."""
+    """From Friday 15:00 local until the next Monday, so a missed Friday is caught on the weekend."""
     monday = _local_monday(now, tz_name)
     due_from = monday + timedelta(days=WEEKLY_DUE_WEEKDAY, hours=WEEKLY_DUE_HOUR)
     return due_from <= _aware(now) < monday + timedelta(days=7)

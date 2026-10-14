@@ -115,6 +115,8 @@ def coaching(memos: list[dict], start: datetime, end: datetime, playbook_for, la
             slips.append({
                 "type": labels.get(motion) or motion,
                 "label": slip["label"],
+                # What the step asks: the advice may never say the opposite (MdV's opening is "sin pedir permiso").
+                "criterion": slip.get("criterion") or None,
                 "missing": slip["missing"],
                 "improvable": slip["improvable"],
                 "applicable": slip["applicable"],
