@@ -48,9 +48,10 @@ import {
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
 import { SpeakerTimeline } from "@/lib/speaker-timeline";
+import { CALL_UPLOAD_RETRY_DELAYS_MS, withTransientRetries } from "@/lib/transient-retry";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, desktopPlatform, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
-import { islandCallContact, latestOnly, type CallPreview } from "@/lib/call-contact";
+import { islandCallContact, islandRecordContact, latestOnly, type CallPreview } from "@/lib/call-contact";
 import { contactRecordUrl } from "@/lib/today";
 import {
   POST_CALL_GIVE_UP_MS,
@@ -150,6 +151,8 @@ type DesktopMeeting = {
   /** The island opened a call on the rep's own phone: the recording it starts next is with this contact, in that app.
    * Null forgets it (the phone could not open the call). */
   expectPhoneCall: (call: { contact: MeetingDraft["contact"] | null; source: CallSourceInfo } | null) => void;
+  /** The CRM record the island offers on screen; the island's Record takes its contact. Null when the offer is gone. */
+  offerOnScreen: (preview: CallPreview | null) => void;
   stop: () => Promise<void>;
   retryPending: () => Promise<void>;
 };
@@ -236,6 +239,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const [contact, setContact] = useState<MeetingDraft["contact"] | null>(null);
   /** Who the call detected by the island is with; the next recording takes it. */
   const callContactRef = useRef<MeetingDraft["contact"] | null>(null);
+  /** The CRM record the island offers on screen right now. */
+  const onScreenRef = useRef<CallPreview | null>(null);
   /** Where the detected call happens (app or page), as the Mac told us. */
   const callSourceRef = useRef<CallSourceInfo | null>(null);
   /** The island opened a call on the rep's phone: the next recording is that call. */
@@ -311,7 +316,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const reconnectsRef = useRef(0);
   /** Set while the recording is a Vocify call: the server records it, so nothing is uploaded or kept on disk. */
   const vocifyCallRef = useRef<VocifyCallSession | null>(null);
-  const startRef = useRef<(call?: VocifyCallSession) => Promise<void>>(async () => {});
+  const startRef = useRef<(call?: VocifyCallSession, options?: { contact?: MeetingDraft["contact"] | null }) => Promise<void>>(async () => {});
   const stopRef = useRef<() => Promise<void>>(async () => {});
   const pauseRef = useRef<() => void>(() => {});
   const resumeRef = useRef<() => void>(() => {});
@@ -952,22 +957,28 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       bridge?.shell.setState({ finish: { step: "uploading" } });
       const contactName = draft?.contact?.name ?? null;
       // The live transcript is the memo, seconds after hang-up. Twilio's recording joins the same memo
-      // later (playback, CRM call log); if this upload fails, the recording makes the memo as before.
+      // later (playback, CRM call log). A send that got no answer is sent again (the server keeps one memo
+      // per call); if it still fails, the recording makes the memo as before.
       if (draft && meetingHasSpeech(draft.transcript)) {
+        const callDurationSeconds = Math.round((Date.now() - draft.startedAt) / 1000);
         try {
-          const memo = await memosApi.uploadTranscriptAndExtract(meetingUploadText(draft.transcript), {
-            interactionKind: "call",
-            sourceType: "meeting_transcript",
-            speakersVerified: true,
-            notes: draft.notes,
-            hubspotContactId: draft.contact?.hubspotId,
-            callSource: VOCIFY_CALL_SOURCE.name,
-            salesMotionKey: draft.type,
-            typeSource: draft.typeSource ?? "vocify",
-            participants: meetingParticipants(draft.transcript),
-            callSid: call.callSid,
-            callDurationSeconds: Math.round((Date.now() - draft.startedAt) / 1000),
-          });
+          const memo = await withTransientRetries(
+            () =>
+              memosApi.uploadTranscriptAndExtract(meetingUploadText(draft.transcript), {
+                interactionKind: "call",
+                sourceType: "meeting_transcript",
+                speakersVerified: true,
+                notes: draft.notes,
+                hubspotContactId: draft.contact?.hubspotId,
+                callSource: VOCIFY_CALL_SOURCE.name,
+                salesMotionKey: draft.type,
+                typeSource: draft.typeSource ?? "vocify",
+                participants: meetingParticipants(draft.transcript),
+                callSid: call.callSid,
+                callDurationSeconds,
+              }),
+            CALL_UPLOAD_RETRY_DELAYS_MS,
+          );
           reportCallStep("live-memo", { memoId: memo.id });
           queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
           bridge?.shell.setState({ finish: null });
@@ -1028,7 +1039,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     }
   }, [clearNotes, currentDraft, drainSocket, fail, followCallMemo, followPostCall, navigate, queryClient, releaseAudio, sendDraft, setPhase, updateTranscript]);
 
-  const start = useCallback(async (call?: VocifyCallSession, options?: { stay?: boolean }) => {
+  const start = useCallback(async (call?: VocifyCallSession, options?: { stay?: boolean; contact?: MeetingDraft["contact"] | null }) => {
     const bridge = getDesktopBridge();
     if (!bridge || phaseRef.current !== "idle") return;
     if (!user?.id || !api.getToken()) {
@@ -1134,7 +1145,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       }
 
       const startedAt = Date.now();
-      const callContact = call ? call.contact : callContactRef.current;
+      const callContact = call ? call.contact : options?.contact ?? callContactRef.current;
       const callSource = call ? VOCIFY_CALL_SOURCE : callSourceRef.current;
       vocifyCallRef.current = call ?? null;
       draftRef.current = {
@@ -1451,7 +1462,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         void stopRef.current();
       } else if (name === "listen" || (name === "toggle" && current === "idle")) {
         navigate(ROUTES.RECORD);
-        void startRef.current();
+        // Record on the island's offer is with the contact it shows, unless a call was detected.
+        void startRef.current(undefined, { contact: islandRecordContact(callContactRef.current, onScreenRef.current) });
       } else if (name === "pause") {
         pauseRef.current();
       } else if (name === "resume") {
@@ -1634,6 +1646,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     getDesktopBridge()?.shell.setState({ callContact: call?.contact?.name ? { name: call.contact.name } : null });
   }, []);
 
+  const offerOnScreen = useCallback((preview: CallPreview | null) => {
+    onScreenRef.current = preview;
+  }, []);
+
   const value = useMemo<DesktopMeeting>(
     () => ({
       available,
@@ -1660,10 +1676,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       startCall,
       followCall,
       expectPhoneCall,
+      offerOnScreen,
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startHere, startCall, followCall, expectPhoneCall, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

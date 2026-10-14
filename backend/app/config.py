@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     COPILOT_DIRECT_API_KEY: Optional[str] = None
     COPILOT_DIRECT_MODEL: Optional[str] = None
     COPILOT_HEDGE_MS: int = 600
+    # How long live help keeps what it reads before a card (offer, company knowledge, call type's playbook, timezone).
+    # 0 reads them again for every card, as before. A playbook publish/pause/restore clears the cache at once.
+    COPILOT_CONTEXT_TTL_S: float = 60.0
     # Keep a small log of what live help did (migration 078): one row per finished-turn check and per card.
     COPILOT_LOG_EVENTS: bool = True
     # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
@@ -102,6 +105,16 @@ class Settings(BaseSettings):
     # once if the first call fails. DeepSeek V4.1 Flash runs with low-effort reasoning (model_profile).
     ASK_MODEL: Optional[str] = "deepseek/deepseek-v4.1-flash"
     ASK_FALLBACK_MODEL: Optional[str] = "google/gemini-3.8-flash"
+    # MCP server at {BACKEND_PUBLIC_URL}/mcp (spec 2026-10-14-vocify-mcp-server-design). Off unless a
+    # workspace turns it on (company_feature_flags); transcripts are a second, separate switch.
+    MCP_ENABLED: bool = False
+    MCP_TRANSCRIPTS_ENABLED: bool = False
+    # Every MCP tool call, per user. ask_vocify also has its own daily cap: each one is a paid model run.
+    MCP_TOOL_CALLS_PER_MINUTE: int = 60
+    MCP_ASK_PER_DAY: int = 30
+    # ask_vocify answers in fewer rounds than the web Ask, and returns a run id after the wait.
+    MCP_ASK_MAX_ROUNDS: int = 8
+    MCP_ASK_WAIT_SECONDS: float = 20.0
     # Cheap second pass after deterministic name repair. Not the CRM extractor.
     # The LLM repair of a transcript lists only the misheard words (app/services/transcript_patch.py).
     TRANSCRIPT_SANITIZE_LLM: bool = True

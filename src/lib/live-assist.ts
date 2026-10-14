@@ -209,10 +209,49 @@ export function skipAnswered(deferred: boolean, turns: MeetingDisplayTurn[], tur
   return deferred && repReplied(turns, turnKey);
 }
 
-/** Their side's level (0–1, as the meter shows it) below which they are not speaking. */
-export function prospectSilent(level: number): boolean {
-  return level < 0.15;
+/** Their side's level (0–1, as the meter shows it) below which they are not speaking, on a clean line. */
+export const SILENT_LEVEL = 0.15;
+/** Whatever the line, quiet is never above this: speech is never called quiet. */
+export const SILENT_LEVEL_MAX = 0.4;
+/** Quiet is this far above the line's own noise, and under this share of how loud they have recently been. */
+const SILENT_MARGIN = 0.08;
+const SILENT_SHARE_OF_PEAK = 0.35;
+/** How far back the noise floor and the speech peak look, and how much audio they need before they are trusted. */
+export const FLOOR_WINDOW_MS = 10_000;
+const FLOOR_MIN_SPAN_MS = 3_000;
+
+/** What the last seconds of their audio say about the line: its noise (lowest level) and its voice (highest). */
+export type LineLevels = { floor: number; peak: number };
+
+/**
+ * The line's noise floor and speech peak: the lowest and highest level read in the last FLOOR_WINDOW_MS, once at
+ * least FLOOR_MIN_SPAN_MS of readings exist (null before). Speech never lasts ten seconds without a dip, so the
+ * lowest reading is the noise.
+ */
+export function lineLevels(readings: { t: number; level: number }[], now: number): LineLevels | null {
+  const recent = readings.filter((reading) => now - reading.t <= FLOOR_WINDOW_MS);
+  if (!recent.length || now - recent[0].t < FLOOR_MIN_SPAN_MS) return null;
+  const levels = recent.map((reading) => reading.level);
+  return { floor: Math.min(...levels), peak: Math.max(...levels) };
 }
+
+/**
+ * The level under which they are not speaking. It follows the line, not a fixed number: above the line's own noise
+ * (a real microphone or a phone line is never silent) and under a share of how loud this speaker has been (a quiet
+ * speaker and a loud one both drop well below their own voice when they stop). Before any audio is known, the
+ * clean-line level.
+ */
+export function silentLevel(line: LineLevels | null): number {
+  if (line === null) return SILENT_LEVEL;
+  return Math.min(SILENT_LEVEL_MAX, Math.max(SILENT_LEVEL, line.floor + SILENT_MARGIN, line.peak * SILENT_SHARE_OF_PEAK));
+}
+
+export function prospectSilent(level: number, line: LineLevels | null = null): boolean {
+  return level < silentLevel(line);
+}
+
+/** How long a check waits when their audio gives no pause: their words have settled by then (about 0.1-0.5 s after they stop). */
+export const FALLBACK_MS = 1000;
 
 /**
  * When to check their words, and whether that check is final (a "still going" verdict then counts
@@ -222,7 +261,62 @@ export function prospectSilent(level: number): boolean {
 export function turnCheck(input: { settled: boolean; paused: boolean | null }): { afterMs: number; final: boolean } {
   if (input.paused) return { afterMs: 0, final: false };
   if (input.paused === null && input.settled) return { afterMs: 300, final: true };
-  return { afterMs: 2500, final: true };
+  return { afterMs: FALLBACK_MS, final: true };
+}
+
+/** Which rule started a check: their audio paused, the words had settled, the slow fallback, or the backstop. */
+export type CheckPath = "pause" | "settled" | "timeout" | "backstop";
+
+/** The path turnCheck takes for these inputs (the same three cases), to say which one fired. */
+export function checkPath(paused: boolean | null, settled: boolean): Exclude<CheckPath, "backstop"> {
+  if (paused) return "pause";
+  return paused === null && settled ? "settled" : "timeout";
+}
+
+/**
+ * What the client saw when a check started, sent with it so the event log can say where the time went:
+ * how long their audio had been quiet, how long since the transcript last changed, and whether the words
+ * were still changing after their audio went quiet (tail_ms > 0: the transcript lags the voice).
+ */
+export type CheckStamps = {
+  path: CheckPath;
+  quiet_ms: number | null;
+  words_age_ms: number;
+  tail_ms: number | null;
+  wait_ms: number;
+  deferred: boolean;
+  final: boolean;
+  /** Their audio level and the noise floor at that moment, in percent (0-100); null before any was read. */
+  level_pct: number | null;
+  floor_pct: number | null;
+};
+
+export function checkStamps(input: {
+  path: CheckPath;
+  now: number;
+  quietSince: number | null;
+  changedAt: number;
+  waitMs: number;
+  deferred: boolean;
+  final: boolean;
+  level?: number | null;
+  floor?: number | null;
+}): CheckStamps {
+  return {
+    path: input.path,
+    quiet_ms: input.quietSince === null ? null : Math.max(0, input.now - input.quietSince),
+    words_age_ms: Math.max(0, input.now - input.changedAt),
+    tail_ms: input.quietSince === null ? null : input.changedAt - input.quietSince,
+    wait_ms: input.waitMs,
+    deferred: input.deferred,
+    final: input.final,
+    level_pct: pct(input.level),
+    floor_pct: pct(input.floor),
+  };
+}
+
+function pct(value: number | null | undefined): number | null {
+  return typeof value === "number" ? Math.round(value * 100) : null;
 }
 
 /** What the turn check found; nulls when the classifier could not be reached. */

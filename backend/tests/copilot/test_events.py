@@ -22,7 +22,7 @@ from app.services.llm.jev import JevClient
 @pytest.fixture(autouse=True)
 def fresh_log(monkeypatch):
     monkeypatch.setattr(events, "_paused_until", 0.0)
-    monkeypatch.setattr(events, "_last_purge", 0.0)
+    monkeypatch.setattr(events, "_last_purge", float("-inf"))
     events._last_turn.clear()
     playbook_objections._cache.clear()
 
@@ -32,7 +32,8 @@ class FakeTable:
         self.db, self.fail = db, fail
 
     def insert(self, row):
-        self.db.inserted.append(row)
+        self.pending = row
+        self.db.attempts += 1
         return self
 
     def delete(self):
@@ -45,6 +46,9 @@ class FakeTable:
     def execute(self):
         if self.fail:
             raise RuntimeError('relation "live_assist_events" does not exist')
+        if getattr(self, "pending", None) is not None:
+            self.db.inserted.append(self.pending)
+            self.pending = None
         return self
 
 
@@ -62,7 +66,7 @@ class Other:
 
 class FakeDb:
     def __init__(self, fail=False):
-        self.inserted, self.deleted, self.fail = [], 0, fail
+        self.inserted, self.deleted, self.fail, self.attempts = [], 0, fail, 0
 
     def table(self, name):
         return FakeTable(self, self.fail) if name == events.TABLE else Other()
@@ -105,18 +109,20 @@ def test_a_finished_turn_is_logged_with_what_the_check_said(monkeypatch):
     assert isinstance(row["check_ms"], int) and row["prompt_version"] == events.PROMPT_VERSION
 
 
-def test_a_thought_still_going_and_the_same_words_twice_are_not_logged(monkeypatch):
+def test_a_check_that_found_them_still_going_is_logged_and_so_is_the_check_that_follows_it(monkeypatch):
     monkeypatch.setattr(playbook_objections, "custom_for", lambda *_a: {})
     db = FakeDb()
     client = _client(db)
     _classifier(monkeypatch, objection="none", turn="continuing")
-    # Not final: finished comes back true only when the check is unsure, so ask for a confident "continuing".
     assert _turn(client, "Ya, pero la verdad es que me parece").json()["finished"] is False
-    assert db.inserted == []
+    # Not final: finished comes back true only when the check is unsure, so ask for a confident "continuing".
+    assert [row["finished"] for row in db.inserted] == [False]
+    # The same words checked again with a different verdict (the backstop) are a new fact; the same pair twice are not.
     _classifier(monkeypatch)
-    _turn(client)
-    _turn(client)
-    assert len(db.inserted) == 1
+    _turn(client, "Ya, pero la verdad es que me parece")
+    _turn(client, "Ya, pero la verdad es que me parece")
+    assert [row["finished"] for row in db.inserted] == [False, True]
+    assert db.inserted[0]["latest_turn"] == "Ya, pero la verdad es que me parece"
 
 
 def test_a_custom_match_logs_its_playbook_entry(monkeypatch):
@@ -177,9 +183,11 @@ def test_a_missing_table_never_breaks_a_call_and_pauses_the_log(monkeypatch):
     db = FakeDb(fail=True)
     client = _client(db)
     assert client.post("/api/v1/copilot/suggest", json=SUGGEST).status_code == 200
+    tried = db.attempts
+    assert tried >= 1
     assert client.post("/api/v1/copilot/suggest", json=SUGGEST).status_code == 200
     # The second card did not even try: ten minutes of silence after a failure, not a warning per card.
-    assert len(db.inserted) == 1
+    assert db.attempts == tried and db.inserted == []
 
 
 def test_the_log_can_be_switched_off(monkeypatch):
@@ -194,3 +202,65 @@ def test_old_rows_are_deleted_at_most_once_an_hour():
     events.record(db, {"kind": "turn", "user_id": "u"})
     events.record(db, {"kind": "turn", "user_id": "u"})
     assert len(db.inserted) == 2 and db.deleted == 1
+
+
+# --- The client's timing stamps ---------------------------------------------------------------------------
+
+
+STAMPS = {"path": "pause", "quiet_ms": 812, "words_age_ms": 240, "tail_ms": -30, "wait_ms": 0, "deferred": False, "final": False, "level_pct": 12, "floor_pct": 9}
+
+
+def test_a_turn_check_stores_the_clients_timing(monkeypatch):
+    _classifier(monkeypatch)
+    monkeypatch.setattr(playbook_objections, "custom_for", lambda *_a: {})
+    db = FakeDb()
+    _client(db).post("/api/v1/copilot/turn", json={
+        "transcript_window": "Them: caro", "latest_turn": "me parece caro", "sales_motion_key": "discovery", "timing": STAMPS,
+    })
+    assert db.inserted[0]["client"] == STAMPS
+
+
+def test_only_the_known_timing_keys_with_sane_values_are_stored():
+    cleaned = events.clean_timing({
+        **STAMPS, "path": "somewhere", "quiet_ms": 10**12, "tail_ms": "700", "deferred": "yes",
+        "transcript": "everything they said", "extra": {"nested": 1},
+    })
+    assert cleaned == {"words_age_ms": 240, "wait_ms": 0, "final": False, "level_pct": 12, "floor_pct": 9}
+    assert events.clean_timing(None) is None and events.clean_timing("x") is None and events.clean_timing({"a": 1}) is None
+    assert events.clean_timing({"quiet_ms": True}) is None  # a boolean is not a number of milliseconds
+
+
+def test_a_check_without_timing_logs_as_before(monkeypatch):
+    _classifier(monkeypatch)
+    monkeypatch.setattr(playbook_objections, "custom_for", lambda *_a: {})
+    db = FakeDb()
+    _turn(_client(db))
+    assert "client" not in db.inserted[0]
+
+
+class NoClientColumn(FakeDb):
+    """The table exists but migration 080 (the client column) has not been applied."""
+
+    def table(self, name):
+        db = self
+
+        class Table(FakeTable):
+            def insert(self, row):
+                if "client" in row:
+                    db.refused += 1
+                    raise RuntimeError("column live_assist_events.client does not exist")
+                return super().insert(row)
+
+        return Table(self) if name == events.TABLE else Other()
+
+    refused = 0
+
+
+def test_without_the_client_column_the_row_is_kept_and_later_ones_do_not_try_again(monkeypatch):
+    monkeypatch.setattr(events, "_no_client_until", 0.0)
+    db = NoClientColumn()
+    row = {"kind": "turn", "user_id": "u", "client": STAMPS}
+    events.record(db, dict(row))
+    events.record(db, dict(row))
+    assert len(db.inserted) == 2 and all("client" not in r for r in db.inserted)
+    assert db.refused == 1

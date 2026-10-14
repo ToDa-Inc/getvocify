@@ -4,6 +4,8 @@ import {
   answerCard,
   assistContext,
   CARD_COOLDOWN_MS,
+  checkPath,
+  checkStamps,
   checkTiming,
   cooldownLeft,
   repReplied,
@@ -14,7 +16,10 @@ import {
   objectionCard,
   previousAnswers,
   PAUSE_MS,
+  lineLevels,
+  FALLBACK_MS,
   prospectSilent,
+  silentLevel,
   streamedDraft,
   turnCheck,
 } from "./live-assist.ts";
@@ -136,12 +141,12 @@ describe("turnCheck", () => {
   });
 
   it("while they still talk, waits for a real pause in their words, then takes the turn as over", () => {
-    assert.deepEqual(turnCheck({ settled: true, paused: false }), { afterMs: 2500, final: true });
+    assert.deepEqual(turnCheck({ settled: true, paused: false }), { afterMs: FALLBACK_MS, final: true });
   });
 
   it("with no audio to read, a settled sentence is checked at once and words still settling after a pause", () => {
     assert.deepEqual(turnCheck({ settled: true, paused: null }), { afterMs: 300, final: true });
-    assert.deepEqual(turnCheck({ settled: false, paused: null }), { afterMs: 2500, final: true });
+    assert.deepEqual(turnCheck({ settled: false, paused: null }), { afterMs: FALLBACK_MS, final: true });
   });
 });
 
@@ -346,5 +351,73 @@ describe("the cooldown after a card", () => {
     assert.equal(repReplied([turn("1", "prospect", "Me parece caro."), turn("2", "rep", "Vale, claro.")], "1"), false);
     assert.equal(repReplied([turn("1", "prospect", `${words} ${words}`), turn("2", "prospect", "y más")], "1"), false);
     assert.equal(repReplied([turn("1", "prospect", "Caro.")], "missing"), false);
+  });
+});
+
+
+describe("what a check records about its own timing", () => {
+  it("names the rule that fired it, the same three cases turnCheck takes", () => {
+    assert.equal(checkPath(true, false), "pause");
+    assert.equal(checkPath(null, true), "settled");
+    assert.equal(checkPath(null, false), "timeout");
+    assert.equal(checkPath(false, true), "timeout");
+    for (const [paused, settled] of [[true, true], [true, false], [null, true], [null, false], [false, true], [false, false]] as const) {
+      const path = checkPath(paused, settled);
+      const { afterMs } = turnCheck({ settled, paused });
+      assert.equal(afterMs === 0, path === "pause");
+      assert.equal(afterMs === 300, path === "settled");
+      assert.equal(afterMs === FALLBACK_MS, path === "timeout");
+    }
+  });
+
+  it("says how long their audio was quiet, how long since the words changed, and whether the words lagged the voice", () => {
+    const lagging = checkStamps({ path: "pause", now: 10_000, quietSince: 9_000, changedAt: 9_700, waitMs: 0, deferred: false, final: false, level: 0.123, floor: 0.2 });
+    assert.deepEqual(lagging, { path: "pause", quiet_ms: 1_000, words_age_ms: 300, tail_ms: 700, wait_ms: 0, deferred: false, final: false, level_pct: 12, floor_pct: 20 });
+    // Words that stopped changing before their audio went quiet: the transcript was ahead of the voice.
+    assert.equal(checkStamps({ path: "pause", now: 10_000, quietSince: 9_000, changedAt: 8_800, waitMs: 0, deferred: false, final: false }).tail_ms, -200);
+  });
+
+  it("has no quiet time when their audio was never heard or they are still speaking", () => {
+    const stamps = checkStamps({ path: "timeout", now: 5_000, quietSince: null, changedAt: 4_000, waitMs: 2_500, deferred: true, final: true });
+    assert.deepEqual([stamps.quiet_ms, stamps.tail_ms, stamps.words_age_ms], [null, null, 1_000]);
+  });
+});
+
+describe("quiet follows the line", () => {
+  const steady = (level: number, from: number, to: number) => {
+    const out: { t: number; level: number }[] = [];
+    for (let t = from; t <= to; t += 250) out.push({ t, level });
+    return out;
+  };
+  it("knows nothing before it has heard enough", () => {
+    assert.equal(lineLevels([], 5_000), null);
+    assert.equal(lineLevels(steady(0.2, 4_000, 5_000), 5_000), null);
+    assert.equal(silentLevel(null), 0.15);
+  });
+  it("takes the lowest recent level as the noise and the highest as the voice", () => {
+    const readings = [...steady(0.6, 0, 3_000), ...steady(0.2, 3_250, 6_000)];
+    assert.deepEqual(lineLevels(readings, 6_000), { floor: 0.2, peak: 0.6 });
+  });
+  it("forgets levels older than the window", () => {
+    assert.deepEqual(lineLevels([...steady(0.05, 0, 1_000), ...steady(0.4, 11_000, 15_000)], 15_000), { floor: 0.4, peak: 0.4 });
+  });
+  it("counts steady line noise as quiet", () => {
+    assert.equal(prospectSilent(0.2), false);
+    assert.equal(prospectSilent(0.2, { floor: 0.2, peak: 0.2 }), true);
+  });
+  it("follows the speaker's own volume: a loud one is quiet well below their voice", () => {
+    const loud = { floor: 0, peak: 1 };
+    assert.equal(silentLevel(loud), 0.35);
+    assert.equal(prospectSilent(0.3, loud), true);
+    assert.equal(prospectSilent(0.4, loud), false);
+  });
+  it("a quiet speaker on a clean line still pauses at the clean-line level", () => {
+    const quiet = { floor: 0, peak: 0.3 };
+    assert.equal(silentLevel(quiet), 0.15);
+    assert.equal(prospectSilent(0.2, quiet), false);
+  });
+  it("never calls speech quiet, however noisy the line", () => {
+    assert.equal(silentLevel({ floor: 0.9, peak: 1 }), 0.4);
+    assert.equal(prospectSilent(0.5, { floor: 0.45, peak: 1 }), false);
   });
 });

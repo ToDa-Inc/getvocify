@@ -19,7 +19,9 @@ _HS_OBJECT_PATH = {
 }
 
 
-def load_product_context(supabase: Client, user_id: str) -> str:
+def load_product_context(supabase: Client, user_id: str, *, strict: bool = False) -> str:
+    """The rep's offer. A failed read is "" (the offer is optional), unless `strict`: then it raises, so a caller that
+    keeps the result never keeps a failure."""
     try:
         from app.services.company import get_company_id_for_user
 
@@ -45,6 +47,8 @@ def load_product_context(supabase: Client, user_id: str) -> str:
             return ""
         return str(rows[0].get("product_context") or "").strip()
     except Exception as e:
+        if strict:
+            raise
         logger.warning(
             "Could not load product_context",
             extra=log_domain(DOMAIN_EXTRACTION, "product_context_load_failed", error=str(e)),

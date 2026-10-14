@@ -45,6 +45,7 @@ from app.api import (
     company,
     handoffs,
     after_call,
+    mcp_access,
 )
 
 api_router = APIRouter()
@@ -95,5 +96,7 @@ api_router.include_router(copilot.router)
 api_router.include_router(voice_enrollment.router)
 api_router.include_router(admin.router)
 api_router.include_router(handoffs.router)
+api_router.include_router(mcp_access.router)
+api_router.include_router(mcp_access.oauth_router)
 
 

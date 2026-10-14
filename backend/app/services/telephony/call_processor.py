@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Tuple
 from urllib.parse import urlparse, urlunparse
 
@@ -36,6 +36,13 @@ from app.services.transcript_sanitize import raw_speaker_count, sanitize_user_tr
 logger = logging.getLogger(__name__)
 
 DOWNLOAD_TIMEOUT = 60.0
+
+# Memos whose recording this process is transcribing right now, so recovery leaves a long call running.
+_transcribing: set[str] = set()
+
+
+def is_transcribing(memo_id: str) -> bool:
+    return memo_id in _transcribing
 
 
 def twilio_wav_url(recording_url: str) -> str:
@@ -198,6 +205,7 @@ async def process_vocify_call_background(
     # kept here so the except block always has a list to persist even if
     # something fails before that line runs.
     screening_outcome = "connected"
+    _transcribing.add(memo_id)
     try:
         # Single pipeline_run() context for the whole call: record_stage()
         # writes to a contextvar buffer that only exists while this `with`
@@ -327,6 +335,8 @@ async def process_vocify_call_background(
                 record_stage("total_pipeline", pipeline_started_at, error=str(e)[:200])
             stages.extend(scratch)
         persist_pipeline_meta(supabase, memo_id, stages)
+    finally:
+        _transcribing.discard(memo_id)
 
 
 async def finalize_screened_out_memo(
@@ -361,6 +371,20 @@ async def finalize_screened_out_memo(
     supabase.table("outbound_calls").update(
         {"call_disposition": outcome}
     ).eq("carrier_call_id", call_sid).execute()
+
+
+def _hubspot_call_time(started_at: Optional[str], seconds: float = 0.0) -> str:
+    """When HubSpot shows the call: from the call's own time, not from when it gets logged.
+
+    Logging can come long after the call (a Twilio retry, the call reconciler, a replay); "now" would
+    put the call on the wrong day of the contact's timeline. Unknown start: now, as before.
+    """
+    try:
+        at = datetime.fromisoformat(started_at) + timedelta(seconds=seconds) if started_at else None
+    except (TypeError, ValueError):
+        at = None
+    at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return at.isoformat().replace("+00:00", "Z")
 
 
 def _company_hubspot_connection(supabase: Client, user_id: str) -> Optional[dict]:
@@ -505,9 +529,8 @@ async def log_missed_call_activity(
             row.get("to_number") or "",
         )
         properties = build_call_properties(
-            occurred_at=datetime.now(timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z"),
+            # A missed call happened when it was dialed.
+            occurred_at=_hubspot_call_time(row.get("created_at")),
             to_number=row["to_number"],
             from_number=row["from_number"],
             duration_ms=0,
@@ -645,9 +668,8 @@ async def log_call_engagement(
         # The rep approved before the call was logged: the call carries the write-up (summary, updates, transcript).
         pending = call_entry.pending_call_body(supabase, row.get("memo_id"))
         properties = build_call_properties(
-            occurred_at=datetime.now(timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z"),
+            # When the call ended, as a call logged at hang-up always showed.
+            occurred_at=_hubspot_call_time(row.get("answered_at"), duration),
             to_number=row["to_number"],
             from_number=row["from_number"],
             duration_ms=int(duration * 1000),

@@ -48,3 +48,18 @@ def _fresh_preview_cache():
     memos._PREVIEW_CACHE.clear()
     yield
     memos._PREVIEW_CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_live_help_context_left_behind():
+    """Live help keeps what it reads for a short time, process-wide: one test's offer, knowledge or playbook must
+    not be what the next test's card finds."""
+    from app.services.copilot import live_context, playbook_objections
+
+    live_context.clear()
+    playbook_objections._cache.clear()
+    playbook_objections._company.clear()
+    yield
+    live_context.clear()
+    playbook_objections._cache.clear()
+    playbook_objections._company.clear()

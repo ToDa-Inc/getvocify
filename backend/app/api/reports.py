@@ -127,7 +127,7 @@ notifications = APIRouter(prefix="/api/v1", tags=["notifications"])
 
 
 @notifications.get("/notifications")
-async def list_notifications(
+def list_notifications(
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):

@@ -11,14 +11,14 @@ describe("visibleSettingsTabs", () => {
   it("gives the Head of Sales every tab", () => {
     assert.deepEqual(
       visibleSettingsTabs(true).map((t) => t.id),
-      ["crm", "calling", "offer", "transcription", "brief", "team", "usage", "billing"],
+      ["crm", "calling", "offer", "transcription", "brief", "team", "usage", "agents", "billing"],
     );
   });
 
   it("keeps the spec's order", () => {
     assert.deepEqual(
       SETTINGS_TABS.map((t) => t.id),
-      ["crm", "calling", "calendar", "offer", "transcription", "brief", "team", "usage", "billing", "system"],
+      ["crm", "calling", "calendar", "offer", "transcription", "brief", "team", "usage", "agents", "billing", "system"],
     );
   });
 
@@ -43,7 +43,7 @@ describe("visibleSettingsTabs", () => {
   it("gives a rep only the personal tabs", () => {
     assert.deepEqual(
       visibleSettingsTabs(false).map((t) => t.id),
-      ["calling", "transcription", "usage"],
+      ["calling", "transcription", "usage", "agents"],
     );
   });
 });

@@ -2,8 +2,10 @@
 Dependency injection for FastAPI routes
 """
 
+import httpx
 from fastapi import Depends, HTTPException, status, Header
 from supabase import create_client, Client
+from supabase.lib.client_options import SyncClientOptions
 from app.config import settings
 from app.services.auth_session import (
     AccessTokenError,
@@ -23,6 +25,21 @@ _supabase_client: Optional[Client] = None
 _supabase_auth_client: Optional[Client] = None
 _supabase_lock = threading.Lock()
 
+# One connection pool for every PostgREST and storage call in the process. Without it supabase-py builds a
+# new HTTP/2 client (120 s timeouts) whenever its sub-clients are rebuilt, so each query paid a fresh TLS
+# handshake and a stalled one could hold a caller for two minutes. HTTP/1.1 keeps the pool simple to share
+# across the threadpool. A query that waits longer than these limits fails instead of hanging.
+SUPABASE_HTTP_TIMEOUT = httpx.Timeout(30.0, connect=5.0, pool=10.0)
+SUPABASE_HTTP_LIMITS = httpx.Limits(max_connections=100, max_keepalive_connections=40, keepalive_expiry=30.0)
+
+
+def _supabase_http_client() -> httpx.Client:
+    return httpx.Client(
+        timeout=SUPABASE_HTTP_TIMEOUT,
+        limits=SUPABASE_HTTP_LIMITS,
+        follow_redirects=True,
+    )
+
 
 def _ensure_service_role_auth(client: Client) -> Client:
     """
@@ -35,11 +52,11 @@ def _ensure_service_role_auth(client: Client) -> Client:
     headers = client.options.headers
     if headers is None:
         client.options.headers = {"Authorization": service_header}
+    elif headers.get("Authorization") != service_header:
+        headers["Authorization"] = service_header
     else:
-        current = headers.get("Authorization")
-        if current != service_header:
-            headers["Authorization"] = service_header
-    # Force PostgREST/storage clients to rebuild with the service key
+        return client
+    # The header changed: rebuild PostgREST/storage with the service key (they share the pool, so this is cheap).
     client._postgrest = None
     client._storage = None
     client._functions = None
@@ -62,7 +79,11 @@ def get_supabase() -> Client:
                 try:
                     _supabase_client = create_client(
                         settings.SUPABASE_URL,
-                        settings.SUPABASE_SERVICE_ROLE_KEY
+                        settings.SUPABASE_SERVICE_ROLE_KEY,
+                        options=SyncClientOptions(
+                            httpx_client=_supabase_http_client(),
+                            postgrest_client_timeout=SUPABASE_HTTP_TIMEOUT,
+                        ),
                     )
                 except Exception as e:
                     error_msg = str(e)

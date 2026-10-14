@@ -12,7 +12,10 @@ from uuid import uuid4
 import asyncio
 
 from fastapi import APIRouter, BackgroundTasks, Request, Query
+from email.utils import parsedate_to_datetime
+
 from fastapi.responses import PlainTextResponse, JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 from twilio.twiml.voice_response import VoiceResponse
 
@@ -623,6 +626,33 @@ def _reject_twiml(message: str) -> Response:
     return _twiml(str(response))
 
 
+# Twilio connection overrides (a URL fragment Twilio reads and leaves out of the signature): by default it
+# retries a callback only when it cannot connect, so a slow answer or a 502 during a deploy lost the
+# recording. Five retries on connect failure, read timeout or 5xx; the recording handler is idempotent.
+TWILIO_RETRY_OVERRIDES = "#rc=5&rp=ct,rt,5xx"
+
+# Background work that must outlive the request that started it. Kept referenced until done (the loop holds
+# tasks weakly). Recordings in flight are tracked by call so a Twilio retry or the reconciler never runs a
+# second copy alongside the first.
+_background: set[asyncio.Task] = set()
+_recordings_in_flight: set[str] = set()
+
+
+def _spawn(coro) -> asyncio.Task:
+    task = asyncio.get_running_loop().create_task(coro)
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+    return task
+
+
+def _insert_outbound_call(supabase, row: dict) -> None:
+    try:
+        supabase.table("outbound_calls").insert(row).execute()
+    except Exception as e:
+        if "duplicate key" not in str(e).lower() and "23505" not in str(e):
+            raise
+
+
 @router.post("/twilio/voice")
 async def twilio_voice(request: Request):
     """TwiML App Voice URL. Authorizes the caller ID and dials the prospect.
@@ -654,7 +684,7 @@ async def twilio_voice(request: Request):
             params.get("To", ""),
             default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE,
         )
-        caller_id = resolve_caller_id(supabase, user_id, params.get("CallerId") or None)
+        caller_id = await run_in_threadpool(resolve_caller_id, supabase, user_id, params.get("CallerId") or None)
     except CallerIdRangeRestricted as e:
         logger.warning("Twilio voice webhook rejected: %s", e)
         return _reject_twiml(ES_MOBILE_CALL_BLOCKED_SPOKEN)
@@ -666,31 +696,29 @@ async def twilio_voice(request: Request):
 
     # Persisted now because the recording callback arrives minutes later with
     # nothing but this same parent-leg CallSid to correlate on.
-    try:
-        supabase.table("outbound_calls").insert(
-            {
-                "user_id": user_id,
-                "carrier_call_id": call_sid,
-                "from_number": caller_id,
-                "to_number": to_number,
-                # Never taken from the request: a client-supplied hub id would
-                # taint the recording webhook's externalAccountId comparison.
-                # Task 6 populates this from the user's own crm_connections row.
-                "hubspot_hub_id": None,
-                "hubspot_contact_id": params.get("ContactId") or None,
-                "hubspot_deal_id": params.get("DealId") or None,
-                "status": "dialing",
-            }
-        ).execute()
-    except Exception as e:
-        if "duplicate key" not in str(e).lower() and "23505" not in str(e):
-            raise
+    await run_in_threadpool(
+        _insert_outbound_call,
+        supabase,
+        {
+            "user_id": user_id,
+            "carrier_call_id": call_sid,
+            "from_number": caller_id,
+            "to_number": to_number,
+            # Never taken from the request: a client-supplied hub id would
+            # taint the recording webhook's externalAccountId comparison.
+            # Task 6 populates this from the user's own crm_connections row.
+            "hubspot_hub_id": None,
+            "hubspot_contact_id": params.get("ContactId") or None,
+            "hubspot_deal_id": params.get("DealId") or None,
+            "status": "dialing",
+        },
+    )
 
     return _twiml(
         build_outbound_twiml(
             to=to_number,
             caller_id=caller_id,
-            recording_callback_url=f"{base}/webhooks/twilio/recording",
+            recording_callback_url=f"{base}/webhooks/twilio/recording{TWILIO_RETRY_OVERRIDES}",
             dial_status_callback_url=f"{base}/webhooks/twilio/dial-status",
             whisper_url=(
                 f"{base}/webhooks/twilio/whisper"
@@ -767,16 +795,25 @@ async def twilio_dial_status(request: Request):
     call_sid = (params.get("CallSid") or "").strip()
     dial_status = (params.get("DialCallStatus") or "").strip().lower()
     if call_sid and dial_status != "completed":
-        await log_missed_call_activity(supabase, call_sid, dial_status)
+        # Logging the missed call talks to HubSpot: the parent leg is not kept waiting on it.
+        _spawn(_log_missed_call(supabase, call_sid, dial_status))
     return _twiml(str(VoiceResponse()))
+
+
+async def _log_missed_call(supabase, call_sid: str, dial_status: str) -> None:
+    try:
+        await log_missed_call_activity(supabase, call_sid, dial_status)
+    except Exception:
+        logger.exception("Call %s: the missed call could not be logged", call_sid)
 
 
 @router.post("/twilio/recording")
 async def twilio_recording(request: Request):
-    """Recording is ready: persist the WAV, then transcribe and extract.
+    """Recording is ready: answered at once, then persisted, transcribed and extracted in the background.
 
     `CallSid` here is the parent (browser) leg — the same SID the voice webhook
-    stored — so it correlates the audio back to its CRM context.
+    stored — so it correlates the audio back to its CRM context. Twilio gets its
+    answer before any of the work: a slow answer is what used to lose the call.
     """
     supabase = get_supabase()
     params = await _twilio_form(request)
@@ -788,23 +825,64 @@ async def twilio_recording(request: Request):
     if not call_sid or not recording_url:
         return Response(status_code=204)
 
-    found = (
-        supabase.table("outbound_calls")
-        .select("*")
-        .eq("carrier_call_id", call_sid)
-        .limit(1)
-        .execute()
+    start_recording_job(
+        supabase,
+        call_sid,
+        recording_url,
+        recording_sid=params.get("RecordingSid"),
+        duration=float(params.get("RecordingDuration") or 0) or 1.0,
+        started_at=_twilio_time(params.get("RecordingStartTime")),
+    )
+    return Response(status_code=204)
+
+
+def _twilio_time(value: str | None) -> datetime | None:
+    try:
+        return parsedate_to_datetime(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def start_recording_job(supabase, call_sid: str, recording_url: str, **kwargs) -> bool:
+    """Process a call's recording in the background unless it is already being processed here."""
+    if call_sid in _recordings_in_flight:
+        return False
+    _recordings_in_flight.add(call_sid)
+    task = _spawn(_process_recording_logged(supabase, call_sid, recording_url, **kwargs))
+    task.add_done_callback(lambda _t: _recordings_in_flight.discard(call_sid))
+    return True
+
+
+async def _process_recording_logged(supabase, call_sid: str, recording_url: str, **kwargs) -> None:
+    try:
+        await process_call_recording(supabase, call_sid, recording_url, **kwargs)
+    except Exception:
+        # Left as it was (no recording_path): the call reconciler picks it up again.
+        logger.exception("Call %s: the recording could not be processed", call_sid)
+
+
+async def process_call_recording(
+    supabase,
+    call_sid: str,
+    recording_url: str,
+    *,
+    recording_sid: str | None,
+    duration: float,
+    started_at: datetime | None = None,
+) -> None:
+    """Persist a call's WAV, then make (or complete) its memo. Shared by the webhook and the reconciler."""
+    found = await run_in_threadpool(
+        lambda: supabase.table("outbound_calls").select("*").eq("carrier_call_id", call_sid).limit(1).execute()
     )
     call_row = (found.data or [None])[0]
     if not call_row:
         logger.warning("Twilio recording for unknown call_sid=%s", call_sid)
-        return Response(status_code=204)
+        return
     if call_row.get("recording_path"):
-        return Response(status_code=204)  # redelivery
+        return  # redelivery
 
     pipeline_started_at = time.perf_counter()
     pre_stages: list = []
-    duration = float(params.get("RecordingDuration") or 0) or 1.0
     with pipeline_run() as pre_stages:
         t_dl = time.perf_counter()
         audio_bytes = await download_twilio_recording(recording_url)
@@ -816,31 +894,28 @@ async def twilio_recording(request: Request):
         )
         record_stage("upload", t_up)
 
-    supabase.table("outbound_calls").update(
-        {
-            "recording_sid": params.get("RecordingSid"),
-            "recording_path": path,
-            "recording_duration": int(duration),
-            "answered_at": (
-                datetime.now(timezone.utc) - timedelta(seconds=int(duration))
-            ).isoformat(),
-            "status": "recorded",
-        }
-    ).eq("carrier_call_id", call_sid).execute()
+    answered_at = started_at or (datetime.now(timezone.utc) - timedelta(seconds=int(duration)))
+    await run_in_threadpool(
+        lambda: supabase.table("outbound_calls").update(
+            {
+                "recording_sid": recording_sid,
+                "recording_path": path,
+                "recording_duration": int(duration),
+                "answered_at": answered_at.isoformat(),
+                "status": "recorded",
+            }
+        ).eq("carrier_call_id", call_sid).execute()
+    )
     call_row["recording_duration"] = int(duration)
     call_row["recording_path"] = path
 
     call_row = await attach_hubspot_contact_by_phone(supabase, call_row)
 
     wait_for_live = not call_row.get("memo_id") and live_activity.recently_live(call_row["user_id"])
-    memo_args = (supabase, call_row, call_sid, path, audio_bytes, duration, pre_stages, pipeline_started_at)
-    if wait_for_live:
-        # The rep was transcribing this call live: that transcript makes the memo within seconds of
-        # hang-up. Twilio gets its answer now; the recording waits for it in the background.
-        asyncio.create_task(_memo_from_recording(*memo_args, wait_for_live=True))
-    else:
-        await _memo_from_recording(*memo_args, wait_for_live=False)
-    return Response(status_code=204)
+    await _memo_from_recording(
+        supabase, call_row, call_sid, path, audio_bytes, duration, pre_stages, pipeline_started_at,
+        wait_for_live=wait_for_live,
+    )
 
 
 async def _memo_from_recording(
@@ -866,7 +941,7 @@ async def _memo_from_recording(
                 logger.info("Call %s: no live transcript within the grace; transcribing the recording", call_sid)
         memo_id, created = await initiate_vocify_call_memo(supabase, call_row)
         if memo_id and created:
-            asyncio.create_task(
+            _spawn(
                 process_vocify_call_background(
                     memo_id,
                     call_row["user_id"],
@@ -886,7 +961,7 @@ async def _memo_from_recording(
             ).eq("id", memo_id).execute()
             memo = supabase.table("memos").select("screening_outcome").eq("id", memo_id).limit(1).execute()
             outcome = ((memo.data or [None])[0] or {}).get("screening_outcome") or call_row.get("call_disposition") or "connected"
-            asyncio.create_task(log_call_engagement(supabase, call_sid, duration, screening_outcome=outcome))
+            _spawn(log_call_engagement(supabase, call_sid, duration, screening_outcome=outcome))
     except Exception:
         if not wait_for_live:
             raise
