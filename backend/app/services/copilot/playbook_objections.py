@@ -51,7 +51,7 @@ def custom_entries(snapshot: Optional[dict]) -> dict[str, dict[str, str]]:
 
 
 def custom_for(supabase: Any, user_id: str, sales_motion_key: str) -> dict[str, dict[str, str]]:
-    """The custom objections of the playbook this rep's call of this type uses; {} when there are none
+    """The custom objections of the company's live playbooks, this call type's first; {} when there are none
     or anything fails (a failed lookup must never get in the way of a call). Blocking: run it in a thread."""
     key = (user_id, sales_motion_key)
     cached = _cache.get(key)
@@ -60,11 +60,17 @@ def custom_for(supabase: Any, user_id: str, sales_motion_key: str) -> dict[str, 
     found: dict[str, dict[str, str]] = {}
     try:
         from app.services.company import CompanyService
-        from app.services.playbooks.live import live_snapshot
+        from app.services.playbooks.live import live_snapshots
 
         membership = CompanyService(supabase).require_membership(user_id)
         _company[user_id] = membership.company_id
-        found = custom_entries(live_snapshot(supabase, membership.company_id, sales_motion_key))
+        # The call type's own objections first, then the other live types': a prospect in a demo
+        # can raise a proposal objection, and the team's answer to it still gets a card.
+        snapshots = live_snapshots(supabase, membership.company_id)
+        snapshots.sort(key=lambda s: str(s.get("sales_motion_key") or "") != sales_motion_key)
+        for snapshot in snapshots:
+            for entry_id, entry in custom_entries(snapshot).items():
+                found.setdefault(entry_id, entry)
     except Exception:
         # Not kept: the next check tries again.
         logger.warning("turn check: custom objections lookup failed", exc_info=True)

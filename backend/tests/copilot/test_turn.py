@@ -259,30 +259,53 @@ def test_the_lookup_is_kept_for_a_minute_and_a_failed_one_is_not(monkeypatch):
     playbook_objections._cache.clear()
     reads = []
 
-    def live_snapshot(_supabase, company_id, motion):
+    def live_snapshots(_supabase, company_id, motion=None):
         reads.append((company_id, motion))
-        return SNAPSHOT
+        return [{**SNAPSHOT, "sales_motion_key": "discovery"}]
 
     from app.services import company as company_service
     from app.services.playbooks import live
 
-    monkeypatch.setattr(live, "live_snapshot", live_snapshot)
+    monkeypatch.setattr(live, "live_snapshots", live_snapshots)
     monkeypatch.setattr(
         company_service.CompanyService, "require_membership",
         lambda self, user_id: Membership(id="m", company_id="co-1", user_id=user_id, role="member", status="active"),
     )
     first = playbook_objections.custom_for(object(), "user-1", "discovery")
     assert playbook_objections.custom_for(object(), "user-1", "discovery") is first
-    assert reads == [("co-1", "discovery")]
+    assert reads == [("co-1", None)]  # the whole company's live playbooks, read once
 
     playbook_objections._cache.clear()
 
     def boom(*_a):
         raise RuntimeError("database down")
 
-    monkeypatch.setattr(live, "live_snapshot", boom)
+    monkeypatch.setattr(live, "live_snapshots", boom)
     assert playbook_objections.custom_for(object(), "user-2", "discovery") == {}
     assert ("user-2", "discovery") not in playbook_objections._cache
+
+
+def test_the_turn_check_knows_the_objections_of_every_live_playbook_its_own_first(monkeypatch):
+    playbook_objections._cache.clear()
+    own = {"sales_motion_key": "closing", "entries": [
+        {"entry_id": "objection:custom:caja", "category": "custom", "label": "Sin caja (demo)", "guidance": "Demo."},
+    ]}
+    other = {"sales_motion_key": "negotiation", "entries": [
+        {"entry_id": "objection:custom:caja", "category": "custom", "label": "Sin caja (propuesta)", "guidance": "Prop."},
+        {"entry_id": "objection:custom:upfront", "category": "custom", "label": "No pago por adelantado",
+         "trigger": "No quiero pagar upfront", "guidance": "Definimos hitos."},
+    ]}
+    from app.services import company as company_service
+    from app.services.playbooks import live
+
+    monkeypatch.setattr(live, "live_snapshots", lambda *_a, **_k: [other, own])
+    monkeypatch.setattr(
+        company_service.CompanyService, "require_membership",
+        lambda self, user_id: Membership(id="m", company_id="co-1", user_id=user_id, role="member", status="active"),
+    )
+    found = playbook_objections.custom_for(object(), "user-9", "closing")
+    assert found["objection:custom:caja"]["label"] == "Sin caja (demo)"
+    assert found["objection:custom:upfront"] == {"label": "No pago por adelantado", "trigger": "No quiero pagar upfront"}
 
 
 def test_the_answer_follows_the_matched_playbook_entry(monkeypatch):

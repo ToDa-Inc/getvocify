@@ -18,6 +18,32 @@ class SuggestGrounding:
     playbook_snapshot: Optional[dict] = None
 
 
+def with_company_answers(snapshot: Optional[dict], others: list[dict]) -> Optional[dict]:
+    """The call type's playbook with the approved answers of the company's other live playbooks
+    added after its own. A prospect does not follow the call type: in a demo they raise a
+    proposal objection, in a cold call a demo question, and live help should still have the
+    team's answer. The call type's own answer wins for an id both have (its own "objection:price");
+    an added entry carries `from_type`. Steps stay the call type's own."""
+    if not snapshot:
+        return snapshot
+    own = [e for e in snapshot.get("entries") or [] if isinstance(e, dict)]
+    seen = {str(e.get("entry_id") or "").strip() for e in own}
+    added: list[dict] = []
+    for other in others or []:
+        key = str((other or {}).get("sales_motion_key") or "")
+        if not other or key == str(snapshot.get("sales_motion_key") or ""):
+            continue
+        for entry in other.get("entries") or []:
+            if not isinstance(entry, dict):
+                continue
+            entry_id = str(entry.get("entry_id") or "").strip()
+            if not entry_id or entry_id in seen or not str(entry.get("guidance") or "").strip():
+                continue
+            seen.add(entry_id)
+            added.append({**entry, "from_type": key})
+    return {**snapshot, "entries": own + added} if added else snapshot
+
+
 def evidence_ids_from_memo_row(row: dict) -> frozenset[str]:
     extraction = row.get("extraction")
     if isinstance(extraction, str):
