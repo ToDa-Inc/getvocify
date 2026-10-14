@@ -16,7 +16,9 @@ import {
   objectionCard,
   previousAnswers,
   PAUSE_MS,
+  noiseFloor,
   prospectSilent,
+  silentLevel,
   streamedDraft,
   turnCheck,
 } from "./live-assist.ts";
@@ -368,8 +370,8 @@ describe("what a check records about its own timing", () => {
   });
 
   it("says how long their audio was quiet, how long since the words changed, and whether the words lagged the voice", () => {
-    const lagging = checkStamps({ path: "pause", now: 10_000, quietSince: 9_000, changedAt: 9_700, waitMs: 0, deferred: false, final: false });
-    assert.deepEqual(lagging, { path: "pause", quiet_ms: 1_000, words_age_ms: 300, tail_ms: 700, wait_ms: 0, deferred: false, final: false });
+    const lagging = checkStamps({ path: "pause", now: 10_000, quietSince: 9_000, changedAt: 9_700, waitMs: 0, deferred: false, final: false, level: 0.123, floor: 0.2 });
+    assert.deepEqual(lagging, { path: "pause", quiet_ms: 1_000, words_age_ms: 300, tail_ms: 700, wait_ms: 0, deferred: false, final: false, level_pct: 12, floor_pct: 20 });
     // Words that stopped changing before their audio went quiet: the transcript was ahead of the voice.
     assert.equal(checkStamps({ path: "pause", now: 10_000, quietSince: 9_000, changedAt: 8_800, waitMs: 0, deferred: false, final: false }).tail_ms, -200);
   });
@@ -377,5 +379,32 @@ describe("what a check records about its own timing", () => {
   it("has no quiet time when their audio was never heard or they are still speaking", () => {
     const stamps = checkStamps({ path: "timeout", now: 5_000, quietSince: null, changedAt: 4_000, waitMs: 2_500, deferred: true, final: true });
     assert.deepEqual([stamps.quiet_ms, stamps.tail_ms, stamps.words_age_ms], [null, null, 1_000]);
+  });
+});
+
+describe("quiet on a noisy line", () => {
+  const steady = (level: number, from: number, to: number) => {
+    const out: { t: number; level: number }[] = [];
+    for (let t = from; t <= to; t += 250) out.push({ t, level });
+    return out;
+  };
+  it("has no floor before it has heard enough", () => {
+    assert.equal(noiseFloor([], 5_000), null);
+    assert.equal(noiseFloor(steady(0.2, 4_000, 5_000), 5_000), null);
+  });
+  it("takes the lowest recent level as the line's noise", () => {
+    const readings = [...steady(0.6, 0, 3_000), ...steady(0.2, 3_250, 6_000)];
+    assert.equal(noiseFloor(readings, 6_000), 0.2);
+  });
+  it("forgets levels older than the window", () => {
+    assert.equal(noiseFloor([...steady(0.05, 0, 1_000), ...steady(0.4, 11_000, 15_000)], 15_000), 0.4);
+  });
+  it("counts steady line noise as quiet, without ever calling speech quiet", () => {
+    assert.equal(prospectSilent(0.2), false);
+    assert.equal(prospectSilent(0.2, 0.2), true);
+    assert.equal(silentLevel(0.9), 0.3);
+    assert.equal(prospectSilent(0.5, 0.2), false);
+    assert.equal(silentLevel(0), 0.15);
+    assert.equal(silentLevel(null), 0.15);
   });
 });

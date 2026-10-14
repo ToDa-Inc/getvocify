@@ -207,7 +207,7 @@ def test_old_rows_are_deleted_at_most_once_an_hour():
 # --- The client's timing stamps ---------------------------------------------------------------------------
 
 
-STAMPS = {"path": "pause", "quiet_ms": 812, "words_age_ms": 240, "tail_ms": -30, "wait_ms": 0, "deferred": False, "final": False}
+STAMPS = {"path": "pause", "quiet_ms": 812, "words_age_ms": 240, "tail_ms": -30, "wait_ms": 0, "deferred": False, "final": False, "level_pct": 12, "floor_pct": 9}
 
 
 def test_a_turn_check_stores_the_clients_timing(monkeypatch):
@@ -225,7 +225,7 @@ def test_only_the_known_timing_keys_with_sane_values_are_stored():
         **STAMPS, "path": "somewhere", "quiet_ms": 10**12, "tail_ms": "700", "deferred": "yes",
         "transcript": "everything they said", "extra": {"nested": 1},
     })
-    assert cleaned == {"words_age_ms": 240, "wait_ms": 0, "final": False}
+    assert cleaned == {"words_age_ms": 240, "wait_ms": 0, "final": False, "level_pct": 12, "floor_pct": 9}
     assert events.clean_timing(None) is None and events.clean_timing("x") is None and events.clean_timing({"a": 1}) is None
     assert events.clean_timing({"quiet_ms": True}) is None  # a boolean is not a number of milliseconds
 

@@ -46,7 +46,7 @@ def _build() -> Optional[str]:
 
 # What the client may send about its own timing, and nothing else is stored.
 TIMING_PATHS = {"pause", "settled", "timeout", "backstop"}
-TIMING_NUMBERS = ("quiet_ms", "words_age_ms", "tail_ms", "wait_ms")
+TIMING_NUMBERS = ("quiet_ms", "words_age_ms", "tail_ms", "wait_ms", "level_pct", "floor_pct")
 TIMING_BOOLS = ("deferred", "final")
 TIMING_LIMIT_MS = 3_600_000
 

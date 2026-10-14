@@ -10,6 +10,7 @@ import {
   nextStep,
   PAUSE_MS,
   previousAnswers,
+  noiseFloor,
   prospectSilent,
   skipAnswered,
   turnCheck,
@@ -36,8 +37,26 @@ function useProspectPause(level: number | undefined) {
   const heardRef = useRef(false);
   /** When their audio last went quiet (null while they speak or before it was heard): for the event log. */
   const quietSinceRef = useRef<number | null>(null);
+  const levelRef = useRef<number | null>(null);
+  const floorRef = useRef<number | null>(null);
   const [paused, setPaused] = useState(false);
-  const silent = level === undefined || prospectSilent(level);
+  // Their line's own noise: a real microphone or a phone line is never digital silence, so quiet is measured from it.
+  const readingsRef = useRef<{ t: number; level: number }[]>([]);
+  const now = Date.now();
+  if (level !== undefined) {
+    readingsRef.current.push({ t: now, level });
+    if (readingsRef.current.length > 200) readingsRef.current.splice(0, readingsRef.current.length - 200);
+  }
+  // A steady level does not change, so nothing re-renders: a once-a-second tick keeps the floor current.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const floor = noiseFloor(readingsRef.current, now);
+  floorRef.current = floor;
+  levelRef.current = level ?? null;
+  const silent = level === undefined || prospectSilent(level, floor);
   if (!silent) heardRef.current = true;
   useEffect(() => {
     setPaused(false);
@@ -51,7 +70,7 @@ function useProspectPause(level: number | undefined) {
     }, PAUSE_MS);
     return () => window.clearTimeout(timer);
   }, [silent]);
-  return { paused: heardRef.current ? paused && silent : null, quietSinceRef };
+  return { paused: heardRef.current ? paused && silent : null, quietSinceRef, levelRef, floorRef };
 }
 
 /**
@@ -74,7 +93,7 @@ type Found = NonNullable<ReturnType<typeof assistContext>>;
 export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, call: LiveAssistCall = {}) {
   const [active, setActive] = useState<AssistCard | null>(null);
   const [thinking, setThinking] = useState(false);
-  const { paused, quietSinceRef } = useProspectPause(call.prospectLevel);
+  const { paused, quietSinceRef, levelRef, floorRef } = useProspectPause(call.prospectLevel);
   /** When their words last changed (the transcript revising counts), to time a check against it. */
   const changedAtRef = useRef(0);
   /** The words last checked: the same words are never checked twice. */
@@ -184,6 +203,8 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       waitMs: how.waitMs,
       deferred: how.deferred,
       final,
+      level: levelRef.current,
+      floor: floorRef.current,
     });
     void readTurn(ctx, controller.signal, stamps).then((reading) => {
       if (controller.signal.aborted) return;

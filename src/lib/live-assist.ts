@@ -209,9 +209,33 @@ export function skipAnswered(deferred: boolean, turns: MeetingDisplayTurn[], tur
   return deferred && repReplied(turns, turnKey);
 }
 
-/** Their side's level (0–1, as the meter shows it) below which they are not speaking. */
-export function prospectSilent(level: number): boolean {
-  return level < 0.15;
+/** Their side's level (0–1, as the meter shows it) below which they are not speaking, on a clean line. */
+export const SILENT_LEVEL = 0.15;
+/** A line with steady noise (a real microphone, a phone line): quiet is that noise plus a margin, never above this. */
+export const SILENT_LEVEL_MAX = 0.3;
+const SILENT_MARGIN = 0.08;
+/** How far back the noise floor looks, and how much audio it needs before it is trusted. */
+export const FLOOR_WINDOW_MS = 10_000;
+const FLOOR_MIN_SPAN_MS = 3_000;
+
+/** The level under which they are not speaking: the clean-line level, or the line's own noise floor plus a margin. */
+export function silentLevel(floor: number | null): number {
+  if (floor === null) return SILENT_LEVEL;
+  return Math.min(SILENT_LEVEL_MAX, Math.max(SILENT_LEVEL, floor + SILENT_MARGIN));
+}
+
+export function prospectSilent(level: number, floor: number | null = null): boolean {
+  return level < silentLevel(floor);
+}
+
+/**
+ * The line's noise floor: the lowest level read in the last FLOOR_WINDOW_MS, once at least FLOOR_MIN_SPAN_MS of
+ * readings exist (null before). Speech never lasts ten seconds without a dip, so the lowest reading is the noise.
+ */
+export function noiseFloor(readings: { t: number; level: number }[], now: number): number | null {
+  const recent = readings.filter((reading) => now - reading.t <= FLOOR_WINDOW_MS);
+  if (!recent.length || now - recent[0].t < FLOOR_MIN_SPAN_MS) return null;
+  return Math.min(...recent.map((reading) => reading.level));
 }
 
 /**
@@ -247,6 +271,9 @@ export type CheckStamps = {
   wait_ms: number;
   deferred: boolean;
   final: boolean;
+  /** Their audio level and the noise floor at that moment, in percent (0-100); null before any was read. */
+  level_pct: number | null;
+  floor_pct: number | null;
 };
 
 export function checkStamps(input: {
@@ -257,6 +284,8 @@ export function checkStamps(input: {
   waitMs: number;
   deferred: boolean;
   final: boolean;
+  level?: number | null;
+  floor?: number | null;
 }): CheckStamps {
   return {
     path: input.path,
@@ -266,7 +295,13 @@ export function checkStamps(input: {
     wait_ms: input.waitMs,
     deferred: input.deferred,
     final: input.final,
+    level_pct: pct(input.level),
+    floor_pct: pct(input.floor),
   };
+}
+
+function pct(value: number | null | undefined): number | null {
+  return typeof value === "number" ? Math.round(value * 100) : null;
 }
 
 /** What the turn check found; nulls when the classifier could not be reached. */
