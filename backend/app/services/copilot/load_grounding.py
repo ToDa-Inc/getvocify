@@ -169,10 +169,11 @@ def load_suggest_grounding(
     return suggest_grounding_from_memo_row(supabase, company_id=company_id, row=row)
 
 
-def load_company_knowledge(supabase: Client, *, company_id: str) -> Optional[dict]:
+def load_company_knowledge(supabase: Client, *, company_id: str, strict: bool = False) -> Optional[dict]:
     """The company's own sales knowledge («Vuestra empresa»: value, differentiators, customer
     proofs, competitors) for the live copilot's prompt. None when the company has none, the
-    table is not there yet or the read fails: the copilot then works exactly as before."""
+    table is not there yet or the read fails: the copilot then works exactly as before. With `strict` a failed read
+    raises instead, so a caller that keeps the result never keeps a failure."""
     try:
         result = (
             supabase.table("company_sales_knowledge")
@@ -183,6 +184,8 @@ def load_company_knowledge(supabase: Client, *, company_id: str) -> Optional[dic
         )
         rows = list(getattr(result, "data", None) or [])
     except Exception:
+        if strict:
+            raise
         return None
     data = (rows[0] if rows else {}).get("data")
     return data if isinstance(data, dict) and data else None

@@ -26,7 +26,7 @@ PURGE_EVERY_S = 3600.0
 PROMPT_VERSION = "copilot_suggest_v4"
 
 _paused_until = 0.0
-_last_purge = 0.0
+_last_purge = float("-inf")  # never purged yet (monotonic time may be small right after a boot)
 # Until then rows go without the client's timing: its column (migration 080) was not there.
 _no_client_until = 0.0
 # The words and verdict last logged per rep: the same pair is not logged twice (a check can repeat on the same turn).
@@ -68,6 +68,23 @@ def clean_timing(timing: Any) -> Optional[dict]:
     return out or None
 
 
+SERVER_TIMING_CACHE = {"hit", "cold", "partial", "off"}
+
+
+def clean_server_timing(timing: Any) -> Optional[dict]:
+    """The server's own timing of a card, from the server: milliseconds before the model started, and where what the
+    card reads came from (the `client` column holds both sides' timing)."""
+    if not isinstance(timing, dict):
+        return None
+    out: dict[str, Any] = {}
+    prep = timing.get("prep_ms")
+    if isinstance(prep, (int, float)) and not isinstance(prep, bool) and 0 <= prep <= TIMING_LIMIT_MS:
+        out["prep_ms"] = int(round(prep))
+    if timing.get("cache") in SERVER_TIMING_CACHE:
+        out["cache"] = timing["cache"]
+    return out or None
+
+
 def turn_row(
     *, user_id: str, company_id: Optional[str], sales_motion_key: Optional[str], latest_turn: str,
     reading: dict, check_ms: int, timing: Any = None,
@@ -95,6 +112,7 @@ def suggest_row(
     *, user_id: str, company_id: Optional[str], sales_motion_key: Optional[str], call_mode: str, latest_turn: str,
     objection_type: Optional[str], entry_id: Optional[str], capture_id: Optional[str],
     result: Optional[dict], restarted: bool, error: Optional[str], playbook_version_id: Optional[str],
+    server_timing: Optional[dict] = None,
 ) -> dict:
     """The row for a card: what it was asked, which approved answer it followed, who wrote it and the line."""
     suggestion = (result or {}).get("suggestion") or {}
@@ -107,6 +125,7 @@ def suggest_row(
         "latency_ms": (result or {}).get("latency_ms"), "restarted": restarted or None,
         "error": _clip(error, 200), "playbook_version_id": playbook_version_id,
         "capture_id": _clip(capture_id, 128), "prompt_version": PROMPT_VERSION, "build": _build(),
+        "client": clean_server_timing(server_timing),
     }
 
 

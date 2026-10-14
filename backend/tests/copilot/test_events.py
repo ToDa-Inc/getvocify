@@ -22,7 +22,7 @@ from app.services.llm.jev import JevClient
 @pytest.fixture(autouse=True)
 def fresh_log(monkeypatch):
     monkeypatch.setattr(events, "_paused_until", 0.0)
-    monkeypatch.setattr(events, "_last_purge", 0.0)
+    monkeypatch.setattr(events, "_last_purge", float("-inf"))
     events._last_turn.clear()
     playbook_objections._cache.clear()
 
@@ -32,7 +32,8 @@ class FakeTable:
         self.db, self.fail = db, fail
 
     def insert(self, row):
-        self.db.inserted.append(row)
+        self.pending = row
+        self.db.attempts += 1
         return self
 
     def delete(self):
@@ -45,6 +46,9 @@ class FakeTable:
     def execute(self):
         if self.fail:
             raise RuntimeError('relation "live_assist_events" does not exist')
+        if getattr(self, "pending", None) is not None:
+            self.db.inserted.append(self.pending)
+            self.pending = None
         return self
 
 
@@ -62,7 +66,7 @@ class Other:
 
 class FakeDb:
     def __init__(self, fail=False):
-        self.inserted, self.deleted, self.fail = [], 0, fail
+        self.inserted, self.deleted, self.fail, self.attempts = [], 0, fail, 0
 
     def table(self, name):
         return FakeTable(self, self.fail) if name == events.TABLE else Other()
@@ -179,9 +183,11 @@ def test_a_missing_table_never_breaks_a_call_and_pauses_the_log(monkeypatch):
     db = FakeDb(fail=True)
     client = _client(db)
     assert client.post("/api/v1/copilot/suggest", json=SUGGEST).status_code == 200
+    tried = db.attempts
+    assert tried >= 1
     assert client.post("/api/v1/copilot/suggest", json=SUGGEST).status_code == 200
     # The second card did not even try: ten minutes of silence after a failure, not a warning per card.
-    assert len(db.inserted) == 1
+    assert db.attempts == tried and db.inserted == []
 
 
 def test_the_log_can_be_switched_off(monkeypatch):

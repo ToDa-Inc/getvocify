@@ -27,6 +27,15 @@ def company_of(user_id: str) -> Optional[str]:
     return _company.get(user_id)
 
 
+def invalidate_company(company_id: Optional[str]) -> None:
+    """A playbook of this company changed: its reps' custom objections are read again by the next turn check."""
+    if not company_id:
+        return
+    reps = {user for user, company in _company.items() if company == company_id}
+    for key in [key for key in _cache if key[0] in reps]:
+        _cache.pop(key, None)
+
+
 def custom_entries(snapshot: Optional[dict]) -> dict[str, dict[str, str]]:
     """{entry_id: {label, trigger}} of the snapshot's custom entries that have an answer to give."""
     found: dict[str, dict[str, str]] = {}

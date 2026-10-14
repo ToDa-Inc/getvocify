@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import time
+from dataclasses import dataclass, replace
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends
@@ -18,7 +21,7 @@ from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
 from app.services.copilot.contact_history import load_contact_history
 from app.services.copilot.context import live_assist_kind_from_call_mode, resolve_suggest_context
-from app.services.copilot import call_type, events, playbook_objections, turn
+from app.services.copilot import call_type, events, live_context, playbook_objections, turn
 from app.services.copilot.checklist import build_meeting_checklist
 from app.services.copilot.load_grounding import (
     load_company_knowledge,
@@ -26,9 +29,12 @@ from app.services.copilot.load_grounding import (
     load_suggest_grounding,
 )
 from app.services.copilot.prompts import today_line
+from app.services.copilot.grounding import SuggestGrounding
 from app.services.copilot.suggest import silent_suggestion, stream_objection_suggestion
-from app.services.rep_timezone import rep_timezone
+from app.services.rep_timezone import DEFAULT_TZ, rep_timezone
 from app.services.playbooks.catalog import INTERNAL_KEY
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
 
@@ -110,6 +116,65 @@ def _sse(events: list[dict]) -> StreamingResponse:
     return StreamingResponse(iter([body]), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
+@dataclass(frozen=True)
+class LiveContext:
+    """What a card reads before the model writes it (see services/copilot/live_context.py)."""
+
+    product_context: str
+    knowledge: Optional[dict]
+    grounding: Optional[SuggestGrounding]
+    timezone: str
+    cache: str
+
+
+async def _live_context(
+    supabase: Client, *, user_id: str, company_id: str, motion: Optional[str], kind: str, need_product: bool,
+) -> LiveContext:
+    """The rep's offer, the company's knowledge, the call type's playbook (when the call has a type) and the rep's
+    timezone: from the short-lived cache when fresh, else read at the same time in worker threads. A read that
+    fails gives what live help used before (no offer, no knowledge, no playbook) for this request only."""
+    from app.services.extraction_context import load_product_context  # resolved here: tests replace it
+
+    reads = [
+        lambda: live_context.cached(("product", user_id), lambda: load_product_context(supabase, user_id, strict=True), fallback="")
+        if need_product else _nothing(""),
+        lambda: live_context.cached(
+            ("knowledge", company_id), lambda: load_company_knowledge(supabase, company_id=company_id, strict=True),
+        ),
+        lambda: live_context.cached(
+            ("grounding", company_id, motion),
+            lambda: call_type.grounding_for_type(supabase, company_id, motion, kind, strict=True),
+        ) if motion else _nothing(None),
+        lambda: live_context.cached(("timezone", user_id), lambda: rep_timezone(user_id), fallback=DEFAULT_TZ),
+    ]
+    if live_context.ttl_s() > 0:
+        product, knowledge, grounding, timezone = await asyncio.gather(*(read() for read in reads))
+    else:
+        # The cache is off: one read after the other, exactly as live help did before it existed.
+        product, knowledge, grounding, timezone = [await read() for read in reads]
+    taken = [read for read, used in ((product, need_product), (knowledge, True), (grounding, bool(motion)), (timezone, True)) if used]
+    found = grounding.value
+    if found is not None and found.interaction_kind != kind:
+        # The playbook is the company's for this type; "call" or "meeting" is this request's.
+        found = replace(found, interaction_kind=kind)
+    return LiveContext(product.value or "", knowledge.value, found, timezone.value, live_context.cache_state(taken))
+
+
+async def _nothing(value):
+    return live_context.Loaded(value, hit=True)
+
+
+async def _warm_context(supabase: Client, user_id: str, motion: Optional[str]) -> None:
+    """After a turn check: read what the card that may follow will need, so that card finds it ready. Never raises."""
+    company_id = playbook_objections.company_of(user_id)
+    if not company_id or live_context.ttl_s() <= 0:
+        return
+    try:
+        await _live_context(supabase, user_id=user_id, company_id=company_id, motion=motion, kind="call", need_product=True)
+    except Exception:
+        logger.warning("live help: warming the context failed", exc_info=True)
+
+
 @router.post("/checklist")
 async def meeting_playbook_checklist(
     body: ChecklistRequest,
@@ -134,57 +199,66 @@ async def suggest_objection_handling(
     supabase: Client = Depends(get_supabase),
 ):
     """Stream a structured objection-handling suggestion (SSE)."""
+    started = time.perf_counter()
     motion = (body.sales_motion_key or "").strip() or None
     if motion == INTERNAL_KEY:
         # No customer in the conversation: no help, and no model call.
         return _sse([{"type": "result", "suggestion": silent_suggestion()}, {"type": "done"}])
 
+    # Desktop meetings don't carry the offer; use the one the rep saved for extraction.
     product_context = (body.product_context or "").strip()
-    if not product_context:
-        # Desktop meetings don't carry the offer; use the one the rep saved for extraction.
-        from app.services.extraction_context import load_product_context
-
-        product_context = load_product_context(supabase, membership.user_id)
+    typed = bool(motion and not body.capture_id)
+    live = await _live_context(
+        supabase, user_id=membership.user_id, company_id=membership.company_id,
+        motion=motion if typed else None, kind=live_assist_kind_from_call_mode(body.call_mode),
+        need_product=not product_context,
+    )
+    product_context = product_context or live.product_context
 
     context = resolve_suggest_context(
         body.contact_id,
         call_mode=body.call_mode,
     )
-    if motion and not body.capture_id:
-        grounding = call_type.grounding_for_type(
-            supabase, membership.company_id, motion, live_assist_kind_from_call_mode(body.call_mode),
-        )
+    if typed:
+        grounding = live.grounding
     elif body.capture_id:
-        grounding = load_suggest_grounding(
-            supabase,
-            user_id=membership.user_id,
-            company_id=membership.company_id,
-            capture_id=body.capture_id,
-            context=context,
+        # Tied to a stored capture: read for this capture, never kept.
+        grounding = await run_in_threadpool(
+            lambda: load_suggest_grounding(
+                supabase,
+                user_id=membership.user_id,
+                company_id=membership.company_id,
+                capture_id=body.capture_id,
+                context=context,
+            )
         )
     else:
-        grounding = load_company_suggest_grounding(
-            supabase,
-            company_id=membership.company_id,
-            call_mode=body.call_mode,
-            context=context,
-            user_id=membership.user_id,
+        # No call type yet: the playbook this rep's routing would pin (it depends on their role and the contact).
+        grounding = await run_in_threadpool(
+            lambda: load_company_suggest_grounding(
+                supabase,
+                company_id=membership.company_id,
+                call_mode=body.call_mode,
+                context=context,
+                user_id=membership.user_id,
+            )
         )
 
-    company_knowledge = load_company_knowledge(supabase, company_id=membership.company_id)
+    company_knowledge = live.knowledge
     contact_history = None
     if context.contact_id:
+        # Same memo visibility as the pre-call brief for this contact.
+        allowed_user_ids = await run_in_threadpool(
+            _handoff_restricted_user_ids, supabase, membership, connection_id=None, contact_id=context.contact_id,
+        )
         contact_history = await load_contact_history(
             supabase,
             company_id=membership.company_id,
             contact_id=context.contact_id,
-            # Same memo visibility as the pre-call brief for this contact.
-            allowed_user_ids=_handoff_restricted_user_ids(
-                supabase, membership, connection_id=None, contact_id=context.contact_id,
-            ),
+            allowed_user_ids=allowed_user_ids,
         )
 
-    today = today_line(rep_timezone(membership.user_id))
+    today = today_line(live.timezone)
 
     def ask(with_grounding):
         return stream_objection_suggestion(
@@ -214,7 +288,7 @@ async def suggest_objection_handling(
         return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     # What happened, for the event log: filled while the answer streams, written after it is sent.
-    trail: dict = {"result": None, "restarted": False, "error": None}
+    trail: dict = {"result": None, "restarted": False, "error": None, "prep_ms": None}
 
     def note(event: dict) -> None:
         if event.get("type") == "result":
@@ -229,9 +303,12 @@ async def suggest_objection_handling(
             entry_id=body.entry_id, capture_id=body.capture_id, result=trail["result"],
             restarted=trail["restarted"], error=trail["error"],
             playbook_version_id=grounding.playbook_version_id if grounding else None,
+            # Where the time before the model went, on the server: reading what the card needs, and from where.
+            server_timing={"prep_ms": trail["prep_ms"], "cache": live.cache},
         ))
 
     async def event_gen():
+        trail["prep_ms"] = int((time.perf_counter() - started) * 1000)
         async for event in ask(grounding):
             if event.get("type") == "result" and grounding is not None and _empty_objection(event):
                 # The playbook can make the model flag an objection and say nothing: ask once more
@@ -274,6 +351,8 @@ async def check_turn(
     custom = await run_in_threadpool(playbook_objections.custom_for, supabase, user_id, motion) if motion else None
     started = time.perf_counter()
     reading = await turn.read_turn(body.transcript_window, body.latest_turn, custom)
+    # The card that may follow reads its context next: have it ready (a worker thread, after this response).
+    background.add_task(_warm_context, supabase, user_id, motion or None)
     background.add_task(
         events.record, supabase,
         events.turn_row(
