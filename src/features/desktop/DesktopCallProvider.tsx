@@ -80,6 +80,7 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
       shownKey = null;
       previewRef.current = null;
       briefRef.current = null;
+      meetingRef.current.offerOnScreen(null);
       bridge.shell.setState({ onScreen: null });
       if (!urls.length || !api.getToken()) return;
       const show = () => {
@@ -92,6 +93,7 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
           if (!lookups.isLatest(ticket)) return;
           shownKey = key;
           previewRef.current = preview;
+          meetingRef.current.offerOnScreen(preview);
           const contactId = preview.callee?.contact_id;
           briefRef.current = contactId ? { state: "loading" } : null;
           show();

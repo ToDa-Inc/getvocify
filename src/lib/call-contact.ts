@@ -24,6 +24,19 @@ export function islandCallContact(preview: CallPreview | null | undefined): { na
 }
 
 /**
+ * The contact a recording started from the island's Record takes: the one of the detected call, else the HubSpot
+ * contact the island offers on screen. Memos store HubSpot contacts only; a record with several contacts has none.
+ */
+export function islandRecordContact(
+  detected: { hubspotId: string; name: string | null } | null,
+  onScreen: CallPreview | null,
+): { hubspotId: string; name: string | null } | null {
+  if (detected) return detected;
+  const callee = onScreen?.provider === "hubspot" ? onScreen.callee : null;
+  return callee?.contact_id ? { hubspotId: callee.contact_id, name: callee.name?.trim() || null } : null;
+}
+
+/**
  * Keeps only the answer to the latest call: an older lookup that resolves
  * after a newer one must not overwrite it.
  */
