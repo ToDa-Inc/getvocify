@@ -37,6 +37,13 @@ logger = logging.getLogger(__name__)
 
 DOWNLOAD_TIMEOUT = 60.0
 
+# Memos whose recording this process is transcribing right now, so recovery leaves a long call running.
+_transcribing: set[str] = set()
+
+
+def is_transcribing(memo_id: str) -> bool:
+    return memo_id in _transcribing
+
 
 def twilio_wav_url(recording_url: str) -> str:
     """Twilio serves WAV when the media extension is explicit.
@@ -198,6 +205,7 @@ async def process_vocify_call_background(
     # kept here so the except block always has a list to persist even if
     # something fails before that line runs.
     screening_outcome = "connected"
+    _transcribing.add(memo_id)
     try:
         # Single pipeline_run() context for the whole call: record_stage()
         # writes to a contextvar buffer that only exists while this `with`
@@ -327,6 +335,8 @@ async def process_vocify_call_background(
                 record_stage("total_pipeline", pipeline_started_at, error=str(e)[:200])
             stages.extend(scratch)
         persist_pipeline_meta(supabase, memo_id, stages)
+    finally:
+        _transcribing.discard(memo_id)
 
 
 async def finalize_screened_out_memo(
