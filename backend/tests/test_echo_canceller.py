@@ -116,3 +116,20 @@ def test_the_mic_never_waits_long_for_late_call_audio():
     # The call audio that turns up late lines up after the stretch the mic already went through.
     canceller.call(np.zeros(RATE * 4, dtype=np.int16).tobytes())
     assert canceller.stats["late_ms"] > 0
+
+
+def test_what_the_canceller_leaves_of_an_echo_is_silenced_and_the_rep_over_the_call_is_not():
+    # A speaker and a room that distort: AEC3 models a linear echo, so a residual remains for the last stage to take.
+    call = _voice(20, 7)
+    delayed = np.concatenate([np.zeros(RATE // 10), call])[: call.size]
+    echo = np.tanh(delayed / 3000 * 4) * 3000 * 0.25
+    rep = np.zeros_like(call)
+    rep[12 * RATE : 20 * RATE] = _voice(8, 9, level=2500)  # the rep talks over the call from 12 s
+    mic = np.clip(echo + rep, -32768, 32767)
+    out, _ = _run(mic, call, max_gain=1)
+    # Echo only (after it has learned the room): nothing a transcription would take as speech is left.
+    quiet = out[7 * RATE : 11 * RATE]
+    loud_windows = sum(_rms(quiet[i : i + 1600]) >= 100 for i in range(0, quiet.size - 1600, 1600))
+    assert loud_windows == 0, f"{loud_windows} windows of echo still above the speech level"
+    # The rep over the call: still there.
+    assert _rms(out[13 * RATE : 19 * RATE]) > 0.5 * _rms(rep[13 * RATE : 19 * RATE])

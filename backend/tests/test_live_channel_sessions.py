@@ -524,3 +524,40 @@ def test_an_echo_canceller_that_fails_mid_call_is_turned_off_and_the_mic_still_g
     asyncio.run(sessions._read_client())
     assert sessions.echo is None
     assert bytes(rep.fed) == b"\x01\x00" * 1600 + b"\x02\x00" * 1600
+
+
+def _noise(level: float, seconds: float = 0.1) -> bytes:
+    import numpy as np
+
+    return np.random.default_rng(3).normal(0, level, int(16000 * seconds)).astype(np.int16).tobytes()
+
+
+def test_a_noisy_room_raises_what_counts_as_speech_but_speech_still_goes_out():
+    from app.services.live_channel_sessions import SPEECH_RMS, SPEECH_RMS_MAX, MaiStream
+
+    stream = MaiStream("rep", "es", None, vocab=[], offset_s=0.0, on_event=_noop)
+    assert stream.speech_threshold() == SPEECH_RMS  # nothing heard yet
+    for _ in range(100):
+        stream.feed(_noise(80))  # a room at rms 80 (under the base level: nothing sent)
+    assert 190 <= stream.speech_threshold() <= 210 <= SPEECH_RMS_MAX  # 2.5 x the room's 80
+    # Noise at 140 is above the base level but not above this room's: it is not sent.
+    before = stream.fed_s
+    for _ in range(20):
+        stream.feed(_noise(140))
+    assert stream.fed_s == before
+    # Speech is.
+    for _ in range(5):
+        stream.feed(_noise(2000))
+    assert stream.fed_s > before
+
+
+def test_a_quiet_room_keeps_the_base_speech_level():
+    from app.services.live_channel_sessions import SPEECH_RMS, MaiStream
+
+    stream = MaiStream("rep", "es", None, vocab=[], offset_s=0.0, on_event=_noop)
+    for _ in range(100):
+        stream.feed(_noise(20))
+    assert stream.speech_threshold() == SPEECH_RMS
+    before = stream.fed_s
+    stream.feed(_noise(150))  # quiet speech on a quiet mic still counts
+    assert stream.fed_s > before

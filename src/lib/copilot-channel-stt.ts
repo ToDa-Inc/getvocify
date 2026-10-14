@@ -35,25 +35,81 @@ export function encodeChannelAudio(channel: MeetingSpeaker, pcm: ArrayBuffer): s
   return JSON.stringify({ type: "AddChannelAudio", channel, data: btoa(binary) });
 }
 
+/**
+ * A stream's audio, gathered on the audio thread and handed over in 100 ms chunks. A busy page only delays the chunks;
+ * it never loses them. (A ScriptProcessorNode runs on the page's own thread and drops whole buffers while the page is
+ * busy, which it is on every transcript update: measured on a real recording, the mic delivered 95-97% of real time,
+ * so its timing drifted against the call's and the server could not line the two up to take the echo out.)
+ */
+const PCM_TAP_SOURCE = `
+class VocifyPcmTap extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.size = Math.round(sampleRate / 10);
+    this.buffer = new Float32Array(this.size);
+    this.filled = 0;
+  }
+  process(inputs) {
+    const input = inputs[0] && inputs[0][0];
+    if (!input) return true;
+    let at = 0;
+    while (at < input.length) {
+      const take = Math.min(input.length - at, this.size - this.filled);
+      this.buffer.set(input.subarray(at, at + take), this.filled);
+      this.filled += take;
+      at += take;
+      if (this.filled === this.size) {
+        this.port.postMessage(this.buffer, [this.buffer.buffer]);
+        this.buffer = new Float32Array(this.size);
+        this.filled = 0;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("vocify-pcm-tap", VocifyPcmTap);
+`;
+
+const tapModules = new WeakMap<BaseAudioContext, Promise<void>>();
+
+function loadPcmTap(ctx: BaseAudioContext): Promise<void> {
+  let loading = tapModules.get(ctx);
+  if (!loading) {
+    const url = URL.createObjectURL(new Blob([PCM_TAP_SOURCE], { type: "application/javascript" }));
+    loading = ctx.audioWorklet.addModule(url).finally(() => URL.revokeObjectURL(url));
+    tapModules.set(ctx, loading);
+  }
+  return loading;
+}
+
 export function hookMicPcm(
   ctx: AudioContext,
   stream: MediaStream,
   onPcm: (pcm: ArrayBuffer) => void,
 ): () => void {
   const source = ctx.createMediaStreamSource(stream);
-  const proc = ctx.createScriptProcessor(4096, 1, 1);
-  proc.onaudioprocess = (event) => {
-    onPcm(floatToPcm16(event.inputBuffer.getChannelData(0), ctx.sampleRate).buffer);
-  };
+  // Nothing pulls a node that leads nowhere: the tap ends in a muted gain, so the audio never plays back.
   const mute = ctx.createGain();
   mute.gain.value = 0;
-  source.connect(proc);
-  proc.connect(mute);
   mute.connect(ctx.destination);
+  let tap: AudioWorkletNode | null = null;
+  let released = false;
+  void loadPcmTap(ctx).then(
+    () => {
+      if (released) return;
+      tap = new AudioWorkletNode(ctx, "vocify-pcm-tap", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+      tap.port.onmessage = (event: MessageEvent<Float32Array>) => onPcm(floatToPcm16(event.data, ctx.sampleRate).buffer as ArrayBuffer);
+      source.connect(tap);
+      tap.connect(mute);
+    },
+    (error) => console.error("Vocify: the audio tap could not load", error),
+  );
   return () => {
+    released = true;
     try {
       source.disconnect();
-      proc.disconnect();
+      tap?.disconnect();
+      mute.disconnect();
     } catch {
       /* ignore */
     }

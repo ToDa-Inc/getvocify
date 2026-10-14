@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from array import array
+from collections import deque
 import json
 import logging
 import os
@@ -36,6 +37,7 @@ from app.services.glossary import GlossaryService
 from app.services.live_report import LiveReport
 from app.services.session_entities import EntityTerm, normalize_stt_languages
 from app.services.transcript_sanitize import sanitize_transcript
+from app.services.stream_clock import StreamClock
 from app.services.stt_channels import speechmatics_words
 from app.services.usage import record_stt_usage
 
@@ -52,6 +54,14 @@ MAI_SESSION_S = 24 * 60.0
 # MAI is billed per second of audio sent: a side only sends while someone on it is speaking.
 # Loud enough to send (RMS, about -50 dBFS: room noise stays under it, a soft voice doesn't).
 SPEECH_RMS = 100
+# A room is not silent, and MAI turns faint noise into words ("Right.", "Hello. Mm." on a quiet mic): the level that counts
+# as speech follows the side's own noise floor (the quiet end of the last ~20 s of its audio) when that is high,
+# never below SPEECH_RMS and never above SPEECH_RMS_MAX (speech on a mic is 1000+; what is under the cap still goes
+# out when it is near speech: see HANG_S).
+SPEECH_RMS_MAX = 250
+NOISE_WINDOW_CHUNKS = 200
+NOISE_FACTOR = 2.5
+NOISE_MIN_CHUNKS = 50
 # Kept before speech starts, so its first syllable isn't cut, and sent on after it stops.
 PRE_ROLL_S = 0.3
 HANG_S = 0.6
@@ -588,6 +598,15 @@ class MaiStream(LiveStream):
         # A word the last delta may not have finished, and when the words now changing first showed.
         self.carry = ""
         self.shown_at: Optional[float] = None
+        self.levels: deque[float] = deque(maxlen=NOISE_WINDOW_CHUNKS)
+
+    def speech_threshold(self) -> float:
+        """The level that counts as speech now: SPEECH_RMS, or higher in a noisy room."""
+        if len(self.levels) < NOISE_MIN_CHUNKS:
+            return SPEECH_RMS
+        ordered = sorted(self.levels)
+        floor = ordered[len(ordered) // 4]
+        return min(SPEECH_RMS_MAX, max(SPEECH_RMS, NOISE_FACTOR * floor))
 
     def url(self) -> str:
         return MAI_GATEWAY_URL
@@ -611,7 +630,9 @@ class MaiStream(LiveStream):
         has settled what was said; holds the rest of the silence back."""
         seconds = len(pcm) / BYTES_PER_SECOND
         self.heard_s += seconds
-        loud = speech_level(pcm) >= SPEECH_RMS
+        level = speech_level(pcm)
+        loud = level >= self.speech_threshold()
+        self.levels.append(level)
         if loud:
             self.tail_s = 0.0
         settling = self.unsettled.strip() != "" and self.tail_s < SETTLE_TAIL_S - 1e-6
@@ -736,6 +757,7 @@ class ChannelSessions:
             except Exception:
                 # Never at the cost of the call: without it the mic is transcribed as it arrives.
                 logger.exception("Live channels: echo canceller unavailable, transcribing the mic as it is")
+        self.clock: Optional[StreamClock] = StreamClock() if "rep" in labels and "prospect" in labels else None
         self.user_id = user_id
         self.labels = labels
         self.profile = normalize_stt_languages(profile_languages)
@@ -854,6 +876,12 @@ class ChannelSessions:
                 except ValueError:
                     continue
                 self.report.audio(channel, len(pcm))
+                if self.clock is not None:
+                    # Both sides on the mic's clock, for everything downstream (see StreamClock).
+                    if channel == "rep":
+                        self.clock.heard_mic(pcm)
+                    elif channel == "prospect":
+                        pcm = self.clock.call(pcm)
                 if self.echo is not None:
                     try:
                         if channel == "prospect":
@@ -892,6 +920,8 @@ class ChannelSessions:
                 self.buffers["rep"].append(rest)
                 self.active["rep"].feed(rest)
             logger.info("Live channels: echo canceller %s", self.echo.stats)
+        if self.clock is not None and self.clock.filled_s:
+            logger.info("Live channels: the call was %.1f s short of the mic's clock, put back as silence", self.clock.filled_s)
         for stream in [*self.active.values(), *self.shadows.values()]:
             stream.end()
         current = list(self.active.values())
