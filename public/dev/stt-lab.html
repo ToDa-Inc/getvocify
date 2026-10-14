@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>STT lab</title>
+<style>
+  :root { color-scheme: light dark; --bg:#faf8f5; --fg:#1c1a17; --mut:#7a746b; --card:#fff; --line:#e6e0d7; --acc:#9a7b4f; --bad:#b3402a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161412; --fg:#f0ebe3; --mut:#9d958a; --card:#1f1c19; --line:#322d28; --acc:#c9a876; --bad:#e0735c; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.lead { color: var(--mut); margin: 0 0 16px; max-width: 70ch; }
+  .card { background: var(--card); border:1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  button { font: inherit; padding: 9px 16px; border-radius: 10px; border:1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--acc); border-color: var(--acc); color:#fff; }
+  button:disabled { opacity:.5; cursor:default; }
+  label { font-size: 13px; color: var(--mut); display:flex; flex-direction:column; gap:4px; }
+  input[type=range] { width: 180px; }
+  .meter { height: 10px; width: 220px; background: var(--line); border-radius: 6px; overflow:hidden; }
+  .meter > div { height:100%; width:0; background: var(--acc); transition: width 60ms linear; }
+  .status { font-size: 13px; color: var(--mut); }
+  .status b { color: var(--fg); }
+  table { width:100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align:right; padding: 6px 8px; border-bottom:1px solid var(--line); vertical-align: top; }
+  th { color: var(--mut); font-weight: 500; }
+  td.t, th.t { text-align:left; }
+  td.text { text-align:left; max-width: 340px; color: var(--mut); }
+  .num { font-variant-numeric: tabular-nums; }
+  .slow { color: var(--bad); font-weight: 600; }
+  pre { margin:0; font-size: 12px; max-height: 160px; overflow:auto; color: var(--mut); white-space: pre-wrap; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+  .stat { border:1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .stat small { color: var(--mut); display:block; }
+  .stat strong { font-size: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>STT lab: how long after you stop talking do the words finish?</h1>
+  <p class="lead">
+    Your microphone goes to the same live transcription (MAI) the app uses, as the <em>other side</em> of a call.
+    The page watches your voice and the words that come back. For every sentence it measures, from the moment your
+    <b>voice stopped</b>: when the first new words showed, when the last words changed, and when they settled.
+    Speak a sentence, stop, wait about 3 seconds, and repeat 8 to 10 times. Everything stays in this page.
+  </p>
+
+  <div class="card">
+    <div class="row">
+      <button id="start" class="primary">Start</button>
+      <button id="stop" disabled>Stop</button>
+      <button id="copy" disabled>Copy results</button>
+      <div class="meter" title="your level"><div id="meter"></div></div>
+      <span class="status" id="level">-</span>
+    </div>
+    <p class="status" id="status" style="margin:10px 0 0">Not started.</p>
+    <div class="row" style="margin-top:12px">
+      <label>Voice threshold: <b id="thrLabel">-42 dBFS</b>
+        <input id="thr" type="range" min="-65" max="-20" step="1" value="-42" /></label>
+      <label>Quiet gap that ends a sentence: <b id="gapLabel">800 ms</b>
+        <input id="gap" type="range" min="400" max="1600" step="50" value="800" /></label>
+    </div>
+  </div>
+
+  <div class="card" id="summary" hidden>
+    <div class="grid" id="stats"></div>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr>
+        <th class="t">#</th><th>spoke</th><th>words</th><th>missing when<br />voice stopped</th>
+        <th>first new words<br />after stop</th><th>last change<br />after stop</th><th>last settled<br />after stop</th>
+        <th>sentence seen at<br />+300 ms</th><th>+1000 ms</th><th class="t">words</th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="10" class="status" style="text-align:left">No sentences yet.</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card"><pre id="log"></pre></div>
+</main>
+
+<script type="module">
+import {
+  analyzeUtterances, apiBaseFor, detectUtterances, displayTimeline, levelDb, summarize, userIdFromJwt,
+} from "./stt-lab-logic.js";
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const API = (params.get("api") || apiBaseFor(location.hostname)).replace(/\/$/, "");
+const LIVE = (params.get("live") || API).replace(/\/$/, "");
+const FRAME_MS = 20;
+const SEND_EVERY = 5; // frames: 100 ms chunks, like the app
+
+let ws = null, ctx = null, stream = null, tap = null, started = 0, timer = 0, sendBuf = [];
+let frames = [], events = [], messages = 0, results = [];
+
+const log = (line) => { $("log").textContent += `${((performance.now() - started) / 1000).toFixed(1)}s  ${line}\n`; $("log").scrollTop = 1e9; };
+const setStatus = (html) => { $("status").innerHTML = html; };
+
+const TAP = `
+class LabTap extends AudioWorkletProcessor {
+  constructor() { super(); this.size = Math.round(sampleRate / 50); this.buf = new Float32Array(this.size); this.n = 0; }
+  process(inputs) {
+    const input = inputs[0] && inputs[0][0];
+    if (!input) return true;
+    let at = 0;
+    while (at < input.length) {
+      const take = Math.min(input.length - at, this.size - this.n);
+      this.buf.set(input.subarray(at, at + take), this.n);
+      this.n += take; at += take;
+      if (this.n === this.size) { this.port.postMessage(this.buf, [this.buf.buffer]); this.buf = new Float32Array(this.size); this.n = 0; }
+    }
+    return true;
+  }
+}
+registerProcessor("lab-tap", LabTap);`;
+
+// Same as the app's downsampleTo16k + floatToPcm16 (src/features/recording/live-stt.ts).
+function toPcm16(input, rate) {
+  let samples = input;
+  if (rate > 16000) {
+    const ratio = rate / 16000, outLen = Math.floor(input.length / ratio);
+    samples = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const s = Math.floor(i * ratio), e = Math.max(s + 1, Math.floor((i + 1) * ratio));
+      let sum = 0, c = 0;
+      for (let j = s; j < e && j < input.length; j++) { sum += input[j]; c++; }
+      samples[i] = c ? sum / c : 0;
+    }
+  }
+  const out = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) { const v = Math.max(-1, Math.min(1, samples[i])); out[i] = v < 0 ? v * 0x8000 : v * 0x7fff; }
+  return out;
+}
+function b64(int16) {
+  const bytes = new Uint8Array(int16.buffer); let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+
+async function start() {
+  $("log").textContent = ""; frames = []; events = []; messages = 0; results = []; sendBuf = [];
+  started = performance.now();
+  const token = localStorage.getItem("vocify_token");
+  if (!token || token === "undefined" || token === "null") {
+    return setStatus(`Not signed in on <b>${location.origin}</b>. Sign in to the app on this address first, then reload this page.`);
+  }
+  const userId = userIdFromJwt(token);
+  if (!userId) return setStatus("Could not read your user id from the sign-in. Sign in again and reload.");
+  $("start").disabled = true;
+  try {
+    setStatus("Asking for a live transcription pass…");
+    const res = await fetch(`${API}/transcription/ticket`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new Error(`ticket ${res.status}`);
+    const { ticket } = await res.json();
+
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    ctx = new AudioContext();
+    const url = new URL(`${LIVE.replace(/^http/, "ws").replace(/\/api\/v1$/, "")}/api/v1/transcription/live`);
+    url.searchParams.set("user_id", userId);
+    url.searchParams.set("mode", "copilot_channels");
+    url.searchParams.set("channel_labels", "prospect,rep");
+    url.searchParams.set("language", "multi");
+    url.searchParams.set("detect", "1");
+    ws = new WebSocket(url.toString());
+    ws.onopen = async () => {
+      ws.send(JSON.stringify({ type: "Auth", ticket }));
+      const blob = URL.createObjectURL(new Blob([TAP], { type: "application/javascript" }));
+      await ctx.audioWorklet.addModule(blob); URL.revokeObjectURL(blob);
+      const source = ctx.createMediaStreamSource(stream);
+      tap = new AudioWorkletNode(ctx, "lab-tap", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+      const mute = ctx.createGain(); mute.gain.value = 0; // nothing plays back
+      source.connect(tap); tap.connect(mute); mute.connect(ctx.destination);
+      tap.port.onmessage = (e) => onFrame(e.data);
+      started = performance.now(); frames = []; events = [];
+      setStatus("<b>Connected.</b> Speak a sentence, stop, wait 3 seconds. Repeat. (The first one may be slow while it warms up.)");
+      $("stop").disabled = false;
+      timer = setInterval(render, 500);
+    };
+    ws.onmessage = (e) => onMessage(e.data);
+    ws.onerror = () => log("socket error");
+    ws.onclose = (e) => log(`socket closed (${e.code})`);
+  } catch (err) {
+    setStatus(`Could not start: <b>${String(err.message || err)}</b>`);
+    $("start").disabled = false;
+    cleanup();
+  }
+}
+
+function onFrame(samples) {
+  const t = performance.now() - started;
+  const db = levelDb(samples);
+  frames.push({ t, db });
+  $("meter").style.width = `${Math.max(0, Math.min(100, ((db + 70) / 70) * 100))}%`;
+  $("level").textContent = `${db.toFixed(0)} dBFS`;
+  sendBuf.push(toPcm16(samples, ctx.sampleRate));
+  if (sendBuf.length >= SEND_EVERY && ws && ws.readyState === 1) {
+    const total = sendBuf.reduce((n, a) => n + a.length, 0), joined = new Int16Array(total);
+    let at = 0; for (const a of sendBuf) { joined.set(a, at); at += a.length; }
+    sendBuf = [];
+    ws.send(JSON.stringify({ type: "AddChannelAudio", channel: "prospect", data: b64(joined) }));
+  }
+}
+
+function onMessage(raw) {
+  const t = performance.now() - started;
+  let data; try { data = JSON.parse(String(raw)); } catch { return; }
+  messages++;
+  if (data.type === "Results") {
+    if (data.audio_channel !== "prospect") return;
+    const text = data.channel?.alternatives?.[0]?.transcript ?? "";
+    events.push({ t, final: Boolean(data.is_final), text });
+  } else if (data.type !== "AudioAdded") {
+    log(`message: ${data.type || data.message || "?"}${data.reason ? " - " + data.reason : ""}`);
+  }
+}
+
+function render() {
+  const thr = Number($("thr").value), gap = Number($("gap").value);
+  $("thrLabel").textContent = `${thr} dBFS`; $("gapLabel").textContent = `${gap} ms`;
+  const utterances = detectUtterances(frames, { thresholdDb: thr, gapMs: gap, frameMs: FRAME_MS });
+  // The last sentence needs its quiet gap before it counts as finished.
+  const closed = utterances.filter((u, i) => i < utterances.length - 1 || (frames.length && frames[frames.length - 1].t - u.end > gap));
+  results = analyzeUtterances(closed, displayTimeline(events));
+  paint();
+}
+
+const ms = (v) => (v === null || v === undefined ? "-" : `${v} ms`);
+const cls = (v, limit) => (typeof v === "number" && v > limit ? "slow" : "");
+function paint() {
+  const body = $("rows");
+  if (!results.length) { body.innerHTML = `<tr><td colspan="10" class="status" style="text-align:left">No sentences yet (${messages} messages from the service).</td></tr>`; return; }
+  body.innerHTML = results.map((r) => `<tr>
+    <td class="t num">${r.index}</td><td class="num">${(r.spokeMs / 1000).toFixed(1)} s</td><td class="num">${r.words}</td>
+    <td class="num ${r.wordsMissingAtEnd > 1 ? "slow" : ""}">${r.wordsMissingAtEnd}</td>
+    <td class="num">${ms(r.firstChangeMs)}</td><td class="num ${cls(r.lastChangeMs, 1500)}">${ms(r.lastChangeMs)}</td>
+    <td class="num ${cls(r.lastSettledMs, 1500)}">${ms(r.lastSettledMs)}</td>
+    <td class="num">${r.completePctAt[300] ?? "-"}%</td><td class="num">${r.completePctAt[1000] ?? "-"}%</td>
+    <td class="text">${r.text.replace(/</g, "&lt;")}</td></tr>`).join("");
+  const s = summarize(results);
+  $("summary").hidden = !s.utterances;
+  const box = (title, p, unit = " ms") => `<div class="stat"><small>${title}</small><strong>${p ? `${p.p50}${unit}` : "-"}</strong><small>${p ? `slowest 10%: ${p.p90}${unit} | worst: ${p.max}${unit} | n=${p.n}` : ""}</small></div>`;
+  $("stats").innerHTML =
+    box("Voice stopped → last words change (typical)", s.lastChangeMs) +
+    box("Voice stopped → last words settled (typical)", s.lastSettledMs) +
+    box("Words still missing when the voice stopped", s.wordsMissingAtEnd, " words") +
+    box("Sentence seen 300 ms after stop (a live-help pause check)", s.completePctAt[300], "%") +
+    box("Sentence seen 1000 ms after stop", s.completePctAt[1000], "%");
+}
+
+function cleanup() {
+  clearInterval(timer);
+  try { tap?.disconnect(); } catch {}
+  stream?.getTracks().forEach((t) => t.stop());
+  ctx?.close().catch(() => {});
+  if (ws && ws.readyState <= 1) ws.close();
+}
+
+$("start").onclick = start;
+$("stop").onclick = () => {
+  render(); cleanup();
+  $("stop").disabled = true; $("start").disabled = false; $("copy").disabled = !results.length;
+  setStatus(`Stopped. ${results.length} sentences measured. Use <b>Copy results</b> and paste them to Claude.`);
+};
+$("copy").onclick = async () => {
+  const payload = { when: new Date().toISOString(), host: location.hostname, thresholdDb: Number($("thr").value), gapMs: Number($("gap").value), summary: summarize(results), sentences: results };
+  await navigator.clipboard.writeText(JSON.stringify(payload, null, 1));
+  setStatus("Copied. Paste it to Claude.");
+};
+$("thr").oninput = $("gap").oninput = render;
+</script>
+</body>
+</html>
