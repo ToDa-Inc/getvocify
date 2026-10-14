@@ -172,7 +172,7 @@ export const BACKSTOP_MS = 2000;
  * card never replaces one that is still being read. The prospect's words are not marked as handled meanwhile:
  * when the time is up, one check reads what they have said by then, so a fresh objection still gets a card.
  */
-export const CARD_COOLDOWN_MS = 10_000;
+export const CARD_COOLDOWN_MS = 6_000;
 /** A check that waited for the cooldown is skipped when the rep has said this many words since the prospect spoke. */
 export const REP_ANSWERED_WORDS = 8;
 
