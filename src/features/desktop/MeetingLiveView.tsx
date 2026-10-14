@@ -257,7 +257,6 @@ export function MeetingLiveView() {
         <div className="sticky top-6 pt-3">
           <LiveAssistPanel
             active={assist.active}
-          earlier={assist.earlier}
             thinking={assist.thinking}
             enabled={assistOn}
             onEnabledChange={setAssistOn}

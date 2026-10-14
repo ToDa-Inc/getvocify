@@ -321,14 +321,8 @@ export function previousAnswers(shown: AssistCard[]): string[] {
   return [...new Set(lines)].slice(-PREVIOUS_ANSWERS);
 }
 
-/** Newest first, without repeating the same advice back to back. */
-export function addCard(cards: AssistCard[], card: AssistCard, keep = 5): AssistCard[] {
-  if (cards[0] && cards[0].sayThis === card.sayThis) return cards;
-  return [card, ...cards].slice(0, keep);
-}
-
 /**
  * Display rules. A card stays until newer help replaces it (the rep may still be reading it out
- * loud); the replaced one moves to "Earlier". Every new objection or question gets its answer,
- * even of the same type as the one on screen: it replaces that card.
+ * loud); nothing older is kept on screen. Every new objection or question gets its answer, even of
+ * the same type as the one on screen: it replaces that card, once its cooldown is over.
  */

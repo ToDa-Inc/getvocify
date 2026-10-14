@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import type { AssistCard } from "@/lib/live-assist";
 import { cn } from "@/lib/utils";
@@ -6,13 +5,11 @@ import { cn } from "@/lib/utils";
 /** Side column during a meeting: quiet until they push back, then one card at a time. */
 export function LiveAssistPanel({
   active,
-  earlier,
   thinking,
   enabled,
   onEnabledChange,
 }: {
   active: AssistCard | null;
-  earlier: AssistCard[];
   thinking: boolean;
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
@@ -46,15 +43,6 @@ export function LiveAssistPanel({
       </p>
 
       {enabled && active ? <NewestCard key={active.id} card={active} /> : null}
-
-      {enabled && earlier.length ? (
-        <div className="space-y-2">
-          <p className="text-[11px] font-medium text-muted-foreground">Earlier</p>
-          {earlier.map((card) => (
-            <EarlierCard key={card.id} card={card} />
-          ))}
-        </div>
-      ) : null}
     </aside>
   );
 }
@@ -108,22 +96,5 @@ function NewestCard({ card }: { card: AssistCard }) {
         </div>
       )}
     </div>
-  );
-}
-
-function EarlierCard({ card }: { card: AssistCard }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={() => setOpen((value) => !value)}
-      aria-expanded={open}
-      className="block w-full rounded-xl border border-border/60 bg-card/60 px-3 py-2 text-left transition-colors hover:bg-card"
-    >
-      <span className={cn("text-[11px] font-medium", card.kind === "question" ? "text-foreground/60" : "text-beige")}>
-        {card.label}
-      </span>
-      <p className={cn("text-[13px] leading-snug text-muted-foreground", !open && "line-clamp-2")}>{card.sayThis}</p>
-    </button>
   );
 }

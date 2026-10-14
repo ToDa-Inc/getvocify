@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  addCard,
   answerCard,
   assistContext,
   BACKSTOP_MS,
@@ -69,7 +68,6 @@ type Found = NonNullable<ReturnType<typeof assistContext>>;
 
 export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, call: LiveAssistCall = {}) {
   const [active, setActive] = useState<AssistCard | null>(null);
-  const [earlier, setEarlier] = useState<AssistCard[]>([]);
   const [thinking, setThinking] = useState(false);
   const paused = useProspectPause(call.prospectLevel);
   /** The words last checked: the same words are never checked twice. */
@@ -98,7 +96,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     : null;
   const key = context?.key ?? "";
 
-  /** Shows a new card, moving whatever was up into "Earlier". */
+  /** Shows a new card; it replaces the one up (past cards are not kept on screen). */
   const present = (card: AssistCard) => {
     // A card's first appearance starts its cooldown; the answer landing in it later does not restart it.
     if (!shownRef.current.some((item) => item.id === card.id)) shownAtRef.current = Date.now();
@@ -106,10 +104,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     shownRef.current = shown.some((item) => item.id === card.id)
       ? shown.map((item) => (item.id === card.id ? card : item))
       : [...shown, card];
-    setActive((current) => {
-      if (current && current.id !== card.id && current.stage === "ready") setEarlier((list) => addCard(list, current));
-      return card;
-    });
+    setActive(card);
   };
 
   /** Writes the answer. With a type, its card is already up; without one, the stream names it. */
@@ -228,7 +223,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     [],
   );
 
-  return { active, earlier, thinking };
+  return { active, thinking };
 }
 
 const ENABLED_KEY = "vocify_live_assist_on";

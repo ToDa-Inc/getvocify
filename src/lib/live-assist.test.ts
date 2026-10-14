@@ -1,7 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  addCard,
   answerCard,
   assistContext,
   CARD_COOLDOWN_MS,
@@ -100,17 +99,6 @@ describe("objectionCard", () => {
     assert.equal(objectionCard(suggestion({ is_objection: false }), 1), null);
     assert.equal(objectionCard(suggestion({ say_this: "  " }), 1), null);
     assert.equal(objectionCard(null, 1), null);
-  });
-});
-
-describe("addCard", () => {
-  it("keeps newest first, skips repeats and caps history", () => {
-    const first = objectionCard(suggestion(), 1)!;
-    const again = objectionCard(suggestion(), 2)!;
-    const other = objectionCard(suggestion({ say_this: "¿Quién más decide?" , objection_type: "authority" }), 3)!;
-    assert.deepEqual(addCard([first], again), [first]);
-    assert.deepEqual(addCard([first], other).map((c) => c.label), ["Decision maker", "Price"]);
-    assert.equal(addCard([first, first, first, first, first], other, 5).length, 5);
   });
 });
 
