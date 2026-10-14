@@ -54,6 +54,9 @@ def check_turn(expect: str, reading: dict | None, source_id: str | None, say: st
     """Empty list = pass. Each string is one reason it did not."""
     seen = (reading or {}).get("objection")
     entry = (reading or {}).get("entry_id") or ""
+    if expect == "card":
+        # No playbook entry covers it: any help with a line to say is right, silence is not.
+        return [] if seen not in (None, "none") and say else ["expected some help, got none" if seen in (None, "none") else "empty answer"]
     if "|" in expect:
         # Either kind is a right card (e.g. a provider already in use: status quo or competitor).
         options = [check_turn(option, reading, source_id, say, filler) for option in expect.split("|")]
