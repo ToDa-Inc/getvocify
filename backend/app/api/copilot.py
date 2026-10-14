@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 from supabase import Client
 
@@ -16,7 +18,7 @@ from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
 from app.services.copilot.contact_history import load_contact_history
 from app.services.copilot.context import live_assist_kind_from_call_mode, resolve_suggest_context
-from app.services.copilot import call_type, playbook_objections, turn
+from app.services.copilot import call_type, events, playbook_objections, turn
 from app.services.copilot.checklist import build_meeting_checklist
 from app.services.copilot.load_grounding import (
     load_company_knowledge,
@@ -208,20 +210,42 @@ async def suggest_objection_handling(
                 event = {**event, "request_id": body.request_id}
         return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
+    # What happened, for the event log: filled while the answer streams, written after it is sent.
+    trail: dict = {"result": None, "restarted": False, "error": None}
+
+    def note(event: dict) -> None:
+        if event.get("type") == "result":
+            trail["result"] = event
+        elif event.get("type") == "error":
+            trail["error"] = event.get("message")
+
+    def log_card() -> None:
+        events.record(supabase, events.suggest_row(
+            user_id=membership.user_id, company_id=membership.company_id, sales_motion_key=motion,
+            call_mode=body.call_mode, latest_turn=body.latest_turn, objection_type=body.objection_type,
+            entry_id=body.entry_id, capture_id=body.capture_id, result=trail["result"],
+            restarted=trail["restarted"], error=trail["error"],
+            playbook_version_id=grounding.playbook_version_id if grounding else None,
+        ))
+
     async def event_gen():
         async for event in ask(grounding):
             if event.get("type") == "result" and grounding is not None and _empty_objection(event):
                 # The playbook can make the model flag an objection and say nothing: ask once more
                 # without it, as general help. The client drops what it streamed so far.
+                trail["restarted"] = True
                 yield sse({"type": "restart"})
                 async for retry in ask(None):
+                    note(retry)
                     yield sse(retry)
                 break
+            note(event)
             yield sse(event)
         yield "data: {\"type\": \"done\"}\n\n"
 
     return StreamingResponse(
         event_gen(),
+        background=BackgroundTask(log_card),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -234,6 +258,7 @@ async def suggest_objection_handling(
 @router.post("/turn")
 async def check_turn(
     body: TurnRequest,
+    background: BackgroundTasks,
     user_id: str = Depends(get_user_id),
     supabase: Client = Depends(get_supabase),
 ):
@@ -244,7 +269,16 @@ async def check_turn(
     if motion == INTERNAL_KEY:
         return {"finished": True, "objection": "none"}
     custom = await run_in_threadpool(playbook_objections.custom_for, supabase, user_id, motion) if motion else None
-    return await turn.read_turn(body.transcript_window, body.latest_turn, custom)
+    started = time.perf_counter()
+    reading = await turn.read_turn(body.transcript_window, body.latest_turn, custom)
+    background.add_task(
+        events.record, supabase,
+        events.turn_row(
+            user_id=user_id, company_id=playbook_objections.company_of(user_id), sales_motion_key=motion,
+            latest_turn=body.latest_turn, reading=reading, check_ms=int((time.perf_counter() - started) * 1000),
+        ),
+    )
+    return reading
 
 
 @router.post("/call-type/guess")

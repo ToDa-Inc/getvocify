@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     COPILOT_DIRECT_API_KEY: Optional[str] = None
     COPILOT_DIRECT_MODEL: Optional[str] = None
     COPILOT_HEDGE_MS: int = 600
+    # Keep a small log of what live help did (migration 078): one row per finished-turn check and per card.
+    COPILOT_LOG_EVENTS: bool = True
     # WhatsApp CRM copilot (tool loop). Not the live-call lite model.
     CRM_COPILOT_MODEL: str = "google/gemini-3.8-flash"
     CRM_COPILOT_MAX_ROUNDS: int = 8

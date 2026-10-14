@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 CACHE_SECONDS = 60.0
 _MAX_CACHED = 500
 _cache: dict[tuple[str, str], tuple[float, dict[str, dict[str, str]]]] = {}
+# The company each rep was last seen in, so the event log knows it without a lookup of its own.
+_company: dict[str, str] = {}
+
+
+def company_of(user_id: str) -> Optional[str]:
+    return _company.get(user_id)
 
 
 def custom_entries(snapshot: Optional[dict]) -> dict[str, dict[str, str]]:
@@ -48,6 +54,7 @@ def custom_for(supabase: Any, user_id: str, sales_motion_key: str) -> dict[str, 
         from app.services.playbooks.live import live_snapshot
 
         membership = CompanyService(supabase).require_membership(user_id)
+        _company[user_id] = membership.company_id
         found = custom_entries(live_snapshot(supabase, membership.company_id, sales_motion_key))
     except Exception:
         # Not kept: the next check tries again.
