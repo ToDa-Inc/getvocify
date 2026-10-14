@@ -102,7 +102,7 @@ async function start() {
     await devices();
     const deviceId = $("mic").value;
     stream = await navigator.mediaDevices.getUserMedia({
-      audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: true },
+      audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: false, noiseSuppression: true, autoGainControl: false },
     });
     ctx = new AudioContext({ latencyHint: "interactive" });
     await ctx.resume();
