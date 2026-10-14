@@ -44,7 +44,9 @@ class StreamClock:
         # The chunk that just arrived ends about where the mic's samples do.
         behind = self._mic - samples.size - self._call
         fill = 0
-        if behind > RATE * HOLE_MIN_S and (self._quiet or behind > RATE * HOLE_SURE_S):
+        # The very first chunk is where the call began: whatever the mic had heard before it, the call did not exist yet.
+        first = self._call == 0
+        if behind > RATE * HOLE_MIN_S and (first or self._quiet or behind > RATE * HOLE_SURE_S):
             fill = behind
             self.filled_s += fill / RATE
         tail = samples[-RATE // 10 :]
