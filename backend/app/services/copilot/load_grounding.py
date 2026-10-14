@@ -8,9 +8,21 @@ from fastapi import HTTPException, status
 from supabase import Client
 
 from app.services.copilot.context import SuggestContext, live_assist_kind_from_call_mode
-from app.services.copilot.grounding import SuggestGrounding, resolve_suggest_grounding
+from app.services.copilot.grounding import SuggestGrounding, resolve_suggest_grounding, with_company_answers
 from app.services.playbooks.live import live_snapshots, pinned_snapshot
 from app.services.playbooks.versions import published_snapshot
+
+
+def whole_playbook(supabase: Client, company_id: str, snapshot: Optional[dict]) -> Optional[dict]:
+    """`snapshot` with the approved answers of the company's other live playbooks (see
+    with_company_answers). A failed read is the call type's playbook alone, never an error mid-call."""
+    if not snapshot:
+        return snapshot
+    try:
+        others = live_snapshots(supabase, company_id)
+    except Exception:
+        return snapshot
+    return with_company_answers(snapshot, others)
 
 
 def load_company_suggest_grounding(
@@ -38,7 +50,7 @@ def load_company_suggest_grounding(
         interaction_kind=kind,
         playbook_version_id=snapshot["version_id"],
         evidence_ids=frozenset(),
-        playbook_snapshot=snapshot,
+        playbook_snapshot=whole_playbook(supabase, company_id, snapshot),
     )
 
 
@@ -146,7 +158,7 @@ def suggest_grounding_from_memo_row(
             interaction_kind=grounding.interaction_kind,
             playbook_version_id=snapshot["version_id"],
             evidence_ids=grounding.evidence_ids,
-            playbook_snapshot=snapshot,
+            playbook_snapshot=whole_playbook(supabase, company_id, snapshot),
         )
     return grounding
 

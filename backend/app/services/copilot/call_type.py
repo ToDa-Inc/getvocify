@@ -218,9 +218,11 @@ def grounding_for_type(
         return None
     if snapshot is None:
         return None
+    from app.services.copilot.load_grounding import whole_playbook
+
     return SuggestGrounding(
         interaction_kind=kind,
         playbook_version_id=snapshot["version_id"],
         evidence_ids=frozenset(),
-        playbook_snapshot=snapshot,
+        playbook_snapshot=whole_playbook(supabase, company_id, snapshot),
     )
