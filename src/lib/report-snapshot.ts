@@ -36,6 +36,55 @@ export type ReportSnapshot = {
   adherence_steps?: { met: number; applicable: number } | null;
   sample_limited?: boolean;
   adherence_trend?: ReportAdherenceTrend | null;
+  digest?: ReportDigest;
+  feedback?: ReportFeedback | null;
+};
+
+export type ReportActivity = {
+  calls: number;
+  conversations: number;
+  no_answer: number;
+  meetings_held: number;
+  meetings_booked: number | null;
+  talk_minutes: number;
+  connect_rate: number | null;
+  booking_rate: number | null;
+};
+
+export type ReportDigestRep = {
+  name: string;
+  sales_role: string;
+  calls: number;
+  conversations: number;
+  meetings_held: number;
+  meetings_booked: number | null;
+  adherence: number | null;
+  evaluated: number;
+  top_slip: string | null;
+};
+
+/** REPORT_FEEDBACK_ENABLED: the period's numbers and coaching facts (backend rep_digest.py). */
+export type ReportDigest = {
+  sales_role: string;
+  activity: ReportActivity;
+  previous: ReportActivity;
+  coaching: {
+    evaluated: number;
+    adherence: number | null;
+    adherence_steps: { met: number; applicable: number } | null;
+    by_type: Record<string, number>;
+    objections: { label: string; total: number; open: number }[];
+  };
+  reps?: ReportDigestRep[];
+};
+
+/** The written feedback (backend feedback_writer.py): only what the digest says. */
+export type ReportFeedback = {
+  headline: string;
+  went_well: string[];
+  to_improve: string[];
+  focus: string | null;
+  people?: { name: string; note: string }[];
 };
 
 export type ReportTrendCell = { state: string; met: number; applicable: number; sample_limited: boolean };
