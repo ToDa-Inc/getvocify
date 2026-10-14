@@ -256,7 +256,13 @@ def list_interactions(
         next_cursor = None
     scores = _scores(supabase, [str(m.get("id")) for m in page])
     items = [_row(m, reps.get(str(m.get("user_id"))), scores.get(str(m.get("id")))) for m in page]
-    return {"interactions": items, "count": len(items), "next_cursor": next_cursor}
+    body: dict = {"interactions": items, "count": len(items), "next_cursor": next_cursor}
+    if next_cursor and len(items) < size and last_scanned:
+        body["note"] = (
+            f"Searched back to {last_scanned[:10]} without filling the page. There may be more further back: "
+            "pass next_cursor to keep searching."
+        )
+    return body
 
 
 def _transcript_page(text: str, cursor: Optional[str]) -> dict:
@@ -280,6 +286,10 @@ def _transcript_page(text: str, cursor: Optional[str]) -> dict:
     )
 
 
+def _pct(ratio: Any) -> Optional[int]:
+    return round(float(ratio) * 100) if isinstance(ratio, (int, float)) else None
+
+
 def _coaching(score: dict, brief: dict) -> dict:
     if not score or score.get("status") == "unavailable":
         reason = (score or {}).get("reason") or "not_scored"
@@ -289,8 +299,9 @@ def _coaching(score: dict, brief: dict) -> dict:
     return _compact(
         {
             "score": score.get("value"),
-            "adherence": score.get("adherence"),
-            "coverage": score.get("coverage"),
+            "score_out_of": 10 if score.get("value") is not None else None,
+            "playbook_steps_met_pct": _pct(score.get("adherence")),
+            "playbook_steps_judged_pct": _pct(score.get("coverage")),
             "strengths": score.get("strengths"),
             "improvements": score.get("improvements"),
             "kept": _compact({"step": kept.get("label"), "quote": kept.get("quote")}) if kept else None,
@@ -351,6 +362,7 @@ def get_interaction(
         for e in episodes
     ]
     meeting = intel.get("meeting") if isinstance(intel.get("meeting"), dict) else {}
+    quoted = {str(e["quote"]) for e in episodes if e["quote"]}
     evidence = [
         _compact(
             {
@@ -360,9 +372,9 @@ def get_interaction(
                 "at_ms": item.get("start_ms"),
             }
         )
-        for item in (intel.get("evidence") or [])[:12]
-        if isinstance(item, dict) and item.get("quote")
-    ]
+        for item in (intel.get("evidence") or [])
+        if isinstance(item, dict) and item.get("quote") and str(item["quote"]) not in quoted
+    ][:12]
 
     score: dict = {}
     brief: dict = {}

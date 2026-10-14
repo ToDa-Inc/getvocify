@@ -130,7 +130,7 @@ def build_server() -> MCPServer:
         auth=AuthSettings(
             issuer_url=access.issuer_url(),
             resource_server_url=access.server_url(),
-            validate_token_resource=False,  # Supabase does not document audience-bound tokens; see access.user_from_jwt
+            validate_token_resource=False,  # oauth.verify_access_token checks the audience itself
         ),
     )
 

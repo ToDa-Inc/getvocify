@@ -1,8 +1,7 @@
-"""Settings → AI agents over HTTP: the workspace switches, a user's key, an admin revoking one, OAuth consent."""
+"""Settings → AI agents over HTTP: the workspace switches, a user's key, an admin revoking one."""
 
 from __future__ import annotations
 
-import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -80,48 +79,3 @@ def test_a_user_revokes_their_own_key(as_user, mcp_client):
     key = client.post("/api/v1/mcp/key").json()["key"]
     assert client.delete("/api/v1/mcp/key").status_code == 204
     assert rpc(mcp_client, key, "tools/list").status_code == 401
-
-
-def test_consent_forwards_to_supabase_with_the_users_own_token(as_user, monkeypatch):
-    sent = []
-
-    class FakeAsyncClient:
-        def __init__(self, *a, **k):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def request(self, method, url, headers=None, json=None, params=None):
-            sent.append((method, url, headers, json))
-            return httpx.Response(200, json={"redirect_url": "https://claude.ai/api/mcp/auth_callback?code=abc"})
-
-    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
-    body = as_user(REP).post("/api/v1/oauth/authorizations/auth-1/consent", json={"action": "approve"}).json()
-    assert body["redirect_url"].startswith("https://claude.ai/")
-    method, url, headers, payload = sent[0]
-    assert method == "POST" and url.endswith("/auth/v1/oauth/authorizations/auth-1/consent")
-    assert headers["Authorization"] == "Bearer session-token" and payload == {"action": "approve"}
-
-
-def test_a_supabase_error_keeps_its_status(as_user, monkeypatch):
-    class FakeAsyncClient:
-        def __init__(self, *a, **k):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def request(self, *a, **k):
-            return httpx.Response(404, json={"msg": "OAuth server is not enabled", "error_code": "oauth_server_disabled"})
-
-    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
-    response = as_user(REP).get("/api/v1/oauth/authorizations/auth-1")
-    assert response.status_code == 404
-    assert response.json()["detail"]["code"] == "oauth_server_disabled"

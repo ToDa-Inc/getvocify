@@ -1,9 +1,8 @@
 """Who is calling /mcp, and whether they may. One resolver for both credentials.
 
-A bearer token is either a personal API key (`vk_…`, looked up by hash on user_profiles) or a Supabase
-access token: the OAuth server's tokens are Supabase JWTs carrying `client_id`. Either way the request
-ends as the same user, and every tool then reads through that user's membership. The tools never know
-which credential was used.
+A bearer token is either a personal API key (`vk_…`, looked up by hash on user_profiles) or an access token
+from Vocify's own OAuth server (services/mcp/oauth.py). Either way the request ends as the same user, and
+every tool then reads through that user's membership. The tools never know which credential was used.
 """
 
 from __future__ import annotations
@@ -16,7 +15,6 @@ from threading import Lock
 from typing import Any, Optional
 
 import anyio
-import jwt as pyjwt
 
 from app.config import settings
 from app.services.mcp import api_keys
@@ -26,8 +24,6 @@ logger = logging.getLogger(__name__)
 
 FLAG = "MCP_ENABLED"
 TRANSCRIPTS_FLAG = "MCP_TRANSCRIPTS_ENABLED"
-_ASYMMETRIC = frozenset({"RS256", "ES256"})
-_jwks_client = None
 _paywalled: TtlCache[bool] = TtlCache(60.0)
 
 
@@ -40,46 +36,12 @@ def server_url() -> str:
 
 
 def issuer_url() -> str:
-    return settings.SUPABASE_URL.rstrip("/") + "/auth/v1"
-
-
-def _jwks():
-    global _jwks_client
-    if _jwks_client is None:
-        _jwks_client = pyjwt.PyJWKClient(issuer_url() + "/.well-known/jwks.json", cache_keys=True)
-    return _jwks_client
-
-
-def user_from_jwt(token: str) -> Optional[tuple[str, Optional[str]]]:
-    """(user_id, OAuth client_id or None) for a valid Supabase user token, else None.
-
-    HS256 is the project's shared secret (what deps.get_user_id checks); RS256/ES256 are verified against the
-    project's JWKS, for when the project moves to asymmetric keys. The audience is not checked: Supabase does
-    not document what `aud` its OAuth tokens carry, and every token this project signs is meant for it. The
-    `role` claim is, so the anon and service keys (also JWTs) are refused."""
-    try:
-        alg = pyjwt.get_unverified_header(token).get("alg")
-        if alg == "HS256":
-            key: Any = settings.SUPABASE_JWT_SECRET or ""
-            if not key:
-                return None
-        elif alg in _ASYMMETRIC:
-            key = _jwks().get_signing_key_from_jwt(token).key
-        else:
-            return None
-        claims = pyjwt.decode(token, key, algorithms=[alg], options={"verify_aud": False}, leeway=30)
-    except Exception:  # noqa: BLE001 - any unreadable or invalid token is simply not a caller
-        return None
-    sub = claims.get("sub") or claims.get("user_id")  # Supabase documents `user_id` on its OAuth tokens
-    if not sub or claims.get("role") != "authenticated":
-        return None
-    client_id = claims.get("client_id")
-    return str(sub), (str(client_id) if client_id else None)
+    """The OAuth issuer is the API itself (services/mcp/oauth.py)."""
+    return settings.BACKEND_PUBLIC_URL.rstrip("/")
 
 
 def resolve_token(supabase: Any, token: str) -> Optional[tuple[str, str]]:
-    """(user_id, credential) where credential is "api_key" or the OAuth client id ("session" for a plain
-    dashboard session token). None means 401."""
+    """(user_id, credential) where credential is "api_key" or "oauth:<app name>". None means 401."""
     token = (token or "").strip()
     if not token:
         return None
@@ -90,11 +52,10 @@ def resolve_token(supabase: Any, token: str) -> Optional[tuple[str, str]]:
             logger.warning("mcp api key lookup failed", exc_info=True)
             return None
         return (user_id, "api_key") if user_id else None
-    found = user_from_jwt(token)
-    if not found:
-        return None
-    user_id, client_id = found
-    return user_id, client_id or "session"
+    from app.services.mcp import oauth
+
+    found = oauth.verify_access_token(supabase, token)
+    return (found[0], f"oauth:{found[1]}") if found else None
 
 
 class VocifyTokenVerifier:

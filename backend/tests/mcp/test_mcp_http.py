@@ -28,10 +28,9 @@ from tests.mcp.conftest import (
 TOOLS = {"list_interactions", "get_interaction", "get_coaching", "ask_vocify", "get_ask_result"}
 
 
-def _session_jwt(user_id: str, *, role: str = "authenticated", client_id: str | None = None) -> str:
+def _session_jwt(user_id: str, *, role: str = "authenticated") -> str:
+    """A dashboard (Supabase) session token: not a credential for /mcp."""
     claims = {"sub": user_id, "role": role, "aud": "authenticated", "exp": int(time.time()) + 600}
-    if client_id:
-        claims["client_id"] = client_id
     return pyjwt.encode(claims, settings.SUPABASE_JWT_SECRET, algorithm="HS256")
 
 
@@ -46,10 +45,10 @@ def test_no_credential_is_401_pointing_at_the_resource_metadata(mcp_client):
     assert "/.well-known/oauth-protected-resource/mcp" in challenge
 
 
-def test_resource_metadata_names_the_mcp_url_and_supabase_as_issuer(mcp_client):
+def test_resource_metadata_names_the_mcp_url_and_vocify_as_the_issuer(mcp_client):
     body = mcp_client.get("/.well-known/oauth-protected-resource/mcp").json()
     assert body["resource"] == settings.BACKEND_PUBLIC_URL.rstrip("/") + "/mcp"
-    assert body["authorization_servers"] == [settings.SUPABASE_URL.rstrip("/") + "/auth/v1"]
+    assert body["authorization_servers"] == [settings.BACKEND_PUBLIC_URL.rstrip("/")]
 
 
 def test_an_api_key_lists_the_five_read_only_tools(mcp_client, key_for):
@@ -81,15 +80,15 @@ def test_a_wrong_key_is_401(mcp_client):
     assert rpc(mcp_client, "vk_not-a-real-key", "tools/list").status_code == 401
 
 
-def test_an_oauth_token_is_the_same_user_as_that_users_key(mcp_client, key_for):
+def test_an_oauth_token_is_the_same_user_as_that_users_key(mcp_client, key_for, oauth_token_for):
     _, by_key = call(mcp_client, key_for(REP), "list_interactions")
-    _, by_token = call(mcp_client, _session_jwt(REP, client_id="claude-ai"), "list_interactions")
+    _, by_token = call(mcp_client, oauth_token_for(REP), "list_interactions")
     assert by_token == by_key
 
 
-def test_the_anon_or_service_role_jwt_is_not_a_caller(mcp_client):
-    assert rpc(mcp_client, _session_jwt(REP, role="anon"), "tools/list").status_code == 401
-    assert rpc(mcp_client, _session_jwt(REP, role="service_role"), "tools/list").status_code == 401
+def test_a_dashboard_session_token_is_not_a_credential_for_mcp(mcp_client):
+    for role in ("authenticated", "anon", "service_role"):
+        assert rpc(mcp_client, _session_jwt(REP, role=role), "tools/list").status_code == 401
 
 
 def test_a_removed_member_is_told_on_the_next_call(mcp_client, key_for, db):

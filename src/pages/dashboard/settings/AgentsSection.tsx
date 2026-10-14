@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -16,7 +16,14 @@ const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`
 const codeBox = "rounded-lg bg-muted/60 px-3 py-2 font-mono text-xs text-foreground break-all";
 const KEY_PLACEHOLDER = "YOUR_VOCIFY_API_KEY";
 
-type Client = "web" | "claude-code" | "cursor" | "desktop";
+type Mode = "signin" | "key";
+type Client = "claude-code" | "cursor" | "desktop";
+
+const CLIENTS: { value: Client; label: string }[] = [
+  { value: "claude-code", label: "Claude Code" },
+  { value: "cursor", label: "Cursor" },
+  { value: "desktop", label: "Claude Desktop" },
+];
 
 /** What each client needs, filled with the server URL and (right after creating it) the key itself. */
 function snippet(client: Client, url: string, key: string): string {
@@ -67,17 +74,18 @@ function CopyRow({ value, label }: { value: string; label: string }) {
   );
 }
 
-function formatDate(value: string | null, language: string): string {
+function formatDate(value: string | null | undefined, language: string): string {
   if (!value) return "";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(language === "ES" ? "es" : "en", { dateStyle: "medium" });
 }
 
-/** Settings → AI agents: connect an agent to Vocify through the MCP server, with a key or OAuth sign-in. */
+/** Settings → AI agents: connect an agent to Vocify's MCP server, by signing in or with an API key. */
 const AgentsSection = () => {
   const { t, language } = useLanguage();
   const queryClient = useQueryClient();
-  const [client, setClient] = useState<Client>("web");
+  const [pickedMode, setPickedMode] = useState<Mode | null>(null);
+  const [client, setClient] = useState<Client>("claude-code");
   const [newKey, setNewKey] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"revoke" | "regenerate" | null>(null);
   const [memberToRevoke, setMemberToRevoke] = useState<string | null>(null);
@@ -87,7 +95,6 @@ const AgentsSection = () => {
     queryKey: mcpKeys.grants(),
     queryFn: () => mcpApi.grants(),
     enabled: Boolean(data?.enabled),
-    retry: false, // the OAuth server may be off: then there is simply nothing to list
   });
 
   const setSettings = (next: McpSettings) => queryClient.setQueryData(mcpKeys.settings(), next);
@@ -127,16 +134,6 @@ const AgentsSection = () => {
     onError: failed,
   });
 
-  const clients = useMemo(
-    () => [
-      { value: "web" as const, label: "Claude.ai · ChatGPT" },
-      { value: "claude-code" as const, label: "Claude Code" },
-      { value: "cursor" as const, label: "Cursor" },
-      { value: "desktop" as const, label: "Claude Desktop" },
-    ],
-    [],
-  );
-
   if (isLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -148,9 +145,10 @@ const AgentsSection = () => {
     return <p className="text-sm text-muted-foreground">{t.product.agentsLoadFailed}</p>;
   }
 
-  const keyForSnippets = newKey ?? KEY_PLACEHOLDER;
-  const membersWithKey = (data.members ?? []).filter((m) => m.has_key);
   const connected = grants.data?.grants ?? [];
+  // Signing in is how most people connect: open there, unless they already have a key and no connected app.
+  const mode: Mode = pickedMode ?? (data.key.has_key && connected.length === 0 && !grants.isLoading ? "key" : "signin");
+  const membersWithKey = (data.members ?? []).filter((m) => m.has_key);
   const memberName = membersWithKey.find((m) => m.user_id === memberToRevoke)?.name ?? "";
 
   return (
@@ -164,88 +162,106 @@ const AgentsSection = () => {
             {t.product.agentsOff} {data.can_manage ? null : t.product.agentsOffMember}
           </p>
         ) : (
-          <div className="mt-6 max-w-2xl space-y-6">
+          <div className="mt-6 max-w-2xl space-y-5">
             <div className="space-y-2">
               <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsServerUrl}</p>
               <CopyRow value={data.server_url} label={t.product.agentsCopy} />
             </div>
 
-            <div className="space-y-3 border-t border-border/60 pt-5">
-              <div className="flex items-start justify-between gap-6">
-                <div className="space-y-1">
-                  <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsKeyTitle}</p>
-                  <p className="text-sm text-muted-foreground">{t.product.agentsKeyHelper}</p>
+            <Segmented<Mode>
+              value={mode}
+              onValueChange={setPickedMode}
+              aria-label={t.product.agentsTitle}
+              options={[
+                { value: "signin", label: t.product.agentsModeSignIn },
+                { value: "key", label: t.product.agentsModeKey },
+              ]}
+            />
+
+            {mode === "signin" ? (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">{t.product.agentsSignInHelper}</p>
+                <div className="space-y-2 border-t border-border/60 pt-4">
+                  <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsAppsTitle}</p>
+                  {connected.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{t.product.agentsAppsEmpty}</p>
+                  ) : (
+                    <ul className="divide-y divide-border/60">
+                      {connected.map((grant) => (
+                        <li key={grant.client.client_id} className="flex items-center justify-between gap-4 py-2">
+                          <div className="min-w-0">
+                            <p className="text-sm text-foreground truncate">{grant.client.client_name || grant.client.client_uri}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {grant.client.client_uri} · {t.product.agentsAppsConnectedOn} {formatDate(grant.granted_at, language)}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="dangerGhost"
+                            size="text"
+                            disabled={revokeGrant.isPending}
+                            onClick={() => revokeGrant.mutate(grant.client.client_id)}
+                          >
+                            {t.product.agentsAppsDisconnect}
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-                {!data.key.has_key && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="rounded-full shrink-0"
-                    disabled={createKey.isPending}
-                    onClick={() => createKey.mutate()}
-                  >
-                    {createKey.isPending ? <VocifySpinner size={14} tone="onFill" /> : t.product.agentsKeyCreate}
-                  </Button>
-                )}
               </div>
-              {newKey ? (
-                <div className="space-y-1.5">
-                  <CopyRow value={newKey} label={t.product.agentsCopy} />
-                  <p className="text-xs text-warning" role="status">{t.product.agentsKeyShownOnce}</p>
-                </div>
-              ) : null}
-              {data.key.has_key && (
-                <div className="flex items-center justify-between gap-4">
-                  <p className="text-sm text-foreground">
-                    <span className="font-mono">{data.key.prefix}…</span>
-                    <span className="text-muted-foreground">
-                      {" · "}
-                      {t.product.agentsKeyCreatedOn} {formatDate(data.key.created_at, language)}
-                    </span>
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <Button type="button" variant="quiet" size="text" onClick={() => setConfirm("regenerate")}>
-                      {t.product.agentsKeyRegenerate}
-                    </Button>
-                    <Button type="button" variant="dangerGhost" size="text" onClick={() => setConfirm("revoke")}>
-                      {t.product.agentsKeyRevoke}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-3 border-t border-border/60 pt-5">
-              <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsSetupTitle}</p>
-              <Segmented<Client> value={client} onValueChange={setClient} options={clients} aria-label={t.product.agentsSetupTitle} />
-              {client === "web" ? (
-                <p className="text-sm text-muted-foreground">{t.product.agentsSetupWeb}</p>
-              ) : (
-                <CopyRow value={snippet(client, data.server_url, keyForSnippets)} label={t.product.agentsCopy} />
-              )}
-            </div>
-
-            {connected.length > 0 && (
-              <div className="space-y-2 border-t border-border/60 pt-5">
-                <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsAppsTitle}</p>
-                <ul className="divide-y divide-border/60">
-                  {connected.map((grant) => (
-                    <li key={grant.client.client_id} className="flex items-center justify-between gap-4 py-2">
-                      <span className="text-sm text-foreground truncate">
-                        {grant.client.client_name || grant.client.client_uri || grant.client.client_id}
-                      </span>
+            ) : (
+              <div className="space-y-5">
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-6">
+                    <div className="space-y-1">
+                      <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsKeyTitle}</p>
+                      <p className="text-sm text-muted-foreground">{t.product.agentsKeyHelper}</p>
+                    </div>
+                    {!data.key.has_key && (
                       <Button
                         type="button"
-                        variant="dangerGhost"
-                        size="text"
-                        disabled={revokeGrant.isPending}
-                        onClick={() => revokeGrant.mutate(grant.client.client_id)}
+                        size="sm"
+                        className="rounded-full shrink-0"
+                        disabled={createKey.isPending}
+                        onClick={() => createKey.mutate()}
                       >
-                        {t.product.agentsAppsDisconnect}
+                        {createKey.isPending ? <VocifySpinner size={14} tone="onFill" /> : t.product.agentsKeyCreate}
                       </Button>
-                    </li>
-                  ))}
-                </ul>
+                    )}
+                  </div>
+                  {newKey ? (
+                    <div className="space-y-1.5">
+                      <CopyRow value={newKey} label={t.product.agentsCopy} />
+                      <p className="text-xs text-warning" role="status">{t.product.agentsKeyShownOnce}</p>
+                    </div>
+                  ) : null}
+                  {data.key.has_key && (
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-sm text-foreground">
+                        <span className="font-mono">{data.key.prefix}…</span>
+                        <span className="text-muted-foreground">
+                          {" · "}
+                          {t.product.agentsKeyCreatedOn} {formatDate(data.key.created_at, language)}
+                        </span>
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <Button type="button" variant="quiet" size="text" onClick={() => setConfirm("regenerate")}>
+                          {t.product.agentsKeyRegenerate}
+                        </Button>
+                        <Button type="button" variant="dangerGhost" size="text" onClick={() => setConfirm("revoke")}>
+                          {t.product.agentsKeyRevoke}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3 border-t border-border/60 pt-4">
+                  <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsSetupTitle}</p>
+                  <Segmented<Client> value={client} onValueChange={setClient} options={CLIENTS} aria-label={t.product.agentsSetupTitle} />
+                  <CopyRow value={snippet(client, data.server_url, newKey ?? KEY_PLACEHOLDER)} label={t.product.agentsCopy} />
+                </div>
               </div>
             )}
           </div>
