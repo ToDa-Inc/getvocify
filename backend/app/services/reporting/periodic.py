@@ -11,6 +11,7 @@ from app.config import settings
 from app.services.company import sales_role_for_user
 from app.services.feature_flags import is_enabled
 from app.services.reporting.channels import interaction_channels, load_team_channel_memos
+from app.services.reporting import digest_reads
 from app.services.reporting.coaching_line import self_weekly_coaching
 from app.services.reporting.daily_snapshot import (
     FLOW_FLAG,
@@ -36,7 +37,7 @@ from app.services.reporting.weekly import (
     weekly_self_snapshot,
 )
 from app.services.team_insights import adherence_trend as trend_service
-from app.services.team_insights.aggregate import TeamAccessError, load_team_adherence_inputs, team_adherence
+from app.services.team_insights.aggregate import TeamAccessError, load_team_adherence_inputs, load_team_reps, team_adherence
 from app.services.team_insights.competitors import COMPETITORS_FLAG
 
 logger = logging.getLogger(__name__)
@@ -197,6 +198,12 @@ def ensure_self_weekly_report(supabase, *, company_id: str, user_id: str, timezo
             supabase, company_id=company_id, user_id=user_id, period_start=start, period_end=end
         ),
     )
+    digest = digest_reads.self_digest(
+        supabase, company_id=company_id, user_id=user_id, start=start, end=end, previous_start=start - timedelta(days=7),
+    )
+    digest_reads.enrich(snapshot, digest, digest_reads.feedback_for(
+        supabase, company_id=company_id, digest=digest, audience="rep", period="week", previous=None,
+    ))
     report_id = _create_once(
         supabase, company_id=company_id, user_id=user_id, scope="self", period_start=start.isoformat(), snapshot=snapshot,
     )
@@ -268,6 +275,13 @@ def ensure_team_weekly_report(
     trend = _team_trend(supabase, company_id, role=role, now=now, timezone=timezone, load_trend=load_trend)
     if trend:
         snapshot["adherence_trend"] = trend
+    digest = digest_reads.team_digest(
+        supabase, company_id=company_id, reps=load_team_reps(supabase, company_id, exclude_managers=True),
+        start=start, end=end, previous_start=start - timedelta(days=7),
+    )
+    digest_reads.enrich(snapshot, digest, digest_reads.feedback_for(
+        supabase, company_id=company_id, digest=digest, audience="head_of_sales", period="week", previous=None,
+    ))
     report_id = _create_once(
         supabase, company_id=company_id, user_id=user_id, scope="team", period_start=start.isoformat(), snapshot=snapshot,
     )

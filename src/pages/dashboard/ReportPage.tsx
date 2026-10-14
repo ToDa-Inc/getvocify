@@ -4,6 +4,7 @@ import { useLanguage } from "@/lib/i18n";
 import { reportKeys, reportsApi } from "@/lib/api/reports";
 import { reportAdherenceTrend, reportPagePresentation, reportTitleKey, type ReportPageDay } from "@/lib/report-snapshot";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import ReportDigestView from "@/features/reports/ReportDigestView";
 
 function formatDate(iso: string | undefined, locale: string, timeZone: string | undefined, withTime = false): string {
   if (!iso) return "";
@@ -122,14 +123,22 @@ export default function ReportPage() {
           </p>
         ) : null}
       </header>
-      <dl className="grid gap-3 sm:grid-cols-2">
+      {snapshot.digest ? (
+        <ReportDigestView
+          digest={snapshot.digest}
+          feedback={snapshot.feedback}
+          week={snapshot.report_type === "weekly" || snapshot.scope === "team"}
+          team={snapshot.scope === "team"}
+        />
+      ) : null}
+      {snapshot.digest ? null : <dl className="grid gap-3 sm:grid-cols-2">
         {view.rows.map((row) => (
           <div key={row.cellKey} className="rounded-xl border border-border/70 bg-card px-4 py-3">
             <dt className="text-[13px] text-muted-foreground">{t.product[row.labelKey]}</dt>
             <dd className="mt-1 text-2xl tracking-tight">{row.value}</dd>
           </div>
         ))}
-      </dl>
+      </dl>}
       {view.channelsLine ? <p className="text-[13px] text-muted-foreground">{view.channelsLine}</p> : null}
       {snapshot.sample_limited ? <p className="text-[13px] text-muted-foreground">{t.product.sampleLimited}</p> : null}
       {view.days.length ? <DayTable days={view.days} locale={locale} /> : null}
@@ -161,7 +170,7 @@ export default function ReportPage() {
           {trend.sampleLimited ? <p className="text-[13px] text-muted-foreground">{t.product.reportTrendSampleNote}</p> : null}
         </section>
       ) : null}
-      {view.objections ? (
+      {view.objections && !snapshot.digest ? (
         <section className="space-y-2">
           <h2 className={THEME_TOKENS.typography.sectionTitle}>{t.product.reportTopObjections}</h2>
           <table className="w-full max-w-xs text-sm">
@@ -176,7 +185,7 @@ export default function ReportPage() {
           </table>
         </section>
       ) : null}
-      {coachingText ? <p className={THEME_TOKENS.typography.body}>{coachingText}</p> : null}
+      {coachingText && !snapshot.feedback ? <p className={THEME_TOKENS.typography.body}>{coachingText}</p> : null}
       {view.exampleLinks.length ? (
         <ul className="space-y-2">
           {view.exampleLinks.map((href) => (

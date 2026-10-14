@@ -9,7 +9,7 @@ from app.services.team_insights.aggregate import load_team_reps
 
 _MEMO_BASE = (
     "id,user_id,company_id,sales_motion_key,screening_outcome,audio_duration,"
-    "capture_started_at,created_at,hubspot_contact_id,hubspot_deal_id"
+    "capture_started_at,created_at,hubspot_contact_id,hubspot_deal_id,source,source_type,interaction_kind"
 )
 # Only the parts of the analysis coaching reads: the whole extraction (evidence, the call read turn
 # by turn, CRM fields) is several times heavier and made every coaching screen wait for it.

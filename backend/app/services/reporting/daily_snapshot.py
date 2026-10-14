@@ -232,6 +232,16 @@ def _existing_report_id(
     return None
 
 
+def _stored_feedback(supabase, report_id: str) -> dict | None:
+    """The feedback already written for this report: the same facts reuse it (feedback_writer)."""
+    try:
+        rows = supabase.table("reports").select("snapshot").eq("id", report_id).limit(1).execute().data or []
+    except Exception:
+        return None
+    snapshot = rows[0].get("snapshot") if rows else None
+    return snapshot.get("feedback") if isinstance(snapshot, dict) else None
+
+
 def _ensure_report_notification(supabase, *, report_id: str, user_id: str) -> None:
     try:
         stored = (
@@ -311,6 +321,17 @@ def ensure_self_daily_report(
     snapshot["coaching"] = self_daily_coaching(
         supabase, company_id=company_id, user_id=user_id, period_start=period_start, period_end=period_end
     )
+    from app.services.reporting import digest_reads
+
+    digest = digest_reads.self_digest(
+        supabase, company_id=company_id, user_id=user_id, start=period_start, end=period_end,
+        previous_start=digest_reads.previous_day_start(period_start),
+    )
+    feedback = digest_reads.feedback_for(
+        supabase, company_id=company_id, digest=digest, audience="rep", period="day",
+        previous=_stored_feedback(supabase, report_id),
+    )
+    digest_reads.enrich(snapshot, digest, feedback)
     payload = {
         "id": report_id,
         "company_id": company_id,

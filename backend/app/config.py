@@ -316,6 +316,9 @@ class Settings(BaseSettings):
     DEBRIEF_V2_ENABLED: bool = False
     # Coaching v1: one-line coaching message (focus) in the rep's own daily/weekly reports.
     COACHING_MESSAGES_ENABLED: bool = False
+    # Reports with numbers and written feedback: the rep's day and week (SDR / AE) and the Head of
+    # Sales' week with one row per rep (services/reporting/rep_digest.py + feedback_writer.py).
+    REPORT_FEEDBACK_ENABLED: bool = False
     # T11: Playbook tab with the week's best interactions per flow.
     PLAYBOOK_TAB_ENABLED: bool = False
     # T12: daily/weekly reports split by sales_role section.

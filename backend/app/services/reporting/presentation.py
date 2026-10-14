@@ -106,7 +106,26 @@ def summary_line(snapshot: dict) -> str:
     )
 
 
+def _digest_subject_tail(snapshot: dict) -> str:
+    """«: 31 llamadas, 17 conversaciones» for a report with a digest, else nothing."""
+    act = (snapshot.get("digest") or {}).get("activity")
+    if not isinstance(act, dict):
+        return ""
+    parts = []
+    if act.get("calls"):
+        parts.append(_count(int(act["calls"]), "llamada", "llamadas"))
+    parts.append(_count(int(act.get("conversations") or 0), "conversación", "conversaciones"))
+    if act.get("meetings_held"):
+        parts.append(_count(int(act["meetings_held"]), "reunión", "reuniones"))
+    return ": " + ", ".join(parts)
+
+
 def email_subject(snapshot: dict) -> str:
+    tail = _digest_subject_tail(snapshot)
+    if tail:
+        if snapshot.get("scope") == "team":
+            return f"Tu equipo esta semana{tail}"
+        return f"{'Tu semana' if snapshot.get('report_type') == 'weekly' else 'Tu día'} en Vocify{tail}"
     if snapshot.get("scope") == "team":
         return "Tu equipo esta semana"
     if snapshot.get("report_type") == "weekly":
@@ -185,6 +204,14 @@ def email_html_for_snapshot(snapshot: dict, *, report_id: str, app_origin: str =
     cells = snapshot_metric_cells(snapshot)
     origin = app_origin.rstrip("/")
     report_href = f"{origin}/dashboard/reports/{report_id}"
+    if isinstance(snapshot.get("digest"), dict):
+        from app.services.reporting.digest_email import render
+
+        title = (
+            "Tu equipo esta semana" if snapshot.get("scope") == "team"
+            else "Tu semana" if snapshot.get("report_type") == "weekly" else "Tu día"
+        )
+        return render(snapshot, report_href=report_href, title=title)
     rows = "".join(
         f"<tr><th>{label}</th><td>{cells[key]}</td></tr>"
         for label, key in (
