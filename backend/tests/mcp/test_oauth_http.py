@@ -59,12 +59,13 @@ def register(server, *, name="Claude", redirect=CLAUDE_CALLBACK):
     return response.json()["client_id"]
 
 
-def authorize(server, client_id, *, redirect=CLAUDE_CALLBACK, challenge, state="st-1", resource=MCP_URL):
+def authorize(server, client_id, *, redirect=CLAUDE_CALLBACK, challenge, state="st-1", resource=MCP_URL, scope=None):
     return server.get(
         "/oauth/authorize",
         params={
             "response_type": "code", "client_id": client_id, "redirect_uri": redirect, "code_challenge": challenge,
             "code_challenge_method": "S256", "state": state, **({"resource": resource} if resource else {}),
+            **({"scope": scope} if scope else {}),
         },
     )
 
@@ -196,6 +197,23 @@ def test_an_old_refresh_token_replayed_later_ends_that_connection_only(server, m
     assert replay.status_code == 400 and replay.json()["error"] == "invalid_grant"
     assert rpc(mcp_client, first["access_token"], "tools/list").status_code == 401
     assert rpc(mcp_client, other["access_token"], "tools/list").status_code == 200  # the other device is untouched
+
+
+def test_a_client_asking_for_scopes_is_not_refused(server, mcp_client):
+    """Claude and ChatGPT may send `scope` (offline_access, read...). There is one level of access, so it is ignored."""
+    client_id = register(server)
+    verifier, challenge = pkce()
+    aid = authorization_id(authorize(server, client_id, challenge=challenge, scope="offline_access read"))
+    consent = server.post(f"/api/v1/oauth/authorizations/{aid}/consent", json={"action": "approve"})
+    code = parse_qs(urlparse(consent.json()["redirect_url"]).query)["code"][0]
+    token = exchange_code(server, client_id, code, verifier)
+    assert token.status_code == 200
+    renewed = server.post(
+        "/oauth/token",
+        data={"grant_type": "refresh_token", "refresh_token": token.json()["refresh_token"], "client_id": client_id, "scope": "offline_access"},
+    )
+    assert renewed.status_code == 200, renewed.text
+    assert rpc(mcp_client, renewed.json()["access_token"], "tools/list").status_code == 200
 
 
 def test_a_refresh_token_does_not_belong_to_another_client(server):
