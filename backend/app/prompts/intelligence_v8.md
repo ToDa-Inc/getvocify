@@ -128,6 +128,11 @@ If the day or time changed during the conversation, use the last one both sides 
   said no and hung up or wrapped up within a turn or two, had to go, or the line dropped. Steps
   that belong after that moment are "not_applicable". "missed" needs the conversation to have
   gone on past the moment the step belonged to, with room for the rep to do it.
+  To find that moment, look for the turn where the prospect closed ("no estamos interesados", "me
+  pillas", "envíame un mail", "ya hablaremos", "te agradezco la llamada"). If after it the rep only
+  insists and the prospect keeps declining or leaves, the conversation did not go on: every step
+  after that turn is "not_applicable", the same for all of them. A "not_applicable" reason says why
+  the step did not apply, never "No preguntaste…"; a reason only states what a rep line shows.
   When the recording starts in the middle of the conversation (no greeting, the rep is already
   explaining or asking), the opening was not recorded: opening steps are "not_applicable".
   When the rep asked what the step asks but the prospect brushed it off ("no tenemos ningún
