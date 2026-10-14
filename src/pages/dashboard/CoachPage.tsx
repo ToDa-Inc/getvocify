@@ -43,7 +43,7 @@ export default function CoachPage() {
           </Button>
         )}
       </header>
-      {playbook ? <CoachingPlaybook coachedMotion={calls.data?.type} /> : <CoachingCalls type={type} onType={setType} />}
+      {playbook ? <CoachingPlaybook coachedMotion={calls.isError ? null : calls.data?.type} /> : <CoachingCalls type={type} onType={setType} />}
     </main>
   );
 }
