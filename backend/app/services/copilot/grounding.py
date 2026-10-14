@@ -190,3 +190,15 @@ def finalize_suggest_result(
         "grounded": True,
         "playbook_version_id": grounding.playbook_version_id,
     }
+
+
+def canonical_source_id(source_id: Optional[str], snapshot: Optional[dict]) -> Optional[str]:
+    """The id of the approved answer the model named. It sometimes writes the bare category
+    ("competitor") for "objection:competitor": that is the same answer when exactly one entry has it."""
+    raw = str(source_id or "").strip()
+    entries = [e for e in (snapshot or {}).get("entries") or [] if isinstance(e, dict) and e.get("entry_id")]
+    ids = {str(e["entry_id"]) for e in entries}
+    if not raw or raw in ids:
+        return raw or None
+    matches = [i for i in ids if i.rsplit(":", 1)[-1] == raw or i == f"objection:{raw}"]
+    return matches[0] if len(matches) == 1 else raw

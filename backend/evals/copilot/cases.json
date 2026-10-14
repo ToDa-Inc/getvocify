@@ -118,5 +118,788 @@
     "expect": "none"
    }
   ]
+ },
+ {
+  "id": "real-prospecting-provider",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Tenemos un proveedor para todo el tema de Prospecting que nos está funcionando bastante bien.",
+    "expect": "status_quo|competitor"
+   }
+  ]
+ },
+ {
+  "id": "real-not-buying",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Ahora mismo no estamos comprando nada.",
+    "expect": "timing"
+   }
+  ]
+ },
+ {
+  "id": "real-conference",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Yo estoy en una conferencia. De hecho, tengo una reunión en cinco minutos.",
+    "expect": "timing"
+   }
+  ]
+ },
+ {
+  "id": "real-travelling",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Yo estoy viajando todo octubre.",
+    "expect": "timing"
+   }
+  ]
+ },
+ {
+  "id": "real-gong",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Ya estamos usando Gong, y la verdad es que nos funciona bastante bien.",
+    "expect": "competitor"
+   }
+  ]
+ },
+ {
+  "id": "real-ai-fear",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Me da un poco de miedo que una inteligencia artificial escriba cosas mal en nuestro CRM.",
+    "expect": "trust"
+   }
+  ]
+ },
+ {
+  "id": "real-finance-director",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Esto no lo decido yo, lo tendría que ver mi director financiero.",
+    "expect": "authority"
+   }
+  ]
+ },
+ {
+  "id": "real-expensive",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Me parece bastante caro para lo que necesitamos ahora mismo.",
+    "expect": "price"
+   }
+  ]
+ },
+ {
+  "id": "real-small-talk",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Perdona, que hoy en Madrid hace un día buenísimo y tengo la ventana abierta.",
+    "expect": "none"
+   }
+  ]
+ },
+ {
+  "id": "extra-no-crm",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. playbook has an entry",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "No tenemos CRM, lo llevamos todo en Excel.",
+    "expect": "custom:no_usamos_crm"
+   }
+  ]
+ },
+ {
+  "id": "extra-hubspot-records",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. playbook has an entry",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Usamos HubSpot y ya graba las llamadas, así que no lo necesitamos.",
+    "expect": "custom:nuestro_crm_ya_lo_hace"
+   }
+  ]
+ },
+ {
+  "id": "extra-custom-crm",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. playbook has an entry",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Nuestro CRM es un Odoo hecho a medida por un proveedor.",
+    "expect": "custom:crm_propio_o_poco_comun"
+   }
+  ]
+ },
+ {
+  "id": "extra-send-info",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. playbook has an entry",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Pásame la información por correo y la reviso cuando pueda.",
+    "expect": "custom:mandame_informacion_por_email"
+   }
+  ]
+ },
+ {
+  "id": "extra-few-visits",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. playbook has an entry",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Nosotros hacemos pocas reuniones, pero cada una vale mucho dinero.",
+    "expect": "custom:pocas_interacciones_o_venta_de_proyecto"
+   }
+  ]
+ },
+ {
+  "id": "extra-call-later",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. ",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Llámame dentro de tres meses, ahora no es el momento.",
+    "expect": "timing"
+   }
+  ]
+ },
+ {
+  "id": "extra-talk-partner",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. ",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Tengo que consultarlo con mi socio antes de nada.",
+    "expect": "authority"
+   }
+  ]
+ },
+ {
+  "id": "extra-who-are-you",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. entry covers data origin and who we are",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "¿Y vosotros quiénes sois? ¿De dónde habéis sacado mi número?",
+    "expect": "trust"
+   }
+  ]
+ },
+ {
+  "id": "extra-cost-question",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. ",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "¿Cuánto cuesta esto?",
+    "expect": "price|question"
+   }
+  ]
+ },
+ {
+  "id": "extra-too-expensive-startup",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. ",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Es demasiado dinero para una empresa de nuestro tamaño.",
+    "expect": "price"
+   }
+  ]
+ },
+ {
+  "id": "extra-excel-fine",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. ",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Con nuestro Excel nos va bien, no vemos la necesidad de cambiar.",
+    "expect": "status_quo|custom:no_usamos_crm"
+   }
+  ]
+ },
+ {
+  "id": "extra-ai-errors",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. GAP: the discovery trust entry is about data origin, not AI errors",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "No me fío de que una IA apunte bien las cosas, se va a equivocar.",
+    "expect": "trust"
+   }
+  ]
+ },
+ {
+  "id": "extra-tried-before",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. no matching entry: some help is right",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Ya probamos una herramienta parecida y no funcionó.",
+    "expect": "card"
+   }
+  ]
+ },
+ {
+  "id": "extra-not-interested",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. brush-off: no entry; some help is right",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "No me interesa, gracias.",
+    "expect": "card"
+   }
+  ]
+ },
+ {
+  "id": "extra-integration-worry",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. no matching entry",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Me preocupa que sea un lío integrarlo con lo que tenemos.",
+    "expect": "card"
+   }
+  ]
+ },
+ {
+  "id": "extra-team-wont-use",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. the entry for this is in negotiation, not discovery",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Mis comerciales no van a querer usar otra herramienta más.",
+    "expect": "card"
+   }
+  ]
+ },
+ {
+  "id": "extra-interested",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. ",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Interesante, cuéntame más de cómo funciona.",
+    "expect": "none"
+   }
+  ]
+ },
+ {
+  "id": "extra-describing",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. ",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Somos doce comerciales y vendemos sobre todo por teléfono.",
+    "expect": "none"
+   }
+  ]
+ },
+ {
+  "id": "extra-agree-next-step",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. ",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Perfecto, mándame la invitación para el jueves a las diez.",
+    "expect": "none"
+   }
+  ]
+ },
+ {
+  "id": "extra-thinking",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "extra",
+  "about": "Written for coverage, not taken from a call. ",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Mmm, ya veo, vale.",
+    "expect": "none"
+   }
+  ]
  }
 ]

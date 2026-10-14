@@ -50,3 +50,15 @@ def test_a_call_in_step_with_the_mic_is_untouched():
         chunk = _pcm(0.1)
         assert clock.call(chunk) == chunk
     assert clock.filled_s == 0
+
+
+def test_the_first_chunk_of_a_call_that_began_after_the_mic_is_placed_where_it_began():
+    clock = StreamClock()
+    clock.heard_mic(_pcm(0.9, 1000))
+    chunk = _pcm(0.1, 3000)  # loud from its very first sample: not quiet, not a stall, simply where the call began
+    out = clock.call(chunk)
+    assert abs(len(out) // 2 / RATE - 0.9) < 0.05
+    assert clock.filled_s > 0.75
+    # And only once: later chunks are in step.
+    clock.heard_mic(_pcm(0.1, 1000))
+    assert clock.call(chunk) == chunk

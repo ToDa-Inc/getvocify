@@ -2,7 +2,7 @@
 
 The desktop app captures both sides of a meeting natively: the mic (`rep`) and what the computer plays (`prospect`),
 as 16 kHz mono PCM16. Through speakers the mic hears the call too, and the transcription then gives the other person's
-words to the rep. Three steps:
+words to the rep. Four steps:
 
 1. Lining up. WebRTC's echo canceller only removes an echo whose reference (the call) reached it 0 to ~500 ms before
    the echo itself (measured on a real call: outside that window it removes ~5 dB instead of ~33 dB). How late the mic
@@ -10,8 +10,11 @@ words to the rep. Three steps:
    audio arrives; two separate captures (Windows) can be hundreds of ms apart either way. So the delay is measured
    from the audio itself (GCC-PHAT, as anarlog does) and whichever side is ahead is held back just enough for the call
    to lead its echo by `LEAD_MS`. A new delay restarts the canceller, which learns the room again in about a second.
+   (The two sides are put on one clock before they get here: see StreamClock.)
 2. WebRTC's echo canceller (AEC3), with the call as its reference.
-3. Level. A native mic has no automatic gain: on a MacBook it peaks ~14x lower than the browser's, and the speech
+3. What is faint after that, while the call is sounding, is silenced: it is the last of the echo, and the transcription
+   still hears it. Nothing louder is touched (see FAINT_RMS).
+4. Level. A native mic has no automatic gain: on a MacBook it peaks ~14x lower than the browser's, and the speech
    threshold then drops the rep's quieter words. The cleaned mic is raised towards `TARGET_PEAK`, by at most
    `MAX_GAIN`, from its own loudest recent sound, so it never clips. (After the canceller: raising it before would
    change the echo the canceller is learning.)
@@ -57,31 +60,17 @@ MOVE_MS = 60
 # (The call is put back on the mic's clock before it gets here: see StreamClock.)
 STALE_S = 0.5
 
-# Last stage. What AEC3 leaves of the call is faint but still speech, and the transcription hears it: every 100 ms, when
-# the call is playing and what is left of the mic still follows the call's waveform (Pearson correlation at some delay
-# up to GATE_LAG_MS), or is a small fraction of the raw mic (the rep's voice is not removed by AEC, an echo mostly is),
-# that stretch is silenced. The rep talking over the call keeps most of the raw mic's level and does not follow the call.
+# Last stage. What AEC3 leaves of the call is faint but still speech, and the transcription hears it ("Dani." from the first
+# words of a clip, "Right."): every 100 ms, while the call is sounding, a stretch that is faint after the cleaning is
+# silenced. Nothing louder is touched: in double talk AEC3 turns the rep's voice down too (measured: to 15-35% of its level)
+# and any rule that tries to tell the rep from a leftover echo by its level or its match with the call silenced the voice
+# (the rep's words recognised: 6-15% with such rules, 25-70% with this one). Louder leftovers are the text filter's.
 WINDOW = RATE // 10
-GATE_LAG_MS = 400
-GATE_STEP = 80  # samples between the delays tried
-RESIDUAL_CORR = 0.25
-# A match this strong is no chance (speech against an unrelated call reaches ~0.3 at most): silenced at any level.
-STRONG_CORR = 0.5
-RESIDUAL_RATIO = 0.25
-# When the raw mic follows the call this closely, an echo is most of what it holds: what the cleaning left of it that is
-# under RAW_RATIO of the raw level is leftover, not the rep (who, over an echo, keeps most of the level).
-RAW_CORR = 0.4
-RAW_RATIO = 0.5
-# AEC3 needs a moment to learn the room whenever the call starts sounding after quiet, and after the delay is set again:
-# for SETTLE_S anything faint on the rep's side is taken for the echo it has not yet learned (the rep is 1000+ on this mic).
-SETTLE_S = 1.5
-QUIET_BEFORE_ONSET_S = 1.0
-CALL_ACTIVE_RMS = 300.0
-# Only what is faint is looked at: the rep's voice on this mic is 1000+ (and by chance a stretch of it follows the call's
-# waveform about one time in five), what AEC3 leaves of an echo is a few hundred at most.
-RESIDUAL_MAX_RMS = 700.0
-# Quieter than this a stretch is not worth looking at (it is below what the transcription takes as speech).
-SILENT_RMS = 50.0
+FAINT_RMS = 250.0
+# A faint stretch right after clear speech is the tail of a word, not an echo gap: it stays.
+TAIL_WINDOWS = 4
+# The call counts as sounding at this level (16-bit RMS of the reference).
+CALL_SOUNDING_RMS = 50.0
 
 TARGET_PEAK = 16000.0
 MAX_GAIN = 8.0
@@ -91,27 +80,6 @@ PEAK_HALF_LIFE_S = 10.0
 
 def _rms(x: np.ndarray) -> float:
     return float(np.sqrt(np.mean(x.astype(np.float64) ** 2))) if x.size else 0.0
-
-
-def _best_corr(x: np.ndarray, ref: np.ndarray, stop_at: float = 1.0) -> float:
-    """Peak |Pearson r| between `x` and windows of `ref` ending up to GATE_LAG_MS before it (ref ends where x ends)."""
-    n = x.size
-    a = x.astype(np.float64)
-    a = a - a.mean()
-    an = np.sqrt((a * a).sum())
-    if an == 0:
-        return 0.0
-    best = 0.0
-    for lag in range(0, min(ref.size - n, RATE * GATE_LAG_MS // 1000) + 1, GATE_STEP):
-        r = ref[ref.size - n - lag : ref.size - lag].astype(np.float64)
-        r = r - r.mean()
-        rn = np.sqrt((r * r).sum())
-        if rn == 0:
-            continue
-        best = max(best, abs(float((a * r).sum() / (an * rn))))
-        if best >= stop_at:
-            break
-    return best
 
 
 def measure_lag(mic: np.ndarray, call: np.ndarray, max_lag: int) -> tuple[int, float]:
@@ -151,11 +119,9 @@ class EchoCanceller:
         self._votes: list[int] = []
         self._locked = False
         self._call_quiet = False  # the call's last chunk was quiet; unknown until a chunk has been heard
-        self._settle = 0  # windows left of the stricter rule after the call began sounding
-        self._call_quiet_windows = 99
-        self._win_raw: list[np.ndarray] = []
+        self._since_loud = TAIL_WINDOWS  # windows since the cleaned mic last had clear level while the call sounded
+        self._win_ref: list[np.ndarray] = []
         self._win_clean: list[np.ndarray] = []
-        self._ref_hist = np.zeros(0, dtype=np.int16)  # the reference as it was fed, for the last stage
         self._last_call_at: float | None = None
         self._max_gain = max_gain
         self._peak = TARGET_PEAK / max_gain
@@ -219,48 +185,28 @@ class EchoCanceller:
             self._apm.process_reverse_stream(self._rtc.AudioFrame(ref.tobytes(), RATE, 1, FRAME))
             f = self._rtc.AudioFrame(frame.tobytes(), RATE, 1, FRAME)
             self._apm.process_stream(f)
-            self._ref_hist = np.concatenate([self._ref_hist, ref])[-(WINDOW + RATE * GATE_LAG_MS // 1000 + FRAME) :]
-            self._win_raw.append(frame)
+            self._win_ref.append(ref)
             self._win_clean.append(np.frombuffer(bytes(f.data), dtype=np.int16))
-            if len(self._win_raw) == WINDOW // FRAME:
-                out.append(self._level(self._gate(np.concatenate(self._win_raw), np.concatenate(self._win_clean))))
-                self._win_raw, self._win_clean = [], []
+            if len(self._win_clean) == WINDOW // FRAME:
+                out.append(self._level(self._gate(np.concatenate(self._win_ref), np.concatenate(self._win_clean))))
+                self._win_ref, self._win_clean = [], []
         if not wait and self._win_clean:
             # The end: the last stretch goes out as it is.
             out.append(self._level(np.concatenate(self._win_clean)))
-            self._win_raw, self._win_clean = [], []
+            self._win_ref, self._win_clean = [], []
         return np.concatenate(out).tobytes() if out else b""
 
-    def _gate(self, raw: np.ndarray, clean: np.ndarray) -> np.ndarray:
+    def _gate(self, ref: np.ndarray, clean: np.ndarray) -> np.ndarray:
+        """100 ms of the cleaned mic, with the reference that went with it: faint while the call sounds is silenced."""
         self.stats["windows"] += 1
-        if _rms(self._ref_hist[-(WINDOW + RATE * GATE_LAG_MS // 1000) :]) < SILENT_RMS:
-            self._call_quiet_windows += 1
-            return clean  # nothing playing: nothing to be an echo of
-        # The call sounding now. Just after quiet, AEC3 has not learned the room: a stricter rule for a moment.
-        if _rms(self._ref_hist[-WINDOW:]) >= CALL_ACTIVE_RMS:
-            if self._call_quiet_windows * WINDOW >= RATE * QUIET_BEFORE_ONSET_S:
-                self._settle = int(SETTLE_S * RATE / WINDOW)
-            self._call_quiet_windows = 0
-        else:
-            self._call_quiet_windows += 1
-        clean_rms = _rms(clean)
-        if clean_rms < SILENT_RMS:
-            return clean
-        raw_rms = _rms(raw)
-        corr = _best_corr(clean, self._ref_hist, stop_at=STRONG_CORR)
-        if clean_rms >= RESIDUAL_MAX_RMS:
-            echo = corr >= STRONG_CORR  # loud: the rep, unless it is the call itself
-        else:
-            echo = corr >= RESIDUAL_CORR or (raw_rms > 0 and clean_rms / raw_rms < RESIDUAL_RATIO)
-        if not echo and self._settle > 0 and clean_rms < RESIDUAL_MAX_RMS:
-            echo = True
-        if self._settle > 0:
-            self._settle -= 1
-        if not echo and raw_rms > 0 and clean_rms / raw_rms < RAW_RATIO and _best_corr(raw, self._ref_hist, stop_at=RAW_CORR) >= RAW_CORR:
-            echo = True
-        if echo:
-            self.stats["gated"] += 1
-            return np.zeros_like(clean)
+        if _rms(ref) >= CALL_SOUNDING_RMS:
+            if _rms(clean) >= FAINT_RMS:
+                self._since_loud = 0
+            else:
+                self._since_loud += 1
+                if self._since_loud > TAIL_WINDOWS:
+                    self.stats["gated"] += 1
+                    return np.zeros_like(clean)
         return clean
 
     def _call_stale(self) -> bool:
@@ -303,7 +249,6 @@ class EchoCanceller:
         if abs(hold - self._hold) >= RATE * MOVE_MS // 1000:
             self._hold = hold
             self._apm = self._new_apm()
-            self._settle = int(SETTLE_S * RATE / WINDOW)
             self.stats["realigned"] += 1
 
     def _level(self, frame: np.ndarray) -> np.ndarray:
