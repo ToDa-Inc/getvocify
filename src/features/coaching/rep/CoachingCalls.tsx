@@ -197,10 +197,13 @@ export function CoachingCalls({ type, onType }: { type: string | null; onType: (
       ) : null}
       <section aria-labelledby="coach-improve" className="space-y-5 px-3">
         <SectionHead id="coach-improve" title={p.coachImproveHeading} meta={fill(p.coachImproveWindow, { weeks, count: data.conversations })} />
-        {data.conversations ? (
-          <ImproveTables steps={data.slipped_steps ?? []} objections={data.objections ?? []} />
-        ) : (
+        {!data.conversations ? (
           <p className="text-[14.5px] text-muted-foreground">{fill(p.coachImproveNoCalls, { weeks })}</p>
+        ) : data.slipped_steps && data.objections ? (
+          <ImproveTables steps={data.slipped_steps} objections={data.objections} />
+        ) : (
+          // A backend older than the tables (the web deploys before it): never say "nothing slipped".
+          <p className="text-[14.5px] text-muted-foreground">{p.coachImproveUpdating}</p>
         )}
       </section>
       {data.calls.length ? (
