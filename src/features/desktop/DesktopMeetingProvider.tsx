@@ -21,7 +21,7 @@ import { api } from "@/shared/lib/api-client";
 import { liveTickets } from "./liveTickets";
 import { ROUTES } from "@/shared/lib/constants";
 import { SteadyTails } from "@/lib/steady-tail";
-import { openRepMic, type EchoCancellation } from "@/lib/rep-mic";
+import { openRepMic, serverEchoCancel, type EchoCancellation } from "@/lib/rep-mic";
 import {
   encodeChannelAudio,
   hookMicPcm,
@@ -511,8 +511,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const openSocket = useCallback(() => {
     // A new session times its audio from zero again: who spoke is timed from its first audio too.
     if (speakersRef.current) speakersRef.current = { timeline: new SpeakerTimeline(), clockAt: null };
-    const pageMicIsClean = !nativeMicRef.current && micEchoRef.current === "all";
-    const echoCancel = echoCancelRef.current && !pageMicIsClean ? (nativeMicRef.current ? "native" : "page") : undefined;
+    const echoCancel = serverEchoCancel(echoCancelRef.current, nativeMicRef.current, micEchoRef.current);
     const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current, { echoCancel }));
     wsRef.current = ws;
     ws.onopen = () => {
@@ -1122,9 +1121,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        // Nothing here is played (every tap ends in a muted gain), so it renders to no device: reading the mic then
-        // does not depend on the speakers' clock.
-        const options: AudioContextOptions & { sinkId?: { type: "none" } } = { sampleRate: LIVE_STT_SAMPLE_RATE, sinkId: { type: "none" } };
+        // Nothing here is played (every tap ends in a muted gain), so when the mic cancels everything the computer plays
+        // the context renders to no device: reading the mic then does not depend on the speakers' clock. Builds whose
+        // mic does not cancel everything get the context exactly as before.
+        const options: AudioContextOptions & { sinkId?: { type: "none" } } = { sampleRate: LIVE_STT_SAMPLE_RATE };
+        if (micEchoRef.current === "all") options.sinkId = { type: "none" };
         ctx = new AudioContext(options);
         ctxRef.current = ctx;
         if (call) reportCallStep("session-audio", { state: ctx.state });

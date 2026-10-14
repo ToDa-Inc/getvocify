@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { appliedEchoCancellation, openRepMic } from "./rep-mic.ts";
+import { appliedEchoCancellation, openRepMic, serverEchoCancel } from "./rep-mic.ts";
 
 /** A stream whose first audio track reports these settings. */
 function streamWith(settings: Record<string, unknown>): MediaStream {
@@ -72,5 +72,28 @@ describe("openRepMic", () => {
       (error) => error === refusal,
     );
     assert.equal(calls, 1);
+  });
+});
+
+describe("serverEchoCancel", () => {
+  it("is off when it is not a meeting", () => {
+    assert.equal(serverEchoCancel(false, false, "browser"), undefined);
+  });
+
+  it("is off when the page mic already cancels everything the computer plays", () => {
+    assert.equal(serverEchoCancel(true, false, "all"), undefined);
+  });
+
+  it("is on, for the page mic, when the browser only applied its own canceller or none", () => {
+    assert.equal(serverEchoCancel(true, false, "browser"), "page");
+    assert.equal(serverEchoCancel(true, false, "off"), "page");
+  });
+
+  it("is on, for the native mic, even if the page mic reported all", () => {
+    assert.equal(serverEchoCancel(true, true, "all"), "native");
+  });
+
+  it("is on, for the page mic, before the mic has reported what it applied", () => {
+    assert.equal(serverEchoCancel(true, false, null), "page");
   });
 });

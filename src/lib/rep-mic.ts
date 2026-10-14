@@ -41,3 +41,18 @@ export async function openRepMic(
   }
   return { stream, echoCancellation: appliedEchoCancellation(stream.getAudioTracks()[0].getSettings()) };
 }
+
+/**
+ * Whether the server's canceller works on the rep's side, and which mic it is told about. A page mic that cancels
+ * everything the computer plays (applied "all") has nothing left for it to take out; the native mic and the other
+ * page mics still do. Not a meeting (echoCancel off, e.g. a Vocify call): never.
+ */
+export function serverEchoCancel(
+  echoCancel: boolean,
+  nativeMic: boolean,
+  pageMicApplied: EchoCancellation | null,
+): "native" | "page" | undefined {
+  const pageMicIsClean = !nativeMic && pageMicApplied === "all";
+  if (!echoCancel || pageMicIsClean) return undefined;
+  return nativeMic ? "native" : "page";
+}
