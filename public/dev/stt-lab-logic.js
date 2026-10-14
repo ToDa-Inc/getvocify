@@ -90,6 +90,23 @@ export function textAt(timeline, t) {
 
 export const CHECKPOINTS_MS = [300, 600, 1000, 1500, 2500];
 
+function normWords(text) {
+  return String(text || "").toLowerCase().replace(/[.,;:!?¿¡…"]/g, " ").split(/\s+/).filter(Boolean);
+}
+
+/** How many words of the text seen early are not in the final text (each final word is matched once): revised words. */
+export function revisedWords(early, final) {
+  const pool = new Map();
+  for (const word of normWords(final)) pool.set(word, (pool.get(word) || 0) + 1);
+  let revised = 0;
+  for (const word of normWords(early)) {
+    const left = pool.get(word) || 0;
+    if (left > 0) pool.set(word, left - 1);
+    else revised++;
+  }
+  return revised;
+}
+
 /**
  * For each utterance: how long after the voice stopped the first new words showed, the last change, and the last
  * settled piece; how many words were still missing at the moment it stopped; and how much of the sentence was
@@ -108,9 +125,15 @@ export function analyzeUtterances(utterances, timeline, { tailMs = 6000 } = {}) 
     const before = textAt(timeline, u.start - 1);
     const text = before && shownText.startsWith(before) ? shownText.slice(before.length).trim() : shownText;
     const complete = {};
+    const seenAt = {};
+    const revisedAt = {};
+    const own = (shown) => (before && shown.startsWith(before) ? shown.slice(before.length).trim() : shown);
     for (const ms of CHECKPOINTS_MS) {
-      const words = wordCount(textAt(timeline, Math.min(u.end + ms, windowEnd))) - base;
+      const shown = textAt(timeline, Math.min(u.end + ms, windowEnd));
+      const words = wordCount(shown) - base;
       complete[ms] = total > 0 ? Math.round((Math.max(0, words) / total) * 100) : null;
+      seenAt[ms] = own(shown);
+      revisedAt[ms] = total > 0 ? revisedWords(own(shown), text) : null;
     }
     return {
       index: i + 1,
@@ -122,6 +145,8 @@ export function analyzeUtterances(utterances, timeline, { tailMs = 6000 } = {}) 
       lastChangeMs: changesAfter.length ? Math.round(changesAfter[changesAfter.length - 1].t - u.end) : null,
       lastSettledMs: finalsAfter.length ? Math.round(finalsAfter[finalsAfter.length - 1].t - u.end) : null,
       completePctAt: complete,
+      textSeenAt: seenAt,
+      revisedWordsAt: revisedAt,
       text,
     };
   });
@@ -132,7 +157,7 @@ export function percentiles(values) {
   const v = values.filter((x) => typeof x === "number").sort((a, b) => a - b);
   if (!v.length) return null;
   const at = (q) => v[Math.min(v.length - 1, Math.floor(q * v.length))];
-  return { p50: at(0.5), p90: at(0.9), max: v[v.length - 1], n: v.length };
+  return { min: v[0], p50: at(0.5), p90: at(0.9), max: v[v.length - 1], n: v.length };
 }
 
 /** The numbers worth reading across all utterances. */
@@ -147,6 +172,8 @@ export function summarize(rows) {
     lastSettledMs: percentiles(usable.map((row) => row.lastSettledMs)),
     wordsMissingAtEnd: percentiles(usable.map((row) => row.wordsMissingAtEnd)),
     completePctAt: complete,
+    revisedWordsAt300: percentiles(usable.map((row) => row.revisedWordsAt[300])),
+    revisedWordsAt1000: percentiles(usable.map((row) => row.revisedWordsAt[1000])),
   };
 }
 

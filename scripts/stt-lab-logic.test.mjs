@@ -10,6 +10,7 @@ import {
   displayTimeline,
   levelDb,
   percentiles,
+  revisedWords,
   summarize,
   textAt,
   userIdFromJwt,
@@ -127,7 +128,7 @@ describe("the display timeline", () => {
 
 describe("the small helpers", () => {
   it("percentiles skip nulls", () => {
-    assert.deepEqual(percentiles([null, 100, 300, 200]), { p50: 200, p90: 300, max: 300, n: 3 });
+    assert.deepEqual(percentiles([null, 100, 300, 200]), { min: 100, p50: 200, p90: 300, max: 300, n: 3 });
     assert.equal(percentiles([null]), null);
   });
 
@@ -174,5 +175,26 @@ describe("the sign-in token", () => {
   it("is not fresh when it cannot be read", () => {
     assert.equal(isTokenFresh("not a token", now), false);
     assert.equal(isTokenFresh(`h.${Buffer.from(JSON.stringify({ sub: "u" })).toString("base64url")}.s`, now), false);
+  });
+});
+
+describe("words that change after a check would have read them", () => {
+  it("counts the early words that are not in the final text, each final word matched once", () => {
+    assert.equal(revisedWords("me parece muy claro", "me parece muy caro la verdad."), 1);
+    assert.equal(revisedWords("me parece", "me parece muy caro la verdad."), 0);
+    assert.equal(revisedWords("caro caro", "es muy caro"), 1);
+    assert.equal(revisedWords("", "hola"), 0);
+  });
+
+  it("the analysis keeps the text seen at each checkpoint and how much of it was revised", () => {
+    const events = [
+      { t: 3100, final: false, text: "me parece muy claro" },
+      { t: 4000, final: true, text: "me parece muy caro la verdad." },
+    ];
+    const [row] = analyzeUtterances(detectUtterances(frames([[1000, 3000]])), displayTimeline(events));
+    assert.equal(row.textSeenAt[300], "me parece muy claro");
+    assert.equal(row.revisedWordsAt[300], 1);
+    assert.equal(row.revisedWordsAt[1500], 0);
+    assert.equal(summarize([row]).revisedWordsAt300.p50, 1);
   });
 });

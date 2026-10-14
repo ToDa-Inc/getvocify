@@ -75,9 +75,9 @@
       <thead><tr>
         <th class="t">#</th><th>spoke</th><th>words</th><th>missing when<br />voice stopped</th>
         <th>first new words<br />after stop</th><th>last change<br />after stop</th><th>last settled<br />after stop</th>
-        <th>sentence seen at<br />+300 ms</th><th>+1000 ms</th><th class="t">words</th>
+        <th>sentence seen at<br />+300 ms</th><th>+1000 ms</th><th>words changed<br />after +300 ms</th><th class="t">words</th>
       </tr></thead>
-      <tbody id="rows"><tr><td colspan="10" class="status" style="text-align:left">No sentences yet.</td></tr></tbody>
+      <tbody id="rows"><tr><td colspan="11" class="status" style="text-align:left">No sentences yet.</td></tr></tbody>
     </table>
   </div>
 
@@ -277,7 +277,7 @@ function paint(thr, voiceSpans = 0) {
     const hint = !frames.length ? "No audio is reaching the page yet."
       : peakDb < thr ? `No voice above the threshold: your loudest moment was ${peakDb.toFixed(0)} dBFS and the threshold is ${thr} dBFS. Speak closer, or turn the threshold down.`
       : voiceSpans ? "A sentence is in progress: wait for the quiet gap." : "Waiting for a sentence.";
-    body.innerHTML = `<tr><td colspan="10" class="status" style="text-align:left">No sentences yet. ${hint} (${frames.length} audio frames, ${messages} messages from the service)</td></tr>`;
+    body.innerHTML = `<tr><td colspan="11" class="status" style="text-align:left">No sentences yet. ${hint} (${frames.length} audio frames, ${messages} messages from the service)</td></tr>`;
     return;
   }
   body.innerHTML = results.map((r) => `<tr>
@@ -285,17 +285,20 @@ function paint(thr, voiceSpans = 0) {
     <td class="num ${r.wordsMissingAtEnd > 1 ? "slow" : ""}">${r.wordsMissingAtEnd}</td>
     <td class="num">${ms(r.firstChangeMs)}</td><td class="num ${cls(r.lastChangeMs, 1500)}">${ms(r.lastChangeMs)}</td>
     <td class="num ${cls(r.lastSettledMs, 1500)}">${ms(r.lastSettledMs)}</td>
-    <td class="num">${r.completePctAt[300] ?? "-"}%</td><td class="num">${r.completePctAt[1000] ?? "-"}%</td>
+    <td class="num ${(r.completePctAt[300] ?? 100) < 100 ? "slow" : ""}">${r.completePctAt[300] ?? "-"}%</td><td class="num">${r.completePctAt[1000] ?? "-"}%</td>
+    <td class="num ${r.revisedWordsAt[300] > 0 ? "slow" : ""}" title="${(r.textSeenAt[300] || "").replace(/"/g, "&quot;")}">${r.revisedWordsAt[300] ?? "-"}</td>
     <td class="text">${r.text.replace(/</g, "&lt;")}</td></tr>`).join("");
   const s = summarize(results);
   $("summary").hidden = !s.utterances;
-  const box = (title, p, unit = " ms") => `<div class="stat"><small>${title}</small><strong>${p ? `${p.p50}${unit}` : "-"}</strong><small>${p ? `slowest 10%: ${p.p90}${unit} | worst: ${p.max}${unit} | n=${p.n}` : ""}</small></div>`;
+  const box = (title, p, unit = " ms", low = false) => `<div class="stat"><small>${title}</small><strong>${p ? `${low ? p.min : p.p50}${unit}` : "-"}</strong><small>${p ? (low ? `typical: ${p.p50}${unit} | n=${p.n}` : `slowest 10%: ${p.p90}${unit} | worst: ${p.max}${unit} | n=${p.n}`) : ""}</small></div>`;
   $("stats").innerHTML =
     box("Voice stopped → last words change (typical)", s.lastChangeMs) +
     box("Voice stopped → last words settled (typical)", s.lastSettledMs) +
     box("Words still missing when the voice stopped", s.wordsMissingAtEnd, " words") +
-    box("Sentence seen 300 ms after stop (a live-help pause check)", s.completePctAt[300], "%") +
-    box("Sentence seen 1000 ms after stop", s.completePctAt[1000], "%");
+    box("LOWEST share of a sentence seen 300 ms after stop (a live-help pause check)", s.completePctAt[300], "%", true) +
+    box("LOWEST share seen 1000 ms after stop", s.completePctAt[1000], "%", true) +
+    box("Words at +300 ms that change later (typical)", s.revisedWordsAt300, " words") +
+    box("Words at +1000 ms that change later (typical)", s.revisedWordsAt1000, " words");
 }
 
 function cleanup() {
