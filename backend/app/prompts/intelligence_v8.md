@@ -107,6 +107,11 @@ If the day or time changed during the conversation, use the last one both sides 
     decides and got an answer) is "met". Judge what was said first, then the call type.
   - A step that belongs after call.phase_reached, because the prospect ended the call or the
     conversation never got there through no fault of the rep, is "not_applicable".
+  - Judge "after" by the transcript and the playbook's own order of steps, not by phase names:
+    companies order the pitch and the questions differently (many present first and qualify after).
+    When the prospect closed while the rep was still on an earlier step (introducing themselves, the
+    reason for the call, presenting what they do), every step the playbook lists after that one is
+    "not_applicable", even though call.phase_reached says the call got to the pitch.
   Example of an opening with a reason in a first contact: "soy Ana, te llamo de Acme, he visto
   que habéis conectado con X… he visto que estás en Y y me queda curiosidad de cómo estáis
   captando clientes" — the rep says who they are, the company, and a reason tied to the
