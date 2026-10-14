@@ -192,11 +192,26 @@ def _issue(user_id: str, key: str, chain: str, client_id: str, jti: str) -> OAut
 # ----- the provider the SDK's handlers call -----------------------------------------------------------
 
 
+class _Client(OAuthClientInformationFull):
+    """There is one level of access (read-only), so scopes mean nothing here. The SDK would refuse a client that
+    asks for one it was not registered with (`offline_access` is a common one), which would fail the sign-in."""
+
+    def validate_scope(self, requested_scope: Optional[str]) -> Optional[list[str]]:
+        return requested_scope.split(" ") if requested_scope else None
+
+
+class _AnyScope(list):
+    """Same, for a refresh request that names a scope: the SDK checks each against the token's scopes."""
+
+    def __contains__(self, item: object) -> bool:
+        return True
+
+
 def _client(client_id: str) -> Optional[OAuthClientInformationFull]:
     claims = _read("client", client_id)
     if not claims:
         return None
-    return OAuthClientInformationFull(
+    return _Client(
         client_id=client_id,
         redirect_uris=claims["ru"],
         client_name=claims.get("name"),
@@ -280,7 +295,9 @@ class VocifyOAuthProvider:
         claims = _read("rt", refresh_token)
         if not claims or claims.get("cch") != _digest(client.client_id)[:16]:
             return None
-        return RefreshToken(token=refresh_token, client_id=client.client_id, scopes=[], expires_at=int(claims["exp"]), subject=claims["sub"])
+        token = RefreshToken(token=refresh_token, client_id=client.client_id, scopes=[], expires_at=int(claims["exp"]), subject=claims["sub"])
+        token.__dict__["scopes"] = _AnyScope()  # set past the model's validation, which would turn it back into a plain list
+        return token
 
     async def exchange_refresh_token(self, client: OAuthClientInformationFull, refresh_token: RefreshToken, scopes: list[str]) -> OAuthToken:
         claims = _read("rt", refresh_token.token)
