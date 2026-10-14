@@ -225,6 +225,35 @@ def test_with_routing_on_the_five_catalog_types_and_custom_types_with_a_rule_are
     assert "key: ae_discovery" in user and "key: negotiation" in user
 
 
+def test_with_types_by_channel_the_candidates_are_the_companys_own_types(monkeypatch):
+    # Routing off, but the company keeps its own list of types: that list is what a document is split into.
+    monkeypatch.setattr(settings, "TYPE_BY_CHANNEL_ENABLED", True)
+    feature_flags.clear_cache()
+    store = InMemoryPlaybookRepository({"co-1": {
+        "discovery": "missing", "ae_discovery": "missing", "closing": "missing", "propuesta": "missing",
+        "internal": "missing",
+    }})
+    calls = {"channels": ["meeting"], "role": "any", "contact": "any", "deal_stages": []}
+    store.set_meta("co-1", "propuesta", label="Propuesta y negociación", applies_to=calls)
+    store.set_meta("co-1", "closing", recognize="Enseñamos el sistema al cliente")
+    llm = FakeLLM({"types": [SDR]})
+    set_playbook_structure_llm(llm)
+    body = _post(_client(store)).json()
+    offered = [c["key"] for c in body["candidates"]]
+    assert offered[:4] == ["discovery", "ae_discovery", "closing", "propuesta"]
+    assert "internal" not in offered and "inbound" not in offered and "negotiation" not in offered
+    assert {"key": "propuesta", "label": "Propuesta y negociación"} in body["candidates"]
+    user = llm.calls[0]["messages"][1]["content"]
+    assert "Enseñamos el sistema al cliente" in user
+
+
+def test_intake_by_channel_skips_paused_types_and_falls_back_with_none():
+    motions = {"closing": "published", "old": "paused", "internal": "published"}
+    out = intake.candidate_types(False, motions, {"closing": {"label": "Demo"}}, "es", by_channel=True)
+    assert [c["key"] for c in out] == ["closing"] and out[0]["label"] == "Demo"
+    assert [c["key"] for c in intake.candidate_types(False, {}, {}, "es", by_channel=True)] == ["discovery", "closing"]
+
+
 def test_with_routing_on_a_missing_catalog_type_is_created_with_its_default_rule(monkeypatch):
     _routing_on(monkeypatch)
     inbound = {**SDR, "key": "inbound"}
@@ -759,3 +788,26 @@ def test_a_failed_split_says_why():
     body = _post(_client()).json()
     assert body["fallback"] is True
     assert body["error"]["kind"] == "model_error" and "401 bad key" in body["error"]["detail"]
+
+
+def test_titles_find_the_companys_own_type_names():
+    doc = (
+        "# MdV\n\nIntro.\n\n## Llamada en frío (SDR)\n1. Abrir\n\n## Discovery (AE)\n1. Agenda\n\n"
+        "## Demo (AE)\n1. Reconfirmar\n\n## Propuesta y decisión (AE)\n1. Punto A\n\n## La empresa\nMdV.\n"
+    )
+    # Catalog keys the company still calls by their catalog name: the usual words decide.
+    sections, rest = titled_sections(doc, ROUTING_KEYS - {"inbound"})
+    assert [key for key, _ in sections] == ["discovery", "ae_discovery", "closing", "negotiation"]
+    assert "La empresa" in rest
+    # The company's own types, under its own keys and names: its names decide, and a usual word
+    # ("propuesta") finds the company type whose name has it.
+    labels = {"frio": "Llamada en frío", "disc": "Discovery", "demo_mdv": "Demo", "prop": "Propuesta y negociación"}
+    sections, _rest = titled_sections(doc, set(labels), labels)
+    assert [key for key, _ in sections] == ["frio", "disc", "demo_mdv", "prop"]
+
+
+def test_the_longest_company_name_in_a_title_wins():
+    labels = {"demo": "Demo rápida", "demo_close": "Demo y cierre"}
+    doc = "## Demo y cierre\n1. Uno\n\n## Demo rápida\n1. Dos\n"
+    sections, _ = titled_sections(doc, set(labels), labels)
+    assert [key for key, _ in sections] == ["demo_close", "demo"]

@@ -37,7 +37,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from app.services.playbooks.catalog import QUALIFICATION_TEMPLATE_KEYS, qualification_criteria
+from app.services.playbooks.catalog import QUALIFICATION_TEMPLATE_KEYS, catalog_label, qualification_criteria
 from app.services.playbooks.knowledge import normalize_knowledge
 from app.services.playbooks.motion import goal_for
 from app.services.playbooks.structured import (
@@ -589,18 +589,41 @@ _TITLE_RULES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
 )
 
 
-def _title_key(title: str, allowed: set[str]) -> str | None:
-    """The candidate a section title names, or None. A title that only names the role (SDR or
-    AE) falls back to that role's first type."""
-    folded = _fold(unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode())
+def _ascii_fold(text: str) -> str:
+    return _fold(unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode())
+
+
+def _title_key(title: str, allowed: set[str], labels: dict[str, str] | None = None) -> str | None:
+    """The candidate a section title names, or None. The names the company gave its types come
+    first: a title that contains one of them is that type (the longest name wins, so "Demo" never
+    takes "Demo y cierre"). A catalog type still called by its catalog name is left to the usual
+    words of each call type, which then go to a catalog key the company offers or else to the
+    company type whose name has that word. A title that only names the role (SDR or AE) falls
+    back to that role's first type."""
+    folded = _ascii_fold(title)
+    own = {
+        key: name for key, name in ((k, _ascii_fold(v)) for k, v in (labels or {}).items())
+        if key in allowed and name and name not in {_ascii_fold(catalog_label(key, lang) or "") for lang in ("es", "en")}
+    }
+    named = sorted(
+        ((len(name), key) for key, name in own.items()
+         if re.search(rf"(?<![a-z0-9]){re.escape(name)}(?![a-z0-9])", folded)),
+        reverse=True,
+    )
+    if named:
+        return named[0][1]
     words = set(folded.split())
     is_sdr, is_ae = "sdr" in words, "ae" in words or "closer" in words
     for needles, keys in _TITLE_RULES:
-        if any(needle in folded for needle in needles):
+        hit = [needle for needle in needles if needle in folded]
+        if hit:
             if needles[0] == "discovery" and is_sdr and not is_ae:
                 keys = ("discovery",)  # an SDR's "discovery" call is their cold call
             for key in keys:
                 if key in allowed:
+                    return key
+            for key, name in (labels or {}).items():  # the company's own type named with that word
+                if key in allowed and any(needle in _ascii_fold(name) for needle in hit):
                     return key
     if is_sdr and "discovery" in allowed:
         return "discovery"
@@ -609,7 +632,9 @@ def _title_key(title: str, allowed: set[str]) -> str | None:
     return None
 
 
-def titled_sections(text: str, allowed: set[str]) -> tuple[list[tuple[str, str]], str] | None:
+def titled_sections(
+    text: str, allowed: set[str], labels: dict[str, str] | None = None,
+) -> tuple[list[tuple[str, str]], str] | None:
     """([(key, section text)], everything else) when the document's own titles name at least
     two call types, else None. The level of the first typed title is the section level; the
     text under a title of that level that names no type (the company, the funnel) and the text
@@ -619,7 +644,7 @@ def titled_sections(text: str, allowed: set[str]) -> tuple[list[tuple[str, str]]
     for index, line in enumerate(lines):
         match = _HEADING.match(line)
         if match:
-            heads.append((index, len(match.group(1)), _title_key(match.group(2), allowed)))
+            heads.append((index, len(match.group(1)), _title_key(match.group(2), allowed, labels)))
     typed = [head for head in heads if head[2]]
     if len({head[2] for head in typed}) < 2:
         return None
@@ -690,7 +715,8 @@ async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any
     allowed = {c["key"] for c in candidates}
     # The document already names its call types in its titles: split there, not with one huge
     # answer that has to write every type at once (it does not fit in the time the screen waits).
-    titled = titled_sections(source[:MAX_SOURCE_CHARS], allowed) if by_titles else None
+    labels = {c["key"]: str(c.get("label") or "") for c in candidates}
+    titled = titled_sections(source[:MAX_SOURCE_CHARS], allowed, labels) if by_titles else None
     if titled:
         try:
             return await _split_by_titles(titled[0], titled[1], candidates, lang, llm)
