@@ -55,3 +55,10 @@ export function formatCrmDateForDisplay(raw: string | null | undefined): string 
   const d = parseISO(iso);
   return isValid(d) ? format(d, "PPP") : String(raw || "");
 }
+
+/** A task's due moment for display, in the viewer's own zone: "October 20th, 2026 at 18:30". */
+export function formatTaskDue(isoDateTime: string | null | undefined, fallbackDay?: string | null): string {
+  const moment = isoDateTime ? parseISO(isoDateTime) : null;
+  if (moment && isValid(moment)) return format(moment, "PPP 'at' HH:mm");
+  return formatCrmDateForDisplay(fallbackDay);
+}

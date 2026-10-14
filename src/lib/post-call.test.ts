@@ -26,8 +26,8 @@ describe("changesFrom", () => {
       { field_name: "notes", field_label: "Notes", new_value: "" },
     ]);
     assert.deepEqual(changes, [
-      { key: "contacts:hs_lead_status", label: "Lead status", object: "contact", from: "NEW", to: "IN_PROGRESS", value: "IN_PROGRESS", options: [], multiple: false, editable: true, check: false },
-      { key: "deals:amount", label: "Amount", object: "deal", from: null, to: "196", value: "196", options: [], multiple: false, editable: true, check: true },
+      { key: "contacts:hs_lead_status", label: "Lead status", object: "contact", from: "NEW", to: "IN_PROGRESS", value: "IN_PROGRESS", options: [], multiple: false, editable: true, check: false, when: null, whenSuggested: false },
+      { key: "deals:amount", label: "Amount", object: "deal", from: null, to: "196", value: "196", options: [], multiple: false, editable: true, check: true, when: null, whenSuggested: false },
     ]);
   });
 
@@ -67,6 +67,19 @@ describe("changesFrom", () => {
     ]);
     assert.equal(unknown.check, false);
     assert.equal(sure.check, false);
+  });
+
+  it("gives a task its day and hour, and says when the day is only a suggestion", () => {
+    const [timed, suggested, field] = changesFrom([
+      { object_type: "task", field_name: "next_step_task_0", field_label: "Next Step (Task)", new_value: "Llamar a Ana", due_at: "2026-10-20T18:30:00+02:00" },
+      { object_type: "task", field_name: "next_step_task_1", field_label: "Next Step 2 (Task)", new_value: "Enviar la propuesta", due_at: "2026-10-17T09:00:00+02:00", due_date_inferred: true },
+      { object_type: "contacts", field_name: "jobtitle", field_label: "Job title", new_value: "CRO", due_at: "2026-10-17T09:00:00+02:00" },
+    ]);
+    assert.match(timed.when ?? "", /Tue 20 Oct,? \d{2}:\d{2}/);
+    assert.equal(timed.whenSuggested, false);
+    assert.match(suggested.when ?? "", /Sat 17 Oct,? \d{2}:\d{2}/);
+    assert.equal(suggested.whenSuggested, true);
+    assert.equal(field.when, null, "only a task has a day and hour");
   });
 
   it("ticks every change: a flagged one is written too unless the rep unticks it", () => {

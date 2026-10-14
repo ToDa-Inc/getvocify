@@ -66,9 +66,14 @@ def _at_default_task_hour(dt: datetime) -> datetime:
     )
 
 
+def default_task_due_at() -> datetime:
+    """The moment a task without a date is written for (what the review shows as suggested)."""
+    return _default_task_due_in_days(DEFAULT_TASK_DUE_DAYS)
+
+
 def default_task_due_iso() -> str:
     """The day a task without a date is written for (what the review shows as suggested)."""
-    return _default_task_due_in_days(DEFAULT_TASK_DUE_DAYS).date().isoformat()
+    return default_task_due_at().date().isoformat()
 
 
 def _default_task_due_in_days(days: int) -> datetime:

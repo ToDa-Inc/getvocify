@@ -37,6 +37,11 @@ async def test_review_rows_come_from_the_commitments():
     # An undated commitment shows the day it will be written for, and says it is a suggestion.
     assert [r.due_date for r in rows] == ["2026-09-29", "2026-09-24", default_task_due_iso()]
     assert [r.due_date_inferred for r in rows] == [False, False, True]
+    # The exact moment each is written for: a time said in the call is kept, a day alone starts at 9:00.
+    assert rows[0].due_at == "2026-09-29T18:00:00+02:00"
+    assert rows[1].due_at == "2026-09-24T09:00:00+02:00"
+    suggested = datetime.fromisoformat(rows[2].due_at)
+    assert (suggested.date().isoformat(), suggested.hour, suggested.minute) == (default_task_due_iso(), 9, 0)
     assert rows[0].field_label == "Next Step (Task)"
     assert rows[1].field_label == "Next Step 2 (Task)"
     assert [r.commitment_id for r in rows] == ["com-1", "com-2", "com-3"]

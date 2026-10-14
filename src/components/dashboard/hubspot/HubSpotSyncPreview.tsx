@@ -27,7 +27,7 @@ import {
   Building,
 } from "lucide-react";
 import { ExtractionDatePicker } from "@/components/dashboard/crm/ExtractionDatePicker";
-import { formatCrmDateForDisplay, isCrmDateField } from "@/lib/crm-date";
+import { formatCrmDateForDisplay, formatTaskDue, isCrmDateField } from "@/lib/crm-date";
 import {
   buildApproveExtraction,
   canEditOrRemoveProposedField,
@@ -951,7 +951,7 @@ export const HubSpotSyncPreview = ({
               {currentObject === "task" && !isEditing && (
                 <p className="text-[11px] text-muted-foreground">
                   {update.due_date
-                    ? `Due ${formatCrmDateForDisplay(String(update.due_date)) || update.due_date}${
+                    ? `Due ${formatTaskDue(update.due_at, String(update.due_date)) || update.due_date}${
                         update.due_date_inferred ? " · suggested, no day was said" : ""
                       }`
                     : "No due date"}

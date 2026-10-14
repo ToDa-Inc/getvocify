@@ -32,6 +32,10 @@ export type PostCallChange = {
   editable: boolean;
   /** Extraction confidence under CONFIDENCE.MEDIUM ("needs review"): ticked like the rest, marked as less sure. */
   check: boolean;
+  /** A task's day and hour, e.g. "Tue 20 Oct, 09:00", in the rep's own zone; null for anything else. */
+  when: string | null;
+  /** The call gave the task no day: `when` is the default it will be written with. */
+  whenSuggested: boolean;
 };
 
 export type PostCallCrmStage =
@@ -185,6 +189,7 @@ export function changesFrom(proposed: Update[] | null | undefined): PostCallChan
     const from = text(update.current_value);
     if (!key || !to || to === from) continue;
     const confidence = typeof update.extraction_confidence === "number" ? update.extraction_confidence : null;
+    const dueAt = update.object_type === "task" ? text(update.due_at) : "";
     const options = optionsOf(update);
     const multiple = options.length > 0 && Boolean(update.multiple);
     changes.push({
@@ -198,6 +203,8 @@ export function changesFrom(proposed: Update[] | null | undefined): PostCallChan
       multiple,
       editable: typable(update),
       check: confidence !== null && confidence < CONFIDENCE.MEDIUM,
+      when: dueAt ? meetingWhen(dueAt, null) : null,
+      whenSuggested: Boolean(dueAt && update.due_date_inferred),
     });
   }
   return changes;

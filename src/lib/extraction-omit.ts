@@ -15,6 +15,8 @@ export type ProposedUpdate = {
   multiple?: boolean | null;
   /** YYYY-MM-DD, on a task row. */
   due_date?: string | null;
+  /** The ISO date and time (with offset) the task is written for, on a task row. */
+  due_at?: string | null;
   /** The call gave the task no day: due_date is the default it will be written with. */
   due_date_inferred?: boolean | null;
 };

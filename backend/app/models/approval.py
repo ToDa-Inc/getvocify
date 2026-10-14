@@ -52,6 +52,10 @@ class ProposedUpdate(BaseModel):
         None,
         description="YYYY-MM-DD due date for HubSpot task rows",
     )
+    due_at: Optional[str] = Field(
+        None,
+        description="ISO date and time, with offset, a task row will be written for (the day alone starts at 9:00)",
+    )
     due_date_inferred: bool = Field(
         False,
         description="True when the call gave the task no day and due_date is the default it will be written with",
