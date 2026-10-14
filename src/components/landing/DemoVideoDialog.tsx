@@ -1,30 +1,11 @@
-import { createElement, useEffect, useId } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { useId } from "react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useLanguage } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-/** Wistia media hashed ID — demo video (embedded; no env needed for Vercel). */
-const WISTIA_MEDIA_ID = "o5pe9wslhx";
-
-const WISTIA_PLAYER_SCRIPT = "https://fast.wistia.com/player.js";
-
-function loadScriptOnce(src: string, options?: { type?: string }) {
-  const existing = document.querySelector(`script[src="${src}"]`);
-  if (existing) return Promise.resolve();
-  return new Promise<void>((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = src;
-    s.async = true;
-    if (options?.type) s.type = options.type;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error(`Failed to load script: ${src}`));
-    document.body.appendChild(s);
-  });
-}
+/** The Vocify launch film (Captura, Automatiza, Asiste, Aprende), web-sized copy in /public/demo. */
+const VIDEO_SRC = "/demo/vocify-launch.mp4";
+const VIDEO_POSTER = "/demo/vocify-launch-poster.jpg";
 
 type DemoVideoDialogProps = {
   open: boolean;
@@ -33,45 +14,7 @@ type DemoVideoDialogProps = {
 
 export function DemoVideoDialog({ open, onOpenChange }: DemoVideoDialogProps) {
   const { t } = useLanguage();
-  const id = WISTIA_MEDIA_ID;
   const titleId = useId();
-
-  useEffect(() => {
-    if (!open || !id) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        await loadScriptOnce(WISTIA_PLAYER_SCRIPT);
-        if (cancelled) return;
-        await loadScriptOnce(`https://fast.wistia.com/embed/${id}.js`, { type: "module" });
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, id]);
-
-  useEffect(() => {
-    if (!open || !id) return;
-    const styleId = `wistia-modal-placeholder-${id}`;
-    if (document.getElementById(styleId)) return;
-    const style = document.createElement("style");
-    style.id = styleId;
-    style.textContent = `
-      wistia-player[media-id='${id}']:not(:defined) {
-        background: center / contain no-repeat url('https://fast.wistia.com/embed/medias/${id}/swatch');
-        display: block;
-        filter: blur(5px);
-        padding-top: 56.25%;
-      }
-    `;
-    document.head.appendChild(style);
-    return () => {
-      document.getElementById(styleId)?.remove();
-    };
-  }, [open, id]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -87,12 +30,15 @@ export function DemoVideoDialog({ open, onOpenChange }: DemoVideoDialogProps) {
           {t.demo.title}
         </DialogTitle>
         {open ? (
-          <div className="w-full bg-black">
-            {createElement("wistia-player", {
-              "media-id": id,
-              aspect: "1.7777777777777777",
-            })}
-          </div>
+          <video
+            className="aspect-video w-full bg-black"
+            src={VIDEO_SRC}
+            poster={VIDEO_POSTER}
+            controls
+            autoPlay
+            playsInline
+            preload="metadata"
+          />
         ) : null}
       </DialogContent>
     </Dialog>

@@ -24,6 +24,10 @@
   --v-success: hsl(125 32% 30%);
   --v-destructive: hsl(0 72% 51%);
   --v-ink: hsl(30 15% 8%);
+  --v-tone-sand: hsl(38 45% 88%);
+  --v-tone-clay: hsl(22 55% 89%);
+  --v-tone-sage: hsl(100 24% 88%);
+  --v-tone-stone: hsl(210 20% 90%);
   --v-radius-card: 12px;
   --v-radius-container: 18px;
   --v-radius-pill: 999px;

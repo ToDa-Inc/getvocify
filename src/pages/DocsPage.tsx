@@ -446,7 +446,7 @@ const DocsPage = () => {
               </a>
               . Book a walkthrough at{" "}
               <a
-                href="https://meetings-eu1.hubspot.com/dani-zal?uuid=e04c2511-8c6b-424b-8dd9-b5eddfe1e87c"
+                href="https://meetings-eu1.hubspot.com/dani-zal/vocify-discovery"
                 className="text-beige font-semibold hover:underline"
               >
                 getvocify.com

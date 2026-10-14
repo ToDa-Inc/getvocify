@@ -27,7 +27,7 @@ export function resolveApiBase(): string {
 
 /** Booking link for the demo call (founder-led sales, no self-serve signup yet) */
 export const DEMO_BOOKING_URL =
-  "https://meetings-eu1.hubspot.com/dani-zal?uuid=e04c2511-8c6b-424b-8dd9-b5eddfe1e87c";
+  "https://meetings-eu1.hubspot.com/dani-zal/vocify-discovery";
 
 /** Whether we're on the landing domain (marketing site only) */
 export function isLandingDomain(): boolean {
@@ -47,6 +47,12 @@ const LANDING_PATHS = [
   "/docs",
   "/docs/hubspot",
   "/support",
+  "/mcp",
+  "/teams/sdrs",
+  "/teams/account-executives",
+  "/teams/sales-managers",
+  "/teams/field-reps",
+  "/teams/revops",
 ];
 
 export function isLandingPath(path: string): boolean {
