@@ -40,6 +40,7 @@ DEFAULT_LIMIT = 20
 MAX_LIMIT = 50
 TRANSCRIPT_PAGE_CHARS = 12_000
 _BATCHES = 5
+_MIN_BATCH = 60
 _LIST_COLUMNS = MEMO_COLUMNS + ",rep_outcome,audio_duration"
 
 
@@ -214,7 +215,7 @@ def list_interactions(
     found: list[dict] = []
     exhausted = False
     last_scanned: Optional[str] = None
-    batch = max(size * 3, 60)
+    batch = max(size * 3, _MIN_BATCH)
     for _ in range(_BATCHES):
         query = (
             supabase.table("memos")
@@ -292,8 +293,9 @@ def _pct(ratio: Any) -> Optional[int]:
 
 def _coaching(score: dict, brief: dict) -> dict:
     if not score or score.get("status") == "unavailable":
-        reason = (score or {}).get("reason") or "not_scored"
-        return {"status": "not_scored", "reason": reason}
+        return {"status": "not_scored", "reason": (score or {}).get("reason") or "not_scored"}
+    if score.get("value") is None:  # scored against the playbook, but too few steps could be judged for a mark
+        return {"status": "not_scored", "reason": "too_few_playbook_steps_judged"}
     coach = brief.get("coach") if isinstance(brief.get("coach"), dict) else {}
     kept, fix = coach.get("kept") or None, coach.get("fix") or None
     return _compact(
