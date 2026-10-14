@@ -12,7 +12,7 @@ import httpx
 
 from app.config import settings
 from app.services.copilot.context import SuggestContext
-from app.services.copilot.grounding import SuggestGrounding, finalize_suggest_result
+from app.services.copilot.grounding import SuggestGrounding, canonical_source_id, finalize_suggest_result
 from app.services.copilot.prompts import LIVE_MODES, MEETING_LINE_MAX, build_user_prompt, system_prompt_for
 from app.services.llm.shared import extract_json
 
@@ -316,9 +316,12 @@ def _result_event(
 ) -> dict[str, Any]:
     import time
 
+    suggestion = _suggestion_for_mode(assembled, call_mode)
+    if suggestion.get("source_id"):
+        suggestion = {**suggestion, "source_id": canonical_source_id(suggestion["source_id"], grounding.playbook_snapshot if grounding else None)}
     finalized = finalize_suggest_result(
         call_mode=call_mode,
-        suggestion=_suggestion_for_mode(assembled, call_mode),
+        suggestion=suggestion,
         grounding=grounding,
         latest_turn=latest_turn,
     )

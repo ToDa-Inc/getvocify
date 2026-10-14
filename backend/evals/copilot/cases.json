@@ -118,5 +118,248 @@
     "expect": "none"
    }
   ]
+ },
+ {
+  "id": "real-prospecting-provider",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Tenemos un proveedor para todo el tema de Prospecting que nos está funcionando bastante bien.",
+    "expect": "status_quo|competitor"
+   }
+  ]
+ },
+ {
+  "id": "real-not-buying",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Ahora mismo no estamos comprando nada.",
+    "expect": "timing"
+   }
+  ]
+ },
+ {
+  "id": "real-conference",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Yo estoy en una conferencia. De hecho, tengo una reunión en cinco minutos.",
+    "expect": "timing"
+   }
+  ]
+ },
+ {
+  "id": "real-travelling",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Yo estoy viajando todo octubre.",
+    "expect": "timing"
+   }
+  ]
+ },
+ {
+  "id": "real-gong",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Ya estamos usando Gong, y la verdad es que nos funciona bastante bien.",
+    "expect": "competitor"
+   }
+  ]
+ },
+ {
+  "id": "real-ai-fear",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Me da un poco de miedo que una inteligencia artificial escriba cosas mal en nuestro CRM.",
+    "expect": "trust"
+   }
+  ]
+ },
+ {
+  "id": "real-finance-director",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Esto no lo decido yo, lo tendría que ver mi director financiero.",
+    "expect": "authority"
+   }
+  ]
+ },
+ {
+  "id": "real-expensive",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Me parece bastante caro para lo que necesitamos ahora mismo.",
+    "expect": "price"
+   }
+  ]
+ },
+ {
+  "id": "real-small-talk",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "held_out": true,
+  "about": "Prospect words taken from real calls in the database (2026-10-02..06). Short context on purpose: the call has not shown which branch of the answer applies.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Te llamo porque ayudamos a equipos comerciales a que no pierdan tiempo apuntando en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo registráis hoy lo que se habla con cada cliente?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Perdona, que hoy en Madrid hace un día buenísimo y tengo la ventana abierta.",
+    "expect": "none"
+   }
+  ]
  }
 ]

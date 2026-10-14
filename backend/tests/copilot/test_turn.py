@@ -316,3 +316,39 @@ def test_the_answer_follows_the_matched_playbook_entry(monkeypatch):
     # An id that is not one of this call's answers is ignored: the model is never told to follow it.
     _client().post("/api/v1/copilot/suggest", json={**body, "entry_id": "objection:custom:made_up"})
     assert seen["entry"] is None
+
+
+# --- Resolving the approved answer's branch; the id the model names; the classifier's reach ----------------
+
+
+def test_the_model_is_told_to_resolve_branches_from_the_call_or_ask_the_question_that_tells_them_apart():
+    from app.services.copilot.prompts import MEETING_SYSTEM_PROMPT, PLAYBOOK_USER_SUFFIX
+
+    # 2026-10-14 simulated call: «no estamos para contratar» was answered from the CRM-migration branch.
+    assert "never assume a branch" in PLAYBOOK_USER_SUFFIX
+    assert "prefer its wording" in PLAYBOOK_USER_SUFFIX
+    assert '"branch"' in MEETING_SYSTEM_PROMPT and "Only these five keys" in MEETING_SYSTEM_PROMPT
+
+
+def test_a_repeated_objection_isolates_the_cause_before_anything_else():
+    prompt = _prompt(previous_answers=["Antes de hablar de números, ¿cuánto os cuesta hoy?"])
+    assert "second time" in prompt and "separates the possibilities" in prompt and "dated next step" in prompt
+
+
+def test_the_bare_category_the_model_writes_is_the_same_approved_answer():
+    from app.services.copilot.grounding import canonical_source_id
+
+    # Seen in the live path: "competitor" for "objection:competitor", the right answer with a loose id.
+    assert canonical_source_id("competitor", SNAPSHOT | {"entries": SNAPSHOT["entries"] + [
+        {"entry_id": "objection:competitor", "category": "competitor", "guidance": "x"}]}) == "objection:competitor"
+    assert canonical_source_id("objection:price", SNAPSHOT) == "objection:price"
+    assert canonical_source_id("price", SNAPSHOT) == "objection:price"
+    assert canonical_source_id("made_up", SNAPSHOT) == "made_up"
+    assert canonical_source_id(None, SNAPSHOT) is None
+    assert canonical_source_id("price", None) == "price"
+
+
+def test_a_busy_opener_is_no_objection_and_being_away_for_a_period_is_timing():
+    # 2026-10-14: «dime, pero rápido que estoy liado» raised a Timing card; «viajando todo octubre» raised none.
+    assert "dime, pero rápido" in turn.OBJECTIONS["none"]
+    assert "travelling" in turn.OBJECTIONS["timing"] and "not buying anything" in turn.OBJECTIONS["timing"]

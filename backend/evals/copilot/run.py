@@ -1,6 +1,6 @@
 """Simulate a live call against the real turn check and live help, and check they follow the playbook.
 
-    cd backend && python -m evals.copilot.run --email rep@company.com
+    cd backend && python -m evals.copilot.run --email rep@company.com --production-provider
     python -m evals.copilot.run --email rep@company.com --only discovery-objections-es --no-turn
 
 Real: the /copilot/turn and /copilot/suggest endpoints (their router, classifier, prompt and model, which
@@ -11,6 +11,8 @@ SUPABASE_URL points at, so with backend/.env that is production.
 Per prospect turn it checks what the rep would see: no card for small talk, the right card for an
 objection (a fixed kind, or one of the playbook's own entries by its id), and that the answer follows the
 approved entry (source_id), is not empty, and does not repeat the filler line the rep is already saying.
+Always pass --production-provider for numbers that mean anything: without it live help runs through
+OpenRouter with the local .env, which production only uses as a fallback (slower, not what reps get).
 `--no-turn` skips the classifier, as the app does when it can't be reached. Exit 1 when a hard check fails.
 """
 
@@ -52,6 +54,10 @@ def check_turn(expect: str, reading: dict | None, source_id: str | None, say: st
     """Empty list = pass. Each string is one reason it did not."""
     seen = (reading or {}).get("objection")
     entry = (reading or {}).get("entry_id") or ""
+    if "|" in expect:
+        # Either kind is a right card (e.g. a provider already in use: status quo or competitor).
+        options = [check_turn(option, reading, source_id, say, filler) for option in expect.split("|")]
+        return next((o for o in options if not o), min(options, key=len))
     if expect == "none":
         return [] if seen in (None, "none") else [f"expected no card, got {seen}"]
     fails: list[str] = []
@@ -72,6 +78,21 @@ def check_turn(expect: str, reading: dict | None, source_id: str | None, say: st
     if say and head and len(head) > 3 and say.lower().lstrip("¿¡ ").startswith(head):
         fails.append(f"answer repeats the filler line «{filler}»")
     return fails
+
+
+def load_production_provider() -> None:
+    """Live help in production goes to a direct provider with reasoning off; OpenRouter is only its backup.
+    Reads those COPILOT_* settings from Railway into this process only: nothing is printed or written."""
+    import subprocess
+
+    out = subprocess.run(
+        ["railway", "variables", "--service", "getvocify", "--environment", "production", "--kv"],
+        capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2],
+    )
+    found = {k: v.strip().strip('"') for k, _, v in (line.partition("=") for line in out.stdout.splitlines()) if k.startswith("COPILOT_")}
+    if not found.get("COPILOT_DIRECT_URL"):
+        sys.exit("could not read production's COPILOT_* settings from the Railway CLI (is it linked and logged in?)")
+    os.environ.update(found)
 
 
 def build_client(email: str):
@@ -139,6 +160,7 @@ def run_case(client, case: dict, use_turn: bool) -> list[dict]:
         result = next((e for e in reversed(events) if e.get("type") == "result"), None)
         suggestion = (result or {}).get("suggestion") or {}
         row["say"], row["source_id"] = suggestion.get("say_this") or "", suggestion.get("source_id")
+        row["model"] = (result or {}).get("model", "")
         if not use_turn:
             # No classifier: the answer model decides; "no card" is an answer that is not an objection.
             card = bool(suggestion.get("is_objection") and row["say"])
@@ -163,15 +185,29 @@ def main() -> int:
     parser.add_argument("--email", default=os.environ.get("EVAL_USER_EMAIL"), help="the rep whose playbook is used")
     parser.add_argument("--only", help="comma-separated case ids")
     parser.add_argument("--no-turn", action="store_true", help="skip the turn check")
+    parser.add_argument("--production-provider", action="store_true",
+                        help="use production's live-help settings (direct provider, reasoning off) via the Railway CLI")
+    parser.add_argument("--repeat", type=int, default=1, help="run every case this many times (the answers vary)")
+    parser.add_argument("--json", help="also write every turn's result here, to compare runs")
     args = parser.parse_args()
     if not args.email:
         sys.exit("pass --email (or set EVAL_USER_EMAIL): the rep whose published playbook the call is run against")
     cases = [c for c in json.loads(CASES.read_text(encoding="utf-8")) if not args.only or c["id"] in args.only.split(",")]
+    if args.production_provider:
+        load_production_provider()
     client = build_client(args.email)
+    from app.services.copilot.suggest import live_direct
+
+    if not live_direct():
+        print("!! COPILOT_DIRECT_* is not set: live help would go through OpenRouter, which production only uses as a\n"
+              "!! fallback. Answers will be slower and are NOT what reps get. Load the production values for a real run.\n"
+              "!! Production also sets COPILOT_REASONING_EFFORT=none.")
     hard = soft = total = 0
-    for case in cases:
+    dump = []
+    for case in [c for c in cases for _ in range(max(args.repeat, 1))]:
         print(f"\n== {case['id']} ({case['motion']}, {case['call_mode']}) ==")
         for row in run_case(client, case, use_turn=not args.no_turn):
+            dump.append({"case": case["id"], "held_out": bool(case.get("held_out")), **row})
             total += 1
             failed = bool(row["fails"])
             hard += failed and not row["soft"]
@@ -185,6 +221,13 @@ def main() -> int:
                 print(f"        {row['filler']} {row['say']}".rstrip())
             for reason in row["fails"]:
                 print(f"        ✗ {reason}")
+    by_model: dict[str, int] = {}
+    for item in dump:
+        if item.get("model"):
+            by_model[item["model"]] = by_model.get(item["model"], 0) + 1
+    print("answered by:", by_model or "(no answers)")
+    if args.json:
+        Path(args.json).write_text(json.dumps(dump, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"\n{total - hard - soft}/{total} turns ok, {hard} failed, {soft} soft")
     return 1 if hard else 0
 

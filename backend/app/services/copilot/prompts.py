@@ -7,9 +7,10 @@ from typing import Any, Optional
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 # v2: the model reads each approved answer, not just its id, so a grounded card says what the team approved.
+# v4: it also resolves an answer's branches from the call (or asks the question that tells them apart).
 # v3: it also reads each entry's name and how the prospect says it, so the team's own objections and
 # product questions (custom entries) can be matched, not just the fixed categories.
-PLAYBOOK_USER_SUFFIX = (_PROMPTS_DIR / "copilot_suggest_v3.md").read_text(encoding="utf-8")
+PLAYBOOK_USER_SUFFIX = (_PROMPTS_DIR / "copilot_suggest_v4.md").read_text(encoding="utf-8")
 
 SYSTEM_PROMPT = """You are Vocify Call Copilot — a silent real-time sales coach for cold / outbound phone calls.
 
@@ -101,7 +102,9 @@ IF IT IS A CASE (objection or question)
 - When the message lists the team's approved answers (PLAYBOOK), follow its instructions: an approved
   answer for the objection's category gives the approach, said for this conversation. Keep its idea and its claims;
   never swap it for a different tactic or a question of your own.
-- "source_id" is the approved answer's id when you followed one, else null.
+- "source_id" is the approved answer's id exactly as listed (for example "objection:price"), when you followed one, else null.
+- "branch" is for you, never shown: at most 20 words saying which part of the approved answer fits this moment and what
+  in the call shows it, or "not shown yet: asking". Write it before say_this, then let say_this follow from it.
 
 IF IT IS NOT
 Return is_objection=false, objection_type="none" and say_this "". Do not coach, do not suggest anything.
@@ -115,9 +118,10 @@ Only valid JSON:
   "is_objection": boolean,
   "objection_type": "price"|"timing"|"authority"|"competitor"|"status_quo"|"trust"|"question"|"other"|"none",
   "source_id": string or null,
+  "branch": string (at most 20 words),
   "say_this": string (never empty when is_objection is true: with nothing to claim, acknowledge it in their terms and ask one question)
 }}
-Only these four keys.
+Only these five keys, in this order.
 """
 
 # The Mac app's live help: a meeting, or a call from a dialer ("softphone"). One line, never erased.
@@ -268,7 +272,10 @@ def _suggested_block(previous: Optional[list[str]]) -> str:
         "say_this must be different from every line above: never repeat one or merely reword it. When the latest turn "
         "is the same kind of objection or question again, answer what is new in it with a different angle, "
         "taken from what this prospect said in the ROLLING TRANSCRIPT or a fact in the context you have not used yet. "
-        "Different never means invented: no fact, number or promise that the context does not contain.\n"
+        "Different never means invented: no fact, number or promise that the context does not contain. "
+        "The second time the same objection comes, do not run the same approach again: find out what exactly it is with "
+        "one question that separates the possibilities (the amount, the return, the moment). The third time, accept it "
+        "and propose one dated next step, or leave the topic politely. An approved answer's own instruction for a repeat wins.\n"
     )
 
 
