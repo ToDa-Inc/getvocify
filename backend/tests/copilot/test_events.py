@@ -105,18 +105,20 @@ def test_a_finished_turn_is_logged_with_what_the_check_said(monkeypatch):
     assert isinstance(row["check_ms"], int) and row["prompt_version"] == events.PROMPT_VERSION
 
 
-def test_a_thought_still_going_and_the_same_words_twice_are_not_logged(monkeypatch):
+def test_a_check_that_found_them_still_going_is_logged_and_so_is_the_check_that_follows_it(monkeypatch):
     monkeypatch.setattr(playbook_objections, "custom_for", lambda *_a: {})
     db = FakeDb()
     client = _client(db)
     _classifier(monkeypatch, objection="none", turn="continuing")
-    # Not final: finished comes back true only when the check is unsure, so ask for a confident "continuing".
     assert _turn(client, "Ya, pero la verdad es que me parece").json()["finished"] is False
-    assert db.inserted == []
+    # Not final: finished comes back true only when the check is unsure, so ask for a confident "continuing".
+    assert [row["finished"] for row in db.inserted] == [False]
+    # The same words checked again with a different verdict (the backstop) are a new fact; the same pair twice are not.
     _classifier(monkeypatch)
-    _turn(client)
-    _turn(client)
-    assert len(db.inserted) == 1
+    _turn(client, "Ya, pero la verdad es que me parece")
+    _turn(client, "Ya, pero la verdad es que me parece")
+    assert [row["finished"] for row in db.inserted] == [False, True]
+    assert db.inserted[0]["latest_turn"] == "Ya, pero la verdad es que me parece"
 
 
 def test_a_custom_match_logs_its_playbook_entry(monkeypatch):

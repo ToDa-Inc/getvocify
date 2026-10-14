@@ -29,7 +29,7 @@ _paused_until = 0.0
 _last_purge = 0.0
 # Until then rows go without the client's timing: its column (migration 080) was not there.
 _no_client_until = 0.0
-# The words last logged per rep: the same words are not logged twice (a check can repeat on the same turn).
+# The words and verdict last logged per rep: the same pair is not logged twice (a check can repeat on the same turn).
 _last_turn: dict[str, str] = {}
 
 
@@ -72,16 +72,16 @@ def turn_row(
     *, user_id: str, company_id: Optional[str], sales_motion_key: Optional[str], latest_turn: str,
     reading: dict, check_ms: int, timing: Any = None,
 ) -> Optional[dict]:
-    """The row for a turn check; None when it should not be logged (the prospect is still talking, or the same
-    words were logged already)."""
-    if reading.get("finished") is False:
-        return None
+    """The row for a turn check; None when the same words were already logged with the same verdict. A check that
+    found the prospect still going is logged too: how often it happens, and on which words, is what shows whether
+    a cut-off ending delays the card."""
     text = _clip(latest_turn) or ""
-    if _last_turn.get(user_id) == text:
+    seen = f"{text}|{reading.get('finished')}"
+    if _last_turn.get(user_id) == seen:
         return None
     if len(_last_turn) > 2000:
         _last_turn.clear()
-    _last_turn[user_id] = text
+    _last_turn[user_id] = seen
     return {
         "kind": "turn", "user_id": user_id, "company_id": company_id,
         "sales_motion_key": sales_motion_key or None, "latest_turn": text or None,
