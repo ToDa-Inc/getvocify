@@ -799,7 +799,7 @@
   "motion": "discovery",
   "call_mode": "softphone",
   "group": "extra",
-  "about": "Written for coverage, not taken from a call. ",
+  "about": "Written for coverage. «Cuéntame más» is a product question: the playbook answers it (que_hace_vocify).",
   "turns": [
    {
     "speaker": "You",
@@ -819,9 +819,7 @@
    {
     "speaker": "Them",
     "text": "Interesante, cuéntame más de cómo funciona.",
-    "expect": "none",
-    "soft": true,
-    "note": "a product question: a card with an answer from the context is defensible, so it only warns"
+    "expect": "custom:que_hace_vocify"
    }
   ]
  },
@@ -903,6 +901,502 @@
     "speaker": "Them",
     "text": "Mmm, ya veo, vale.",
     "expect": "none"
+   }
+  ]
+ },
+ {
+  "id": "dialogue-sdr-manager",
+  "about": "A cold call to a sales manager with eight SDRs. Written for the study, not taken from a call.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola Laura, soy Dani, de Vocify. Te llamo porque ayudamos a equipos de SDRs a que vendan más y hagan menos administrativo. ¿Tienes cinco minutos?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Dime, pero que tengo cinco minutos justos.",
+    "expect": "none",
+    "soft": true
+   },
+   {
+    "speaker": "You",
+    "text": "Perfecto. ¿Cuántos SDRs tienes y qué hacen cuando acaban una llamada?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Somos ocho SDRs, usamos HubSpot y cada uno apunta lo que puede después de la llamada.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "¿Y cuánto tiempo se les va en eso al día, más o menos?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Pues la verdad es que no lo hemos medido, un buen rato seguro.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Vocify prepara a cada comercial antes de la llamada, le ayuda durante y deja el CRM hecho al terminar, para que solo vendan."
+   },
+   {
+    "speaker": "Them",
+    "text": "Mmm, suena a Piper AI, ¿no? Ya los estuvimos mirando.",
+    "expect": "custom:se_parece_a_piper_ai"
+   },
+   {
+    "speaker": "You",
+    "text": "Hacen una parte parecida. ¿Qué es lo que más te interesó de ellos?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Que dejan los datos en el CRM. Oye, pero mándame un email con la información y lo vemos.",
+    "expect": "custom:mandame_informacion_por_email"
+   },
+   {
+    "speaker": "You",
+    "text": "Sin problema. ¿Te encaja que miremos el precio juntos cuando lo veas?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Es que por comercial al mes me parece caro para lo que hace.",
+    "expect": "price"
+   },
+   {
+    "speaker": "You",
+    "text": "Entiendo. ¿Cuántas horas semanales calculas que pierde cada SDR en administrativo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Ya, pero mis SDRs van agobiados, lo último que quiero es meterles otra herramienta más.",
+    "expect": "card"
+   },
+   {
+    "speaker": "You",
+    "text": "No es una herramienta que tengan que abrir; el CRM queda hecho al terminar la llamada."
+   },
+   {
+    "speaker": "Them",
+    "text": "Bueno, déjame pensarlo y ya te llamo yo.",
+    "expect": "custom:dejame_pensarlo_y_te_llamo"
+   }
+  ],
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning"
+ },
+ {
+  "id": "dialogue-ae-finance",
+  "about": "A discovery call with an AE who has finance and compliance questions. Written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola Pablo, soy Dani, de Vocify. Ayudamos a los AEs a preparar, llevar y cerrar cada conversación sin perder horas en el CRM. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, cuéntame.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "¿Cómo llevas hoy el seguimiento de tus oportunidades después de cada reunión?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Lo apunto yo en Salesforce, como puedo. Somos cuatro AEs.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Vocify lo deja hecho al terminar y, además, te ayuda durante la llamada con objeciones y dudas de producto."
+   },
+   {
+    "speaker": "Them",
+    "text": "¿Y eso de ayudarme durante la llamada cómo va exactamente? ¿Me lo dice en vivo?",
+    "expect": "custom:ayuda_en_la_llamada_y_coaching"
+   },
+   {
+    "speaker": "You",
+    "text": "Te muestra las respuestas mientras hablas. ¿Qué es lo que más te preocupa de las llamadas?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Los datos de mis clientes. ¿Qué pasa con el RGPD y dónde se guardan las grabaciones?",
+    "expect": "card"
+   },
+   {
+    "speaker": "You",
+    "text": "Lo confirmo y te lo mando. ¿Quién más tendría que verlo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Esto tiene que aprobarlo mi director financiero y compras.",
+    "expect": "authority"
+   },
+   {
+    "speaker": "You",
+    "text": "Perfecto, lo preparamos para ellos."
+   },
+   {
+    "speaker": "Them",
+    "text": "Y aparte, nuestro Salesforce ya tiene IA, así que no sé qué aportáis.",
+    "expect": "custom:nuestro_crm_ya_lo_hace"
+   },
+   {
+    "speaker": "You",
+    "text": "Podemos comparar sobre una llamada tuya. ¿Hacéis coaching con los AEs hoy?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Poco, la verdad. ¿Vosotros hacéis algo de coaching también?",
+    "expect": "custom:ayuda_en_la_llamada_y_coaching"
+   }
+  ],
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning"
+ },
+ {
+  "id": "dialogue-field-sales",
+  "about": "A discovery call with the head of a field sales team. Written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola Andrés, soy Dani, de Vocify. Ayudamos a equipos comerciales de calle a que vendan más y no pierdan tiempo apuntando. ¿Hablamos un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Adelante.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "¿Cómo actualizan hoy el CRM tus comerciales cuando salen de una visita?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Lo hacen por la noche cuando llegan a casa, o no lo hacen.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Con Vocify mandan un audio de WhatsApp y el CRM queda actualizado."
+   },
+   {
+    "speaker": "Them",
+    "text": "Mis comerciales son de campo, no van a usar nada que no sea llamar y visitar.",
+    "expect": "custom:mis_comerciales_no_lo_van_a_usar"
+   },
+   {
+    "speaker": "You",
+    "text": "Es un audio de treinta segundos. ¿Qué CRM usáis?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Un Odoo muy a medida, ¿funciona con eso?",
+    "expect": "custom:crm_propio_o_poco_comun"
+   },
+   {
+    "speaker": "You",
+    "text": "Lo validamos antes. ¿Y en qué idiomas trabajan vuestros comerciales?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Algunos hablan catalán con el cliente, ¿lo entiende?",
+    "expect": "card"
+   },
+   {
+    "speaker": "You",
+    "text": "Lo confirmo. ¿Te cuadra que lo veamos en una llamada corta?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Es que ahora mismo no estamos para meter nada nuevo, estamos en plena campaña.",
+    "expect": "timing"
+   },
+   {
+    "speaker": "You",
+    "text": "Entiendo. ¿Cuánto cuesta para ti la información que se pierde hoy?"
+   },
+   {
+    "speaker": "Them",
+    "text": "¿Y cuánto cuesta esto, por cierto?",
+    "expect": "price|question"
+   }
+  ],
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning"
+ },
+ {
+  "id": "pos-what-is",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning",
+  "about": "Focused positioning question, written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Ayudamos a que los comerciales vendan más y hagan menos administrativo. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo lo lleváis hoy en tu equipo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "¿Y qué hace exactamente Vocify? Cuéntame.",
+    "expect": "custom:que_hace_vocify"
+   }
+  ]
+ },
+ {
+  "id": "pos-live-help",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning",
+  "about": "Focused positioning question, written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Ayudamos a que los comerciales vendan más y hagan menos administrativo. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo lo lleváis hoy en tu equipo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "¿Eso también ayuda durante la llamada o solo después?",
+    "expect": "custom:ayuda_en_la_llamada_y_coaching"
+   }
+  ]
+ },
+ {
+  "id": "pos-coaching",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning",
+  "about": "Focused positioning question, written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Ayudamos a que los comerciales vendan más y hagan menos administrativo. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo lo lleváis hoy en tu equipo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "¿Y hacéis algo de coaching con los comerciales?",
+    "expect": "custom:ayuda_en_la_llamada_y_coaching"
+   }
+  ]
+ },
+ {
+  "id": "pos-piper",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning",
+  "about": "Focused positioning question, written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Ayudamos a que los comerciales vendan más y hagan menos administrativo. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo lo lleváis hoy en tu equipo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Esto me suena a Piper AI, ¿no es lo mismo?",
+    "expect": "custom:se_parece_a_piper_ai"
+   }
+  ]
+ },
+ {
+  "id": "pos-piper-known",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning",
+  "about": "Focused positioning question, written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Ayudamos a que los comerciales vendan más y hagan menos administrativo. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo lo lleváis hoy en tu equipo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Ya conozco Piper AI y tiene pinta de hacer lo mismo que vosotros.",
+    "expect": "custom:se_parece_a_piper_ai"
+   }
+  ]
+ },
+ {
+  "id": "pos-email",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning",
+  "about": "Focused positioning question, written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Ayudamos a que los comerciales vendan más y hagan menos administrativo. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo lo lleváis hoy en tu equipo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Mándame un email con la información y ya te digo algo.",
+    "expect": "custom:mandame_informacion_por_email"
+   }
+  ]
+ },
+ {
+  "id": "pos-email-prices",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning",
+  "about": "Focused positioning question, written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Ayudamos a que los comerciales vendan más y hagan menos administrativo. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo lo lleváis hoy en tu equipo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Pásame los precios por correo mejor.",
+    "expect": "custom:mandame_informacion_por_email"
+   }
+  ]
+ },
+ {
+  "id": "pos-price-admin",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning",
+  "about": "Focused positioning question, written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Ayudamos a que los comerciales vendan más y hagan menos administrativo. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo lo lleváis hoy en tu equipo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Me parece caro para lo que hace.",
+    "expect": "price"
+   }
+  ]
+ },
+ {
+  "id": "pos-ai-already",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning",
+  "about": "Focused positioning question, written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Ayudamos a que los comerciales vendan más y hagan menos administrativo. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo lo lleváis hoy en tu equipo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Ya usamos IA en ventas, no sé qué más podéis aportar.",
+    "expect": "custom:se_parece_a_piper_ai|competitor"
+   }
+  ]
+ },
+ {
+  "id": "pos-too-many-tools",
+  "motion": "discovery",
+  "call_mode": "softphone",
+  "group": "positioning",
+  "about": "Focused positioning question, written for the study.",
+  "turns": [
+   {
+    "speaker": "You",
+    "text": "Hola, soy Dani, de Vocify. Ayudamos a que los comerciales vendan más y hagan menos administrativo. ¿Tienes un minuto?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Sí, dime.",
+    "expect": "none"
+   },
+   {
+    "speaker": "You",
+    "text": "Genial. ¿Cómo lo lleváis hoy en tu equipo?"
+   },
+   {
+    "speaker": "Them",
+    "text": "Mis SDRs ya van agobiados, lo último que quiero es otra herramienta.",
+    "expect": "card"
    }
   ]
  }
