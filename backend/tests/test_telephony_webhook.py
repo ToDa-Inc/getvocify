@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
@@ -127,6 +128,34 @@ def _fake_supabase(tables: dict[str, list[dict]]):
     client = MagicMock()
     client.table.side_effect = make_table
     return client, stores
+
+
+class _Spawned:
+    """Stands in for webhooks._spawn: keeps the background work so a test can run it after the response."""
+
+    def __init__(self):
+        self.coros = []
+
+    def __call__(self, coro):
+        self.coros.append(coro)
+        return MagicMock()
+
+    def run_next(self):
+        import asyncio
+
+        asyncio.run(self.coros.pop(0))
+
+    def close(self):
+        for coro in self.coros:
+            coro.close()
+        self.coros.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_recording_in_flight():
+    webhooks._recordings_in_flight.clear()
+    yield
+    webhooks._recordings_in_flight.clear()
 
 
 def _test_client() -> TestClient:
@@ -543,10 +572,12 @@ class TestDialStatusWebhook:
 
     def test_no_answer_triggers_missed_call_logging(self):
         supabase, _ = _fake_supabase({})
+        spawned = _Spawned()
         with (
             patch("app.api.webhooks.get_supabase", return_value=supabase),
             patch.object(webhooks.settings, "ENVIRONMENT", "development"),
             patch.dict("os.environ", {"TWILIO_SKIP_SIG_CHECK": "1"}),
+            patch("app.api.webhooks._spawn", spawned),
             patch(
                 "app.api.webhooks.log_missed_call_activity",
                 new_callable=AsyncMock,
@@ -556,8 +587,10 @@ class TestDialStatusWebhook:
                 "/webhooks/twilio/dial-status",
                 data={"CallSid": "CA2", "DialCallStatus": "no-answer"},
             )
-        assert resp.status_code == 200
-        assert "<Response" in resp.text
+            assert resp.status_code == 200
+            assert "<Response" in resp.text
+            missed.assert_not_awaited()  # the parent leg got its TwiML first
+            spawned.run_next()
         missed.assert_awaited_once()
 
 
@@ -616,12 +649,16 @@ class TestRecordingAfterLiveTranscriptMemo:
             ) as initiate,
             patch("app.api.webhooks.process_vocify_call_background", AsyncMock()) as process,
             patch("app.api.webhooks.log_call_engagement", AsyncMock()) as log_call,
+            patch("app.api.webhooks._spawn", spawned := _Spawned()),
         ):
             resp = _test_client().post(
                 "/webhooks/twilio/recording",
                 data={"CallSid": "CA1", "RecordingUrl": "https://api.twilio.com/rec/RE1", "RecordingSid": "RE1", "RecordingDuration": "65"},
             )
-        assert resp.status_code == 204
+            assert resp.status_code == 204
+            download.assert_not_called()  # Twilio is answered before any of the work
+            spawned.run_next()
+            spawned.close()
         return stores, download, initiate, process, log_call
 
     def test_the_live_memo_gets_the_recording_and_the_call_is_logged(self):
@@ -705,11 +742,77 @@ class TestRecordingWaitsForTheLiveTranscript:
             patch("app.api.webhooks.attach_hubspot_contact_by_phone", AsyncMock(side_effect=lambda _sb, row: row)),
             patch("app.api.webhooks.live_activity.recently_live", return_value=True),
             patch("app.api.webhooks._memo_from_recording", AsyncMock()) as memo_from_recording,
+            patch("app.api.webhooks._spawn", spawned := _Spawned()),
         ):
             resp = _test_client().post(
                 "/webhooks/twilio/recording",
                 data={"CallSid": "CA1", "RecordingUrl": "https://api.twilio.com/rec/RE1", "RecordingSid": "RE1", "RecordingDuration": "65"},
             )
-        assert resp.status_code == 204
+            assert resp.status_code == 204
+            memo_from_recording.assert_not_called()
+            spawned.run_next()
         memo_from_recording.assert_called_once()
         assert memo_from_recording.call_args.kwargs["wait_for_live"] is True
+
+
+class TestRecordingIsNeverLost:
+    """Twilio is answered at once, retries are asked for, and a recording is processed once."""
+
+    def test_the_recording_callback_asks_twilio_to_retry(self):
+        user_id = "11111111-1111-1111-1111-111111111111"
+        supabase, _ = _fake_supabase(
+            {"user_caller_ids": [{"user_id": user_id, "phone_number": "+34910000000", "status": "verified", "is_default": True}]}
+        )
+        with (
+            patch("app.api.webhooks.get_supabase", return_value=supabase),
+            patch.object(webhooks.settings, "ENVIRONMENT", "development"),
+            patch.object(webhooks.settings, "BACKEND_PUBLIC_URL", "https://api.getvocify.com"),
+            patch.object(webhooks.settings, "CALLING_RECORDING_ANNOUNCEMENT_ENABLED", False),
+            patch.dict("os.environ", {"TWILIO_SKIP_SIG_CHECK": "1"}),
+        ):
+            resp = _test_client().post(
+                "/webhooks/twilio/voice",
+                data={"From": f"client:{user_id}", "To": "+34600111222", "CallSid": "CA00000000000000000000000000000009"},
+            )
+        assert resp.status_code == 200
+        assert 'recordingStatusCallback="https://api.getvocify.com/webhooks/twilio/recording#rc=5&amp;rp=ct,rt,5xx"' in resp.text
+
+    def test_a_recording_already_in_flight_is_not_started_twice(self):
+        spawned = _Spawned()
+        with patch("app.api.webhooks._spawn", spawned):
+            first = webhooks.start_recording_job(MagicMock(), "CA1", "https://api.twilio.com/rec/RE1", recording_sid="RE1", duration=65.0)
+            again = webhooks.start_recording_job(MagicMock(), "CA1", "https://api.twilio.com/rec/RE1", recording_sid="RE1", duration=65.0)
+        spawned.close()
+        assert (first, again) == (True, False)
+
+    def test_answered_at_comes_from_twilio_not_from_when_it_was_processed(self):
+        import asyncio
+
+        supabase, stores = _fake_supabase({"outbound_calls": [{"carrier_call_id": "CA1", "user_id": "rep-1"}], "memos": []})
+        storage = MagicMock()
+        storage.return_value.upload_call_recording = AsyncMock(return_value="rep-1/CA1.wav")
+        with (
+            patch("app.api.webhooks.download_twilio_recording", AsyncMock(return_value=b"RIFF")),
+            patch("app.api.webhooks.StorageService", storage),
+            patch("app.api.webhooks.attach_hubspot_contact_by_phone", AsyncMock(side_effect=lambda _sb, row: row)),
+            patch("app.api.webhooks._memo_from_recording", AsyncMock()),
+        ):
+            asyncio.run(
+                webhooks.process_call_recording(
+                    supabase, "CA1", "https://api.twilio.com/rec/RE1", recording_sid="RE1", duration=343.0,
+                    started_at=webhooks._twilio_time("Wed, 14 Oct 2026 15:36:22 +0000"),
+                )
+            )
+        row = stores["outbound_calls"][0]
+        assert row["answered_at"] == "2026-10-14T15:36:22+00:00"
+        assert row["recording_path"] == "rep-1/CA1.wav"
+        assert row["status"] == "recorded"
+
+    def test_a_failed_recording_is_left_for_the_reconciler(self):
+        import asyncio
+
+        supabase, stores = _fake_supabase({"outbound_calls": [{"carrier_call_id": "CA1", "user_id": "rep-1", "status": "dialing"}]})
+        with patch("app.api.webhooks.download_twilio_recording", AsyncMock(side_effect=RuntimeError("twilio 502"))):
+            asyncio.run(webhooks._process_recording_logged(supabase, "CA1", "https://api.twilio.com/rec/RE1", recording_sid="RE1", duration=65.0))
+        assert stores["outbound_calls"][0].get("recording_path") is None
+        assert stores["outbound_calls"][0]["status"] == "dialing"

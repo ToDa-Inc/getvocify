@@ -111,7 +111,7 @@ async def test_history_is_scoped_to_the_user():
             "memos": [{"id": "memo-1", "status": "pending_review", "screening_outcome": "voicemail"}],
         }
     )
-    result = await list_call_history(
+    result = list_call_history(
         limit=20, contactId=None, dealId=None, supabase=supabase, user_id="user-1"
     )
     sids = [c["callSid"] for c in result["calls"]]
@@ -128,7 +128,7 @@ async def test_history_limit_is_clamped_by_query():
         for i in range(5)
     ]
     supabase, _ = fake_db({"outbound_calls": rows, "memos": []})
-    result = await list_call_history(
+    result = list_call_history(
         limit=2, contactId=None, dealId=None, supabase=supabase, user_id="user-1"
     )
     assert len(result["calls"]) == 2
@@ -137,7 +137,7 @@ async def test_history_limit_is_clamped_by_query():
 @pytest.mark.asyncio
 async def test_history_filters_compose():
     supabase, _ = fake_db({"outbound_calls": [CALL_A, CALL_B], "memos": []})
-    result = await list_call_history(
+    result = list_call_history(
         limit=20, contactId="C1", dealId="D1", supabase=supabase, user_id="user-1"
     )
     assert [c["callSid"] for c in result["calls"]] == ["CA1"]
@@ -147,7 +147,7 @@ async def test_history_filters_compose():
 async def test_get_call_unknown_is_404():
     supabase, _ = fake_db({"outbound_calls": [CALL_A], "memos": []})
     with pytest.raises(HTTPException) as exc:
-        await get_call("CA-missing", supabase=supabase, user_id="user-1")
+        get_call("CA-missing", supabase=supabase, user_id="user-1")
     assert exc.value.status_code == 404
 
 
@@ -155,7 +155,7 @@ async def test_get_call_unknown_is_404():
 async def test_get_call_other_user_is_404_not_403():
     supabase, _ = fake_db({"outbound_calls": [CALL_OTHER_USER], "memos": []})
     with pytest.raises(HTTPException) as exc:
-        await get_call("CA-other", supabase=supabase, user_id="user-1")
+        get_call("CA-other", supabase=supabase, user_id="user-1")
     assert exc.value.status_code == 404
 
 
@@ -180,7 +180,7 @@ async def test_history_company_scope_includes_teammate_calls(monkeypatch):
             "memos": [{"id": "memo-1", "status": "pending_review", "screening_outcome": "voicemail"}],
         }
     )
-    result = await list_call_history(
+    result = list_call_history(
         limit=20,
         contactId=None,
         dealId=None,
@@ -202,7 +202,7 @@ async def test_get_call_returns_summary():
             "memos": [{"id": "memo-1", "status": "approved"}],
         }
     )
-    result = await get_call("CA1", supabase=supabase, user_id="user-1")
+    result = get_call("CA1", supabase=supabase, user_id="user-1")
     assert result["callSid"] == "CA1"
     assert result["to"] == "+34600111222"
     assert result["from"] == "+34910000000"

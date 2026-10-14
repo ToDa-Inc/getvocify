@@ -2,6 +2,7 @@
 Supabase Storage service for audio file management
 """
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta
 from supabase import Client
@@ -94,7 +95,9 @@ class StorageService:
     ) -> str:
         """Store a call recording and return its storage path (not a URL)."""
         path = f"{user_id}/{call_sid}.wav"
-        self.supabase.storage.from_(CALL_RECORDINGS_BUCKET).upload(
+        # A recording is megabytes: uploaded from the threadpool so the event loop keeps serving meanwhile.
+        await asyncio.to_thread(
+            self.supabase.storage.from_(CALL_RECORDINGS_BUCKET).upload,
             path=path,
             file=audio_bytes,
             file_options={"content-type": "audio/wav", "upsert": "true"},

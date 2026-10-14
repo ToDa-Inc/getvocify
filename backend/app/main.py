@@ -273,6 +273,21 @@ async def _periodic_confirm_writes():
             logger.exception("Hoy confirm sweep failed", extra={"domain": "hoy", "phase": "confirm_sweep"})
 
 
+async def _periodic_call_reconcile():
+    """Twilio calls whose recording or dial-status callback was lost (API down, deploying, too slow)."""
+    from app.deps import get_supabase
+    from app.services.telephony.call_reconciler import SWEEP_INTERVAL_SECONDS, reconcile_calls
+
+    logger = logging.getLogger(__name__)
+    supabase = get_supabase()
+    while True:
+        await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+        try:
+            await reconcile_calls(supabase)
+        except Exception:
+            logger.exception("Call reconcile sweep failed", extra={"domain": "telephony", "phase": "reconcile"})
+
+
 async def _periodic_memo_recovery():
     """
     Every 5 minutes, re-queue memos stuck in 'transcribing'/'extracting' past
@@ -380,6 +395,7 @@ async def startup_event():
     asyncio.create_task(_refresh_crm_updates_stale_pending_gauge())
     asyncio.create_task(_periodic_memo_recovery())
     asyncio.create_task(_periodic_confirm_writes())
+    asyncio.create_task(_periodic_call_reconcile())
     from app.services.intelligence.worker import install_intelligence_tick, start_worker
     from app.deps import get_supabase
     from app.api.ask import set_ask_loop, set_ask_store

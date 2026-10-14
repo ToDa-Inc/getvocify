@@ -57,7 +57,7 @@ def _to_response(identity: CaptureIdentity) -> CaptureResponse:
 
 
 @router.post("", response_model=CaptureResponse)
-async def create_capture(
+def create_capture(
     body: CreateCaptureRequest,
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
