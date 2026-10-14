@@ -162,6 +162,24 @@ export function userIdFromJwt(token) {
   }
 }
 
+/** When a JWT expires (ms since the epoch), or null (the `exp` claim). */
+export function tokenExpiryMs(token) {
+  try {
+    const payload = String(token).split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const json = typeof atob === "function" ? atob(payload) : Buffer.from(payload, "base64").toString("utf8");
+    const exp = JSON.parse(json).exp;
+    return typeof exp === "number" ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The app's own rule (src/lib/auth-session.ts): fresh while more than a minute is left. */
+export function isTokenFresh(token, nowMs = Date.now(), minTtlMs = 60_000) {
+  const exp = tokenExpiryMs(token);
+  return exp !== null && exp - nowMs > minTtlMs;
+}
+
 /** Where the API lives for the page's host, as the app itself chooses (src/lib/app-url.ts). */
 export function apiBaseFor(hostname) {
   const host = String(hostname || "").toLowerCase();
