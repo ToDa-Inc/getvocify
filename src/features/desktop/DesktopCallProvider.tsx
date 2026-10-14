@@ -85,6 +85,8 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
       if (!urls.length || !api.getToken()) return;
       const show = () => {
         const onScreen = onScreenFromPreview(previewRef.current, accessRef.current);
+        // Record on the island takes the contact only while the island really shows one.
+        meetingRef.current.offerOnScreen(onScreen ? previewRef.current : null);
         bridge.shell.setState({ onScreen: onScreen && briefRef.current ? { ...onScreen, brief: briefRef.current } : onScreen });
       };
       api
@@ -93,7 +95,6 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
           if (!lookups.isLatest(ticket)) return;
           shownKey = key;
           previewRef.current = preview;
-          meetingRef.current.offerOnScreen(preview);
           const contactId = preview.callee?.contact_id;
           briefRef.current = contactId ? { state: "loading" } : null;
           show();
@@ -121,6 +122,7 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!previewRef.current) return;
     const onScreen = onScreenFromPreview(previewRef.current, { canDial, callerId, onPhone });
+    meetingRef.current.offerOnScreen(onScreen ? previewRef.current : null);
     getDesktopBridge()?.shell.setState({ onScreen: onScreen && briefRef.current ? { ...onScreen, brief: briefRef.current } : onScreen });
   }, [canDial, callerId, onPhone]);
 
