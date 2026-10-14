@@ -5,6 +5,8 @@ import {
   apiBaseFor,
   autoThresholdDb,
   detectUtterances,
+  isTokenFresh,
+  tokenExpiryMs,
   displayTimeline,
   levelDb,
   percentiles,
@@ -155,5 +157,22 @@ describe("the automatic voice threshold", () => {
     assert.equal(autoThresholdDb(room(-120, -20)), -60);
     assert.equal(autoThresholdDb(room(-30, -10)), -30);
     assert.equal(autoThresholdDb([]), -45);
+  });
+});
+
+describe("the sign-in token", () => {
+  const token = (exp) => `h.${Buffer.from(JSON.stringify({ sub: "u", exp })).toString("base64url")}.s`;
+  const now = Date.UTC(2026, 9, 14, 16, 0, 0);
+
+  it("is fresh while more than a minute is left, as in the app", () => {
+    assert.equal(tokenExpiryMs(token(now / 1000 + 3600)), now + 3_600_000);
+    assert.equal(isTokenFresh(token(now / 1000 + 3600), now), true);
+    assert.equal(isTokenFresh(token(now / 1000 + 30), now), false);
+    assert.equal(isTokenFresh(token(now / 1000 - 5), now), false);
+  });
+
+  it("is not fresh when it cannot be read", () => {
+    assert.equal(isTokenFresh("not a token", now), false);
+    assert.equal(isTokenFresh(`h.${Buffer.from(JSON.stringify({ sub: "u" })).toString("base64url")}.s`, now), false);
   });
 });

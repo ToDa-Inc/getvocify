@@ -86,7 +86,7 @@
 
 <script type="module">
 import {
-  analyzeUtterances, apiBaseFor, autoThresholdDb, detectUtterances, displayTimeline, levelDb, summarize, userIdFromJwt,
+  analyzeUtterances, apiBaseFor, autoThresholdDb, detectUtterances, displayTimeline, isTokenFresh, levelDb, summarize, userIdFromJwt,
 } from "./stt-lab-logic.js";
 
 const $ = (id) => document.getElementById(id);
@@ -143,21 +143,49 @@ function b64(int16) {
   return btoa(s);
 }
 
+// The app's own session handling (src/shared/lib/api-client.ts): the access token is short-lived and is refreshed
+// through /auth/refresh under the same Web Lock, so this page and the app never rotate the refresh token twice.
+async function accessToken(force) {
+  const clean = (v) => (v && v !== "undefined" && v !== "null" ? v : null);
+  const run = async () => {
+    const current = clean(localStorage.getItem("vocify_token"));
+    if (current && !force && isTokenFresh(current)) return current;
+    const refresh = clean(localStorage.getItem("vocify_refresh"));
+    if (!refresh) return current;
+    const res = await fetch(`${API}/auth/refresh`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refresh, ...(current ? { access_token: current } : {}) }),
+    });
+    if (!res.ok) throw new Error(`refreshing your sign-in failed (${res.status}). Sign in to the app on ${location.origin} again`);
+    const data = await res.json();
+    if (!data.access_token) throw new Error("refreshing your sign-in returned no token");
+    localStorage.setItem("vocify_token", data.access_token);
+    if (data.refresh_token) localStorage.setItem("vocify_refresh", data.refresh_token);
+    return data.access_token;
+  };
+  return navigator.locks?.request ? navigator.locks.request("vocify-auth-refresh", run) : run();
+}
+
 async function start() {
   $("log").textContent = ""; frames = []; events = []; messages = 0; results = []; sendBuf = []; peakDb = -120;
   started = performance.now();
-  const token = localStorage.getItem("vocify_token");
-  if (!token || token === "undefined" || token === "null") {
+  const clean = (v) => (v && v !== "undefined" && v !== "null" ? v : null);
+  if (!clean(localStorage.getItem("vocify_token")) && !clean(localStorage.getItem("vocify_refresh"))) {
     return setStatus(`Not signed in on <b>${location.origin}</b>. Sign in to the app on this address first, then reload this page.`);
   }
-  const userId = userIdFromJwt(token);
-  if (!userId) return setStatus("Could not read your user id from the sign-in. Sign in again and reload.");
   $("start").disabled = true;
   try {
-    setStatus("Asking for a live transcription pass…");
-    const res = await fetch(`${API}/transcription/ticket`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+    setStatus(`Using <b>${API}</b>. Checking your sign-in…`);
+    let token = await accessToken(false);
+    const ask = (t) => fetch(`${API}/transcription/ticket`, { method: "POST", headers: { Authorization: `Bearer ${t}` } });
+    let res = await ask(token);
+    if (res.status === 401) { token = await accessToken(true); res = await ask(token); }
+    if (res.status === 401) throw new Error(`the server at ${API} refused your sign-in even after refreshing it. Sign in to the app on ${location.origin} again, then reload this page`);
     if (!res.ok) throw new Error(`ticket ${res.status}`);
     const { ticket } = await res.json();
+    const userId = userIdFromJwt(token);
+    if (!userId) throw new Error("could not read your user id from the sign-in");
+    setStatus("Asking for the microphone…");
 
     // The same mic settings the app uses (src/lib/rep-mic.ts), so MAI hears what it hears in a call.
     try {
