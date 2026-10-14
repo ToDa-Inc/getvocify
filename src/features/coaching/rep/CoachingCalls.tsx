@@ -1,27 +1,22 @@
-import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, ChevronDown, Lightbulb } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Lightbulb } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Segmented } from "@/components/ui/segmented";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
 import {
-  boardTrend,
-  boardValue,
   cleanSummaryLine,
   durationLabel,
   fill,
-  MIN_CALLS_FOR_RATE,
   type CoachCall,
   type CoachCalls,
-  type CoachImprove,
   type CoachSlip,
-  type CoachStepBoardItem,
 } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { CoachEmpty, CoachError, CoachLoading } from "./CoachingState";
 import { useCoachCalls } from "./useRepCoaching";
+import { ImproveTables } from "./ImproveTables";
 
 /** Colour only where it means something: red not done, amber halfway, green done. */
 const STATE_TEXT = { missing: "text-destructive", improvable: "text-warning" } as const;
@@ -51,128 +46,22 @@ function SectionHead({ id, title, meta }: { id: string; title: string; meta?: st
   );
 }
 
-/** What was said in the call, and when: a quiet bubble that links to the call. */
-function Moment({ quote, footer }: { quote: string; footer?: ReactNode }) {
+/** What was said in the call: a quiet bubble. */
+function Moment({ quote }: { quote: string }) {
   return (
-    <figure className={`${THEME_TOKENS.radius.control} bg-secondary/70 px-4 py-3`}>
-      <blockquote className="text-[14.5px] italic leading-relaxed text-foreground/85">«{quote}»</blockquote>
-      {footer ? <figcaption className="mt-1.5 text-xs text-muted-foreground">{footer}</figcaption> : null}
-    </figure>
+    <blockquote className={`${THEME_TOKENS.radius.control} bg-secondary/70 px-4 py-3 text-[14.5px] italic leading-relaxed text-foreground/85`}>
+      «{quote}»
+    </blockquote>
   );
 }
 
-/** What to try next time: the one line to take into the next call. */
-function NextTime({ text, clamp = false }: { text: string; clamp?: boolean }) {
+/** What to try next time, whole: the one line to take into the next call. */
+function NextTime({ text }: { text: string }) {
   return (
     <div className={`flex gap-2.5 ${THEME_TOKENS.radius.control} bg-success/10 px-4 py-3`}>
       <Lightbulb aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-success" strokeWidth={1.75} />
-      <p className={cn("text-[14.5px] leading-relaxed text-foreground", clamp && "line-clamp-4")} title={clamp ? text : undefined}>
-        {text}
-      </p>
+      <p className="text-[14.5px] leading-relaxed text-foreground">{text}</p>
     </div>
-  );
-}
-
-function CallLink({ memoId, observedAt }: { memoId: string; observedAt: string | null }) {
-  const { language } = useLanguage();
-  return (
-    <Link to={`/dashboard/memos/${memoId}`} className="inline-flex items-center gap-0.5 hover:text-foreground">
-      {dayLabel(observedAt, language)}
-      <ArrowUpRight aria-hidden className="h-3 w-3" />
-    </Link>
-  );
-}
-
-/** One thing to work on: a slipped step or an objection left open. Title and count first, then the
- * moment of a call that shows it and what to do next time. Nothing else. */
-function ImproveItem({ item }: { item: CoachImprove }) {
-  const { t } = useLanguage();
-  const p = t.product;
-  const objection = item.kind === "objection";
-  const title = objection
-    ? item.label || p.playbookObjectionCategories[item.category as keyof typeof p.playbookObjectionCategories] || item.category
-    : item.label;
-  const [count, of, caption, tone] = objection
-    ? [item.open, item.total, p.coachCountOpen, "text-destructive"]
-    : item.missing
-      ? [item.missing, item.applicable, p.coachCountNotDone, "text-destructive"]
-      : [item.improvable, item.applicable, p.coachCountHalfway, "text-warning"];
-  const example = item.example;
-  const reason = item.kind === "step" ? item.example?.reason ?? null : null;
-  const response = item.kind === "objection" ? item.example?.response ?? null : null;
-  return (
-    <li className="space-y-4 py-6 first:pt-4" data-testid="coach-improve-item">
-      <div className="flex items-start justify-between gap-6">
-        <div className="min-w-0 space-y-1.5">
-          <span className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-            {objection ? p.coachTagObjection : p.coachTagStep}
-          </span>
-          <h3 className="text-[17px] font-semibold leading-snug tracking-tight text-foreground">{title}</h3>
-          {reason ? <p className="text-[14.5px] leading-relaxed text-muted-foreground">{reason}</p> : null}
-        </div>
-        <div className="shrink-0 text-right">
-          <p className={cn("text-2xl font-semibold leading-none tabular-nums", tone)}>
-            {count}
-            <span className="font-normal text-muted-foreground/70">/{of}</span>
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">{caption}</p>
-        </div>
-      </div>
-      {example?.quote ? (
-        <Moment
-          quote={example.quote}
-          footer={
-            <>
-              {response ? (
-                <span className="mb-1 block not-italic">
-                  {p.coachYouReplied}: «{response}»
-                </span>
-              ) : null}
-              <CallLink memoId={example.memo_id} observedAt={example.observed_at} />
-            </>
-          }
-        />
-      ) : null}
-      {item.how ? <NextTime text={item.how} clamp={objection} /> : null}
-    </li>
-  );
-}
-
-function TrendMark({ step }: { step: CoachStepBoardItem }) {
-  const trend = boardTrend(step);
-  if (!trend) return null;
-  const [Icon, tone] = trend === "up" ? [ArrowUp, "text-success"] : trend === "down" ? [ArrowDown, "text-destructive"] : [ArrowRight, "text-muted-foreground"];
-  return <Icon aria-hidden className={cn("h-3.5 w-3.5", tone)} strokeWidth={2} />;
-}
-
-/** "Tus pasos": every step of the playbook as a bar, the rep only against their own weeks before. */
-function StepBoard({ steps, weeks }: { steps: CoachStepBoardItem[]; weeks: number }) {
-  const { t } = useLanguage();
-  const p = t.product;
-  return (
-    <aside aria-labelledby="coach-steps" className={`self-start ${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-5 lg:sticky lg:top-0`}>
-      <SectionHead id="coach-steps" title={p.coachStepsBoard} meta={fill(p.coachStepsBoardMeta, { weeks })} />
-      <ul className="mt-5 space-y-4">
-        {steps.map((step) => {
-          // A bar is a percentage too: with fewer than three calls it stays empty, like the number.
-          const width = step.applicable >= MIN_CALLS_FOR_RATE && step.rate !== null ? Math.round(step.rate * 100) : 0;
-          return (
-            <li key={step.step_id}>
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="truncate text-sm text-foreground">{step.label}</span>
-                <span className="flex shrink-0 items-center gap-1 text-sm font-medium tabular-nums text-foreground">
-                  {boardValue(p, step)}
-                  <TrendMark step={step} />
-                </span>
-              </div>
-              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-secondary">
-                <div className="h-full rounded-full bg-foreground/60 transition-[width] duration-500" style={{ width: `${width}%` }} />
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </aside>
   );
 }
 
@@ -306,23 +195,14 @@ export function CoachingCalls({ type, onType }: { type: string | null; onType: (
           />
         </div>
       ) : null}
-      <div className={cn("grid gap-10 px-3", data.steps.length && "lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-14 xl:grid-cols-[minmax(0,1fr)_22rem]")}>
-        <section aria-labelledby="coach-improve">
-          <SectionHead id="coach-improve" title={p.coachImproveHeading} meta={fill(p.coachImproveWindow, { weeks, count: data.conversations })} />
-          {data.improve.length ? (
-            <ol className="divide-y divide-border/60">
-              {data.improve.map((item) => (
-                <ImproveItem key={item.kind === "step" ? item.step_id : item.key} item={item} />
-              ))}
-            </ol>
-          ) : (
-            <p className="mt-4 text-[14.5px] text-muted-foreground">
-              {data.conversations ? fill(p.coachImproveNone, { count: data.conversations }) : fill(p.coachImproveNoCalls, { weeks })}
-            </p>
-          )}
-        </section>
-        {data.steps.length ? <StepBoard steps={data.steps} weeks={weeks} /> : null}
-      </div>
+      <section aria-labelledby="coach-improve" className="space-y-5 px-3">
+        <SectionHead id="coach-improve" title={p.coachImproveHeading} meta={fill(p.coachImproveWindow, { weeks, count: data.conversations })} />
+        {data.conversations ? (
+          <ImproveTables steps={data.slipped_steps ?? []} objections={data.objections ?? []} />
+        ) : (
+          <p className="text-[14.5px] text-muted-foreground">{fill(p.coachImproveNoCalls, { weeks })}</p>
+        )}
+      </section>
       {data.calls.length ? (
         <section aria-labelledby="coach-calls-heading" className="space-y-2">
           <div className="px-3">

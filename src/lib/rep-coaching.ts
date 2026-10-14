@@ -40,42 +40,6 @@ export type CoachSlip = {
   /** What to try next time, in this call's terms. */
   advice: string | null;
 };
-export type CoachImproveStep = {
-  kind: "step";
-  step_id: string;
-  label: string;
-  criterion: string;
-  missing: number;
-  improvable: number;
-  applicable: number;
-  before: { missing: number; improvable: number; applicable: number };
-  example: { memo_id: string; observed_at: string; state: string; reason: string | null; quote: string | null; advice: string | null } | null;
-  how: string | null;
-};
-/** The objection left open most: what the prospect said, what the rep replied, the playbook's answer. */
-export type CoachImproveObjection = {
-  kind: "objection";
-  key: string;
-  category: string;
-  /** The company's own objection's name; null for a fixed category. */
-  label: string | null;
-  open: number;
-  total: number;
-  example: { memo_id: string; observed_at: string; quote: string | null; response: string | null } | null;
-  how: string | null;
-};
-export type CoachImprove = CoachImproveStep | CoachImproveObjection;
-/** "Tus pasos": a step over the last weeks, with its rate before only when enough calls back it. */
-export type CoachStepBoardItem = {
-  step_id: string;
-  label: string;
-  done: number;
-  improvable: number;
-  missing: number;
-  applicable: number;
-  rate: number | null;
-  prev_rate: number | null;
-};
 export type CoachCall = {
   memo_id: string;
   observed_at: string | null;
@@ -87,13 +51,37 @@ export type CoachCall = {
   /** Empty when there was nothing to improve in this call. */
   slips: CoachSlip[];
 };
+/** Every step the rep slipped on, with the calls it slipped in (newest first). */
+export type CoachSlippedStep = {
+  step_id: string;
+  label: string;
+  criterion: string;
+  missing: number;
+  improvable: number;
+  applicable: number;
+  /** The playbook's own example phrase for the step. */
+  example: string | null;
+  occurrences: { memo_id: string; observed_at: string; state: "missing" | "improvable"; reason: string | null; quote: string | null; advice: string | null }[];
+};
+/** Every objection the prospects raised, how each went and the playbook's answer. */
+export type CoachObjectionBreakdown = {
+  key: string;
+  category: string;
+  label: string | null;
+  how: string | null;
+  total: number;
+  open: number;
+  resolved: number;
+  occurrences: { memo_id: string; observed_at: string; resolution: "open" | "resolved" | "unknown"; quote: string | null; response: string | null }[];
+};
 export type CoachCalls = {
   types: { key: string; label: string | null; conversations: number }[];
   type: string | null;
   window_weeks: number;
   conversations: number;
-  improve: CoachImprove[];
-  steps: CoachStepBoardItem[];
+  /** Absent from a backend older than the "En qué mejorar" tables. */
+  slipped_steps?: CoachSlippedStep[];
+  objections?: CoachObjectionBreakdown[];
   calls: CoachCall[];
 };
 
@@ -171,16 +159,3 @@ export function peerMedianLabel(p: Product, median: number | null | undefined): 
 
 /** Below this many calls where a step applied, a rate says nothing ("0 %" of one call): show the count. */
 export const MIN_CALLS_FOR_RATE = 3;
-
-/** "83 %" with enough calls behind it, "1 de 2" with fewer, "—" with none. */
-export function boardValue(p: Product, step: Pick<CoachStepBoardItem, "done" | "applicable" | "rate">): string {
-  if (!step.applicable) return "—";
-  if (step.applicable < MIN_CALLS_FOR_RATE) return fill(p.coachStepCount, { done: step.done, applicable: step.applicable });
-  return formatPercent(step.rate);
-}
-
-/** The arrow against the weeks before, only when both sides rest on enough calls. */
-export function boardTrend(step: Pick<CoachStepBoardItem, "applicable" | "rate" | "prev_rate">): Trend {
-  return step.applicable >= MIN_CALLS_FOR_RATE ? trendOf(step.rate, step.prev_rate) : null;
-}
-

@@ -86,7 +86,7 @@ def test_summary_no_playbook_is_not_invented():
     assert body["steps"] == [] and body["focus"] is None and body["conversion"] is None
     assert body["numbers"]["interactions"] == 0
     calls = client.get("/api/v1/coaching/me/calls").json()
-    assert calls["types"] == [] and calls["type"] is None and calls["improve"] == [] and calls["calls"] == []
+    assert calls["types"] == [] and calls["type"] is None and calls["slipped_steps"] == [] and calls["calls"] == []
 
 
 def test_summary_self_scope_and_focus():
@@ -284,7 +284,7 @@ def _obs_memo(memo_id, statuses, *, days_ago=1, motion="discovery", advice=None,
     return memo
 
 
-def test_calls_names_the_steps_slipped_most_with_a_call_that_shows_it():
+def test_calls_list_every_slipped_step_with_the_calls_it_slipped_in():
     memos = [_obs_memo(f"m{i}", {"open": "met", "pain": "missed"}, days_ago=i + 1,
                        reason="No preguntaste qué les cuesta.", quote="Vale, te mando info.",
                        advice="Cuando dijo que captan por LinkedIn, pregúntale cuánto les cuesta.") for i in range(4)]
@@ -292,12 +292,12 @@ def test_calls_names_the_steps_slipped_most_with_a_call_that_shows_it():
     body = _client(memos).get("/api/v1/coaching/me/calls").json()
     assert body["type"] == "discovery" and body["types"][0]["key"] == "discovery"
     assert body["conversations"] == 5
-    [pain] = body["improve"]  # "open" never slipped: only one thing to improve
+    [pain] = body["slipped_steps"]  # "open" never slipped
     assert (pain["step_id"], pain["missing"], pain["applicable"]) == ("pain", 4, 5)
     assert pain["criterion"] == "Pregunta por el dolor"
-    assert pain["example"]["memo_id"] == "m0"  # the latest call that shows it
-    assert pain["example"]["quote"] == "Vale, te mando info."
-    assert pain["how"].startswith("Cuando dijo")
+    assert [o["memo_id"] for o in pain["occurrences"]] == ["m0", "m1", "m2", "m3"]  # newest first
+    assert pain["occurrences"][0]["quote"] == "Vale, te mando info."
+    assert pain["occurrences"][0]["advice"].startswith("Cuando dijo")
     # The record holds every conversation, newest first; "ok" has nothing to improve.
     assert [c["memo_id"] for c in body["calls"]] == ["m0", "m1", "ok", "m2", "m3"]
     assert next(c for c in body["calls"] if c["memo_id"] == "ok")["slips"] == []
@@ -306,13 +306,13 @@ def test_calls_names_the_steps_slipped_most_with_a_call_that_shows_it():
     assert (body["calls"][0]["done"], body["calls"][0]["applicable"]) == (1, 2)
 
 
-def test_calls_without_a_pattern_has_nothing_to_improve_and_falls_back_to_the_playbook_example():
-    # One slip is not a pattern; two in three calls are, and with no advice the playbook's example is the "how".
-    one = _client([_obs_memo("a", {"open": "missed"}), _obs_memo("b", {"open": "met"}), _obs_memo("c", {"open": "met"})])
-    assert one.get("/api/v1/coaching/me/calls").json()["improve"] == []
-    two = _client([_obs_memo("a", {"open": "missed"}), _obs_memo("b", {"open": "missed"}), _obs_memo("c", {"open": "met"})])
-    [step] = two.get("/api/v1/coaching/me/calls").json()["improve"]
-    assert step["how"] == "Hola, soy Ana"
+def test_calls_list_a_single_slip_too_and_carry_the_playbooks_example():
+    # Every slip is listed (the rep goes through them one by one); worst first; the playbook's own
+    # example phrase travels with the step for when a call has no advice.
+    client = _client([_obs_memo("a", {"open": "missed", "pain": "missed"}), _obs_memo("b", {"open": "missed", "pain": "met"})])
+    steps = client.get("/api/v1/coaching/me/calls").json()["slipped_steps"]
+    assert [(s["step_id"], s["missing"]) for s in steps] == [("open", 2), ("pain", 1)]
+    assert steps[0]["example"] == "Hola, soy Ana" and steps[1]["example"] is None
 
 
 def test_calls_is_one_type_at_a_time_and_only_conversations_count():
@@ -349,7 +349,7 @@ def _with_objections(memo, *objections):
     return memo
 
 
-def test_calls_name_the_objection_left_open_most_with_the_playbooks_answer():
+def test_calls_list_every_objection_with_how_each_went_and_the_playbooks_answer():
     memos = [
         _with_objections(_obs_memo("a", {"open": "met"}, days_ago=1),
                          ("objection", "price", "open", "Es caro", "Bueno, ya", None),
@@ -361,18 +361,10 @@ def test_calls_name_the_objection_left_open_most_with_the_playbooks_answer():
                          ("objection", "timing", "open", "Ahora no", None, None)),
     ]
     body = _client(memos).get("/api/v1/coaching/me/calls").json()
-    [objection] = [i for i in body["improve"] if i["kind"] == "objection"]
-    assert (objection["category"], objection["open"], objection["total"]) == ("price", 2, 3)
-    assert objection["example"] == {"memo_id": "a", "observed_at": objection["example"]["observed_at"],
-                                    "quote": "Es caro", "response": "Bueno, ya"}
-    assert objection["how"] == "Habla de valor"  # the playbook's answer for price
-    # "Ahora no" happened once: not a pattern. "Estoy conduciendo" is an obstacle, never coached here.
-    assert all(i["category"] != "timing" for i in body["improve"] if i["kind"] == "objection")
-
-
-def test_calls_carry_the_steps_board_only_against_the_rep_before():
-    memos = [_obs_memo(f"n{i}", {"open": "met", "pain": "missed"}, days_ago=i + 1) for i in range(3)]
-    memos += [_obs_memo(f"o{i}", {"open": "missed", "pain": "missed"}, days_ago=35 + i) for i in range(3)]
-    board = {s["step_id"]: s for s in _client(memos).get("/api/v1/coaching/me/calls").json()["steps"]}
-    assert (board["open"]["rate"], board["open"]["prev_rate"]) == (1.0, 0.0)
-    assert (board["pain"]["done"], board["pain"]["applicable"], board["pain"]["missing"]) == (0, 3, 3)
+    price, timing = body["objections"]  # left open most first; "Estoy conduciendo" is an obstacle, not listed
+    assert (price["category"], price["open"], price["resolved"], price["total"]) == ("price", 2, 1, 3)
+    assert price["how"] == "Habla de valor"  # the playbook's answer for price
+    assert [(o["memo_id"], o["resolution"], o["quote"], o["response"]) for o in price["occurrences"]] == [
+        ("a", "open", "Es caro", "Bueno, ya"), ("b", "open", "No hay presupuesto", None), ("c", "resolved", "Caro", "Se paga solo"),
+    ]
+    assert (timing["category"], timing["open"], timing["total"]) == ("timing", 1, 1)
