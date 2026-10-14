@@ -21,6 +21,7 @@ import { api } from "@/shared/lib/api-client";
 import { liveTickets } from "./liveTickets";
 import { ROUTES } from "@/shared/lib/constants";
 import { SteadyTails } from "@/lib/steady-tail";
+import { openRepMic, type EchoCancellation } from "@/lib/rep-mic";
 import {
   encodeChannelAudio,
   hookMicPcm,
@@ -303,6 +304,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const nativeMicRef = useRef(false);
   /** A meeting recorded here (the mic plus what the computer plays): the server takes the call's echo out of the mic. */
   const echoCancelRef = useRef(false);
+  /** What the page's mic applied (null until it is open). "all" already took the call's echo out, so the server leaves the mic alone. */
+  const micEchoRef = useRef<EchoCancellation | null>(null);
   const releaseAudioRef = useRef<Array<() => void>>([]);
   const timerRef = useRef<number | null>(null);
   const reconnectsRef = useRef(0);
@@ -508,7 +511,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const openSocket = useCallback(() => {
     // A new session times its audio from zero again: who spoke is timed from its first audio too.
     if (speakersRef.current) speakersRef.current = { timeline: new SpeakerTimeline(), clockAt: null };
-    const echoCancel = echoCancelRef.current ? (nativeMicRef.current ? "native" : "page") : undefined;
+    const pageMicIsClean = !nativeMicRef.current && micEchoRef.current === "all";
+    const echoCancel = echoCancelRef.current && !pageMicIsClean ? (nativeMicRef.current ? "native" : "page") : undefined;
     const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current, { echoCancel }));
     wsRef.current = ws;
     ws.onopen = () => {
@@ -1068,14 +1072,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       let ctx: AudioContext | null = null;
       let micStream: MediaStream | null = null;
       const openMic = async () => {
-        micStream = await navigator.mediaDevices
-          .getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          })
-          .catch(() => {
-            throw new PermissionMissing("Could not open the microphone. Check it in Settings › System.");
-          });
+        const mic = await openRepMic((constraints) => navigator.mediaDevices.getUserMedia(constraints)).catch(() => {
+          throw new PermissionMissing("Could not open the microphone. Check it in Settings › System.");
+        });
+        micStream = mic.stream;
         micRef.current = micStream;
+        micEchoRef.current = mic.echoCancellation;
+        // Written to the desktop app's log, so a call's transcript says which canceller its mic had.
+        reportCallStep("microphone", { native: false, echoCancellation: mic.echoCancellation });
       };
       if (recorder) {
         const started = await recorder.start({ url: liveTranscriptionWsUrl(user.id), ticket: ticketRef.current ?? undefined });
@@ -1086,6 +1090,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         nativeRef.current = true;
       } else {
         nativeMicRef.current = false;
+        micEchoRef.current = null;
         if (!call) {
           // Apps that capture the mic with the call (`nativeMic`) are asked to; the others, or one that could not
           // (no microphone permission yet), leave it to the page, which opens it first as before.
@@ -1117,7 +1122,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        ctx = new AudioContext({ sampleRate: LIVE_STT_SAMPLE_RATE });
+        // Nothing here is played (every tap ends in a muted gain), so it renders to no device: reading the mic then
+        // does not depend on the speakers' clock.
+        const options: AudioContextOptions & { sinkId?: { type: "none" } } = { sampleRate: LIVE_STT_SAMPLE_RATE, sinkId: { type: "none" } };
+        ctx = new AudioContext(options);
         ctxRef.current = ctx;
         if (call) reportCallStep("session-audio", { state: ctx.state });
         if (ctx.state === "suspended") await ctx.resume();
