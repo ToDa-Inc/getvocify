@@ -44,8 +44,9 @@ call_type is one of:
   later, is driving, in a meeting), with no real sales conversation.
 - "gatekeeper": the rep only talks to a receptionist or assistant, not the prospect.
 - "wrong_person": the person is not the one to sell to: they say they are not the right contact,
-  they no longer work at the company the rep called about, it is not their area, or the number is
-  wrong. Pick it even when the conversation went on for a while before that came out, and even if
+  they no longer work at the company the rep called about, it is not their area, they say they
+  already passed the topic to whoever decides ("ya está trasladado al director general"), or the
+  number is wrong. Pick it even when the conversation went on for a while before that came out, and even if
   the rep then pitched something else to them.
 - "no_conversation": voicemail, no answer, ringing, a recorded message, or only greetings.
 - "not_a_sales_call": personal, internal or test call, only with explicit evidence: there is no
@@ -93,6 +94,11 @@ happened and what it was trying to achieve, read together with call_type. "inter
 customer or prospect takes part. "unknown" when none clearly fits, or when there was no real
 conversation to tell (no_conversation, bad_moment, gatekeeper, wrong_person, dictated_note). Do
 not guess between two that fit equally: "unknown". Without `playbooks`, leave playbook out.
+A type that is a meeting of the sale (a discovery meeting, a demo, a proposal, a decision or
+negotiation meeting) fits only when this conversation IS that meeting: arranged beforehand and run
+to do that. A call that follows up on, chases, confirms or reschedules a meeting or a proposal sent
+earlier is not that meeting: pick the company's type for those calls (its outbound or follow-up
+call), or "unknown" when none fits.
 
 ## Output
 
