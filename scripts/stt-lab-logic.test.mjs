@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   analyzeUtterances,
   apiBaseFor,
+  autoThresholdDb,
   detectUtterances,
   displayTimeline,
   levelDb,
@@ -135,5 +136,24 @@ describe("the small helpers", () => {
     assert.match(apiBaseFor("staging.getvocify.com"), /getvocify-staging/);
     assert.match(apiBaseFor("app.getvocify.com"), /^https:\/\/api\.getvocify\.com/);
     assert.match(apiBaseFor("localhost"), /localhost:8888/);
+  });
+});
+
+describe("the automatic voice threshold", () => {
+  const room = (db, speech, n = 200) => Array.from({ length: n }, (_, i) => ({ t: i * 20, db: i % 5 === 0 ? speech : db }));
+
+  it("sits a little above the room noise, so a quiet microphone still counts as speech", () => {
+    // Noise at -62 dBFS, quiet speech at -48: a fixed -42 would never hear it.
+    const quiet = room(-62, -48);
+    const threshold = autoThresholdDb(quiet);
+    assert.equal(threshold, -50);
+    assert.equal(detectUtterances(quiet, { thresholdDb: -42 }).length, 0);
+    assert.ok(detectUtterances(quiet, { thresholdDb: threshold }).length > 0);
+  });
+
+  it("stays inside -60..-30 and has a default before there is audio", () => {
+    assert.equal(autoThresholdDb(room(-120, -20)), -60);
+    assert.equal(autoThresholdDb(room(-30, -10)), -30);
+    assert.equal(autoThresholdDb([]), -45);
   });
 });

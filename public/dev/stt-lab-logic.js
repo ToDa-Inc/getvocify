@@ -18,6 +18,17 @@ export function levelDb(samples) {
 }
 
 /**
+ * A voice threshold from the audio itself: a little above the room's noise (the quiet 20th percentile of all
+ * frames), so a quiet microphone still counts as speech. Clamped to -60..-30 dBFS.
+ */
+export function autoThresholdDb(frames, { marginDb = 12 } = {}) {
+  const dbs = frames.map((frame) => frame.db).sort((a, b) => a - b);
+  if (dbs.length < 25) return -45;
+  const floor = dbs[Math.floor(dbs.length * 0.2)];
+  return Math.max(-60, Math.min(-30, Math.round(floor + marginDb)));
+}
+
+/**
  * Utterances from the audio frames [{t, db}] (t = ms when the frame reached the page, frameMs long):
  * speech starts at the first loud frame and ends at the last loud frame before a quiet gap of gapMs or more.
  * `end` is when the voice stopped, which is what live help calls the moment the prospect finished.
