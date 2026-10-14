@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Mic as "them"</title>
+<style>
+  :root { color-scheme: light dark; --bg:#faf8f5; --fg:#1c1a17; --mut:#7a746b; --card:#fff; --line:#e6e0d7; --acc:#9a7b4f; --bad:#b3402a; --ok:#2f7d4f; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161412; --fg:#f0ebe3; --mut:#9d958a; --card:#1f1c19; --line:#322d28; --acc:#c9a876; --bad:#e0735c; --ok:#6fbf8f; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.lead { color: var(--mut); margin: 0 0 16px; }
+  .card { background: var(--card); border:1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  .warn { border-color: var(--bad); }
+  .warn b { color: var(--bad); }
+  label { display:flex; flex-direction:column; gap:4px; font-size: 13px; color: var(--mut); margin-bottom: 12px; }
+  select, button, input[type=range] { font: inherit; }
+  select { padding: 8px 10px; border-radius: 10px; border:1px solid var(--line); background: var(--card); color: var(--fg); }
+  button { padding: 10px 18px; border-radius: 10px; border:1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--acc); border-color: var(--acc); color:#fff; }
+  button:disabled { opacity:.5; cursor: default; }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .meter { height: 12px; flex: 1; min-width: 180px; background: var(--line); border-radius: 6px; overflow:hidden; }
+  .meter > div { height:100%; width:0; background: var(--acc); transition: width 60ms linear; }
+  .status { font-size: 13px; color: var(--mut); }
+  .status b { color: var(--fg); }
+  ol { margin: 8px 0 0 18px; padding: 0; color: var(--mut); font-size: 14px; }
+  li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mic as "them"</h1>
+  <p class="lead">Plays your microphone into the Mac's system audio. The Vocify app takes the other side's voice from the
+    system audio, so it hears <em>you</em> as the prospect: real capture, real transcription, real live help. Use it to test alone.</p>
+
+  <div class="card warn">
+    <b>Wear headphones.</b> If the sound comes out of the laptop speakers, the microphone hears itself and the sound screams.
+    Also mute any music or videos: the app takes <em>everything</em> that plays on the Mac as "them".
+  </div>
+
+  <div class="card">
+    <label>Microphone (the voice that will be "them")
+      <select id="mic"></select></label>
+    <label>Play it into (output)
+      <select id="out"></select></label>
+    <label>Volume: <b id="volLabel">100%</b>
+      <input id="vol" type="range" min="0" max="200" step="5" value="100" /></label>
+    <div class="row">
+      <button id="start" class="primary">Start</button>
+      <button id="stop" disabled>Stop</button>
+      <div class="meter" title="what is being played"><div id="meter"></div></div>
+      <span class="status" id="db">-</span>
+    </div>
+    <p class="status" id="status" style="margin:12px 0 0">Not started. Press Start and allow the microphone.</p>
+  </div>
+
+  <div class="card">
+    <b>How to test</b>
+    <ol>
+      <li>Put on headphones. Press <b>Start</b> here and say something: you should hear yourself with a tiny delay.</li>
+      <li>In the Vocify app, start a <b>meeting recording</b> as you normally would, with live help on.</li>
+      <li>Speak as the prospect (objections, long sentences, thinking pauses). The app shows your words as the <b>other side</b>.</li>
+      <li>Your own microphone also goes to the app as "you". With headphones, that side stays quiet.</li>
+      <li>When you finish, press <b>Stop</b> here.</li>
+    </ol>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ctx = null, stream = null, raf = 0;
+const status = (html) => { $("status").innerHTML = html; };
+
+async function devices() {
+  const all = await navigator.mediaDevices.enumerateDevices();
+  const fill = (select, kind, fallback) => {
+    const keep = select.value;
+    select.innerHTML = "";
+    const list = all.filter((d) => d.kind === kind);
+    for (const d of list) {
+      const option = document.createElement("option");
+      option.value = d.deviceId;
+      option.textContent = d.label || fallback;
+      select.appendChild(option);
+    }
+    if ([...select.options].some((o) => o.value === keep)) select.value = keep;
+  };
+  fill($("mic"), "audioinput", "Microphone");
+  fill($("out"), "audiooutput", "Default output");
+}
+
+async function start() {
+  $("start").disabled = true;
+  try {
+    // The permission prompt is what makes the device names readable.
+    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+    probe.getTracks().forEach((t) => t.stop());
+    await devices();
+    const deviceId = $("mic").value;
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: false, noiseSuppression: false, autoGainControl: true },
+    });
+    ctx = new AudioContext({ latencyHint: "interactive" });
+    await ctx.resume();
+    const outId = $("out").value;
+    if (outId && typeof ctx.setSinkId === "function") await ctx.setSinkId(outId);
+    const source = ctx.createMediaStreamSource(stream);
+    const gain = ctx.createGain();
+    gain.gain.value = Number($("vol").value) / 100;
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(gain);
+    gain.connect(analyser);
+    gain.connect(ctx.destination);
+    window.__gain = gain;
+    const buf = new Float32Array(analyser.fftSize);
+    const tick = () => {
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      const db = 20 * Math.log10(Math.sqrt(sum / buf.length) || 1e-6);
+      $("meter").style.width = `${Math.max(0, Math.min(100, ((db + 70) / 70) * 100))}%`;
+      $("db").textContent = `${db.toFixed(0)} dBFS`;
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    const micLabel = $("mic").selectedOptions[0]?.textContent || "microphone";
+    const outLabel = $("out").selectedOptions[0]?.textContent || "default output";
+    const latency = ((ctx.baseLatency || 0) + (ctx.outputLatency || 0)) * 1000;
+    status(`<b>Playing</b> "${micLabel}" into "${outLabel}" (about ${latency.toFixed(0)} ms delay). Headphones on? Now start the recording in the Vocify app.`);
+    $("stop").disabled = false;
+  } catch (err) {
+    status(`Could not start: <b>${String(err.message || err)}</b>`);
+    $("start").disabled = false;
+    cleanup();
+  }
+}
+
+function cleanup() {
+  cancelAnimationFrame(raf);
+  stream?.getTracks().forEach((t) => t.stop());
+  ctx?.close().catch(() => {});
+  stream = null; ctx = null;
+  $("meter").style.width = "0";
+}
+
+$("start").onclick = start;
+$("stop").onclick = () => { cleanup(); $("stop").disabled = true; $("start").disabled = false; status("Stopped."); };
+$("vol").oninput = () => { $("volLabel").textContent = `${$("vol").value}%`; if (window.__gain) window.__gain.gain.value = Number($("vol").value) / 100; };
+// A different microphone or output needs a restart of the playback.
+$("mic").onchange = $("out").onchange = () => { if (ctx) { cleanup(); $("start").disabled = false; $("stop").disabled = true; start(); } };
+navigator.mediaDevices?.addEventListener?.("devicechange", () => devices().catch(() => {}));
+</script>
+</body>
+</html>
