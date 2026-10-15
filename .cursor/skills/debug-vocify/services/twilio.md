@@ -12,8 +12,13 @@ verified number.
 | Docs | https://www.twilio.com/docs |
 
 ```bash
-.cursor/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "twilio"
-.cursor/skills/debug-vocify/scripts/vocify-http.sh twilio GET /Calls.json?PageSize=5
+~/.agents/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "twilio"
+~/.agents/skills/debug-vocify/scripts/vocify-http.sh twilio GET /Calls.json?PageSize=5
 ```
 
 Helper uses basic auth SID:TOKEN. Ask before placing a live call.
+
+The helper caps one reply at 8000 chars so a list cannot flood the context. Past
+the cap it says so, saves the whole body to a temp file and prints the body's
+shape; use `--pick sid,status,to` to keep only some fields, or `--full`.
+Dialer symptoms (call not shown, cannot hang up): [calls.md](calls.md).

@@ -11,8 +11,8 @@ WhatsApp (and other channels) via Unipile instead of Meta Cloud API.
 | Docs | https://www.unipile.com/docs (or Context7) |
 
 ```bash
-.cursor/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "unipile"
-.cursor/skills/debug-vocify/scripts/vocify-http.sh unipile GET /api/v1/accounts
+~/.agents/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "unipile"
+~/.agents/skills/debug-vocify/scripts/vocify-http.sh unipile GET /api/v1/accounts
 ```
 
 Signature header is `unipile-signature`. If webhook secret is unset, anyone who

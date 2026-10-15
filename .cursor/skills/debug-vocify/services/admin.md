@@ -11,7 +11,7 @@ at runtime. **Never print the key or impersonation tokens.**
 | Base | `https://api.getvocify.com/api/v1/admin` (prod) or `http://localhost:8888/api/v1/admin` |
 | Code | `backend/app/api/admin.py`, `backend/app/deps.py` `require_master_key` |
 | UI | `app.getvocify.com/admin` |
-| Helper | `.cursor/skills/debug-vocify/scripts/vocify-admin.sh` |
+| Helper | `~/.agents/skills/debug-vocify/scripts/vocify-admin.sh` |
 
 ## When to use
 
@@ -22,12 +22,12 @@ invites, and memos — not only platform logs.
 ## Safe reads (default)
 
 ```bash
-.cursor/skills/debug-vocify/scripts/vocify-admin.sh runtime
-.cursor/skills/debug-vocify/scripts/vocify-admin.sh accounts --search ada@acme.com
-.cursor/skills/debug-vocify/scripts/vocify-admin.sh account <user_id>
-.cursor/skills/debug-vocify/scripts/vocify-admin.sh companies --search Acme
-.cursor/skills/debug-vocify/scripts/vocify-admin.sh company <company_id>
-.cursor/skills/debug-vocify/scripts/vocify-admin.sh stuck-memos
+~/.agents/skills/debug-vocify/scripts/vocify-admin.sh runtime
+~/.agents/skills/debug-vocify/scripts/vocify-admin.sh accounts --search ada@acme.com
+~/.agents/skills/debug-vocify/scripts/vocify-admin.sh account <user_id>
+~/.agents/skills/debug-vocify/scripts/vocify-admin.sh companies --search Acme
+~/.agents/skills/debug-vocify/scripts/vocify-admin.sh company <company_id>
+~/.agents/skills/debug-vocify/scripts/vocify-admin.sh stuck-memos
 ```
 
 `GET /accounts/{id}` returns profile, CRM connection **status** (not raw
@@ -41,7 +41,7 @@ Use only when the user asked to act as that account (replay a tenant API,
 confirm what they see).
 
 ```bash
-.cursor/skills/debug-vocify/scripts/vocify-admin.sh as-user <user_id> GET /api/v1/auth/me
+~/.agents/skills/debug-vocify/scripts/vocify-admin.sh as-user <user_id> GET /api/v1/auth/me
 ```
 
 The helper uses the minted JWT for that one request and **does not print

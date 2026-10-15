@@ -11,6 +11,6 @@ File STT for HubSpot recordings, uploads, WhatsApp audio (`STT_PROVIDER=deepgram
 | Docs | https://developers.deepgram.com |
 
 ```bash
-.cursor/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "deepgram"
-.cursor/skills/debug-vocify/scripts/vocify-http.sh deepgram GET /v1/projects
+~/.agents/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "deepgram"
+~/.agents/skills/debug-vocify/scripts/vocify-http.sh deepgram GET /v1/projects
 ```

@@ -10,6 +10,7 @@ Each card: what Vocify uses it for, env names, code, logs keyword, live API, doc
 | Resend | [resend.md](resend.md) | `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | `vocify-http.sh resend` |
 | Stripe | [stripe.md](stripe.md) | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | MCP `user-stripe` / curl |
 | Twilio | [twilio.md](twilio.md) | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_*` | `vocify-http.sh twilio` |
+| Calls (dialer, island) | [calls.md](calls.md) | — | Twilio + `outbound_calls` + `--http` logs |
 | Telnyx | [telnyx.md](telnyx.md) | `TELNYX_API_KEY`, `TELNYX_*` | `vocify-http.sh telnyx` |
 | Unipile | [unipile.md](unipile.md) | `UNIPILE_API_KEY`, `UNIPILE_BASE_URL` | `vocify-http.sh unipile` |
 | Deepgram | [deepgram.md](deepgram.md) | `DEEPGRAM_API_KEY` | docs MCP + curl |

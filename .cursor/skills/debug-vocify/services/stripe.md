@@ -13,8 +13,8 @@ Workspace plans (Starter/Pro × monthly/yearly): checkout, customer portal, webh
 | Docs | https://docs.stripe.com |
 
 ```bash
-.cursor/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "stripe"
-.cursor/skills/debug-vocify/scripts/vocify-http.sh stripe GET /v1/balance
+~/.agents/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "stripe"
+~/.agents/skills/debug-vocify/scripts/vocify-http.sh stripe GET /v1/balance
 ```
 
 Prefer Stripe MCP for customers/subscriptions once authenticated. Ask before

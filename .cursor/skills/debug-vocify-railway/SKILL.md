@@ -11,7 +11,7 @@ description: >
 # Debug Vocify on Railway
 
 **Global install:** `~/.agents/skills/debug-vocify-railway/` (Claude, Codex, Cursor).
-Repo copy: `getvocify/.cursor/skills/debug-vocify-railway/`.
+Repo copy: `getvocify/.cursor/skills/debug-vocify-railway/` (same files; the helpers find the repo and run from any directory).
 
 Leaf of the Vocify debug pipeline ([debug-vocify](../debug-vocify/SKILL.md)).
 Use when the user asked to debug **Railway / API infra**, or when the parent
@@ -97,7 +97,6 @@ Name-only is fine: `RESEND_FROM_EMAIL` is a domain/address, not a key.
 ~/.agents/skills/debug-vocify-railway/scripts/vocify-railway.sh --env staging logs --filter "email"
 ```
 
-From the getvocify repo root: `.cursor/skills/debug-vocify-railway/scripts/vocify-railway.sh`.
 
 ## Mutations
 

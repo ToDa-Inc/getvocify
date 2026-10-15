@@ -80,8 +80,13 @@ case "$cmd" in
     ;;
   logs)
     echo "env:$ENVIRONMENT" >&2
-    if [ "$#" -eq 0 ]; then
-      run logs --lines 200 --json
+    # 200 lines unless the caller sets its own (--lines/-n); a second --lines is an error in the CLI.
+    lines_set=0
+    for arg in "$@"; do
+      case "$arg" in --lines|--lines=*|-n) lines_set=1 ;; esac
+    done
+    if [ "$lines_set" -eq 1 ]; then
+      run logs --json "$@"
     else
       run logs --lines 200 --json "$@"
     fi
@@ -104,7 +109,10 @@ Usage: vocify-railway.sh [--env production|staging] <command> [args]
   health       GET env health URL
   deploys      Recent deployments for that env (JSON)
   errors       Last 200 error log lines
-  logs [args]  Runtime logs (pass extra railway logs flags, e.g. --filter email)
+  logs [args]  Runtime logs, 200 lines unless you pass --lines. Extra railway flags:
+                 --filter email            keyword / @level:error
+                 --http                    request log: method, path, status, ms, client UA (who called what, when)
+                 --since T --until T       UTC window, e.g. 2026-10-15T14:48:00Z (history is short: windows from this morning and earlier came back empty)
   vars         List service variables (do not paste secrets into chat)
   status       Linked/explicit service status
 

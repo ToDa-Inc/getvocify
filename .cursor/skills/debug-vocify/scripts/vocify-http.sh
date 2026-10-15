@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -55,18 +58,81 @@ def _need(env: dict[str, str], *names: str) -> dict[str, str]:
     return {n: env[n] for n in names}
 
 
-def _request(url: str, headers: dict[str, str], method: str) -> None:
+# One reply is capped so a vendor list cannot flood the agent's context. A cut JSON body is not valid JSON,
+# so past the cap the full body is saved to a file and what is printed says so (never a silent cut).
+STDOUT_LIMIT = 8000
+ERROR_LIMIT = 2000
+
+
+def _pick(data, fields: list[str]):
+    """Keep only `fields` of every item of every list of objects (top level or one key down); scalars stay."""
+    def keep(item):
+        return {k: item[k] for k in fields if k in item} if isinstance(item, dict) else item
+
+    if isinstance(data, list):
+        return [keep(item) for item in data]
+    if isinstance(data, dict):
+        return {k: ([keep(i) for i in v] if isinstance(v, list) else v) for k, v in data.items()}
+    return data
+
+
+def _summary(data) -> str:
+    """Shape of a JSON body: each top-level key with its type and size."""
+    if isinstance(data, list):
+        return f"list[{len(data)}]"
+    if not isinstance(data, dict):
+        return type(data).__name__
+    parts = []
+    for key, value in data.items():
+        if isinstance(value, list):
+            first = value[0] if value and isinstance(value[0], dict) else None
+            inner = f" of {{{', '.join(list(first)[:12])}}}" if first else ""
+            parts.append(f"{key}: list[{len(value)}]{inner}")
+        elif isinstance(value, dict):
+            parts.append(f"{key}: object")
+        else:
+            parts.append(f"{key}: {str(value)[:60]}")
+    return "\n".join(parts)
+
+
+def _save(body: str) -> str:
+    fd, path = tempfile.mkstemp(prefix=f"vocify-http-{int(time.time())}-", suffix=".json")
+    with os.fdopen(fd, "w") as handle:  # mkstemp creates it 0600
+        handle.write(body)
+    return path
+
+
+def _emit(body: str, *, limit: int, full: bool, pick: list[str], out) -> None:
+    try:
+        data = json.loads(body)
+    except ValueError:
+        data = None
+    shown = json.dumps(_pick(data, pick), ensure_ascii=False, separators=(",", ":")) if pick and data is not None else body
+    if full or len(shown) <= limit:
+        print(shown, file=out)
+        return
+    path = _save(body)
+    notice = f"# not shown whole: {len(shown)} chars, cap {limit}. Full body saved to {path} (re-run with --full, or --pick field,field)"
+    if data is not None:
+        print(notice, file=out)
+        print(_summary(data), file=out)
+    else:
+        print(shown[:limit], file=out)
+        print(notice, file=out)
+
+
+def _request(url: str, headers: dict[str, str], method: str, *, full: bool, pick: list[str]) -> None:
     headers = {"User-Agent": "vocify-debug/1.0", **headers}
     req = urllib.request.Request(url, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             body = resp.read().decode("utf-8", errors="replace")
             print(f"http:{resp.status}")
-            print(body[:8000])
+            _emit(body, limit=STDOUT_LIMIT, full=full, pick=pick, out=sys.stdout)
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         print(f"http:{exc.code}", file=sys.stderr)
-        print(body[:2000], file=sys.stderr)
+        _emit(body, limit=ERROR_LIMIT, full=full, pick=[], out=sys.stderr)
         sys.exit(1)
 
 
@@ -76,6 +142,8 @@ def main() -> None:
     parser.add_argument("method", default="GET", nargs="?", help="HTTP method")
     parser.add_argument("path", help="Path including query, e.g. /emails")
     parser.add_argument("--write", action="store_true", help="Allow non-GET (ask the user first)")
+    parser.add_argument("--pick", default="", help="Comma-separated fields to keep of each list item (e.g. sid,status,to)")
+    parser.add_argument("--full", action="store_true", help=f"Print the whole body instead of capping at {STDOUT_LIMIT} chars")
     args = parser.parse_args()
     method = args.method.upper()
     if method != "GET" and not args.write:
@@ -127,7 +195,7 @@ def main() -> None:
         url = f"https://openrouter.ai{path}"
         headers = {"Authorization": f"Bearer {keys['OPENROUTER_API_KEY']}", "Accept": "application/json"}
 
-    _request(url, headers, method)
+    _request(url, headers, method, full=args.full, pick=[f.strip() for f in args.pick.split(",") if f.strip()])
 
 
 if __name__ == "__main__":

@@ -18,9 +18,9 @@ Resend returns **422**. Code default `hello@getvocify.com` only works if
 that domain is also verified.
 
 ```bash
-.cursor/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "resend"
-.cursor/skills/debug-vocify/scripts/vocify-http.sh resend GET /emails
-.cursor/skills/debug-vocify/scripts/vocify-http.sh resend GET /domains
+~/.agents/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "resend"
+~/.agents/skills/debug-vocify/scripts/vocify-http.sh resend GET /emails
+~/.agents/skills/debug-vocify/scripts/vocify-http.sh resend GET /domains
 ```
 
 List emails, then `GET /emails/{id}` for the failed send. Confirm `RESEND_FROM_EMAIL`
