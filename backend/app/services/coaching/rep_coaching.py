@@ -150,6 +150,7 @@ def interaction_row(memo: dict) -> dict | None:
         "user_id": str(memo.get("user_id") or ""),
         "observed_at": observed.isoformat(),
         "motion": memo.get("sales_motion_key"),
+        "kind": memo.get("interaction_kind"),
         "is_conversation": conversation,
         # v8 call type: only a call that runs the whole process can complete it.
         "full_process": call.get("call_type") in FULL_PROCESS_CALLS if call else True,
@@ -266,6 +267,30 @@ def objection_entry(entries: list[dict], key: str) -> Optional[dict]:
         elif category and category != "custom" and category == key:
             return entry
     return None
+
+
+def call_objections(row: dict, entries: list[dict]) -> list[dict]:
+    """The objections the prospect raised in one conversation (not obstacles), each with the key the
+    playbook answers it by, how it ended, what they said and what the rep replied."""
+    if not row.get("is_conversation", True):
+        return []
+    answers = _objection_answers(entries)
+    out = []
+    for item in row.get("objections") or []:
+        if item.get("kind") != "objection":
+            continue
+        custom = f"custom:{item['objection_id']}" if item.get("objection_id") else None
+        key = custom if custom in answers else item["category"]
+        out.append({
+            "key": key,
+            "category": key.split(":", 1)[0] if key.startswith("custom:") else key,
+            "label": (answers.get(key) or {}).get("label"),
+            "how": (answers.get(key) or {}).get("how"),
+            "resolution": item.get("resolution") or "unknown",
+            "quote": item.get("quote"),
+            "response": item.get("response"),
+        })
+    return out
 
 
 OCCURRENCE_LIMIT = 10

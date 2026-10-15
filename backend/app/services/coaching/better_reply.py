@@ -129,7 +129,10 @@ async def better_reply(messages: list[dict], *, cache_key: str) -> Optional[str]
     hit = _cache.get(digest)
     if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
         return hit[1]
-    say = _accept(await _ask(messages))
+    raw = await _ask(messages)
+    if not isinstance(raw, dict) or "say" not in raw:
+        raw = await _ask(messages)  # a reply with no answer at all (not even a null) is asked once more
+    say = _accept(raw)
     if len(_cache) >= _MAX_CACHED:
         _cache.clear()
     _cache[digest] = (time.monotonic(), say)

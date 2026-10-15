@@ -470,7 +470,7 @@ async def get_my_coaching_summary(
 
 
 _CALLS_WEEKS = STEP_WINDOW_WEEKS
-_MAX_CALLS = 50
+_MAX_CALLS = 200
 
 
 def _type_labels(supabase, company_id: str) -> dict[str, str]:
@@ -546,9 +546,12 @@ async def get_my_coaching_calls(
             "duration_s": row["duration_s"],
             "summary_line": row["summary_line"],
             "meeting_agreed": row["meeting_agreed"],
+            "kind": row.get("kind"),
             "done": part.get("met_steps", 0),
             "applicable": part.get("met_steps", 0) + part.get("missed_steps", 0),
             "slips": engine.call_slips(row),  # empty: nothing to improve in this one
+            # What the prospect objected to in this call, even when no step could be judged in it.
+            "objections": engine.call_objections(row, playbook["entries"]),
         })
     body["calls"] = calls[:_MAX_CALLS]
     return body

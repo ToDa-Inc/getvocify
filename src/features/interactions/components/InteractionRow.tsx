@@ -22,7 +22,7 @@ import { useCrmContactLink } from "../hooks/useCrmContactLink";
 import { ContactStack } from "./ContactStack";
 import { TypeChip } from "./TypeChip";
 
-const CHANNEL_ICON: Record<Channel, LucideIcon> = {
+export const CHANNEL_ICON: Record<Channel, LucideIcon> = {
   call: Phone,
   meeting: Video,
   visit: MapPin,
@@ -30,7 +30,7 @@ const CHANNEL_ICON: Record<Channel, LucideIcon> = {
 };
 
 /** The glyph says what it was; the tint tells calls from meetings at a glance. */
-const CHANNEL_TILE: Record<Channel, string> = {
+export const CHANNEL_TILE: Record<Channel, string> = {
   call: "border-success/20 bg-success/10 text-success",
   meeting: "border-beige/25 bg-beige/10 text-beige",
   visit: "border-border/60 bg-secondary/60 text-foreground/80",
