@@ -60,12 +60,14 @@ import {
   crmFor,
   crmForType,
   emailFrom,
+  leadStatusUpdate,
   meetingFrom,
   pollDelayMs,
   noteMarkdown,
   retypedTo,
   summaryLines,
   withEdits,
+  withLeadStatus,
   type PostCall,
 } from "@/lib/post-call";
 import { playbooksApi } from "@/features/playbooks/api";
@@ -86,7 +88,7 @@ import {
   type CallTypeState,
 } from "@/lib/live-call-type";
 import { buildApproveExtraction, proposedFieldKey, type ProposedUpdate } from "@/lib/extraction-omit";
-import { afterCallPoll, afterCallResolution, type CallSummary } from "@/lib/after-call";
+import { afterCallPoll, afterCallResolution, isNoConversation, type CallSummary } from "@/lib/after-call";
 import { callsApi } from "@/features/calls/api";
 import { callEngine, reportCallStep } from "@/features/calling/callEngine";
 import { isCallUp } from "@/lib/call-engine-state";
@@ -204,6 +206,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   /** The CRM the island names in its card; read when a call ends. */
   const crmNameRef = useRef<string | null>(null);
   crmNameRef.current = connected ? CRM_PROVIDER_CONFIGS[connected as CRMProvider]?.name ?? null : null;
+  const hubspotConnectedRef = useRef(false);
+  hubspotConnectedRef.current = connected === "hubspot";
   /** Where a contact's record lives in the connected CRM (HubSpot only): the card links to it once it is updated. */
   const hubspot = integrations.data?.find((connection) => connection.provider === "hubspot" && connection.status === "connected");
   const contactUrlRef = useRef<(contactId: string | null | undefined) => string | null>(() => null);
@@ -716,6 +720,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               { proposed_updates?: ProposedUpdate[] } | null
             >)
           : Promise.resolve(null);
+      // The lead status is offered on every call: its options come from the CRM's contact fields.
+      const leadStatusRequest: Promise<ProposedUpdate | null> =
+        memo.status === "pending_review" && contactId && hubspotConnectedRef.current
+          ? crmApi
+              .getSchema("contacts")
+              .then((schema) => leadStatusUpdate(schema.properties) as ProposedUpdate | null)
+              .catch(() => null)
+          : Promise.resolve(null);
       const [proposal, playbook] = await Promise.all([
         api.get<{ proposal: Record<string, unknown> | null }>(`/memos/${memoId}/meeting-proposal`).catch(() => null),
         api
@@ -736,8 +748,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
       const preview = await previewRequest;
       if (run.cancelled || !postCallRef.current) return;
-      postCallRef.current.proposed = preview?.proposed_updates ?? [];
-      const crm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, preview?.proposed_updates);
+      const proposed = withLeadStatus(preview?.proposed_updates, await leadStatusRequest);
+      postCallRef.current.proposed = proposed;
+      const crm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, proposed);
       postCallRef.current.crm = crm;
       showPostCall({
         ...crmForType(type?.key, crm),
@@ -776,7 +789,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           // The note as the rep left it in the island; absent when they didn't touch it.
           const note = typeof action.note === "string" ? action.note : null;
           const kept = current.state.changes.length - omit.filter((key) => current.state.changes.some((c) => c.key === key)).length;
-          if (kept <= 0) return;
+          // Nothing ticked is still a save when the rep wrote a note: it goes to the CRM on its own.
+          if (kept <= 0 && !note?.trim()) return;
           showPostCall({ stage: "applying", undoUntil: Date.now() + UNDO_MS });
           current.undoTimer = window.setTimeout(async () => {
             if (current.run.cancelled) return;
@@ -892,7 +906,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       let since: number | null = null;
       for (;;) {
         const summary = (await callsApi.getCall(callSid).catch(() => null)) as CallSummary | null;
-        if (summary?.memoId) {
+        // A voicemail pickup has a memo too, but nothing to review: the island says so instead of opening a card.
+        if (summary?.memoId && !isNoConversation(summary.screeningOutcome)) {
           bridge?.shell.setState({ finish: null });
           navigate(ROUTES.MEMO_DETAIL(summary.memoId));
           void followPostCall(summary.memoId, contactName);
@@ -900,8 +915,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         }
         const resolution = afterCallResolution(summary);
         if (resolution) {
-          const message = resolution === "no_answer" ? "No conversation on this call." : "The call failed.";
-          bridge?.shell.setState({ finish: { step: "failed", message } });
+          bridge?.shell.setState({
+            finish:
+              resolution === "no_answer"
+                ? { step: "skipped", message: "No answer. Logged as no answer." }
+                : { step: "failed", message: "The call failed." },
+          });
           return;
         }
         const next = afterCallPoll(summary, since, Date.now());
@@ -981,6 +1000,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           );
           reportCallStep("live-memo", { memoId: memo.id });
           queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
+          if (isNoConversation(memo.screeningOutcome)) {
+            // A voicemail (or nobody there): no card, no extraction. The call is logged as no answer in the CRM.
+            bridge?.shell.setState({ finish: { step: "skipped", message: "No answer. Logged as no answer." } });
+            return;
+          }
           bridge?.shell.setState({ finish: null });
           navigate(ROUTES.MEMO_DETAIL(memo.id));
           void followPostCall(memo.id, contactName);

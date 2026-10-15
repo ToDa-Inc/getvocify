@@ -267,6 +267,8 @@ export interface UploadMemoResponse {
   status: MemoStatus;
   /** URL to poll for status updates */
   statusUrl: string;
+  /** A call's memo that was screened out (voicemail, nobody there): nothing is extracted from it. */
+  screeningOutcome?: string | null;
 }
 
 /**
