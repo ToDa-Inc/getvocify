@@ -189,9 +189,9 @@ export const productCatalog = {
     meetingDetected: "Meeting detected",
     meetingBookedStage: "When a booked meeting is saved",
     meetingBookedStageNone: "Don't move the deal",
-    fieldPermsTitle: "Fields the AI fills, by work type",
+    fieldPermsTitle: "Different fields for calls, meetings or one person",
     fieldPermsHelper:
-      "Pipeline, stages and Skip Approve above apply to everyone. Here you choose which fields the AI fills in HubSpot for calls, meetings or both, and, if you want, for one person.",
+      "Optional. Everyone uses the list above; set another one here for calls, meetings or one person.",
     fieldPermsCompany: "the company",
     fieldPermsPerson: "Per person…",
     fieldPermsRolesOff: "Calls/Meetings profiles are off for this company: you can only set fields per person.",
@@ -1714,9 +1714,9 @@ export const productCatalog = {
     meetingDetected: "Reunión detectada",
     meetingBookedStage: "Al guardar una reunión acordada",
     meetingBookedStageNone: "No mover el deal",
-    fieldPermsTitle: "Campos que rellena la IA, según el trabajo",
+    fieldPermsTitle: "Otros campos para llamadas, reuniones o una persona",
     fieldPermsHelper:
-      "El pipeline, las etapas y Saltar Aprobar de arriba valen para todos. Aquí eliges qué campos rellena la IA en HubSpot para llamadas, reuniones o ambas y, si quieres, para una persona concreta.",
+      "Opcional. Todos usan la lista de arriba; fija otra aquí para llamadas, reuniones o una persona.",
     fieldPermsCompany: "la empresa",
     fieldPermsPerson: "Por persona…",
     fieldPermsRolesOff: "Los perfiles Llamadas/Reuniones están desactivados en esta empresa: solo puedes elegir campos por persona.",

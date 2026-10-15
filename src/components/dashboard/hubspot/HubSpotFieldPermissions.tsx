@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Search } from "lucide-react";
+import { Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Toggle } from "@/components/ui/toggle";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import {
   crmKeys,
@@ -121,20 +120,16 @@ export const HubSpotFieldPermissions = () => {
   const shown = inherits ? parentLists(objectMeta.key) : own;
   const schema = setup.data?.schemas[activeObject];
 
-  // No search: this scope's fields first, then the ones it would inherit. A search reaches
-  // any HubSpot property, so a role can fill a field the company list does not.
+  // The fields this scope fills are shown as chips; a search reaches any HubSpot property to add one.
   const properties = schema?.properties ?? [];
   const labelOf = (name: string) => properties.find((prop) => prop.name === name)?.label ?? name;
   const query = search.trim().toLowerCase();
-  const candidates = query
+  const results = query
     ? properties
+        .filter((prop) => !shown.includes(prop.name))
         .filter((prop) => prop.label.toLowerCase().includes(query) || prop.name.toLowerCase().includes(query))
-        .slice(0, 60)
-        .map((prop) => ({ name: prop.name, label: prop.label }))
-    : [...shown, ...parentLists(objectMeta.key).filter((n) => !shown.includes(n))].map((name) => ({
-        name,
-        label: labelOf(name),
-      }));
+        .slice(0, 12)
+    : [];
 
   const pickScope = (next: Scope) => {
     setScope(next);
@@ -148,6 +143,7 @@ export const HubSpotFieldPermissions = () => {
   const toggle = (name: string) => {
     if (inherits) return;
     setOwn(own!.includes(name) ? own!.filter((n) => n !== name) : [...own!, name]);
+    setSearch("");
   };
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: crmKeys.fieldPermissions() });
@@ -311,30 +307,44 @@ export const HubSpotFieldPermissions = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {candidates.map((c) => {
-            const on = shown.includes(c.name);
-            return (
-              <Toggle
-                key={c.name}
-                variant="chip"
-                pressed={on}
-                disabled={inherits}
-                onPressedChange={() => toggle(c.name)}
-                className="h-auto w-full justify-between rounded-xl px-3 py-2 text-left disabled:opacity-70"
-              >
-                <span className="flex flex-col min-w-0">
-                  <span className="text-[11px] font-bold truncate">{c.label}</span>
-                  <span className="text-[9px] font-mono opacity-40 truncate">{c.name}</span>
-                </span>
-                {on && <Check className="h-3 w-3 shrink-0 ml-2" />}
-              </Toggle>
-            );
-          })}
-          {candidates.length === 0 && (
-            <p className="col-span-full text-xs text-muted-foreground py-3">{p.fieldPermsNoFields}</p>
-          )}
+        <div className="flex flex-wrap gap-1.5">
+          {shown.map((name) => (
+            <span
+              key={name}
+              title={name}
+              className="inline-flex items-center gap-1 rounded-full bg-background py-1 pl-2.5 pr-2 text-xs text-foreground"
+            >
+              {labelOf(name)}
+              {!inherits && (
+                <button
+                  type="button"
+                  aria-label={labelOf(name)}
+                  onClick={() => toggle(name)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3 w-3" strokeWidth={1.5} />
+                </button>
+              )}
+            </span>
+          ))}
+          {shown.length === 0 && <p className="py-1 text-xs text-muted-foreground">{p.fieldPermsNoFields}</p>}
         </div>
+        {results.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 border-t border-dashed border-border/60 pt-3">
+            {results.map((prop) => (
+              <button
+                key={prop.name}
+                type="button"
+                onClick={() => toggle(prop.name)}
+                title={prop.name}
+                className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <Plus className="h-3 w-3" strokeWidth={1.5} />
+                {prop.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2">

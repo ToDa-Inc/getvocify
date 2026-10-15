@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { BarChart3, Mic, Clock, TrendingUp } from "lucide-react";
+import { BarChart3, Mic, TrendingUp } from "lucide-react";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { Button } from "@/components/ui/button";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
@@ -24,14 +24,6 @@ const UsagePage = () => {
           changeTone: usage.this_week_memos > 0 ? "positive" : "neutral",
         },
         {
-          icon: Clock,
-          label: "Time Saved",
-          value: `${usage.time_saved_hours} hrs`,
-          change: usage.this_week_time_saved_hours > 0 ? `+${usage.this_week_time_saved_hours} hrs this week` : "—",
-          color: "text-success",
-          changeTone: usage.this_week_time_saved_hours > 0 ? "positive" : "neutral",
-        },
-        {
           icon: BarChart3,
           label: "CRM Updates",
           value: String(usage.approved_count),
@@ -41,9 +33,9 @@ const UsagePage = () => {
         },
         {
           icon: TrendingUp,
-          label: "Accuracy Rate",
+          label: "Approval rate",
           value: usage.accuracy_pct != null ? `${usage.accuracy_pct}%` : "—",
-          change: usage.accuracy_pct != null ? "Approved / (Approved + Rejected)" : "No data yet",
+          change: usage.accuracy_pct != null ? "Approved of approved + rejected" : "No data yet",
           color: "text-beige",
           changeTone: usage.accuracy_pct != null ? "positive" : "neutral",
         },
@@ -89,7 +81,7 @@ const UsagePage = () => {
     <div className="space-y-8">
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {stats.map((stat) => (
           <div key={stat.label} className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-8 ${THEME_TOKENS.cards.hover}`}>
             <div className="w-12 h-12 rounded-2xl bg-secondary/5 flex items-center justify-center mb-6">

@@ -32,10 +32,8 @@ const PreferencesSection = () => {
   return (
     <div className="mx-auto max-w-[680px] space-y-8">
       <SettingsSection label={t.product.settingsSectionLanguage}>
-        <div className="py-5">
-          <TranscriptionLanguageSettings />
-        </div>
-        <div className="py-5">
+        <TranscriptionLanguageSettings />
+        <div className="py-4">
           <UserGlossary readOnly={!canManage} />
         </div>
       </SettingsSection>

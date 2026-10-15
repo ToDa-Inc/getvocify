@@ -1,22 +1,20 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Trash2 } from "lucide-react";
+import { Copy, KeyRound, Link2, LogIn, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { IconAction } from "@/components/ui/icon-action";
+import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
 import { Segmented } from "@/components/ui/segmented";
 import { Switch } from "@/components/ui/switch";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { mcpApi, mcpKeys, type McpSettings } from "@/lib/api/mcp";
 import { useLanguage } from "@/lib/i18n";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
 
-const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`;
 const codeBox = "rounded-lg bg-muted/60 px-3 py-2 font-mono text-xs text-foreground break-all";
 const KEY_PLACEHOLDER = "YOUR_VOCIFY_API_KEY";
 
-type Mode = "signin" | "key";
 type Client = "claude-code" | "cursor" | "desktop";
 
 const CLIENTS: { value: Client; label: string }[] = [
@@ -84,7 +82,6 @@ function formatDate(value: string | null | undefined, language: string): string 
 const AgentsSection = () => {
   const { t, language } = useLanguage();
   const queryClient = useQueryClient();
-  const [pickedMode, setPickedMode] = useState<Mode | null>(null);
   const [client, setClient] = useState<Client>("claude-code");
   const [newKey, setNewKey] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"revoke" | "regenerate" | null>(null);
@@ -146,166 +143,134 @@ const AgentsSection = () => {
   }
 
   const connected = grants.data?.grants ?? [];
-  // Signing in is how most people connect: open there, unless they already have a key and no connected app.
-  const mode: Mode = pickedMode ?? (data.key.has_key && connected.length === 0 && !grants.isLoading ? "key" : "signin");
   const membersWithKey = (data.members ?? []).filter((m) => m.has_key);
   const memberName = membersWithKey.find((m) => m.user_id === memberToRevoke)?.name ?? "";
 
   return (
-    <div className="space-y-6">
-      <div className={card}>
-        <h3 className={THEME_TOKENS.typography.sectionTitle}>{t.product.agentsTitle}</h3>
-        <p className="text-xs text-muted-foreground mt-1">{t.product.agentsHelper}</p>
-
-        {!data.enabled ? (
-          <p className="text-sm text-muted-foreground mt-5">
-            {t.product.agentsOff} {data.can_manage ? null : t.product.agentsOffMember}
-          </p>
-        ) : (
-          <div className="mt-6 max-w-2xl space-y-5">
-            <div className="space-y-2">
-              <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsServerUrl}</p>
+    <div className="mx-auto max-w-[680px] space-y-8">
+      <SettingsSection label={t.product.agentsTitle}>
+        <SettingsRow
+          icon={Link2}
+          title={t.product.agentsServerUrl}
+          description={t.product.agentsHelper}
+          below={
+            data.enabled ? (
               <CopyRow value={data.server_url} label={t.product.agentsCopy} />
-            </div>
-
-            <Segmented<Mode>
-              value={mode}
-              onValueChange={setPickedMode}
-              aria-label={t.product.agentsTitle}
-              options={[
-                { value: "signin", label: t.product.agentsModeSignIn },
-                { value: "key", label: t.product.agentsModeKey },
-              ]}
-            />
-
-            {mode === "signin" ? (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">{t.product.agentsSignInHelper}</p>
-                <div className="space-y-2 border-t border-border/60 pt-4">
-                  <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsAppsTitle}</p>
-                  {connected.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">{t.product.agentsAppsEmpty}</p>
-                  ) : (
-                    <ul className="divide-y divide-border/60">
-                      {connected.map((grant) => (
-                        <li key={grant.client.client_id} className="flex items-center justify-between gap-4 py-2">
-                          <div className="min-w-0">
-                            <p className="text-sm text-foreground truncate">{grant.client.client_name || grant.client.client_uri}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {grant.client.client_uri} · {t.product.agentsAppsConnectedOn} {formatDate(grant.granted_at, language)}
-                            </p>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="dangerGhost"
-                            size="text"
-                            disabled={revokeGrant.isPending}
-                            onClick={() => revokeGrant.mutate(grant.client.client_id)}
-                          >
-                            {t.product.agentsAppsDisconnect}
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
             ) : (
-              <div className="space-y-5">
-                <div className="space-y-3">
-                  <div className="flex items-start justify-between gap-6">
-                    <div className="space-y-1">
-                      <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsKeyTitle}</p>
-                      <p className="text-sm text-muted-foreground">{t.product.agentsKeyHelper}</p>
-                    </div>
-                    {!data.key.has_key && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="rounded-full shrink-0"
-                        disabled={createKey.isPending}
-                        onClick={() => createKey.mutate()}
-                      >
-                        {createKey.isPending ? <VocifySpinner size={14} tone="onFill" /> : t.product.agentsKeyCreate}
-                      </Button>
-                    )}
-                  </div>
-                  {newKey ? (
-                    <div className="space-y-1.5">
-                      <CopyRow value={newKey} label={t.product.agentsCopy} />
-                      <p className="text-xs text-warning" role="status">{t.product.agentsKeyShownOnce}</p>
-                    </div>
-                  ) : null}
-                  {data.key.has_key && (
-                    <div className="flex items-center justify-between gap-4">
-                      <p className="text-sm text-foreground">
-                        <span className="font-mono">{data.key.prefix}…</span>
-                        <span className="text-muted-foreground">
-                          {" · "}
-                          {t.product.agentsKeyCreatedOn} {formatDate(data.key.created_at, language)}
-                        </span>
-                      </p>
-                      <div className="flex items-center gap-1">
-                        <Button type="button" variant="quiet" size="text" onClick={() => setConfirm("regenerate")}>
-                          {t.product.agentsKeyRegenerate}
+              <p className="text-sm text-muted-foreground">
+                {t.product.agentsOff} {data.can_manage ? null : t.product.agentsOffMember}
+              </p>
+            )
+          }
+        />
+        {data.enabled && (
+          <>
+            <SettingsRow
+              icon={LogIn}
+              title={t.product.agentsAppsTitle}
+              description={t.product.agentsSignInHelper}
+              below={
+                connected.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t.product.agentsAppsEmpty}</p>
+                ) : (
+                  <ul className="divide-y divide-dashed divide-border/60">
+                    {connected.map((grant) => (
+                      <li key={grant.client.client_id} className="flex items-center justify-between gap-4 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm text-foreground">{grant.client.client_name || grant.client.client_uri}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {t.product.agentsAppsConnectedOn} {formatDate(grant.granted_at, language)}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="dangerGhost"
+                          size="text"
+                          disabled={revokeGrant.isPending}
+                          onClick={() => revokeGrant.mutate(grant.client.client_id)}
+                        >
+                          {t.product.agentsAppsDisconnect}
                         </Button>
-                        <Button type="button" variant="dangerGhost" size="text" onClick={() => setConfirm("revoke")}>
-                          {t.product.agentsKeyRevoke}
-                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              }
+            />
+            <SettingsRow
+              icon={KeyRound}
+              title={t.product.agentsKeyTitle}
+              description={
+                data.key.has_key ? (
+                  <>
+                    <span className="font-mono">{data.key.prefix}…</span> · {t.product.agentsKeyCreatedOn}{" "}
+                    {formatDate(data.key.created_at, language)}
+                  </>
+                ) : (
+                  t.product.agentsKeyHelper
+                )
+              }
+              below={
+                newKey || data.key.has_key ? (
+                  <div className="space-y-3">
+                    {newKey ? (
+                      <div className="space-y-1.5">
+                        <CopyRow value={newKey} label={t.product.agentsCopy} />
+                        <p className="text-xs text-warning" role="status">{t.product.agentsKeyShownOnce}</p>
                       </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-3 border-t border-border/60 pt-4">
-                  <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsSetupTitle}</p>
-                  <Segmented<Client> value={client} onValueChange={setClient} options={CLIENTS} aria-label={t.product.agentsSetupTitle} />
-                  <CopyRow value={snippet(client, data.server_url, newKey ?? KEY_PLACEHOLDER)} label={t.product.agentsCopy} />
-                </div>
-              </div>
-            )}
-          </div>
+                    ) : null}
+                    <Segmented<Client> value={client} onValueChange={setClient} options={CLIENTS} aria-label={t.product.agentsSetupTitle} />
+                    <CopyRow value={snippet(client, data.server_url, newKey ?? KEY_PLACEHOLDER)} label={t.product.agentsCopy} />
+                  </div>
+                ) : null
+              }
+            >
+              {data.key.has_key ? (
+                <>
+                  <Button type="button" variant="quiet" size="text" onClick={() => setConfirm("regenerate")}>
+                    {t.product.agentsKeyRegenerate}
+                  </Button>
+                  <Button type="button" variant="dangerGhost" size="text" onClick={() => setConfirm("revoke")}>
+                    {t.product.agentsKeyRevoke}
+                  </Button>
+                </>
+              ) : (
+                <Button type="button" size="sm" className="rounded-full" disabled={createKey.isPending} onClick={() => createKey.mutate()}>
+                  {createKey.isPending ? <VocifySpinner size={14} tone="onFill" /> : t.product.agentsKeyCreate}
+                </Button>
+              )}
+            </SettingsRow>
+          </>
         )}
-      </div>
+      </SettingsSection>
 
       {data.can_manage && (
-        <div className={card}>
-          <h3 className={THEME_TOKENS.typography.sectionTitle}>{t.product.agentsWorkspaceTitle}</h3>
-          <div className="mt-5 max-w-2xl space-y-5">
-            <div className="flex items-start justify-between gap-6">
-              <div className="space-y-1">
-                <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsWorkspaceEnable}</p>
-                <p className="text-sm text-muted-foreground">{t.product.agentsWorkspaceEnableHelper}</p>
-              </div>
-              <Switch
-                checked={data.enabled}
-                disabled={update.isPending}
-                onCheckedChange={(enabled) => update.mutate({ enabled })}
-                aria-label={t.product.agentsWorkspaceEnable}
-              />
-            </div>
-            <div className="flex items-start justify-between gap-6 border-t border-border/60 pt-5">
-              <div className="space-y-1">
-                <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsWorkspaceTranscripts}</p>
-                <p className="text-sm text-muted-foreground">{t.product.agentsWorkspaceTranscriptsHelper}</p>
-              </div>
-              <Switch
-                checked={data.transcripts_enabled}
-                disabled={update.isPending || !data.enabled}
-                onCheckedChange={(transcripts_enabled) => update.mutate({ transcripts_enabled })}
-                aria-label={t.product.agentsWorkspaceTranscripts}
-              />
-            </div>
-            <div className="space-y-2 border-t border-border/60 pt-5">
-              <p className={THEME_TOKENS.typography.sectionRail}>{t.product.agentsMembersTitle}</p>
-              {membersWithKey.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t.product.agentsMembersNone}</p>
-              ) : (
-                <ul className="max-h-80 overflow-y-auto divide-y divide-border/60">
+        <SettingsSection label={t.product.agentsWorkspaceTitle}>
+          <SettingsRow title={t.product.agentsWorkspaceEnable} description={t.product.agentsWorkspaceEnableHelper}>
+            <Switch
+              checked={data.enabled}
+              disabled={update.isPending}
+              onCheckedChange={(enabled) => update.mutate({ enabled })}
+              aria-label={t.product.agentsWorkspaceEnable}
+            />
+          </SettingsRow>
+          <SettingsRow title={t.product.agentsWorkspaceTranscripts} description={t.product.agentsWorkspaceTranscriptsHelper}>
+            <Switch
+              checked={data.transcripts_enabled}
+              disabled={update.isPending || !data.enabled}
+              onCheckedChange={(transcripts_enabled) => update.mutate({ transcripts_enabled })}
+              aria-label={t.product.agentsWorkspaceTranscripts}
+            />
+          </SettingsRow>
+          {membersWithKey.length > 0 && (
+            <SettingsRow
+              title={t.product.agentsMembersTitle}
+              below={
+                <ul className="max-h-80 divide-y divide-dashed divide-border/60 overflow-y-auto">
                   {membersWithKey.map((member) => (
                     <li key={member.user_id} className="flex items-center justify-between gap-4 py-2">
                       <div className="min-w-0">
-                        <p className="text-sm text-foreground truncate">{member.name}</p>
+                        <p className="truncate text-sm text-foreground">{member.name}</p>
                         <p className="text-xs text-muted-foreground">
                           <span className="font-mono">{member.prefix}…</span> · {formatDate(member.created_at, language)}
                         </p>
@@ -321,10 +286,10 @@ const AgentsSection = () => {
                     </li>
                   ))}
                 </ul>
-              )}
-            </div>
-          </div>
-        </div>
+              }
+            />
+          )}
+        </SettingsSection>
       )}
 
       <ConfirmAction

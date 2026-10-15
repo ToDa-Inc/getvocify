@@ -316,7 +316,7 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
 
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <h4 className={`${THEME_TOKENS.typography.capsLabel} flex-1`}>Fields AI can fill</h4>
+          <h4 className={`${THEME_TOKENS.typography.capsLabel} flex-1`}>Fields the AI fills</h4>
           {!readOnly && (
           <Button
             type="button"

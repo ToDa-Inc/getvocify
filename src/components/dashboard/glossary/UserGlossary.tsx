@@ -1,20 +1,22 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Sparkles, Wand2, Upload, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { ConfirmAction } from "@/components/ui/confirm-action";
-import { IconAction } from "@/components/ui/icon-action";
-import { Input } from "@/components/ui/input";
-import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
+import { X } from "lucide-react";
 import { toast } from "sonner";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { glossaryApi, glossaryKeys, GlossaryItem, BulkAddItem } from "@/lib/api/glossary";
-import { parseBulkInput, type ParsedBulkItem } from "@/lib/glossary/parseBulkInput";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { VocifySpinner } from "@/components/ui/vocify-loader";
+import { glossaryApi, glossaryKeys, type GlossaryItem } from "@/lib/api/glossary";
 
-// A stable default: a fresh [] on every render re-ran the bulk preview effect in a loop while the list loaded.
+// A stable default: a fresh [] on every render would change the query data identity while it loads.
 const NO_ITEMS: GlossaryItem[] = [];
 
+/** Words split on commas and new lines, so pasting a list adds them all. */
+function splitWords(text: string): string[] {
+  return [...new Set(text.split(/[,\n]/).map((w) => w.trim()).filter(Boolean))];
+}
+
+/**
+ * The glossary as tags (Granola's "Personal jargon"): type a word and press Enter, paste a list to add
+ * several. The sound-alikes are made by the backend when a word is added.
+ */
 export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
   const queryClient = useQueryClient();
   const { data: items = NO_ITEMS, isLoading } = useQuery({
@@ -22,512 +24,106 @@ export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
     queryFn: () => glossaryApi.getGlossary(),
     staleTime: Infinity,
   });
-  const [pendingDelete, setPendingDelete] = useState<GlossaryItem | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [newWord, setNewWord] = useState("");
-  const [newHints, setNewHints] = useState("");
-  const [newCategory, setNewCategory] = useState("Company");
-  const [showBulkAdd, setShowBulkAdd] = useState(false);
-  const [bulkInput, setBulkInput] = useState("");
-  const [bulkPreview, setBulkPreview] = useState<(ParsedBulkItem & { id: string; include: boolean })[]>([]);
-  const [bulkCategory, setBulkCategory] = useState("Company");
-  const [isBulkSuggesting, setIsBulkSuggesting] = useState(false);
-  const [isBulkAdding, setIsBulkAdding] = useState(false);
-  const [isDragOver, setIsDragOver] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
-  const existingWords = useCallback(() => new Set(items.map((i) => i.target_word)), [items]);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: glossaryKeys.list() });
 
-  const refreshBulkPreview = useCallback(() => {
-    const parsed = parseBulkInput(bulkInput, bulkCategory);
-    const existing = existingWords();
-    setBulkPreview(
-      parsed.map((p, idx) => ({
-        ...p,
-        id: `bulk-${idx}-${p.word}`,
-        include: !existing.has(p.word),
-      })),
-    );
-  }, [bulkInput, bulkCategory, existingWords]);
-
-  useEffect(() => {
-    if (bulkInput.trim()) refreshBulkPreview();
-    else setBulkPreview([]);
-  }, [bulkInput, bulkCategory, refreshBulkPreview]);
-
-  const handleBulkFile = useCallback(
-    (file: File) => {
-      if (!file || !/\.(csv|txt)$/i.test(file.name)) {
-        toast.error("Please upload a .csv or .txt file");
-        return;
+  const add = async () => {
+    const known = new Set(items.map((i) => i.target_word.toLowerCase()));
+    const words = splitWords(draft).filter((w) => !known.has(w.toLowerCase()));
+    if (words.length === 0) {
+      setDraft("");
+      return;
+    }
+    setAdding(true);
+    try {
+      if (words.length === 1) {
+        await glossaryApi.addItem({ target_word: words[0], phonetic_hints: [], category: "General", boost_factor: 5 });
+      } else {
+        await glossaryApi.bulkAdd(words.map((w) => ({ target_word: w, phonetic_hints: [], category: "General" })));
       }
-      const reader = new FileReader();
-      reader.onload = () => {
-        const text = String(reader.result ?? "");
-        setBulkInput((prev) => (prev ? `${prev}\n${text}` : text));
-      };
-      reader.readAsText(file);
-    },
-    [],
-  );
-
-  const handleBulkSuggest = useCallback(async () => {
-    const toSuggest = bulkPreview.filter((p) => p.include && p.hints.length === 0).map((p) => p.word);
-    if (toSuggest.length === 0) {
-      toast.info("All selected words already have hints");
-      return;
-    }
-    try {
-      setIsBulkSuggesting(true);
-      const result = await glossaryApi.bulkSuggest(toSuggest, bulkCategory);
-      setBulkPreview((prev) =>
-        prev.map((p) => ({
-          ...p,
-          hints: result[p.word] ?? p.hints,
-        })),
-      );
-      toast.success(`Generated hints for ${Object.keys(result).length} words`);
+      setDraft("");
+      await refresh();
     } catch {
-      toast.error("Failed to generate sound-alikes");
+      toast.error("Could not add to the glossary");
     } finally {
-      setIsBulkSuggesting(false);
-    }
-  }, [bulkPreview, bulkCategory]);
-
-  const handleBulkAdd = useCallback(async () => {
-    const toAdd = bulkPreview
-      .filter((p) => p.include)
-      .map((p) => ({
-        target_word: p.word,
-        phonetic_hints: p.hints,
-        category: p.category,
-      } satisfies BulkAddItem));
-    if (toAdd.length === 0) {
-      toast.error("Select at least one word to add");
-      return;
-    }
-    try {
-      setIsBulkAdding(true);
-      const { added, skipped } = await glossaryApi.bulkAdd(toAdd);
-      toast.success(`Added ${added} words${skipped > 0 ? `. ${skipped} skipped (already in glossary)` : ""}`);
-      setBulkInput("");
-      setBulkPreview([]);
-      setShowBulkAdd(false);
-      queryClient.invalidateQueries({ queryKey: glossaryKeys.list() });
-    } catch {
-      toast.error("Failed to add words");
-    } finally {
-      setIsBulkAdding(false);
-    }
-  }, [bulkPreview, queryClient]);
-
-  const setPreviewHints = useCallback((id: string, hints: string[]) => {
-    setBulkPreview((prev) => prev.map((p) => (p.id === id ? { ...p, hints } : p)));
-  }, []);
-
-  const setPreviewInclude = useCallback((id: string, include: boolean) => {
-    setBulkPreview((prev) => prev.map((p) => (p.id === id ? { ...p, include } : p)));
-  }, []);
-
-  const removePreviewItem = useCallback((id: string) => {
-    setBulkPreview((prev) => prev.filter((p) => p.id !== id));
-  }, []);
-
-  const handleSuggest = async () => {
-    if (!newWord.trim()) return;
-    try {
-      setIsGenerating(true);
-      const data = await glossaryApi.suggestHints(newWord, newCategory);
-      setNewHints(data.hints.join(", "));
-      toast.success("AI generated phonetic hints!");
-    } catch (error) {
-      toast.error("Failed to generate hints");
-    } finally {
-      setIsGenerating(false);
+      setAdding(false);
     }
   };
 
-  const handleAdd = async () => {
-    if (!newWord.trim()) return;
-    
+  const remove = async (item: GlossaryItem) => {
+    if (!item.id) return;
+    setRemovingId(item.id);
     try {
-      setIsGenerating(true);
-      // If hints are empty, they will be auto-generated by the backend
-      const hints = newHints.split(",").map(h => h.trim()).filter(h => h);
-      await glossaryApi.addItem({
-        target_word: newWord,
-        phonetic_hints: hints,
-        category: newCategory,
-        boost_factor: 5
-      });
-      
-      toast.success(`Added "${newWord}" to your glossary`);
-      setNewWord("");
-      setNewHints("");
-      setIsAdding(false);
-      queryClient.invalidateQueries({ queryKey: glossaryKeys.list() });
-    } catch (error) {
-      toast.error("Failed to add word");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!pendingDelete?.id) return;
-    try {
-      setIsDeleting(true);
-      await glossaryApi.deleteItem(pendingDelete.id);
-      toast.success("Removed from glossary");
-      setPendingDelete(null);
-      queryClient.invalidateQueries({ queryKey: glossaryKeys.list() });
+      await glossaryApi.deleteItem(item.id);
+      await refresh();
     } catch {
-      toast.error("Failed to delete word");
+      toast.error("Could not remove the word");
     } finally {
-      setIsDeleting(false);
+      setRemovingId(null);
     }
   };
 
   if (isLoading) {
     return (
-      <div className={THEME_TOKENS.interaction.pageLoad}>
-        <VocifyLoader size="lg" label="Loading glossary..." />
+      <div className="flex justify-center py-4">
+        <VocifySpinner size={16} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-        <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className={THEME_TOKENS.typography.sectionTitle}>Glossary</h3>
-          <p className="text-xs text-muted-foreground mt-1">
-            {readOnly
-              ? "Workspace terms used in transcription. Ask an admin to change them."
-              : "Add names and terms this workspace actually says. Starts empty."}
-          </p>
-        </div>
-        {!readOnly && (
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowBulkAdd(!showBulkAdd)}
-            className={`rounded-full border-beige/30 text-beige hover:bg-beige/5 ${showBulkAdd ? "bg-beige/10" : ""}`}
-          >
-            {showBulkAdd ? "Cancel" : <><Upload className="h-4 w-4 mr-2" /> Bulk add</>}
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => setIsAdding(!isAdding)}
-            className="rounded-full border-beige/30 text-beige hover:bg-beige/5"
-          >
-            {isAdding ? "Cancel" : <><Plus className="h-4 w-4 mr-2" /> Add</>}
-          </Button>
-        </div>
-        )}
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-sm text-foreground">Glossary</h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {readOnly
+            ? "Names and terms your calls say, set by an admin."
+            : "Names and terms your calls say, so the transcript spells them right."}
+        </p>
       </div>
-
-      {!readOnly && showBulkAdd && (
-        <div className="p-6 rounded-2xl bg-secondary/5 border border-beige/20 space-y-6 animate-in fade-in slide-in-from-top-2">
-          <div>
-            <h4 className={`${THEME_TOKENS.typography.capsLabel} mb-2`}>Bulk import</h4>
-            <p className="text-xs text-muted-foreground mb-4">
-              Paste words (one per line or comma-separated), or drop a CSV/TXT file. CSV can include: word,category,hints
-            </p>
-            <div
-              className={`relative rounded-2xl border-2 border-dashed transition-colors ${
-                isDragOver ? "border-beige bg-beige/5" : "border-beige/20 hover:border-beige/40"
-              }`}
-              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-              onDragLeave={() => setIsDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragOver(false);
-                const f = e.dataTransfer.files[0];
-                if (f) handleBulkFile(f);
-              }}
-            >
-              <textarea
-                value={bulkInput}
-                onChange={(e) => setBulkInput(e.target.value)}
-                placeholder={'Acme Corp\nFTES\n50k\n\nOr CSV: word,category,hints'}
-                className="w-full min-h-[140px] p-4 pr-12 rounded-2xl bg-transparent text-sm resize-y focus:outline-none focus:ring-0 placeholder:text-muted-foreground/50"
-              />
-              <label className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-beige/10 cursor-pointer text-muted-foreground/60 hover:text-beige transition-colors">
-                <input
-                  type="file"
-                  accept=".csv,.txt"
-                  className="sr-only"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBulkFile(f); e.target.value = ""; }}
-                />
-                <Upload className="h-5 w-5" />
-              </label>
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-2">Supported: .csv, .txt</p>
-          </div>
-
-          {bulkPreview.length > 0 && (
-            <>
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-xs font-bold text-muted-foreground">
-                  {bulkPreview.filter((p) => p.include).length} to add
-                  {bulkPreview.some((p) => !p.include) && ` · ${bulkPreview.filter((p) => !p.include).length} already in glossary`}
-                </span>
-                <span className="text-xs text-muted-foreground">Category:</span>
-                <Select value={bulkCategory} onValueChange={setBulkCategory}>
-                  <SelectTrigger size="sm" className="w-auto" aria-label="Category">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Company">Company</SelectItem>
-                    <SelectItem value="Competitor">Competitor</SelectItem>
-                    <SelectItem value="Product">Product</SelectItem>
-                    <SelectItem value="Technical">Technical</SelectItem>
-                    <SelectItem value="Slang">Slang/Lingo</SelectItem>
-                    <SelectItem value="General">General</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={isBulkSuggesting || !bulkPreview.some((p) => p.include && p.hints.length === 0)}
-                  onClick={handleBulkSuggest}
-                  className="rounded-full text-xs h-8"
-                >
-                  {isBulkSuggesting ? <VocifySpinner size={12} /> : <Wand2 className="h-3 w-3 mr-1" />}
-                  Generate missing sound-alikes
-                </Button>
-              </div>
-
-              <div className="max-h-[280px] overflow-auto rounded-xl border border-border/20">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-secondary/95 border-b border-border/20">
-                    <tr className="text-left">
-                      <th className="w-10 p-2"></th>
-                      <th className="p-2 font-medium">Word</th>
-                      <th className="p-2 font-medium">Category</th>
-                      <th className="p-2 font-medium flex-1">Sound-alikes</th>
-                      <th className="w-10 p-2"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bulkPreview.map((row) => (
-                      <tr
-                        key={row.id}
-                        className={`border-b border-border/10 last:border-0 ${!row.include ? "opacity-50 bg-muted/20" : ""}`}
-                      >
-                        <td className="p-2">
-                          <input
-                            type="checkbox"
-                            checked={row.include}
-                            onChange={(e) => setPreviewInclude(row.id, e.target.checked)}
-                            className="rounded border-input"
-                          />
-                        </td>
-                        <td className="p-2 font-medium">{row.word}</td>
-                        <td className="p-2">
-                          <Select
-                            value={row.category}
-                            onValueChange={(val) =>
-                              setBulkPreview((prev) =>
-                                prev.map((p) => (p.id === row.id ? { ...p, category: val } : p))
-                              )
-                            }
-                          >
-                            <SelectTrigger size="sm" className="w-28" aria-label="Category">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Company">Company</SelectItem>
-                              <SelectItem value="Competitor">Competitor</SelectItem>
-                              <SelectItem value="Product">Product</SelectItem>
-                              <SelectItem value="Technical">Technical</SelectItem>
-                              <SelectItem value="Slang">Slang</SelectItem>
-                              <SelectItem value="General">General</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </td>
-                        <td className="p-2">
-                          <Input
-                            value={row.hints.join(", ")}
-                            onChange={(e) =>
-                              setPreviewHints(
-                                row.id,
-                                e.target.value.split(/[,|;]/).map((h) => h.trim()).filter(Boolean),
-                              )
-                            }
-                            placeholder="En red, Enred"
-                            className="h-7 text-xs rounded-lg"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => removePreviewItem(row.id)}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <Button
-                variant="hero"
-                disabled={isBulkAdding || !bulkPreview.some((p) => p.include)}
-                onClick={handleBulkAdd}
-                className="w-full rounded-full bg-beige text-cream font-bold"
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border/60 bg-background px-2.5 py-2">
+        {items.map((item) => (
+          <span
+            key={item.id}
+            title={item.phonetic_hints.length ? `Fixes: ${item.phonetic_hints.join(", ")}` : undefined}
+            className="inline-flex items-center gap-1 rounded-full bg-secondary/10 py-1 pl-2.5 pr-2 text-xs text-foreground"
+          >
+            {item.target_word}
+            {!readOnly && (
+              <button
+                type="button"
+                aria-label={`Remove ${item.target_word}`}
+                disabled={removingId === item.id}
+                onClick={() => void remove(item)}
+                className="text-muted-foreground hover:text-foreground disabled:opacity-40"
               >
-                {isBulkAdding ? (
-                  <><VocifySpinner size={12} /> Adding...</>
-                ) : (
-                  <>Add {bulkPreview.filter((p) => p.include).length} to glossary</>
-                )}
-              </Button>
-            </>
-          )}
-        </div>
-      )}
-
-      {!readOnly && isAdding && (
-        <div className="p-6 rounded-2xl bg-secondary/5 border border-beige/20 space-y-4 animate-in fade-in slide-in-from-top-2">
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className={THEME_TOKENS.typography.capsLabel}>Word / Name</label>
-              <div className="relative">
-                <Input 
-                  placeholder="e.g. Acme Corp" 
-                  value={newWord}
-                  onChange={(e) => setNewWord(e.target.value)}
-                  className="rounded-full bg-card font-bold pr-10"
-                />
-                <button 
-                  onClick={handleSuggest}
-                  disabled={isGenerating || !newWord}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-beige hover:text-beige-dark disabled:opacity-30 transition-colors"
-                  title="Generate AI hints"
-                >
-                  {isGenerating ? <VocifySpinner size={12} /> : <Wand2 className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className={THEME_TOKENS.typography.capsLabel}>Category</label>
-              <Select value={newCategory} onValueChange={setNewCategory}>
-                <SelectTrigger className="w-full" aria-label="Category">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Company">Company</SelectItem>
-                  <SelectItem value="Competitor">Competitor</SelectItem>
-                  <SelectItem value="Product">Product</SelectItem>
-                  <SelectItem value="Technical">Technical</SelectItem>
-                  <SelectItem value="Slang">Slang/Lingo</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between px-1">
-              <label className={THEME_TOKENS.typography.capsLabel}>Sounds like (comma separated)</label>
-              {!newHints && (
-                <span className="text-[9px] font-black uppercase tracking-tighter text-beige flex items-center gap-1">
-                  <Sparkles className="h-2.5 w-2.5" /> AI will auto-fill if empty
-                </span>
-              )}
-            </div>
-            <Input 
-              placeholder="How it sounds, comma separated" 
-              value={newHints}
-              onChange={(e) => setNewHints(e.target.value)}
-              className="rounded-full bg-card"
-            />
-          </div>
-          <Button 
-            onClick={handleAdd} 
-            disabled={isGenerating}
-            className="w-full"
-          >
-            {isGenerating ? <VocifySpinner size={12} /> : null}
-            Add to Vocabulary
-          </Button>
-        </div>
-      )}
-
-      <div className="space-y-3">
-        {items.length === 0 ? (
-          <div className="text-center py-10 border border-dashed border-border/60 rounded-2xl">
-            <p className="text-sm text-foreground">No terms yet</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {readOnly
-                ? "Ask an admin to add company or product names."
-                : "Add company names, product names, or words the transcript keeps missing."}
-            </p>
-          </div>
-        ) : (
-          items.map((item) => (
-            <div 
-              key={item.id} 
-              className="group flex items-center justify-between p-4 rounded-2xl bg-card border border-beige/10 hover:border-beige/30 hover:shadow-sm transition-all"
-            >
-              <div className="flex items-center gap-4">
-                <div className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter ${
-                  item.category === 'Company' ? THEME_TOKENS.colors.highlight :
-                  item.category === 'Competitor' ? THEME_TOKENS.colors.danger :
-                  item.category === 'Product' ? THEME_TOKENS.colors.success :
-                  item.category === 'Slang' ? THEME_TOKENS.colors.warning :
-                  THEME_TOKENS.colors.neutral
-                }`}>
-                  {item.category}
-                </div>
-                <div>
-                  <h4 className="font-bold text-foreground flex items-center gap-2">
-                    {item.target_word}
-                    <Sparkles className="h-3 w-3 text-beige opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </h4>
-                  {item.phonetic_hints.length > 0 && (
-                    <p className="text-[10px] text-muted-foreground">
-                      Fixes: {item.phonetic_hints.join(", ")}
-                    </p>
-                  )}
-                </div>
-              </div>
-              {!readOnly && (
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                <IconAction
-                  label={`Remove ${item.target_word}`}
-                  tone="danger"
-                  onClick={() => setPendingDelete(item)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </IconAction>
-              </div>
-              )}
-            </div>
-          ))
+                <X className="h-3 w-3" strokeWidth={1.5} />
+              </button>
+            )}
+          </span>
+        ))}
+        {!readOnly && (
+          <input
+            value={draft}
+            disabled={adding}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === ",") {
+                e.preventDefault();
+                void add();
+              }
+            }}
+            onBlur={() => draft.trim() && void add()}
+            placeholder={items.length ? "Add a word…" : "Add names, products, jargon…"}
+            aria-label="Add a word to the glossary"
+            className="min-w-[8rem] flex-1 bg-transparent px-1 py-1 text-xs outline-none placeholder:text-muted-foreground/60"
+          />
         )}
+        {readOnly && items.length === 0 && <span className="px-1 py-1 text-xs text-muted-foreground">No terms yet.</span>}
       </div>
-
-      <ConfirmAction
-        open={pendingDelete !== null}
-        onOpenChange={(open) => !open && setPendingDelete(null)}
-        title="Remove this term?"
-        description={
-          pendingDelete
-            ? `"${pendingDelete.target_word}" will no longer be used to correct transcripts.`
-            : ""
-        }
-        confirmLabel="Remove"
-        pending={isDeleting}
-        onConfirm={() => void handleDelete()}
-      />
     </div>
   );
 };

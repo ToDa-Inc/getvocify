@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { Globe, Languages } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
-import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { toast } from "sonner";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { SettingsRow } from "@/components/ui/settings-card";
 import { useAuth } from "@/features/auth";
 import { authApi, authKeys } from "@/features/auth/api";
 import type { User } from "@/features/auth/types";
@@ -34,62 +33,30 @@ function unpack(user: User | null | undefined) {
 export const TranscriptionLanguageSettings = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const initial = unpack(user);
-  const [primary, setPrimary] = useState(initial.primary);
-  const [extras, setExtras] = useState<string[]>(initial.extras);
-  const [isSaving, setIsSaving] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const { primary, extras } = unpack(user);
 
-  useEffect(() => {
-    const next = unpack(user);
-    setPrimary(next.primary);
-    setExtras(next.extras);
-  }, [user]);
-
-  const toggleExtra = (code: string) => {
-    setExtras((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
-    );
-  };
-
-  const handleSave = async () => {
+  const save = async (nextPrimary: string, nextExtras: string[]) => {
+    setSaving(true);
     try {
-      setIsSaving(true);
-      const updated = await authApi.updateProfile({
-        sttLanguages: packLanguages(primary, extras),
-      });
+      const updated = await authApi.updateProfile({ sttLanguages: packLanguages(nextPrimary, nextExtras) });
       queryClient.setQueryData<User>(authKeys.me(), updated);
-      const langs = unpack(updated);
-      setPrimary(langs.primary);
-      setExtras(langs.extras);
-      toast.success("Transcription languages saved");
     } catch {
       toast.error("Could not save transcription languages");
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h3 className={THEME_TOKENS.typography.sectionTitle}>Call languages</h3>
-        <p className="text-xs text-muted-foreground mt-1">
-            Main language for live calls, HubSpot recordings, uploads, and WhatsApp. Add the
-            other languages your calls are in: on a live call Vocify hears which one each side
-            speaks and switches to it.
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        <label className={THEME_TOKENS.typography.capsLabel}>Main language</label>
-        <Select
-          value={primary}
-          onValueChange={(next) => {
-            setPrimary(next);
-            setExtras((prev) => prev.filter((c) => c !== next));
-          }}
-        >
-          <SelectTrigger className="w-full">
+    <>
+      <SettingsRow
+        icon={Languages}
+        title="Main language"
+        description="Used for live calls, HubSpot recordings, uploads and WhatsApp."
+      >
+        <Select value={primary} disabled={saving} onValueChange={(next) => void save(next, extras.filter((c) => c !== next))}>
+          <SelectTrigger size="sm" className="w-auto min-w-32" aria-label="Main language">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -100,48 +67,31 @@ export const TranscriptionLanguageSettings = () => {
             ))}
           </SelectContent>
         </Select>
-      </div>
-
-      <div className="space-y-2">
-        <p className={THEME_TOKENS.typography.capsLabel}>Also spoken on calls</p>
-        <div className="flex flex-wrap gap-2">
-          {OPTIONS.filter((opt) => opt.code !== primary).map((opt) => (
-            <Toggle
-              key={opt.code}
-              pressed={extras.includes(opt.code)}
-              onPressedChange={(pressed) => {
-                if (pressed) {
-                  setExtras((prev) => [...prev, opt.code]);
-                } else {
-                  setExtras((prev) => prev.filter((c) => c !== opt.code));
+      </SettingsRow>
+      <SettingsRow
+        icon={Globe}
+        title="Also spoken on calls"
+        description="On a live call Vocify hears which language each side speaks and switches to it."
+        below={
+          <div className="flex flex-wrap gap-2">
+            {OPTIONS.filter((opt) => opt.code !== primary).map((opt) => (
+              <Toggle
+                key={opt.code}
+                pressed={extras.includes(opt.code)}
+                disabled={saving}
+                onPressedChange={(pressed) =>
+                  void save(primary, pressed ? [...extras, opt.code] : extras.filter((c) => c !== opt.code))
                 }
-              }}
-              variant="chip"
-              size="sm"
-              aria-label={opt.label}
-            >
-              {opt.label}
-            </Toggle>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex justify-end">
-        <Button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="rounded-full bg-beige text-cream px-6 text-[10px] font-medium"
-        >
-          {isSaving ? (
-            <>
-              <VocifySpinner size={12} />
-              Saving…
-            </>
-          ) : (
-            "Save languages"
-          )}
-        </Button>
-      </div>
-    </div>
+                variant="chip"
+                size="sm"
+                aria-label={opt.label}
+              >
+                {opt.label}
+              </Toggle>
+            ))}
+          </div>
+        }
+      />
+    </>
   );
 };
