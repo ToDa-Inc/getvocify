@@ -28,6 +28,7 @@ const translations = {
       mcp: "Connect your AI",
       login: "Login",
       getStarted: "Get Started",
+      download: "Download",
       menus: {
         product: [
           { title: "Before the conversation", desc: "Walk into every sales conversation with the full account story." },
@@ -219,6 +220,8 @@ const translations = {
       claim: "Book a Call",
       questions: "Questions? Reach out at",
       responseTime: "Response time: Under 2 hours (M-F)",
+      windows: "Download for Windows",
+      windowsNote: "Windows may show \"Windows protected your PC\". Click More info, then Run anyway.",
     },
     footer: {
       tagline: "The copilot that updates your CRM while you keep selling. No admin, no data left behind.",
@@ -239,6 +242,7 @@ const translations = {
       mcp: "Conecta tu IA",
       login: "Acceder",
       getStarted: "Empezar",
+      download: "Descargar",
       menus: {
         product: [
           { title: "Antes de la conversación", desc: "Llega a cada conversación de venta con la historia completa de la cuenta." },
@@ -430,6 +434,8 @@ const translations = {
       claim: "Reservar llamada",
       questions: "¿Preguntas? Escríbenos a",
       responseTime: "Respuesta: Menos de 2 horas (L-V)",
+      windows: "Descargar para Windows",
+      windowsNote: "Windows puede mostrar \"Windows protegió su PC\". Pulsa Más información y luego Ejecutar de todas formas.",
     },
     footer: {
       tagline: "El copiloto que actualiza tu CRM mientras sigues vendiendo. Sin admin, sin datos perdidos.",

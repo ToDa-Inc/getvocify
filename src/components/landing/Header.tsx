@@ -148,6 +148,16 @@ const Header = () => {
           >
             {t.nav.mcp}
           </Link>
+          <a
+            href="/download/windows"
+            className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+              isOverDark
+                ? "text-cream/60 hover:text-cream hover:bg-white/5"
+                : "text-foreground/60 hover:text-foreground hover:bg-beige/5"
+            }`}
+          >
+            {t.nav.download}
+          </a>
         </nav>
 
         <div className="flex items-center gap-2">
@@ -240,6 +250,14 @@ const Header = () => {
                   >
                     {t.nav.mcp}
                   </Link>
+                </SheetClose>
+                <SheetClose asChild>
+                  <a
+                    href="/download/windows"
+                    className="rounded-2xl px-4 py-3 text-base font-medium text-foreground/80 transition-colors hover:bg-beige/10 hover:text-foreground"
+                  >
+                    {t.nav.download}
+                  </a>
                 </SheetClose>
                 <SheetClose asChild>
                   <a

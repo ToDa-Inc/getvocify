@@ -1,4 +1,4 @@
-import { ArrowRight, Mail } from "lucide-react";
+import { ArrowRight, Download, Mail } from "lucide-react";
 import { Suspense, lazy } from "react";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
 import { motion } from "framer-motion";
@@ -39,6 +39,17 @@ const FinalCTA = () => {
               {t.finalCta.claim}
               <ArrowRight className="h-4 w-4 transition-transform duration-300 ease-silk group-hover:translate-x-0.5" />
             </a>
+          </div>
+
+          <div className="mb-10 flex flex-col items-center gap-2">
+            <a
+              href="/download/windows"
+              className="inline-flex items-center gap-2 text-sm font-medium text-cream underline underline-offset-4 transition-colors hover:text-white"
+            >
+              <Download className="h-4 w-4" />
+              {t.finalCta.windows}
+            </a>
+            <p className="max-w-sm text-xs text-cream/40">{t.finalCta.windowsNote}</p>
           </div>
 
           <div className="flex flex-col items-center gap-2">
