@@ -25,11 +25,25 @@ export type Moment = {
 
 const DOT = { bad: "bg-destructive/70", half: "bg-warning/80", good: "bg-success/70", unknown: "bg-muted-foreground/40" } as const;
 
-function Line({ label, children, accent = false }: { label: string; children: ReactNode; accent?: boolean }) {
+type BubbleKind = "prospect" | "you" | "none" | "better";
+const BUBBLE: Record<BubbleKind, string> = {
+  prospect: "rounded-bl-md bg-secondary/70",
+  you: "rounded-br-md bg-foreground/[0.06]",
+  none: "rounded-br-md border border-dashed border-border text-muted-foreground",
+  better: "rounded-br-md border border-success/25 bg-success/10",
+};
+
+/** One turn of the exchange: the prospect on the left, the rep on the right, with a small caption saying
+ * whose it is. `actions` sit beside the bubble, away from the text. */
+function Bubble({ kind, caption, children, actions }: { kind: BubbleKind; caption: string; children: ReactNode; actions?: ReactNode }) {
+  const right = kind !== "prospect";
   return (
-    <div className={cn("grid grid-cols-[5.25rem_minmax(0,1fr)] items-baseline gap-3", accent && "border-l-2 border-success/60 pl-3 -ml-3.5")}>
-      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{label}</span>
-      <div className="min-w-0 text-[14.5px] leading-snug text-foreground">{children}</div>
+    <div className={cn("flex flex-col gap-0.5", right ? "items-end" : "items-start")}>
+      <span className="px-1 text-[11px] text-muted-foreground">{caption}</span>
+      <div className={cn("flex max-w-[94%] items-center gap-1", right && "flex-row-reverse")}>
+        <div className={cn("min-w-0 rounded-2xl px-3.5 py-2 text-[14.5px] leading-snug text-foreground", BUBBLE[kind])}>{children}</div>
+        {actions ? <span className="flex shrink-0 items-center">{actions}</span> : null}
+      </div>
     </div>
   );
 }
@@ -69,11 +83,11 @@ function Better({ request, how, fallback, playbookHref, show }: { request: Bette
     body = <span className={shown ? "" : "text-muted-foreground"}>{shown ?? p.coachNoPlaybookAnswer}</span>;
   }
   return (
-    <Line label={say || reply.isPending ? p.coachBetter : p.coachBetterFallback} accent>
-      <div className="flex items-start gap-2">
-        <Lightbulb aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" strokeWidth={1.75} />
-        <div className="min-w-0 flex-1">{body}</div>
-        <span className="-my-1.5 flex shrink-0 items-center">
+    <Bubble
+      kind="better"
+      caption={say || reply.isPending ? p.coachBetter : p.coachBetterFallback}
+      actions={
+        <>
           {say ? (
             <IconAction label={copied ? p.coachCopied : p.coachCopy} onClick={copy}>
               {copied ? <Check className="h-4 w-4 text-success" strokeWidth={1.75} /> : <Copy className="h-4 w-4" strokeWidth={1.5} />}
@@ -87,9 +101,14 @@ function Better({ request, how, fallback, playbookHref, show }: { request: Bette
           <Link to={playbookHref} aria-label={p.coachSeePlaybook} title={p.coachSeePlaybook} className={cn(THEME_TOKENS.interaction.iconButton)}>
             <BookOpen className="h-4 w-4" strokeWidth={1.5} />
           </Link>
-        </span>
-      </div>
-    </Line>
+        </>
+      }
+    >
+      <span className="flex items-start gap-2">
+        <Lightbulb aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" strokeWidth={1.75} />
+        <span className="min-w-0">{body}</span>
+      </span>
+    </Bubble>
   );
 }
 
@@ -130,15 +149,13 @@ export function OccurrencePager({ type, kind, itemKey, how, moments }: { type: s
       <div className="space-y-2.5">
         {objection ? (
           <>
-            <Line label={p.coachProspectSaid}>{moment.quote ? <span className="italic">«{moment.quote}»</span> : "—"}</Line>
-            <Line label={p.coachYouReplied}>
-              {moment.response ? <span className="italic">«{moment.response}»</span> : <span className="text-muted-foreground">{p.coachNoReply}</span>}
-            </Line>
+            <Bubble kind="prospect" caption={p.coachProspectSaid}>{moment.quote ?? "—"}</Bubble>
+            {moment.response ? <Bubble kind="you" caption={p.coachYouReplied}>{moment.response}</Bubble> : <Bubble kind="none" caption={p.coachYouReplied}>{p.coachNoReply}</Bubble>}
           </>
         ) : moment.quote ? (
-          <Line label={p.coachYouSaid}><span className="italic">«{moment.quote}»</span></Line>
+          <Bubble kind="you" caption={p.coachYouSaid}>{moment.quote}</Bubble>
         ) : (
-          <Line label={p.coachWhatHappened}><span className="text-muted-foreground">{moment.reason ?? stateWord}</span></Line>
+          <p className="text-[13.5px] leading-snug text-muted-foreground">{moment.reason ?? stateWord}</p>
         )}
         <Better request={request} how={objection ? how : null} fallback={objection ? null : moment.advice ?? how} playbookHref={href} show={moment.tone !== "good"} />
       </div>

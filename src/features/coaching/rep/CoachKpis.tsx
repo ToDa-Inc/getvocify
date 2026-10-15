@@ -6,10 +6,10 @@ import { cn } from "@/lib/utils";
 
 function Tile({ icon, label, value, sub, tone }: { icon: ReactNode; label: string; value: string; sub?: ReactNode; tone?: string }) {
   return (
-    <div className="min-w-0 space-y-1 px-3 py-3 md:px-4 md:first:pl-3">
+    <div className="min-w-0 space-y-1 overflow-hidden px-3 py-3 md:px-4 md:first:pl-3">
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        {icon}
-        <span>{label}</span>
+        <span className="shrink-0">{icon}</span>
+        <span className="min-w-0 break-words">{label}</span>
       </p>
       <p className={cn("text-[22px] font-medium md:text-[26px] leading-none tracking-tight tabular-nums text-foreground", tone)}>{value}</p>
       <p className="min-h-4 text-xs text-muted-foreground">{sub}</p>
