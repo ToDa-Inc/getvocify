@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import RoleLandingPage from "./pages/teams/RoleLandingPage";
 import McpPage from "./pages/McpPage";
+import DownloadPage from "./pages/DownloadPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import AboutPage from "./pages/AboutPage";
 import BlogPage from "./pages/BlogPage";
@@ -43,8 +44,6 @@ import { CalendarSettings } from "@/components/dashboard/settings/CalendarSettin
 import OfferSection from "./pages/dashboard/settings/OfferSection";
 import TranscriptionSection from "./pages/dashboard/settings/TranscriptionSection";
 import BriefHighlightSection from "./pages/dashboard/settings/BriefHighlightSection";
-import AgentsSection from "./pages/dashboard/settings/AgentsSection";
-import ConsentPage from "./pages/oauth/ConsentPage";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
@@ -155,6 +154,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/en" element={<Index />} />
             <Route path="/mcp" element={<McpPage />} />
+            <Route path="/download" element={<DownloadPage />} />
             <Route path="/teams/sdrs" element={<RoleLandingPage role="sdr" />} />
             <Route path="/teams/account-executives" element={<RoleLandingPage role="ae" />} />
             <Route path="/teams/sales-managers" element={<RoleLandingPage role="manager" />} />
@@ -168,7 +168,6 @@ const App = () => (
             <Route path="/docs/hubspot" element={<DocsPage />} />
             <Route path="/support" element={<SupportPage />} />
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/oauth/consent" element={<ConsentPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
@@ -203,7 +202,6 @@ const App = () => (
                 <Route path="team" element={<TeamPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="usage" element={<UsagePage />} />
-                <Route path="agents" element={<AgentsSection />} />
                 <Route path="billing" element={<BillingPage />} />
                 <Route path="system" element={<SystemSection />} />
               </Route>

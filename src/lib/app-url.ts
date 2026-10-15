@@ -48,6 +48,7 @@ const LANDING_PATHS = [
   "/docs/hubspot",
   "/support",
   "/mcp",
+  "/download",
   "/teams/sdrs",
   "/teams/account-executives",
   "/teams/sales-managers",

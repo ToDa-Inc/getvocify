@@ -220,8 +220,7 @@ const translations = {
       claim: "Book a Call",
       questions: "Questions? Reach out at",
       responseTime: "Response time: Under 2 hours (M-F)",
-      windows: "Download for Windows",
-      windowsNote: "Windows may show \"Windows protected your PC\". Click More info, then Run anyway.",
+      download: "Download the desktop app",
     },
     footer: {
       tagline: "The copilot that updates your CRM while you keep selling. No admin, no data left behind.",
@@ -434,8 +433,7 @@ const translations = {
       claim: "Reservar llamada",
       questions: "¿Preguntas? Escríbenos a",
       responseTime: "Respuesta: Menos de 2 horas (L-V)",
-      windows: "Descargar para Windows",
-      windowsNote: "Windows puede mostrar \"Windows protegió su PC\". Pulsa Más información y luego Ejecutar de todas formas.",
+      download: "Descargar la app de escritorio",
     },
     footer: {
       tagline: "El copiloto que actualiza tu CRM mientras sigues vendiendo. Sin admin, sin datos perdidos.",
