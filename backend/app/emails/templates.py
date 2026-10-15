@@ -24,7 +24,7 @@ def _layout(title: str, body_html: str, footer: str = "") -> str:
 </html>"""
 
 
-_SALES_ROLE_LABELS = {"sdr": "SDR", "ae": "AE", "general": "General"}
+_SALES_ROLE_LABELS = {"sdr": "calls", "ae": "meetings", "general": "calls and meetings"}
 
 
 def build_invite_email_html(
@@ -36,7 +36,7 @@ def build_invite_email_html(
     inviter_name: str | None = None,
 ) -> str:
     role_label = _SALES_ROLE_LABELS.get((sales_role or "").strip().lower())
-    invited_as = f" as a <strong>{role_label}</strong>" if role_label else ""
+    invited_as = f", working on <strong>{role_label}</strong>" if role_label else ""
     invited_by = f" by <strong>{inviter_name}</strong>, your Head of Sales," if inviter_name else ""
     body = f"""
 <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#444;">

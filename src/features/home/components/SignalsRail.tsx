@@ -32,7 +32,7 @@ function fill(template: string, params: Record<string, string | number>) {
 /** The words for one signal: the line, the question it asks, and what it rests on. */
 function signalCopy(signal: TeamSignal, p: ProductTranslations) {
   const params = { ...signal.params };
-  if (typeof params.flow === "string") params.flow = flowShortName(params.flow, teamFlowFilterLabel(params.flow, p, p.motions));
+  if (typeof params.flow === "string") params.flow = flowShortName(params.flow, teamFlowFilterLabel(params.flow, p, p.motions), p);
   const diagnosis = DIAGNOSIS_OF[signal.textKey];
   const evidence = diagnosis ? p[diagnosis] : signal.textKey === "signalDrop" ? p.home.signalDropEvidence : null;
   return {

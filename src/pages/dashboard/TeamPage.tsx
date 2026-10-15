@@ -37,17 +37,19 @@ function apiErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-/** The commercial type as a chip that is its own control, like the type chip in Interacciones. */
+/** What the member works on (calls, meetings or both) as a chip that is its own control, like the type chip in Interacciones. */
 function RoleChip({
   value,
   label,
   options,
+  help,
   disabled,
   onChange,
 }: {
   value: SalesRole;
   label: string;
   options: Record<SalesRole, string>;
+  help: Record<SalesRole, string>;
   disabled?: boolean;
   onChange: (next: SalesRole) => void;
 }) {
@@ -64,11 +66,14 @@ function RoleChip({
           <ChevronDown aria-hidden className="h-3 w-3 opacity-60" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="max-w-xs">
         <DropdownMenuRadioGroup value={value} onValueChange={(next) => next !== value && onChange(next as SalesRole)}>
           {ROLES.map((role) => (
             <DropdownMenuRadioItem key={role} value={role}>
-              {options[role]}
+              <span className="flex flex-col gap-0.5">
+                <span>{options[role]}</span>
+                <span className="text-[11px] leading-snug text-muted-foreground">{help[role]}</span>
+              </span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
@@ -84,7 +89,7 @@ const TeamPage = () => {
   const copy = p.team;
   const queryClient = useQueryClient();
   const [inviteEmail, setInviteEmail] = useState("");
-  // An invite from here is always a rep; SDR is the default commercial type.
+  // An invite from here is always a rep; Calls is the default work type.
   const [inviteSalesRole, setInviteSalesRole] = useState<SalesRole>("sdr");
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -99,6 +104,11 @@ const TeamPage = () => {
     sdr: p.teamMemberTypeSdr,
     ae: p.teamMemberTypeAe,
     general: p.teamMemberTypeGeneral,
+  };
+  const roleHelp: Record<SalesRole, string> = {
+    sdr: p.teamMemberTypeHelpSdr,
+    ae: p.teamMemberTypeHelpAe,
+    general: p.teamMemberTypeHelpGeneral,
   };
 
   const { data: company, isLoading: companyLoading } = useQuery({
@@ -228,7 +238,7 @@ const TeamPage = () => {
             className="h-9 min-w-[12rem] flex-1 rounded-full px-4"
           />
           {salesRolesEnabled ? (
-            <RoleChip value={inviteSalesRole} label={p.inviteSalesRoleLabel} options={roleNames} disabled={seatsFull} onChange={setInviteSalesRole} />
+            <RoleChip value={inviteSalesRole} label={p.inviteSalesRoleLabel} options={roleNames} help={roleHelp} disabled={seatsFull} onChange={setInviteSalesRole} />
           ) : null}
           <Button type="submit" size="sm" className="rounded-full px-5" disabled={inviteMutation.isPending || seatsFull}>
             {inviteMutation.isPending ? (
@@ -298,6 +308,7 @@ const TeamPage = () => {
                   value={member.salesRole ?? "general"}
                   label={copy.changeType}
                   options={roleNames}
+                  help={roleHelp}
                   disabled={salesProfileMutation.isPending && salesProfileMutation.variables?.memberId === member.id}
                   onChange={(salesRole) => salesProfileMutation.mutate({ memberId: member.id, salesRole })}
                 />
