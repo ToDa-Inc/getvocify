@@ -1,23 +1,25 @@
-import { Upload } from "lucide-react";
+import { Phone, Upload, Users } from "lucide-react";
+import { Segmented } from "@/components/ui/segmented";
 import { AddTypeMenu } from "@/features/playbooks/components/AddTypeMenu";
 import { CompanyIcon, callTypeIcon } from "@/features/playbooks/icons";
 import { COMPANY_ROW } from "@/features/playbooks/keys";
 import { PUBLISH_TONE, linkButton } from "@/features/playbooks/styles";
 import { useLanguage } from "@/lib/i18n";
 import type { CatalogType, PublishState } from "@/lib/playbook-doc";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
-import type { LiveChannel } from "@/lib/type-channels";
+import { LIVE_CHANNELS, type LiveChannel } from "@/lib/type-channels";
 import { cn } from "@/lib/utils";
 
 /** `role` is the label shown next to the name ("SDR"), or null. */
 export type NavItem = { key: string; label: string; state: PublishState; role: string | null };
-/** Types by channel: the entries under "Llamadas" and under "Reuniones" (a type of both is in both). */
-export type NavGroup = { label: string; items: NavItem[] };
+/** Types by channel: which of the two the rail is showing, and how many types each has. */
+export type NavChannel = { value: LiveChannel; counts: Record<LiveChannel, number>; onChange: (channel: LiveChannel) => void };
+const CHANNEL_ICON = { call: Phone, meeting: Users } as const;
 
 /**
  * The left rail of "Vuestro proceso": "Vuestra empresa" and one entry per call type, each with
- * its icon and its state in one word, and the two ways to add (a document, a call type). On a
- * phone the same entries scroll sideways above the content.
+ * its icon and its state in one word, and the two ways to add (a document, a call type). Types by
+ * channel: a switch Llamadas | Reuniones shows only that channel's types, and a type is added to
+ * the channel on screen. On a phone the same entries scroll sideways above the content.
  */
 export function ProcessNav({
   items,
@@ -29,7 +31,7 @@ export function ProcessNav({
   addable,
   stages,
   showAddType,
-  groups = null,
+  channel = null,
   onTypeAdded,
 }: {
   items: NavItem[];
@@ -41,7 +43,7 @@ export function ProcessNav({
   addable: CatalogType[];
   stages: { id: string; label: string }[];
   showAddType: boolean;
-  groups?: NavGroup[] | null;
+  channel?: NavChannel | null;
   onTypeAdded: (key: string, label: string, channels: LiveChannel[]) => void;
 }) {
   const { t } = useLanguage();
@@ -79,35 +81,70 @@ export function ProcessNav({
     );
   };
 
+  const company = entry(COMPANY_ROW, copy.companyTitle, CompanyIcon, companyFilled ? null : "empty");
+  const add = canEdit && showAddType ? (
+    <AddTypeMenu catalog={addable} stages={stages} channel={channel?.value ?? null} onAdded={onTypeAdded} />
+  ) : null;
+  const importDoc = canEdit ? (
+    <button type="button" className={cn(linkButton, "whitespace-nowrap")} onClick={onImport}>
+      <Upload size={12} strokeWidth={1.5} />
+      {copy.importDoc}
+    </button>
+  ) : null;
+
+  // Types by channel: the switch, that channel's types and the add button right under them; the
+  // company, which belongs to neither channel, below a hairline.
+  if (channel) {
+    return (
+      <nav aria-label={copy.sectionTitle} className="space-y-2 md:w-60 md:shrink-0 md:border-r md:border-border/50 md:pr-3">
+        <Segmented<LiveChannel>
+          value={channel.value}
+          onValueChange={channel.onChange}
+          aria-label={copy.typeChannel}
+          className="flex w-full flex-nowrap"
+          itemClassName="flex-1 justify-center px-2"
+          options={LIVE_CHANNELS.map((value) => {
+            const Icon = CHANNEL_ICON[value];
+            return {
+              value,
+              label: (
+                <>
+                  <Icon aria-hidden size={13} strokeWidth={1.5} />
+                  {copy.ruleChannels[value]}
+                  <span className="tabular-nums text-muted-foreground/70">{channel.counts[value]}</span>
+                </>
+              ),
+            };
+          })}
+        />
+        <ul className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] md:mx-0 md:flex-col md:overflow-visible md:px-0">
+          {items.length ? (
+            items.map((item) => entry(item.key, item.label, callTypeIcon(item.key), item.state, null, channel.value))
+          ) : (
+            <li className="px-3 py-1.5 text-[13px] text-muted-foreground">{copy.groupEmpty}</li>
+          )}
+        </ul>
+        {add ? <div className="flex flex-wrap gap-1">{add}</div> : null}
+        <div aria-hidden className="mx-2.5 h-px bg-border/50" />
+        <ul>{company}</ul>
+        {importDoc ? <div className="flex flex-wrap gap-1">{importDoc}</div> : null}
+      </nav>
+    );
+  }
+
   return (
     <nav aria-label={copy.sectionTitle} className="md:w-60 md:shrink-0 md:border-r md:border-border/50 md:pr-3">
       <ul className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] md:mx-0 md:flex-col md:overflow-visible md:px-0">
-        {entry(COMPANY_ROW, copy.companyTitle, CompanyIcon, companyFilled ? null : "empty")}
+        {company}
         <li aria-hidden className="hidden md:block">
           <div className="mx-2.5 my-1.5 h-px bg-border/50" />
         </li>
-        {groups
-          ? groups.map((group) => (
-              <li key={group.label} className="shrink-0 md:shrink">
-                <p className={cn(THEME_TOKENS.typography.capsLabel, "px-3 pb-1 pt-2")}>{group.label}</p>
-                <ul className="flex gap-1 md:flex-col">
-                  {group.items.length ? (
-                    group.items.map((item) => entry(item.key, item.label, callTypeIcon(item.key), item.state, null, group.label))
-                  ) : (
-                    <li className="px-3 py-1.5 text-[13px] text-muted-foreground">{copy.groupEmpty}</li>
-                  )}
-                </ul>
-              </li>
-            ))
-          : items.map((item) => entry(item.key, item.label, callTypeIcon(item.key), item.state, item.role))}
+        {items.map((item) => entry(item.key, item.label, callTypeIcon(item.key), item.state, item.role))}
       </ul>
       {canEdit ? (
         <div className="mt-2 flex flex-wrap gap-1 md:flex-col md:items-start">
-          {showAddType ? <AddTypeMenu catalog={addable} stages={stages} byChannel={Boolean(groups)} onAdded={onTypeAdded} /> : null}
-          <button type="button" className={cn(linkButton, "whitespace-nowrap")} onClick={onImport}>
-            <Upload size={12} strokeWidth={1.5} />
-            {copy.importDoc}
-          </button>
+          {add}
+          {importDoc}
         </div>
       ) : null}
     </nav>

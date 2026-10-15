@@ -18,13 +18,15 @@ type SegmentedProps<T extends string> = {
   options: readonly SegmentedOption<T>[];
   "aria-label": string;
   className?: string;
+  /** On every item, e.g. `flex-1 justify-center` for a switch that fills its row. */
+  itemClassName?: string;
 };
 
 /**
  * Pick one of 2–4 values of the same setting (billing interval, role, access): the compact glass
  * pill row the Interacciones / Equipo tabs use. For switching views of one page use `Tabs`.
  */
-export function Segmented<T extends string>({ value, onValueChange, options, className, ...rest }: SegmentedProps<T>) {
+export function Segmented<T extends string>({ value, onValueChange, options, className, itemClassName, ...rest }: SegmentedProps<T>) {
   return (
     <ToggleGroupPrimitive.Root
       type="single"
@@ -40,7 +42,7 @@ export function Segmented<T extends string>({ value, onValueChange, options, cla
           value={option.value}
           disabled={option.disabled}
           aria-label={option["aria-label"]}
-          className={cn(THEME_TOKENS.interaction.segmentTab, "inline-flex max-w-full items-center gap-1.5 whitespace-nowrap disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}
+          className={cn(THEME_TOKENS.interaction.segmentTab, "inline-flex max-w-full items-center gap-1.5 whitespace-nowrap disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", itemClassName)}
         >
           {option.label}
         </ToggleGroupPrimitive.Item>

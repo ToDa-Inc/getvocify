@@ -16,7 +16,7 @@ import {
 import { newStepKey, templateSteps, type EditorStep } from "@/lib/playbook-editor";
 import { isEmptyKnowledge, knowledgeSummary } from "@/lib/playbook-knowledge";
 import type { MotionStatus } from "@/lib/playbook-setup";
-import { byChannel as typesByChannel, type LiveChannel } from "@/lib/type-channels";
+import { byChannel as typesByChannel, channelsOf, type LiveChannel } from "@/lib/type-channels";
 
 /** A manager always sees the two base flows, even before anything was created. */
 function withBaseFlows(motions: Record<string, MotionStatus>, canEdit: boolean): Record<string, MotionStatus> {
@@ -183,6 +183,28 @@ export function usePlaybookProcess() {
     }
   };
 
+  /** Types by channel: "Quitar de Llamadas". The type stays (and keeps its playbook) in its other channel;
+   * the toast offers to put it back. Never the last channel: that is a delete. */
+  const leaveChannel = async (key: string, channel: LiveChannel): Promise<boolean> => {
+    const current = channelsOf(list.data, key);
+    const rest = current.filter((item) => item !== channel);
+    if (!rest.length) return false;
+    const label = name(key);
+    setBusyKey(key);
+    try {
+      await editType(key, { channels: rest });
+      toast(copy.leftChannelToast.replace("{name}", label).replace("{channel}", copy.ruleChannels[channel]), {
+        action: { label: copy.undo, onClick: () => void editType(key, { channels: current }).catch(() => toast.error(copy.actionFailed)) },
+      });
+      return true;
+    } catch {
+      toast.error(copy.actionFailed);
+      return false;
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   /** "Publicar" on one call type: save what is being typed, then make its draft the live version. */
   const publish = async (key: string): Promise<void> => {
     setBusyKey(key);
@@ -229,6 +251,7 @@ export function usePlaybookProcess() {
     saveRule,
     toggle,
     remove,
+    leaveChannel,
     publish,
     companySaved: () => void queryClient.invalidateQueries({ queryKey: COMPANY_KEY }),
   };
