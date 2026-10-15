@@ -266,6 +266,13 @@ def test_callback_no_answer_from_calls_needs_the_threshold_and_no_later_touch():
     assert connected_ignored == []
 
 
+def test_callback_no_answer_from_calls_stops_being_a_task_after_two_weeks():
+    fresh = callback_no_answer_from_calls([_call("1", 14, "no_answer")], last_touch_at={}, now=NOW, callback_after_days=2)
+    assert [s.type for s in fresh] == ["callback_no_answer"]
+    stale = callback_no_answer_from_calls([_call("1", 15, "no_answer")], last_touch_at={}, now=NOW, callback_after_days=2)
+    assert stale == []
+
+
 def test_callback_no_answer_from_calls_keeps_only_the_latest_attempt_per_contact():
     calls = [
         _call("1", 10, "no_answer", call_id="call-old"),

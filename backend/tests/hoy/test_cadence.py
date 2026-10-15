@@ -171,7 +171,7 @@ def test_commitments_keep_their_suppression_under_cadence():
 
 
 def test_a_callback_no_answer_suppresses_the_followup():
-    now = CALL_AT + timedelta(days=30)
+    now = CALL_AT + timedelta(days=5)
     touch = _touch(interest="high", screening_outcome="no_response")
     out = signals_for_contact([touch], now=now, day_end=_day_end(now), callback_after_days=2, cadence={})
     assert [s.type for s in out] == ["callback_no_answer"]

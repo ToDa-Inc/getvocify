@@ -10,6 +10,7 @@ from app.services.hoy.heat import heat_score
 from app.services.hoy.memo_facts import _pain
 from app.services.hoy.signals import (
     DEFAULT_LIMIT,
+    MAX_CALLBACK_AGE_DAYS,
     Signal,
     Touch,
     never_contacted_signal,
@@ -328,7 +329,7 @@ def callback_no_answer_from_calls(
         newer_touch = last_touch_at.get(contact_id)
         if newer_touch is not None and newer_touch >= at:
             continue
-        if now - at < timedelta(days=callback_after_days):
+        if now - at < timedelta(days=callback_after_days) or now - at > timedelta(days=MAX_CALLBACK_AGE_DAYS):
             continue
         call_id = str(call.get("id") or "")
         if not call_id:

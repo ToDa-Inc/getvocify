@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from app.services.hoy.confirm_copy import DEFAULT_TZ, confirm_reason, failed_detail
 from app.services.hoy.reasons import meeting_detail, reason
-from app.services.hoy.signals import DEFAULT_LIMIT, Signal, rank_cards
+from app.services.hoy.signals import DEFAULT_LIMIT, MAX_CALLBACK_AGE_DAYS, Signal, rank_cards
 from app.services.hubspot.account_info import build_contact_record_url
 from app.services.pipedrive.record_urls import build_pipedrive_record_url
 
@@ -299,6 +299,23 @@ def confirm_item(
     return item
 
 
+def _stale_callback(signal: Signal, now: datetime) -> bool:
+    """A pending unanswered call from before the window is a backlog, not today's task. Read off the
+    row at view time, so rows saved before the window existed (or outside the memos re-read now) go too."""
+    if signal.type != "callback_no_answer":
+        return False
+    at = _parse_at(signal.payload.get("at"))
+    return at is not None and now - at > timedelta(days=MAX_CALLBACK_AGE_DAYS)
+
+
+def _parse_at(value) -> datetime | None:
+    try:
+        at = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+
+
 def build_today_view(
     *,
     signals: list[Signal],
@@ -322,6 +339,7 @@ def build_today_view(
     `limit` is the global card cap; GET /today raises it for the SDR sections (Lista 4 T2),
     which cap each section on their own."""
     task_links = task_links or {}
+    signals = [signal for signal in signals if not _stale_callback(signal, now)]
     written = {task_id for ids in task_links.values() for task_id in ids}
     manual_tasks = [task for task in manual_tasks if str(task.get("remote_id") or "") not in written]
     linked, loose = attach_manual(signals, manual_tasks)

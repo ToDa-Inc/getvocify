@@ -40,6 +40,10 @@ TIER: dict[str, int] = {
     "never_contacted": 4,
 }
 DEFAULT_LIMIT = 7
+# An unanswered call stops being a task for today after this long: "you called 36 days ago and they did not
+# pick up" is a backlog, not something to do today, and a list of them buries what is. Nothing is deleted:
+# the call and its memo stay, and a new attempt starts the count again.
+MAX_CALLBACK_AGE_DAYS = 14
 # Last attempt outcomes (telephony/call_screening.resolve_screening_outcome) that count as
 # "no answer" for a callback_no_answer card - a real conversation never happened after them.
 UNANSWERED_OUTCOMES: frozenset[str] = frozenset({"no_response", "voicemail", "bad_moment", "cut_off"})
@@ -194,7 +198,7 @@ def signals_for_contact(
         callback_after_days is not None
         and not out
         and last.screening_outcome in UNANSWERED_OUTCOMES
-        and now - last.at >= timedelta(days=callback_after_days)
+        and timedelta(days=callback_after_days) <= now - last.at <= timedelta(days=MAX_CALLBACK_AGE_DAYS)
     ):
         out.append(Signal(
             "callback_no_answer",
