@@ -126,3 +126,16 @@ def test_the_excerpt_is_what_was_said_around_the_quote():
     assert "ya tenemos un CRM" in out and "HubSpot" in out
     assert better.excerpt(transcript, "algo que nadie dijo en la llamada") is None
     assert better.excerpt(transcript, "corto") is None
+
+
+def test_a_reply_with_no_answer_field_is_asked_once_more(monkeypatch):
+    answers = iter([{}, {"say": "Vale. ¿Qué cambiaría en un mes?"}])
+    calls = []
+
+    async def ask(messages):
+        calls.append(1)
+        return next(answers)
+
+    monkeypatch.setattr(better, "_ask", ask)
+    out = _client().post("/api/v1/coaching/me/better-reply", json=_body()).json()
+    assert out["say"] == "Vale. ¿Qué cambiaría en un mes?" and len(calls) == 2

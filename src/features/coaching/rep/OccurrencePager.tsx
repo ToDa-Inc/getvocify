@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, BookOpen, Check, ChevronLeft, ChevronRight, Copy, Lightbulb } from "lucide-react";
+import { ArrowUpRight, BookOpen, Check, ChevronLeft, ChevronRight, Copy, Lightbulb, RotateCw } from "lucide-react";
 import { IconAction } from "@/components/ui/icon-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
@@ -50,6 +50,9 @@ function Better({ request, how, fallback, playbookHref, show }: { request: Bette
       window.setTimeout(() => setCopied(false), 1500);
     });
   };
+  // The playbook's own answer is what is shown while nothing better could be written (or it could not
+  // be asked): a failure never leaves the moment without the playbook's way to say it.
+  const shown = fallback ?? how;
   let body: ReactNode;
   if (reply.isPending) {
     body = (
@@ -60,15 +63,9 @@ function Better({ request, how, fallback, playbookHref, show }: { request: Bette
     );
   } else if (say) {
     body = <span className="font-medium">{say}</span>;
-  } else if (reply.isError) {
-    body = (
-      <span className="text-muted-foreground">
-        {p.coachCouldNotWrite}{" "}
-        <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => void reply.refetch()}>{p.coachRetry}</button>
-      </span>
-    );
+  } else if (reply.isError && !shown) {
+    body = <span className="text-muted-foreground">{p.coachCouldNotWrite}</span>;
   } else {
-    const shown = fallback ?? how;
     body = <span className={shown ? "" : "text-muted-foreground"}>{shown ?? p.coachNoPlaybookAnswer}</span>;
   }
   return (
@@ -80,6 +77,11 @@ function Better({ request, how, fallback, playbookHref, show }: { request: Bette
           {say ? (
             <IconAction label={copied ? p.coachCopied : p.coachCopy} onClick={copy}>
               {copied ? <Check className="h-4 w-4 text-success" strokeWidth={1.75} /> : <Copy className="h-4 w-4" strokeWidth={1.5} />}
+            </IconAction>
+          ) : null}
+          {reply.isError ? (
+            <IconAction label={p.coachRetry} pending={reply.isFetching} onClick={() => void reply.refetch()}>
+              <RotateCw className="h-4 w-4" strokeWidth={1.5} />
             </IconAction>
           ) : null}
           <Link to={playbookHref} aria-label={p.coachSeePlaybook} title={p.coachSeePlaybook} className={cn(THEME_TOKENS.interaction.iconButton)}>

@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
-import { ArrowUpRight, ChevronDown, Lightbulb } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useLanguage } from "@/lib/i18n";
 import {
@@ -8,14 +10,14 @@ import {
   fill,
   type CoachCall,
   type CoachCalls,
-  type CoachSlip,
 } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { ImproveTables } from "./ImproveTables";
+import { OccurrencePager, type Moment } from "./OccurrencePager";
 
-/** Colour only where it means something: red not done, amber halfway, green done. */
-const STATE_TEXT = { missing: "text-destructive", improvable: "text-warning" } as const;
+/** Past a screenful the record pages instead of growing the page (the app's list size). */
+const CALLS_PER_PAGE = 20;
 
 function localeOf(language: string) {
   return language === "EN" ? "en-GB" : "es-ES";
@@ -42,30 +44,19 @@ function SectionHead({ id, title, meta }: { id: string; title: string; meta?: st
   );
 }
 
-/** What was said in the call: a quiet bubble. */
-function Moment({ quote }: { quote: string }) {
-  return (
-    <blockquote className={`${THEME_TOKENS.radius.control} bg-secondary/70 px-4 py-3 text-[14.5px] italic leading-relaxed text-foreground/85`}>
-      «{quote}»
-    </blockquote>
-  );
-}
-
-/** What to try next time, whole: the one line to take into the next call. */
-function NextTime({ text }: { text: string }) {
-  return (
-    <div className={`flex gap-2.5 ${THEME_TOKENS.radius.control} bg-success/10 px-4 py-3`}>
-      <Lightbulb aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-success" strokeWidth={1.75} />
-      <p className="text-[14.5px] leading-relaxed text-foreground">{text}</p>
-    </div>
-  );
-}
-
 /** The steps of one call at a glance: one segment each, green done, amber halfway, red not done. */
 function StepMeter({ call }: { call: CoachCall }) {
   const { t } = useLanguage();
   const p = t.product;
-  if (!call.applicable) return <span className="text-xs text-muted-foreground">{p.coachCallNothingJudged}</span>;
+  if (!call.applicable) {
+    const count = call.objections?.length ?? 0;
+    return (
+      <span className="text-xs text-muted-foreground">
+        {p.coachCallNothingJudged}
+        {count ? ` · ${count} ${count === 1 ? p.coachObjectionOne : p.coachObjectionMany}` : ""}
+      </span>
+    );
+  }
   const halfway = call.slips.filter((slip) => slip.state === "improvable").length;
   const missing = call.slips.filter((slip) => slip.state === "missing").length;
   const segments = [
@@ -88,27 +79,45 @@ function StepMeter({ call }: { call: CoachCall }) {
   );
 }
 
-function SlipDetail({ slip }: { slip: CoachSlip }) {
+/** One call opened: each thing to improve in it (a step slipped on, an objection given), one moment each,
+ * with the line to say instead. The worst first. */
+function CallDetail({ call, type }: { call: CoachCall; type: string }) {
   const { t } = useLanguage();
   const p = t.product;
+  const categories = p.playbookObjectionCategories as Record<string, string>;
+  const slips = [...call.slips].sort((a, b) => Number(a.state !== "missing") - Number(b.state !== "missing"));
+  const objections = [...(call.objections ?? [])].sort((a, b) => Number(a.resolution === "resolved") - Number(b.resolution === "resolved"));
+  const at = call.observed_at ?? "";
   return (
-    <li className="space-y-3 py-4">
-      <div className="flex items-baseline gap-2">
-        <h4 className="text-[15px] font-medium text-foreground">{slip.label}</h4>
-        <span className={cn("text-xs", STATE_TEXT[slip.state])}>
-          {slip.state === "missing" ? p.coachStateMissing : p.coachStateImprovable}
-        </span>
-      </div>
-      {slip.reason ? <p className="text-[14.5px] leading-relaxed text-muted-foreground">{slip.reason}</p> : null}
-      {slip.quote ? <Moment quote={slip.quote} /> : null}
-      {slip.advice ? <NextTime text={slip.advice} /> : null}
-    </li>
+    <div className="space-y-5 py-3">
+      {slips.map((slip) => {
+        const moment: Moment = { memo_id: call.memo_id, observed_at: at, tone: slip.state === "missing" ? "bad" : "half", quote: slip.quote, response: null, reason: slip.reason, advice: slip.advice };
+        return (
+          <section key={slip.step_id} className="space-y-2">
+            <h4 className="text-[15px] font-medium text-foreground">{slip.label}</h4>
+            <OccurrencePager type={type} kind="step" itemKey={slip.step_id} how={null} moments={[moment]} />
+          </section>
+        );
+      })}
+      {objections.map((objection, index) => {
+        const moment: Moment = {
+          memo_id: call.memo_id, observed_at: at, tone: objection.resolution === "resolved" ? "good" : objection.resolution === "open" ? "bad" : "unknown",
+          quote: objection.quote, response: objection.response, reason: null, advice: null,
+        };
+        return (
+          <section key={`${objection.key}-${index}`} className="space-y-2">
+            <h4 className="text-[15px] font-medium text-foreground">{objection.label || categories[objection.category] || objection.category}</h4>
+            <OccurrencePager type={type} kind="objection" itemKey={objection.key} how={objection.how} moments={[moment]} />
+          </section>
+        );
+      })}
+    </div>
   );
 }
 
 /** One call of the record: what happened, its steps as a meter, and when. One with something to improve
  * opens in place; one with nothing to improve opens the call. */
-function CallRow({ call }: { call: CoachCall }) {
+function CallRow({ call, type }: { call: CoachCall; type: string }) {
   const { t, language } = useLanguage();
   const p = t.product;
   const duration = durationLabel(p, call.duration_s);
@@ -130,7 +139,8 @@ function CallRow({ call }: { call: CoachCall }) {
     </>
   );
   const row = `flex w-full items-center gap-4 rounded-lg px-3 py-3.5 text-left ${THEME_TOKENS.interaction.rowHover}`;
-  if (!call.slips.length) {
+  const hasDetail = call.slips.length > 0 || (call.objections?.length ?? 0) > 0;
+  if (!hasDetail) {
     return (
       <li>
         <Link to={`/dashboard/memos/${call.memo_id}`} className={row} data-testid="coach-call">
@@ -140,7 +150,6 @@ function CallRow({ call }: { call: CoachCall }) {
       </li>
     );
   }
-  const ordered = [...call.slips].sort((a, b) => Number(a.state !== "missing") - Number(b.state !== "missing"));
   return (
     <li data-testid="coach-call">
       <Collapsible>
@@ -149,11 +158,7 @@ function CallRow({ call }: { call: CoachCall }) {
           <ChevronDown size={16} strokeWidth={1.5} className="shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
         </CollapsibleTrigger>
         <CollapsibleContent className="ml-3 border-l border-border/70 pb-3 pl-5 pr-3">
-          <ul className="divide-y divide-border/50">
-            {ordered.map((slip) => (
-              <SlipDetail key={slip.step_id} slip={slip} />
-            ))}
-          </ul>
+          <CallDetail call={call} type={type} />
           <Link
             to={`/dashboard/memos/${call.memo_id}`}
             className="mt-1 inline-flex items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
@@ -173,6 +178,9 @@ export function CoachingCalls({ data }: { data: CoachCalls }) {
   const { t } = useLanguage();
   const p = t.product;
   const weeks = data.window_weeks;
+  const [page, setPage] = useState(0);
+  const pages = Math.ceil(data.calls.length / CALLS_PER_PAGE);
+  const shown = data.calls.slice(page * CALLS_PER_PAGE, (page + 1) * CALLS_PER_PAGE);
   return (
     <div className="space-y-14" data-testid="coach-calls">
       <section aria-labelledby="coach-improve" className="space-y-5 px-3">
@@ -192,10 +200,23 @@ export function CoachingCalls({ data }: { data: CoachCalls }) {
             <SectionHead id="coach-calls-heading" title={p.coachCallsHeading} />
           </div>
           <ul className="divide-y divide-border/50">
-            {data.calls.map((call) => (
-              <CallRow key={call.memo_id} call={call} />
+            {shown.map((call) => (
+              <CallRow key={call.memo_id} call={call} type={data.type ?? ""} />
             ))}
           </ul>
+          {pages > 1 ? (
+            <nav aria-label={p.coachCallsHeading} className="flex items-center justify-center gap-3 pt-3 text-[13px] tabular-nums text-muted-foreground">
+              <Button type="button" variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
+                <ChevronLeft aria-hidden />
+                {p.coachPrevious}
+              </Button>
+              <span>{page + 1}/{pages}</span>
+              <Button type="button" variant="outline" size="sm" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}>
+                {p.coachNext}
+                <ChevronRight aria-hidden />
+              </Button>
+            </nav>
+          ) : null}
         </section>
       ) : null}
     </div>

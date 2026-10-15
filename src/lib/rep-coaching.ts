@@ -40,6 +40,16 @@ export type CoachSlip = {
   /** What to try next time, in this call's terms. */
   advice: string | null;
 };
+/** What a prospect objected to in one call, with the key the playbook answers it by. */
+export type CoachCallObjection = {
+  key: string;
+  category: string;
+  label: string | null;
+  how: string | null;
+  resolution: "open" | "resolved" | "unknown";
+  quote: string | null;
+  response: string | null;
+};
 export type CoachCall = {
   memo_id: string;
   observed_at: string | null;
@@ -50,6 +60,8 @@ export type CoachCall = {
   applicable: number;
   /** Empty when there was nothing to improve in this call. */
   slips: CoachSlip[];
+  /** Absent from a backend older than the objections of a call. */
+  objections?: CoachCallObjection[];
 };
 /** Every step the rep slipped on, with the calls it slipped in (newest first). */
 export type CoachSlippedStep = {
