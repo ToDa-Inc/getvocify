@@ -131,6 +131,7 @@ function createWindow() {
 }
 
 function showDemoWindow() {
+  if (!shellState.demoBuyer) return;
   if (demoWindow && !demoWindow.isDestroyed()) {
     revealWindow(demoWindow);
     return;

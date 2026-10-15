@@ -1,4 +1,4 @@
-"""Demo buyer for sales demos (owner/admin only): a scenario per prospect and free replies."""
+"""Demo buyer for sales demos (owner/admin of a company with DEMO_BUYER_ENABLED): a scenario per prospect and free replies."""
 
 from __future__ import annotations
 
@@ -7,13 +7,25 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.deps import require_company_role
+from app.deps import get_supabase, require_company_role
 from app.services import demo_buyer
 from app.services.company import Membership
+from app.services.feature_flags import is_enabled
 
 router = APIRouter(prefix="/api/v1/demo", tags=["demo"])
 
 Language = Literal["es", "en"]
+DEMO_FLAG = "DEMO_BUYER_ENABLED"
+
+
+def require_demo_buyer(
+    membership: Membership = Depends(require_company_role("owner", "admin")),
+    supabase=Depends(get_supabase),
+) -> Membership:
+    # Off means the route does not exist for this company: same body as an unknown path.
+    if not is_enabled(supabase, membership.company_id, DEMO_FLAG):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    return membership
 
 
 class ScenarioRequest(BaseModel):
@@ -52,7 +64,7 @@ def _upstream_failure(exc: demo_buyer.DemoBuyerError) -> HTTPException:
 @router.post("/scenario")
 async def create_scenario(
     body: ScenarioRequest,
-    _membership: Membership = Depends(require_company_role("owner", "admin")),
+    _membership: Membership = Depends(require_demo_buyer),
 ):
     try:
         return await demo_buyer.build_scenario(body.model_dump())
@@ -63,7 +75,7 @@ async def create_scenario(
 @router.post("/reply")
 async def create_reply(
     body: ReplyRequest,
-    _membership: Membership = Depends(require_company_role("owner", "admin")),
+    _membership: Membership = Depends(require_demo_buyer),
 ):
     try:
         return await demo_buyer.buyer_reply(

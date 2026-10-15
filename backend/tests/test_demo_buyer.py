@@ -79,3 +79,19 @@ async def test_tts_failure_surfaces_as_demo_buyer_error():
     respx.post(demo_buyer.SPEECH_URL).mock(return_value=httpx.Response(502, text="upstream"))
     with pytest.raises(demo_buyer.DemoBuyerError):
         await demo_buyer.buyer_reply(SCENARIO["persona"], "es", "Kore", [], "Hola")
+
+
+def test_demo_buyer_route_is_404_unless_the_company_flag_is_on(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.api import demo
+    from app.services.company import Membership
+
+    member = Membership(id="m1", company_id="c1", user_id="u1", role="owner", status="active")
+    monkeypatch.setattr(demo, "is_enabled", lambda _sb, _cid, flag: False)
+    with pytest.raises(HTTPException) as err:
+        demo.require_demo_buyer(member, object())
+    assert err.value.status_code == 404
+
+    monkeypatch.setattr(demo, "is_enabled", lambda _sb, cid, flag: (cid, flag) == ("c1", "DEMO_BUYER_ENABLED"))
+    assert demo.require_demo_buyer(member, object()) is member

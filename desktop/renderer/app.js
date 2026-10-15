@@ -145,6 +145,7 @@ let wsIntentionalClose = false;
 let wsReconnectAttempts = 0;
 let wsReconnectTimer = null;
 let transcriptionOffline = false;
+let demoBuyerAllowed = false;
 let clientCaptureId = null;
 let captureStreams = [];
 let processors = [];
@@ -655,9 +656,12 @@ function notifyShell() {
     if (!loggedIn) accountMenu.open = false;
   }
   if (sessionChip) sessionChip.textContent = loggedIn ? email : '';
+  const demoBtn = document.getElementById('btn-demo');
+  if (demoBtn) demoBtn.hidden = !(loggedIn && demoBuyerAllowed);
   desktop()?.shell?.setState({
     listening,
     loggedIn: Boolean(localStorage.getItem(STORAGE.token)),
+    demoBuyer: loggedIn && demoBuyerAllowed,
     lastLine: overlaySnippet(transcriptState, uiLang()),
     backend: currentBackend,
     email,
@@ -838,7 +842,18 @@ async function handlePermissionClick(type) {
   await refreshPermissions();
 }
 
+async function refreshDemoAccess() {
+  try {
+    const me = await request('/auth/me', { token: localStorage.getItem(STORAGE.token) });
+    demoBuyerAllowed =
+      ['owner', 'admin'].includes(me?.company?.role) && (me?.company?.features || []).includes('DEMO_BUYER_ENABLED');
+  } catch {
+    demoBuyerAllowed = false;
+  }
+}
+
 async function enterApp() {
+  await refreshDemoAccess();
   await refreshPermissions();
   showScreen('listen');
   setLiveUi(false);
