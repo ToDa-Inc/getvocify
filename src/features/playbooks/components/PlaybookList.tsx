@@ -15,7 +15,7 @@ import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
 import { addableTypes, publishState, publishSwitch, ruleNeeded, usedForLine } from "@/lib/playbook-doc";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { channelsOf, otherChannel, type LiveChannel } from "@/lib/type-channels";
+import { otherChannel, railChannels, type LiveChannel } from "@/lib/type-channels";
 import { cn } from "@/lib/utils";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
@@ -40,8 +40,8 @@ export function PlaybookList() {
   /** Opens a type, switching the rail to a channel it belongs to. */
   const open = (key: string, channels?: LiveChannel[]) => {
     setPicked(key);
-    if (process.byChannel && key !== COMPANY_ROW) {
-      const own = channels?.length ? channels : channelsOf(process.list.data, key);
+    if (key !== COMPANY_ROW) {
+      const own = channels?.length ? channels : railChannels(process.list.data, key);
       setChannelPick((current) => (current && own.includes(current) ? current : own[0]));
     }
   };
@@ -92,20 +92,18 @@ export function PlaybookList() {
     role: !process.byChannel && row.role && row.role !== "any" ? copy.ruleRoles[row.role] : null,
   }));
   const counts = {
-    call: items.filter((entry) => channelsOf(process.list.data, entry.key).includes("call")).length,
-    meeting: items.filter((entry) => channelsOf(process.list.data, entry.key).includes("meeting")).length,
+    call: items.filter((entry) => railChannels(process.list.data, entry.key).includes("call")).length,
+    meeting: items.filter((entry) => railChannels(process.list.data, entry.key).includes("meeting")).length,
   };
   const channel: LiveChannel = channelPick ?? (counts.call || !counts.meeting ? "call" : "meeting");
-  const shown = process.byChannel ? items.filter((entry) => channelsOf(process.list.data, entry.key).includes(channel)) : items;
-  const nav: NavChannel | null = process.byChannel
-    ? { value: channel, counts, onChange: (next) => { setChannelPick(next); setPicked(null); intake.close(); } }
-    : null;
+  const shown = items.filter((entry) => railChannels(process.list.data, entry.key).includes(channel));
+  const nav: NavChannel = { value: channel, counts, onChange: (next) => { setChannelPick(next); setPicked(null); intake.close(); } };
   const fallbackKey = shown.find((item) => item.state !== "empty")?.key ?? shown[0]?.key ?? COMPANY_ROW;
   const selected = picked === COMPANY_ROW || shown.some((item) => item.key === picked) ? (picked as string) : fallbackKey;
   const row = process.rows.find((item) => item.key === selected);
   const item = items.find((entry) => entry.key === selected);
   // Deleting from a channel on screen: a type that also serves the other channel only leaves this one.
-  const leaves = (key: string) => process.byChannel && channelsOf(process.list.data, key).length > 1;
+  const leaves = (key: string) => railChannels(process.list.data, key).length > 1;
   const channelName = copy.ruleChannels[channel];
 
   const onTypeAdded = (key: string, label: string, channels: LiveChannel[]) => {
@@ -118,12 +116,12 @@ export function PlaybookList() {
     if (canEdit && intake.open) {
       return <IntakePanel intake={intake} alone={false} name={process.name} onTemplate={() => setBrowse(true)} />;
     }
-    if (process.byChannel && selected === COMPANY_ROW && picked !== COMPANY_ROW && !shown.length) {
+    if (selected === COMPANY_ROW && picked !== COMPANY_ROW && !shown.length) {
       return (
         <div className="flex flex-col items-start gap-3 py-6">
           <p className="text-sm text-muted-foreground">{copy.channelEmpty[channel]}</p>
           {canEdit ? (
-            <AddTypeMenu catalog={addableTypes(process.types, process.motions)} stages={process.stages} channel={channel} onAdded={onTypeAdded} />
+            <AddTypeMenu catalog={addableTypes(process.types, process.motions)} stages={process.stages} channel={channel} byChannel={process.byChannel} onAdded={onTypeAdded} />
           ) : null}
         </div>
       );
@@ -138,7 +136,8 @@ export function PlaybookList() {
       );
     }
     const rule = process.ruleOf(row.key);
-    const line = usedForLine(row.key, rule, process.routing, process.goalOf(row.key), {
+    // Where it is used, without the "success = …" goal: a thing the rep cannot act on and the admin does not need here.
+    const line = usedForLine(row.key, rule, process.routing, null, {
       ...copy,
       roles: copy.ruleRoles,
       channels: copy.ruleChannels,
@@ -168,7 +167,7 @@ export function PlaybookList() {
         meta={
           process.byChannel ? (
             <TypeSetup
-              channels={channelsOf(process.list.data, row.key)}
+              channels={railChannels(process.list.data, row.key)}
               recognize={process.details[row.key]?.recognize ?? null}
               stats={process.stats[row.key] ?? null}
               rule={rule}
@@ -224,8 +223,9 @@ export function PlaybookList() {
           onImport={() => intake.setOpen(true)}
           addable={addableTypes(process.types, process.motions)}
           stages={process.stages}
-          showAddType={process.routing || process.byChannel}
+          showAddType
           channel={nav}
+          byChannel={process.byChannel}
           onTypeAdded={onTypeAdded}
         />
         <div className="min-w-0 flex-1">{detail()}</div>

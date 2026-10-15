@@ -32,6 +32,7 @@ export function ProcessNav({
   stages,
   showAddType,
   channel = null,
+  byChannel = true,
   onTypeAdded,
 }: {
   items: NavItem[];
@@ -44,6 +45,7 @@ export function ProcessNav({
   stages: { id: string; label: string }[];
   showAddType: boolean;
   channel?: NavChannel | null;
+  byChannel?: boolean;
   onTypeAdded: (key: string, label: string, channels: LiveChannel[]) => void;
 }) {
   const { t } = useLanguage();
@@ -83,7 +85,7 @@ export function ProcessNav({
 
   const company = entry(COMPANY_ROW, copy.companyTitle, CompanyIcon, companyFilled ? null : "empty");
   const add = canEdit && showAddType ? (
-    <AddTypeMenu catalog={addable} stages={stages} channel={channel?.value ?? null} onAdded={onTypeAdded} />
+    <AddTypeMenu catalog={addable} stages={stages} channel={channel?.value ?? null} byChannel={byChannel} onAdded={onTypeAdded} />
   ) : null;
   const importDoc = canEdit ? (
     <button type="button" className={cn(linkButton, "whitespace-nowrap")} onClick={onImport}>

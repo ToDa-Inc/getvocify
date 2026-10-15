@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
-import { Ellipsis, Sparkles } from "lucide-react";
+import { Ellipsis, Sparkles, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { IconAction } from "@/components/ui/icon-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -26,7 +27,7 @@ export function DocRow({ lead, title, side, children }: { lead: ReactNode; title
     <li className="group grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-start gap-x-3 border-t border-border/60 py-4 first:border-t-0">
       <span className="row-span-2 flex justify-center pt-0.5">{lead}</span>
       <div className="min-w-0">{title}</div>
-      <div className="flex items-center gap-2 pt-0.5">{side}</div>
+      <div className="flex items-center gap-2 pl-4 pt-0.5">{side}</div>
       {children ? <div className="col-span-2 col-start-2 min-w-0 pt-1">{children}</div> : null}
     </li>
   );
@@ -52,7 +53,13 @@ export function QuoteMark({ muted }: { muted?: boolean }) {
 
 /** A quiet tag on the right of an item ("Precio", "SDR"). */
 export function TypeTag({ children }: { children: ReactNode }) {
-  return <span className="whitespace-nowrap rounded-full bg-secondary px-2.5 py-0.5 text-[11.5px] text-muted-foreground">{children}</span>;
+  return <span className="max-w-[15rem] truncate whitespace-nowrap rounded-full bg-secondary px-3 py-0.5 text-[11.5px] text-muted-foreground">{children}</span>;
+}
+
+/** What kind of thing an item is, as one quiet line under it ("Precio · 12 % de las veces"): plain text that
+ * wraps like the rest, never a pill on the right and no icon to sit on top of the first letter. */
+export function MetaLine({ children }: { children: ReactNode }) {
+  return <p className="pt-1.5 text-xs text-muted-foreground">{children}</p>;
 }
 
 /** "✦ Completar con Vocify": asks Vocify to write what's missing; says so while it writes. */
@@ -74,9 +81,20 @@ export function CompleteButton({ label, pending, disabled, onClick }: { label: s
 
 export type MenuAction = { label: string; onSelect: () => void; danger?: boolean };
 
-/** One "···" per item, on the name's line: shown on hover or focus, always on touch. */
+/** What an item offers, on the name's line, shown on hover or focus and always on touch. One action is
+ * its own icon with a tooltip (a bin to delete); only several go into a "···". */
 export function ItemMenu({ label, actions }: { label: string; actions: MenuAction[] }) {
   if (actions.length === 0) return null;
+  if (actions.length === 1) {
+    const [only] = actions;
+    return (
+      <span className="-my-1.5 inline-flex shrink-0 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+        <IconAction label={only.label} tone={only.danger ? "danger" : "default"} onClick={only.onSelect}>
+          {only.danger ? <Trash2 size={16} strokeWidth={1.5} /> : <Ellipsis size={16} strokeWidth={2.25} />}
+        </IconAction>
+      </span>
+    );
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

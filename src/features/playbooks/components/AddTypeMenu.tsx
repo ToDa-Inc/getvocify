@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useLanguage } from "@/lib/i18n";
 import { typeKeyFromName, type AppliesTo, type CatalogType } from "@/lib/playbook-doc";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { LIVE_CHANNELS, type LiveChannel } from "@/lib/type-channels";
+import { LIVE_CHANNELS, ruleChannelsOf, type LiveChannel } from "@/lib/type-channels";
 
 /** "+ Tipo de llamada": a catalog type, or the company's own with the rule that routes calls to it.
  * With types by channel (`channel` set, "+ Tipo de llamada" / "+ Tipo de reunión"): a catalog type that
@@ -18,12 +18,15 @@ export function AddTypeMenu({
   catalog,
   stages,
   channel = null,
+  byChannel = true,
   onAdded,
 }: {
   catalog: CatalogType[];
   stages: { id: string; label: string }[];
   /** Types by channel: the channel the rail is on, which the new type belongs to. */
   channel?: LiveChannel | null;
+  /** The company goes by channel (a type has channels, no rule); else a type is routed by a rule. */
+  byChannel?: boolean;
   onAdded: (key: string, label: string, channels: LiveChannel[]) => void;
 }) {
   const { t, language } = useLanguage();
@@ -40,6 +43,13 @@ export function AddTypeMenu({
 
   const add = async (key: string, label: string, rule?: AppliesTo, channels?: LiveChannel[]) => {
     if (!key) return;
+    // Without types by channel, a type in a channel is a rule: the catalog's (or "anyone, any contact") for
+    // that channel alone, which the type's own "cambiar" refines later. Nothing to fill in to create it.
+    if (channel && !byChannel) {
+      const base = catalog.find((type) => type.key === key)?.applies_to;
+      rule = { role: base?.role ?? "any", contact: base?.contact ?? "any", deal_stages: base?.deal_stages ?? [], channels: ruleChannelsOf(channel) as AppliesTo["channels"] };
+      channels = undefined;
+    }
     setBusy(true);
     setError(null);
     try {

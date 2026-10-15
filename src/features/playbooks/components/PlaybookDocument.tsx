@@ -1,14 +1,9 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { MessagesSquare, Ellipsis, ListOrdered, Plus, Target } from "lucide-react";
+import { FileUp, ListOrdered, MessagesSquare, Plus, Target, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { IconAction } from "@/components/ui/icon-action";
 import { TabCount, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { playbooksApi, type FillScope, type FillSource } from "@/features/playbooks/api";
@@ -270,28 +265,12 @@ export function PlaybookDocument({
   ) : null;
 
   const canDiscard = draft.hasLive && (draft.isDraft || draft.dirty);
-  const menu = (items: { label: string; onSelect: () => void; danger?: boolean }[]) =>
-    items.length ? (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button type="button" aria-label={copy.more} className={THEME_TOKENS.interaction.iconButton}>
-            <Ellipsis size={18} strokeWidth={2.25} />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {items.map((item) => (
-            <DropdownMenuItem
-              key={item.label}
-              tone={item.danger ? "danger" : "default"}
-              onSelect={item.onSelect}
-            >
-              {item.label}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ) : null;
-  const deleteItem = onDelete ? [{ label: deleteLabel ?? copy.deleteAction, onSelect: onDelete, danger: true }] : [];
+  // Each action is its own icon with a tooltip: no "···" that opens a menu of one or two things.
+  const deleteAction = onDelete ? (
+    <IconAction label={deleteLabel ?? copy.deleteAction} tone="danger" onClick={onDelete}>
+      <Trash2 size={16} strokeWidth={1.5} />
+    </IconAction>
+  ) : null;
 
   const header = (right: ReactNode) => (
     // The title keeps a readable minimum; when the actions don't fit beside it they wrap below it.
@@ -311,7 +290,7 @@ export function PlaybookDocument({
         {header(
           <>
             {controls}
-            {canEdit ? menu(deleteItem) : null}
+            {canEdit ? deleteAction : null}
           </>,
         )}
         {noticeLine}
@@ -326,7 +305,7 @@ export function PlaybookDocument({
     );
   }
 
-  const unanswered = rows.some((row) => isSuggestion(row, draft.addedCategories) && !dismissed.has(row.key));
+  const unansweredCount = rows.filter((row) => isSuggestion(row, draft.addedCategories) && !dismissed.has(row.key)).length;
   const objectionCount = rows.filter((row) => row.objection.guidance.trim()).length;
 
   return (
@@ -337,13 +316,19 @@ export function PlaybookDocument({
             <SaveStatus state={draft.saveState} dirty={draft.dirty} onRetry={() => void draft.save()} onReload={() => void draft.reload()} />
           ) : null}
           {controls}
-          {canEdit
-            ? menu([
-                { label: copy.replaceFrom, onSelect: () => setRebuildOpen(true) },
-                ...(canDiscard ? [{ label: copy.discard, onSelect: () => setDiscardOpen(true) }] : []),
-                ...deleteItem,
-              ])
-            : null}
+          {canEdit ? (
+            <>
+              <IconAction label={copy.replaceFrom} onClick={() => setRebuildOpen(true)}>
+                <FileUp size={16} strokeWidth={1.5} />
+              </IconAction>
+              {canDiscard ? (
+                <IconAction label={copy.discard} onClick={() => setDiscardOpen(true)}>
+                  <Undo2 size={16} strokeWidth={1.5} />
+                </IconAction>
+              ) : null}
+              {deleteAction}
+            </>
+          ) : null}
         </>,
       )}
 
@@ -403,7 +388,11 @@ export function PlaybookDocument({
               <MessagesSquare size={15} strokeWidth={1.5} />
               {copy.blocks.objections}
               <TabCount value={objectionCount} />
-              <Attention on={editable && unanswered} label={copy.attentionObjections} />
+              {editable && unansweredCount > 0 ? (
+                <span className="rounded-full bg-warning/15 px-1.5 text-[10.5px] font-medium tabular-nums text-warning" title={copy.attentionObjections}>
+                  +{unansweredCount}
+                </span>
+              ) : null}
             </TabsTrigger>
           ) : null}
         </TabsList>
@@ -468,6 +457,7 @@ export function PlaybookDocument({
             onAddCustom={draft.addCustomObjection}
             onRemove={draft.removeObjection}
             onDismiss={dismissed.add}
+            onDismissAll={(keys) => keys.forEach(dismissed.add)}
           />
         </TabsContent>
       </Tabs>

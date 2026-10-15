@@ -7,7 +7,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CompleteButton, DocRow, ItemMenu, QuoteMark, TypeTag } from "@/features/playbooks/components/DocParts";
+import { CompleteButton, DocRow, ItemMenu, MetaLine, QuoteMark, TypeTag } from "@/features/playbooks/components/DocParts";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { itemBody, itemTitle, linkButton } from "@/features/playbooks/styles";
 import { useLanguage } from "@/lib/i18n";
@@ -37,6 +37,7 @@ export function PlaybookObjections({
   onAddCustom,
   onRemove,
   onDismiss,
+  onDismissAll,
 }: {
   rows: ObjectionRow[];
   /** Categories the manager added by hand: an entry to fill, not a suggestion. */
@@ -52,6 +53,8 @@ export function PlaybookObjections({
   onAddCustom: () => void;
   onRemove: (key: string) => void;
   onDismiss: (key: string) => void;
+  /** Dismiss every suggestion at once, so the count on the tab can be cleared. */
+  onDismissAll?: (keys: string[]) => void;
 }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
@@ -83,6 +86,54 @@ export function PlaybookObjections({
 
   return (
     <section aria-label={copy.objections}>
+      {suggestions.length > 0 ? (
+        <div className="mb-2 rounded-xl bg-secondary/40 px-3 pb-1 pt-3">
+          <div className="flex items-center justify-between gap-3 pl-[2.5rem]">
+            <p className="text-[13px] font-medium text-foreground">
+              {copy.objSuggestedHeading} <span className="font-normal tabular-nums text-muted-foreground">· {suggestions.length}</span>
+            </p>
+            {onDismissAll ? (
+              <button type="button" className="text-xs text-muted-foreground transition-colors hover:text-foreground" onClick={() => onDismissAll(suggestions.map((row) => row.key))}>
+                {copy.dismissAll}
+              </button>
+            ) : null}
+          </div>
+          <ul>
+        {suggestions.map((row) => (
+          // A ghost of an objection: the same row as a written one, muted until it has an answer.
+          <DocRow
+            key={row.key}
+            lead={<QuoteMark muted />}
+            title={<p className={cn(itemTitle, "text-muted-foreground")}>{usual(row.objection)}</p>}
+            side={kindOf(row.objection) ? <TypeTag>{kindOf(row.objection)}</TypeTag> : null}
+          >
+            {row.count > 0 ? <MetaLine>{copy.heardShare.replace("{share}", percent(row.share))} · {copy.noAnswerYet}</MetaLine> : null}
+            {row.bestExample ? (
+              <p className={itemBody}>
+                {copy.bestCall} «{row.bestExample}»
+              </p>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-1 pt-1">
+              {row.bestExample ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => onChange(row.key, { guidance: row.bestExample ?? "" })}>
+                  {copy.useSuggestion}
+                </Button>
+              ) : onComplete ? (
+                <CompleteButton label={copy.writeAnswer} pending={completingKey === row.key} disabled={busy} onClick={() => onComplete(row)} />
+              ) : null}
+              <button
+                type="button"
+                className="rounded-full px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+                onClick={() => onDismiss(row.key)}
+              >
+                {copy.dismiss}
+              </button>
+            </div>
+          </DocRow>
+        ))}
+          </ul>
+        </div>
+      ) : null}
       <ul>
         {shown.map((row) => {
           const item = row.objection;
@@ -114,7 +165,10 @@ export function PlaybookObjections({
                 <>
                   {custom && editable ? (
                     <InlineTextarea
-                      className="w-36 rounded-full bg-secondary px-2.5 py-0.5 text-[11.5px] text-muted-foreground focus:text-foreground"
+                      // The field's own negative side margins are off (they pulled the box under the title), there is room
+                      // on its left inside, and it is as wide as the name, so a longer one stays on one line.
+                      className="mx-0 w-auto rounded-full bg-secondary py-0.5 pl-3.5 pr-3 text-[11.5px] text-muted-foreground focus:text-foreground"
+                      style={{ width: `calc(${Math.min(Math.max((item.label ?? "").length, 12), 30)}ch + 2.25rem)` }}
                       value={item.label ?? ""}
                       maxLength={MAX_OBJECTION_LABEL + 20}
                       placeholder={copy.objCustomName}
@@ -125,9 +179,9 @@ export function PlaybookObjections({
                       }}
                       onChange={(event) => set({ label: event.target.value.replace(/\n/g, " ") })}
                     />
-                  ) : (
+                  ) : kindOf(item) ? (
                     <TypeTag>{kindOf(item)}</TypeTag>
-                  )}
+                  ) : null}
                   {row.count > 0 ? (
                     <span className="text-xs tabular-nums text-muted-foreground" title={copy.heardShare.replace("{share}", percent(row.share))}>
                       {percent(row.share)}
@@ -162,42 +216,6 @@ export function PlaybookObjections({
           );
         })}
 
-        {suggestions.map((row) => (
-          // A ghost of an objection: the same row as a written one, muted until it has an answer.
-          <DocRow
-            key={row.key}
-            lead={<QuoteMark muted />}
-            title={<p className={cn(itemTitle, "text-muted-foreground")}>{usual(row.objection)}</p>}
-            side={<TypeTag>{kindOf(row.objection)}</TypeTag>}
-          >
-            {row.count > 0 ? (
-              <p className="text-xs text-muted-foreground">
-                {copy.heardShare.replace("{share}", percent(row.share))} · {copy.noAnswerYet}
-              </p>
-            ) : null}
-            {row.bestExample ? (
-              <p className={itemBody}>
-                {copy.bestCall} «{row.bestExample}»
-              </p>
-            ) : null}
-            <div className="flex flex-wrap items-center gap-1 pt-1">
-              {row.bestExample ? (
-                <Button type="button" size="sm" variant="outline" onClick={() => onChange(row.key, { guidance: row.bestExample ?? "" })}>
-                  {copy.useSuggestion}
-                </Button>
-              ) : onComplete ? (
-                <CompleteButton label={copy.writeAnswer} pending={completingKey === row.key} disabled={busy} onClick={() => onComplete(row)} />
-              ) : null}
-              <button
-                type="button"
-                className="rounded-full px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
-                onClick={() => onDismiss(row.key)}
-              >
-                {copy.dismiss}
-              </button>
-            </div>
-          </DocRow>
-        ))}
       </ul>
 
       {editable ? (
