@@ -28,10 +28,10 @@ call id, or invite email.
 If they named a customer, resolve via master key ([admin.md](services/admin.md)):
 
 ```bash
-.cursor/skills/debug-vocify/scripts/vocify-admin.sh accounts --search email@x.com
-.cursor/skills/debug-vocify/scripts/vocify-admin.sh companies --search Acme
-.cursor/skills/debug-vocify/scripts/vocify-admin.sh account <user_id>
-.cursor/skills/debug-vocify/scripts/vocify-admin.sh company <company_id>
+~/.agents/skills/debug-vocify/scripts/vocify-admin.sh accounts --search email@x.com
+~/.agents/skills/debug-vocify/scripts/vocify-admin.sh companies --search Acme
+~/.agents/skills/debug-vocify/scripts/vocify-admin.sh account <user_id>
+~/.agents/skills/debug-vocify/scripts/vocify-admin.sh company <company_id>
 ```
 
 `MASTER_KEY` is already in `backend/.env` / Railway. The helper sends
@@ -52,7 +52,10 @@ IDs are on the railway card. Prefer MCP `get_logs` / `list_deployments`.
 Fallback: `vocify-railway.sh`.
 
 Always bound logs (`--lines 150–200`, `--filter`, last 2–6h). Start `@level:error`,
-then the card's keyword.
+then the card's keyword. For "what did the app call, and when", use `logs --http`
+with `--since/--until`: method, path, status, ms and client UA per request.
+Retention is short; older windows come back empty, so say so instead of reading
+silence as "nothing happened".
 
 Deploy statuses: `SUCCESS`, `CRASHED`, `FAILED`, `BUILDING`, `DEPLOYING`.
 A crashed commit will crash again if redeployed.
@@ -67,7 +70,7 @@ A crashed commit will crash again if redeployed.
 Helper reads `backend/.env` (or repo `.env`) at runtime:
 
 ```bash
-.cursor/skills/debug-vocify/scripts/vocify-http.sh <vendor> GET <path>
+~/.agents/skills/debug-vocify/scripts/vocify-http.sh <vendor> GET <path>
 ```
 
 Vendors: `resend`, `stripe`, `twilio`, `telnyx`, `unipile`, `deepgram`, `openrouter`.
@@ -88,14 +91,14 @@ Do not claim fixed without that verify step.
 Give each subagent everything; they have no parent chat.
 
 ```
-Vocify-only debug. Follow .cursor/skills/debug-vocify/pipeline.md evidence rules.
+Vocify-only debug. Follow ~/.agents/skills/debug-vocify/pipeline.md evidence rules.
 Do not fix unless asked. Return: Status, Evidence quotes (redact secrets),
 what you did not check.
 
 Env: production
 Window: <UTC>
 Symptom: <one line>
-Card: .cursor/skills/debug-vocify/services/<name>.md
+Card: ~/.agents/skills/debug-vocify/services/<name>.md
 Commands allowed: vocify-railway.sh, vocify-http.sh GET, named MCP tools
 ```
 

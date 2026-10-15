@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { InteractionMenu } from "@/features/interactions/components/InteractionMenu";
 import { MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
 import { ArrowLeft, Play, Pause, ExternalLink, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -78,6 +79,7 @@ function pipedriveRecordUrl(
 
 const MemoDetail = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const visit = useLocation().key;
@@ -432,6 +434,7 @@ const MemoDetail = () => {
         <div className="flex flex-wrap items-center gap-2">
           {id ? <MemoTypePill memoId={id} /> : null}
           {!isOwnMemo && authorName ? <AuthorLabel name={authorName} /> : null}
+          {id ? <InteractionMenu memoId={id} canDelete={isOwnMemo} visible onDeleted={() => navigate("/dashboard/memos")} /> : null}
         </div>
         <p className={canSeeReview ? "text-[12.5px] text-muted-foreground" : THEME_TOKENS.typography.body}>
           {isProcessing

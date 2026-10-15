@@ -18,7 +18,9 @@ import {
 } from "@/lib/interactions";
 import { useLanguage } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/features/auth";
 import { useCrmContactLink } from "../hooks/useCrmContactLink";
+import { InteractionMenu } from "./InteractionMenu";
 import { ContactStack } from "./ContactStack";
 import { TypeChip } from "./TypeChip";
 
@@ -92,6 +94,7 @@ export function InteractionRow({
     : new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(when);
   const contacts = rowContacts(memo);
   const crm = useCrmContactLink(memo.hubspotContactId);
+  const { user } = useAuth();
 
   return (
     <li className="group relative flex items-center gap-3.5 rounded-xl px-3 py-2.5 transition-colors duration-150 hover:bg-secondary/60 motion-reduce:transition-none">
@@ -157,6 +160,9 @@ export function InteractionRow({
             </span>
           ) : null}
         </div>
+        <span className="relative z-10">
+          <InteractionMenu memoId={memo.id} canDelete={memo.userId === user?.id} />
+        </span>
       </div>
     </li>
   );

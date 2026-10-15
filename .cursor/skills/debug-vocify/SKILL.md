@@ -11,7 +11,7 @@ description: >
 # Debug Vocify
 
 **Global install:** `~/.agents/skills/debug-vocify/` (Claude, Codex, Cursor).
-Repo copy: `getvocify/.cursor/skills/debug-vocify/`.
+Repo copy: `getvocify/.cursor/skills/debug-vocify/` (same files; the helpers find the repo and run from any directory).
 
 Vocify-specific ops pipeline. **Run only when the user requests a debug.**
 Not SignalCore, not other repos, not everyday coding.
@@ -44,7 +44,6 @@ Scripts from any cwd (Claude / Codex / Cursor):
 ~/.agents/skills/debug-vocify/scripts/vocify-http.sh resend GET /emails
 ```
 
-From the getvocify repo root the same helpers live at `.cursor/skills/debug-vocify*/scripts/`.
 
 ## Evidence (Hugo, non-negotiable)
 
@@ -57,6 +56,9 @@ Operators may act on this in production. Invented logs have caused harm.
    or ask for time window / email / company_id.
 3. Failed or empty tool → say so. Do not invent a plausible body.
 4. State what you checked and what you did not.
+5. Logs from the user's own machine (the desktop app's `call:` steps, browser console)
+   are not reachable from here. If the conclusion depends on what a screen
+   showed, say it is an inference and ask for that log.
 
 ## Subagents
 
@@ -82,7 +84,8 @@ Do not spawn subagents for a single linear issue (one failed invite email).
 | 502 / dashboard dead | [railway.md](services/railway.md) |
 | Invite / password email | [resend.md](services/resend.md) |
 | Seats / checkout | [stripe.md](services/stripe.md) |
-| Twilio calls | [twilio.md](services/twilio.md) |
+| Calls that fail to show, hang up or ring (dialer / desktop island) | [calls.md](services/calls.md) |
+| Twilio vendor API | [twilio.md](services/twilio.md) |
 | Telnyx calls | [telnyx.md](services/telnyx.md) |
 | WhatsApp | [unipile.md](services/unipile.md) |
 | File STT | [deepgram.md](services/deepgram.md) |

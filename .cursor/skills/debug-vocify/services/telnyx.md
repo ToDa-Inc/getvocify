@@ -12,8 +12,8 @@ on production `main`.
 | Docs | https://developers.telnyx.com |
 
 ```bash
-.cursor/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "telnyx"
-.cursor/skills/debug-vocify/scripts/vocify-http.sh telnyx GET /v2/balance
+~/.agents/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "telnyx"
+~/.agents/skills/debug-vocify/scripts/vocify-http.sh telnyx GET /v2/balance
 ```
 
 Confirm production `CALLING_PROVIDER` before assuming Telnyx is live.

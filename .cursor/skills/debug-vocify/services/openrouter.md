@@ -11,8 +11,8 @@ LLM routing for extraction, sanitize, copilot (`LLM_PROVIDER=openrouter`).
 | Docs | https://openrouter.ai/docs |
 
 ```bash
-.cursor/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "openrouter"
-.cursor/skills/debug-vocify/scripts/vocify-http.sh openrouter GET /api/v1/models
+~/.agents/skills/debug-vocify-railway/scripts/vocify-railway.sh logs --filter "openrouter"
+~/.agents/skills/debug-vocify/scripts/vocify-http.sh openrouter GET /api/v1/models
 ```
 
 Do not paste the key. `/health` may echo a truncated prefix — omit it in chat.
