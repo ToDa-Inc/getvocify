@@ -28,8 +28,8 @@ CALLING_EXTENSIONS_BASE = "/crm/extensions/calling/2026-03"
 # HubSpot hs_call_status values (see Calls API docs).
 HUBSPOT_STATUS_BY_DISPOSITION: dict[str, str] = {
     "connected": "COMPLETED",
-    "voicemail": "COMPLETED",
-    "no_response": "COMPLETED",
+    "voicemail": "NO_ANSWER",
+    "no_response": "NO_ANSWER",
     "busy": "BUSY",
     "no_answer": "NO_ANSWER",
     "failed": "FAILED",
@@ -51,10 +51,12 @@ HUBSPOT_BODY_BY_DISPOSITION: dict[str, str] = {
 
 # HubSpot timeline "Call outcome" reads hs_call_disposition (GUID), not
 # hs_call_status. Values from the Calls API docs default table only —
-# no GUID for failed / canceled / no_response, so those stay unset.
+# no GUID for failed / canceled, so those stay unset.
 HUBSPOT_DISPOSITION_GUID: dict[str, str] = {
     "connected": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
-    "voicemail": "b2cf5968-551e-4856-9783-52b3da59a7d0",
+    # A voicemail or a pickup with nobody there is a call nobody answered: HubSpot reads it as "No answer".
+    "voicemail": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "no_response": "73a0d17f-1163-4015-bdd5-ec830791da20",
     "busy": "9d9162e7-6cf3-4944-bf63-4dff82258764",
     "no_answer": "73a0d17f-1163-4015-bdd5-ec830791da20",
 }

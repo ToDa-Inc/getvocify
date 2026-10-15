@@ -41,7 +41,8 @@ class TestCallLogDisposition:
     def test_hubspot_status_mapping(self):
         assert hubspot_call_status_for_disposition("busy") == "BUSY"
         assert hubspot_call_status_for_disposition("connected") == "COMPLETED"
-        assert hubspot_call_status_for_disposition("voicemail") == "COMPLETED"
+        assert hubspot_call_status_for_disposition("voicemail") == "NO_ANSWER"
+        assert hubspot_call_status_for_disposition("no_response") == "NO_ANSWER"
 
     def test_hubspot_body_mapping(self):
         assert "Buzon de voz" in hubspot_call_body_for_disposition("voicemail")
@@ -53,6 +54,11 @@ class TestCallLogDisposition:
             == "f240bbac-87c9-4f6e-bf70-924b57d47db7"
         )
         assert hubspot_call_disposition_guid("failed") is None
+
+    def test_voicemail_is_logged_as_no_answer(self):
+        no_answer = hubspot_call_disposition_guid("no_answer")
+        assert hubspot_call_disposition_guid("voicemail") == no_answer
+        assert hubspot_call_disposition_guid("no_response") == no_answer
 
     def test_build_call_properties_sets_connected_guid(self):
         props = build_call_properties(

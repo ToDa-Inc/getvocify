@@ -36,6 +36,8 @@ export type PostCallChange = {
   when: string | null;
   /** The call gave the task no day: `when` is the default it will be written with. */
   whenSuggested: boolean;
+  /** Nothing was proposed (the lead status the call left alone): written only once the rep picks a value. */
+  pending?: boolean;
 };
 
 export type PostCallCrmStage =
@@ -187,6 +189,13 @@ export function changesFrom(proposed: Update[] | null | undefined): PostCallChan
     const key = proposedFieldKey(update);
     const to = text(update.new_value);
     const from = text(update.current_value);
+    if (key && !to && update.field_name === LEAD_STATUS_FIELD) {
+      const options = optionsOf(update);
+      if (options.length) {
+        changes.push({ key, label: text(update.field_label) || "Lead status", object: "contact", from: null, to: "Choose", value: "", options, multiple: false, editable: false, check: false, pending: true, when: null, whenSuggested: false });
+      }
+      continue;
+    }
     if (!key || !to || to === from) continue;
     const confidence = typeof update.extraction_confidence === "number" ? update.extraction_confidence : null;
     const dueAt = update.object_type === "task" ? text(update.due_at) : "";
@@ -208,6 +217,38 @@ export function changesFrom(proposed: Update[] | null | undefined): PostCallChan
     });
   }
   return changes;
+}
+
+/** The CRM's contact field for the lead status, as its schema lists it. */
+export const LEAD_STATUS_FIELD = "hs_lead_status";
+
+type SchemaProperty = { name: string; label?: string; options?: { label: string; value: string }[] };
+
+/**
+ * The lead status offered when the call proposed none, so every call can end with it: the field with its
+ * options, nothing chosen. Null when the CRM has no such field or no options, so nothing is invented.
+ */
+export function leadStatusUpdate(properties: SchemaProperty[] | null | undefined): Update | null {
+  const property = (properties ?? []).find((candidate) => candidate.name === LEAD_STATUS_FIELD);
+  const options = (property?.options ?? []).filter((option) => text(option.value));
+  if (!property || options.length === 0) return null;
+  return {
+    field_name: LEAD_STATUS_FIELD,
+    field_label: text(property.label) || "Lead status",
+    field_type: "enumeration",
+    object_type: "contacts",
+    new_value: "",
+    current_value: null,
+    options,
+    multiple: false,
+  };
+}
+
+/** The proposed updates plus the lead status to choose, unless the call already proposed one. */
+export function withLeadStatus(proposed: Update[] | null | undefined, offer: Update | null): Update[] {
+  const list = proposed ?? [];
+  if (!offer || list.some((update) => proposedFieldKey(update) === proposedFieldKey(offer))) return list;
+  return [...list, offer];
 }
 
 /**

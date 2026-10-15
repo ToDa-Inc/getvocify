@@ -172,6 +172,8 @@ class UploadResponse(BaseModel):
     id: str
     status: str
     statusUrl: str
+    # Set when a call's memo was screened out (voicemail, nobody there): nothing is extracted from it.
+    screeningOutcome: Optional[str] = None
 
 
 class ApproveMemoRequest(BaseModel):

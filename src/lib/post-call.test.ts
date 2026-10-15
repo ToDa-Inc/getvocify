@@ -7,6 +7,7 @@ import {
   crmFor,
   defaultKept,
   emailFrom,
+  leadStatusUpdate,
   meetingFrom,
   noteMarkdown,
   pendingItems,
@@ -14,6 +15,7 @@ import {
   retypedTo,
   summaryLines,
   withEdits,
+  withLeadStatus,
   type PostCall,
 } from "./post-call.ts";
 
@@ -264,5 +266,50 @@ describe("crmForType", () => {
     assert.equal(crmForType("discovery", crm), crm);
     assert.equal(crmForType(null, crm), crm);
     assert.equal(pendingItems({ memoId: "m", contactName: null, ...crmForType("internal", crm), email: null, meeting: null, notes: false }), 0);
+  });
+});
+
+describe("lead status offered on every call", () => {
+  const schema = [
+    { name: "email", label: "Email" },
+    { name: "hs_lead_status", label: "Lead Status", options: [{ label: "New", value: "NEW" }, { label: "Connected", value: "CONNECTED" }] },
+  ];
+
+  it("is the CRM's own field with its options, nothing chosen", () => {
+    const offer = leadStatusUpdate(schema);
+    assert.equal(offer?.field_name, "hs_lead_status");
+    assert.equal(offer?.object_type, "contacts");
+    assert.equal(offer?.new_value, "");
+    assert.equal(offer?.options?.length, 2);
+  });
+
+  it("is absent when the CRM has no such field or no options", () => {
+    assert.equal(leadStatusUpdate([{ name: "email" }]), null);
+    assert.equal(leadStatusUpdate([{ name: "hs_lead_status", options: [] }]), null);
+    assert.equal(leadStatusUpdate(null), null);
+  });
+
+  it("makes a card that can save even when the call proposed nothing", () => {
+    const proposed = withLeadStatus([], leadStatusUpdate(schema));
+    const crm = crmFor({ status: "pending_review", hubspotContactId: "42" }, proposed);
+    assert.equal(crm.stage, "ready");
+    assert.equal(crm.canApprove, true);
+    assert.equal(crm.changes.length, 1);
+    assert.equal(crm.changes[0].pending, true);
+    assert.equal(crm.changes[0].key, "contacts:hs_lead_status");
+  });
+
+  it("leaves the call's own lead status alone", () => {
+    const own = { field_name: "hs_lead_status", object_type: "contacts", current_value: "NEW", new_value: "CONNECTED", options: [{ value: "CONNECTED", label: "Connected" }] };
+    const proposed = withLeadStatus([own], leadStatusUpdate(schema));
+    assert.equal(proposed.length, 1);
+    assert.equal(changesFrom(proposed)[0].pending, undefined);
+  });
+
+  it("takes the value the rep picks", () => {
+    const proposed = withLeadStatus([], leadStatusUpdate(schema));
+    const picked = withEdits(proposed, { "contacts:hs_lead_status": "CONNECTED" });
+    assert.equal(picked[0].new_value, "CONNECTED");
+    assert.equal(withEdits(proposed, { "contacts:hs_lead_status": "NOPE" })[0].new_value, "");
   });
 });

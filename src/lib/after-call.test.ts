@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { FOLLOWUP_POLL_FOR_MS, FOLLOWUP_POLL_MS } from "../../shared/ui/home.js";
-import { afterCallLine, afterCallPoll, afterCallResolution } from "./after-call.ts";
+import { afterCallLine, afterCallPoll, afterCallResolution, isNoConversation } from "./after-call.ts";
 
 const T0 = Date.parse("2026-09-29T10:00:00Z");
 
@@ -68,5 +68,15 @@ describe("after-call poll", () => {
     assert.deepEqual(afterCallPoll({ memoId: "m1", memoStatus: "approved" }, T0, T0 + 5000), { interval: false, since: null });
     assert.deepEqual(afterCallPoll({ screeningOutcome: "voicemail" }, T0, T0 + 5000), { interval: false, since: null });
     assert.deepEqual(afterCallPoll({ status: "failed" }, T0, T0 + 5000), { interval: false, since: null });
+  });
+});
+
+describe("no conversation", () => {
+  it("is a voicemail or nobody there, nothing else", () => {
+    assert.equal(isNoConversation("voicemail"), true);
+    assert.equal(isNoConversation("no_response"), true);
+    assert.equal(isNoConversation("connected"), false);
+    assert.equal(isNoConversation(null), false);
+    assert.equal(isNoConversation(undefined), false);
   });
 });

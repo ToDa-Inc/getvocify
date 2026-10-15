@@ -17,6 +17,11 @@ export type AfterCallLine =
   | null;
 
 const NO_CONVERSATION = new Set(["voicemail", "no_response"]);
+
+/** A call screened out as voicemail or nobody there: nothing to extract, and the CRM logs it as no answer. */
+export function isNoConversation(screeningOutcome: string | null | undefined): boolean {
+  return Boolean(screeningOutcome && NO_CONVERSATION.has(screeningOutcome));
+}
 const PIPELINE = new Set(["uploading", "transcribing", "extracting", "pending_transcript"]);
 
 function callMinutes(seconds: number | null | undefined): number | null {
@@ -39,7 +44,7 @@ export function afterCallLine(summary: CallSummary | null | undefined, crm: stri
 
 /** Processing can still reveal there was no conversation, or that the call failed. */
 export function afterCallResolution(summary: CallSummary | null | undefined): "no_answer" | "failed" | null {
-  if (summary?.screeningOutcome && NO_CONVERSATION.has(summary.screeningOutcome)) return "no_answer";
+  if (isNoConversation(summary?.screeningOutcome)) return "no_answer";
   if (summary?.status === "failed") return "failed";
   return null;
 }

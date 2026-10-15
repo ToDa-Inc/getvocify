@@ -1135,7 +1135,12 @@ async def upload_transcript_and_extract(
         if outcome != "connected":
             # Voicemail or nobody there: kept with its transcript, nothing to extract (as from the recording).
             await finalize_screened_out_memo(supabase, str(memo_id), transcript, duration, outcome, body.call_sid)
-            return UploadResponse(id=str(memo_id), status="pending_review", statusUrl=f"/api/v1/memos/{memo_id}")
+            return UploadResponse(
+                id=str(memo_id),
+                status="pending_review",
+                statusUrl=f"/api/v1/memos/{memo_id}",
+                screeningOutcome=outcome,
+            )
         source_type = "vocify_call"
         stt_meta["screening_outcome"] = outcome
     if body.sales_motion_key:
