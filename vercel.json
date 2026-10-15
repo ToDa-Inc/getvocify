@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/download/windows", "destination": "/api/download-windows" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
