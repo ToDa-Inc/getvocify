@@ -56,6 +56,8 @@ export type CoachCall = {
   duration_s: number | null;
   summary_line: string;
   meeting_agreed: boolean;
+  /** call / meeting / visit, as the interaction was captured (absent from an older backend). */
+  kind?: string | null;
   done: number;
   applicable: number;
   /** Empty when there was nothing to improve in this call. */

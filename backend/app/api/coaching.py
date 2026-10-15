@@ -546,6 +546,7 @@ async def get_my_coaching_calls(
             "duration_s": row["duration_s"],
             "summary_line": row["summary_line"],
             "meeting_agreed": row["meeting_agreed"],
+            "kind": row.get("kind"),
             "done": part.get("met_steps", 0),
             "applicable": part.get("met_steps", 0) + part.get("missed_steps", 0),
             "slips": engine.call_slips(row),  # empty: nothing to improve in this one

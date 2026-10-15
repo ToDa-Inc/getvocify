@@ -150,6 +150,7 @@ def interaction_row(memo: dict) -> dict | None:
         "user_id": str(memo.get("user_id") or ""),
         "observed_at": observed.isoformat(),
         "motion": memo.get("sales_motion_key"),
+        "kind": memo.get("interaction_kind"),
         "is_conversation": conversation,
         # v8 call type: only a call that runs the whole process can complete it.
         "full_process": call.get("call_type") in FULL_PROCESS_CALLS if call else True,
