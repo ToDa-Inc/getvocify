@@ -1,8 +1,10 @@
 """Meetings the rep marked in the CRM, read back for coaching.
 
 A rep who books a meeting often says so in the CRM rather than in Vocify: they move the deal to
-the stage the company set as "meeting booked" (crm_configurations.meeting_booked_stage_id). That
-is the rep's own declaration, never a model's reading, so it counts like `memos.rep_outcome`.
+the stage the company set as "meeting booked" (crm_configurations.meeting_booked_stage_id), or,
+an SDR with no deal yet, set the contact's lead status to converted (lost / not qualified for a
+loss). That is the rep's own declaration, never a model's reading, so it counts like
+`memos.rep_outcome`.
 
 Each deal that ever entered that stage is credited to the call that booked it: the company's
 latest call to one of the deal's contacts (or on the deal itself) in the days before the deal
@@ -139,11 +141,8 @@ def credit_calls(deals: list[dict], memos: list[dict]) -> dict[str, datetime]:
     return credited
 
 
-def _hubspot_deals(supabase: Any, company_id: str, stage_id: str) -> list[dict]:
-    with _lock:
-        hit = _cache.get((company_id, stage_id))
-        if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
-            return hit[1]
+def _hubspot_read(supabase: Any, company_id: str, read: Callable[[Callable, Callable], Any]) -> Any:
+    """Run `read(get, post)` against the company's HubSpot, or None when it has no HubSpot."""
     import httpx
 
     from app.services.hubspot.oauth import ensure_fresh_hubspot_connection
@@ -151,7 +150,7 @@ def _hubspot_deals(supabase: Any, company_id: str, stage_id: str) -> list[dict]:
 
     connection = crm_connection(supabase, company_id)
     if not connection or connection.get("provider") != "hubspot":
-        return []
+        return None
     connection = ensure_fresh_hubspot_connection(supabase, connection)
     headers = {"Authorization": f"Bearer {connection.get('access_token')}"}
     with httpx.Client(base_url="https://api.hubapi.com", headers=headers, timeout=TIMEOUT_SECONDS) as client:
@@ -165,25 +164,142 @@ def _hubspot_deals(supabase: Any, company_id: str, stage_id: str) -> list[dict]:
             response.raise_for_status()
             return response.json()
 
-        deals = booked_deals_from_hubspot(get, post, stage_id)
+        return read(get, post)
+
+
+def _hubspot_deals(supabase: Any, company_id: str, stage_id: str) -> list[dict]:
+    with _lock:
+        hit = _cache.get((company_id, stage_id))
+        if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
+            return hit[1]
+    deals = _hubspot_read(supabase, company_id, lambda get, post: booked_deals_from_hubspot(get, post, stage_id)) or []
     with _lock:
         _cache[(company_id, stage_id)] = (time.monotonic(), deals)
     return deals
 
 
+# Lead status (the contact's hs_lead_status): where an SDR marks how a cold call ended, often with
+# no deal yet. Read by the option's label or internal value, so a portal's own options match too.
+LOST = "lost"
+_LEAD_STATUS_OUTCOMES = {
+    "converted": MEETING_BOOKED, "convertido": MEETING_BOOKED,
+    "lost": LOST, "perdido": LOST,
+    "not qualified": LOST, "not_qualified": LOST, "unqualified": LOST, "no cualificado": LOST,
+}
+_LEAD_STATUS_BATCH = 50
+_status_cache: dict[str, tuple[float, dict[str, str], dict[str, list[dict]]]] = {}  # company -> (at, outcomes, contact -> changes)
+
+
+def lead_status_outcomes(options: list[dict]) -> dict[str, str]:
+    """hs_lead_status internal value -> MEETING_BOOKED or LOST, from the property's options."""
+    out: dict[str, str] = {}
+    for option in options or []:
+        value = str(option.get("value") or "").strip()
+        for name in (option.get("label"), value):
+            outcome = _LEAD_STATUS_OUTCOMES.get(" ".join(str(name or "").replace("_", " ").lower().split()))
+            if outcome and value:
+                out[value] = outcome
+                break
+    return out
+
+
+def lead_status_changes_from_hubspot(post: Callable, contact_ids: list[str], outcomes: dict[str, str]) -> dict[str, list[dict]]:
+    """contact_id -> every time its lead status was set to a value in `outcomes`: {outcome, at}."""
+    changes: dict[str, list[dict]] = {contact_id: [] for contact_id in contact_ids}
+    for start in range(0, len(contact_ids), _LEAD_STATUS_BATCH):
+        page = post("/crm/v3/objects/contacts/batch/read", {
+            "inputs": [{"id": contact_id} for contact_id in contact_ids[start:start + _LEAD_STATUS_BATCH]],
+            "properties": ["hs_lead_status"],
+            "propertiesWithHistory": ["hs_lead_status"],
+        }) or {}
+        for row in page.get("results") or []:
+            history = (row.get("propertiesWithHistory") or {}).get("hs_lead_status") or []
+            found = changes.setdefault(str(row.get("id")), [])
+            for entry in history:
+                outcome = outcomes.get(str(entry.get("value") or "").strip())
+                at = _instant(entry.get("timestamp"))
+                if outcome and at:
+                    found.append({"outcome": outcome, "at": at})
+    return changes
+
+
+def credit_status_changes(changes: dict[str, list[dict]], memos: list[dict], outcome: str) -> dict[str, datetime]:
+    """memo_id -> when the contact's lead status was set to `outcome`, credited to the last call on
+    the contact before it. A meeting must follow its call within CREDIT_WINDOW; a loss closes the
+    last interaction however long before it was."""
+    by_contact: dict[str, list[tuple[datetime, str]]] = {}
+    for memo in memos:
+        at = _instant(memo.get("capture_started_at")) or _instant(memo.get("created_at"))
+        if at and memo.get("id") and memo.get("hubspot_contact_id"):
+            by_contact.setdefault(str(memo["hubspot_contact_id"]), []).append((at, str(memo["id"])))
+    credited: dict[str, datetime] = {}
+    for contact_id, found in changes.items():
+        for change in found:
+            if change["outcome"] != outcome:
+                continue
+            set_at = change["at"]
+            candidates = [
+                (at, memo_id) for at, memo_id in by_contact.get(contact_id, [])
+                if at <= set_at + timedelta(hours=1)
+                and (outcome != MEETING_BOOKED or set_at - CREDIT_WINDOW <= at)
+            ]
+            if candidates:
+                credited[max(candidates)[1]] = set_at
+    return credited
+
+
+def _lead_status_changes(supabase: Any, company_id: str, memos: list[dict]) -> dict[str, list[dict]]:
+    """The lead status changes of the memos' contacts, cached per company for CACHE_SECONDS."""
+    contact_ids = sorted({str(memo["hubspot_contact_id"]) for memo in memos if memo.get("hubspot_contact_id")})
+    if not contact_ids:
+        return {}
+    with _lock:
+        hit = _status_cache.get(company_id)
+        if hit and time.monotonic() - hit[0] >= CACHE_SECONDS:
+            hit = None
+    cached_at, outcomes, known = hit if hit else (time.monotonic(), {}, {})
+    missing = [contact_id for contact_id in contact_ids if contact_id not in known]
+    if missing:
+        def read(get: Callable, post: Callable) -> tuple[dict[str, str], dict[str, list[dict]]]:
+            found = outcomes or lead_status_outcomes((get("/crm/v3/properties/contacts/hs_lead_status") or {}).get("options") or [])
+            return found, (lead_status_changes_from_hubspot(post, missing, found) if found else {cid: [] for cid in missing})
+
+        result = _hubspot_read(supabase, company_id, read)
+        if result is None:
+            return {}
+        outcomes, fetched = result
+        known = {**known, **fetched}
+        with _lock:
+            _status_cache[company_id] = (cached_at, outcomes, known)
+    return {contact_id: known.get(contact_id, []) for contact_id in contact_ids}
+
+
+def lead_status_calls(supabase: Any, company_id: Optional[str], memos: list[dict], outcome: str) -> dict[str, datetime]:
+    """The calls whose contact's lead status the rep set to `outcome` (MEETING_BOOKED or LOST)
+    afterwards. Empty for another CRM or on any failure. Never raises."""
+    if not company_id or not memos:
+        return {}
+    try:
+        return credit_status_changes(_lead_status_changes(supabase, str(company_id), memos), memos, outcome)
+    except Exception:
+        logger.warning("crm lead status: read failed; coaching keeps the other outcomes", exc_info=True)
+        return {}
+
+
 def apply_crm_meetings(supabase: Any, company_id: Optional[str], memos: list[dict]) -> list[dict]:
-    """Memos whose call booked a meeting the rep marked in the CRM get rep_outcome
-    "meeting_booked" (an outcome the rep already set in Vocify always wins). Never raises."""
+    """Memos whose call booked a meeting the rep marked in the CRM (the deal moved to the meeting
+    stage, or the contact's lead status set to converted) get rep_outcome "meeting_booked" (an
+    outcome the rep already set in Vocify always wins). Never raises."""
     if not company_id or not memos:
         return memos
+    credited: dict[str, datetime] = {}
     try:
         stage = meeting_stage(supabase, str(company_id))
-        if not stage:
-            return memos
-        credited = credit_calls(_hubspot_deals(supabase, str(company_id), stage["stage_id"]), memos)
+        if stage:
+            credited.update(credit_calls(_hubspot_deals(supabase, str(company_id), stage["stage_id"]), memos))
     except Exception:
         logger.warning("crm meetings: read failed; coaching keeps the rep's Vocify outcomes only", exc_info=True)
-        return memos
+    credited.update(lead_status_calls(supabase, company_id, memos, MEETING_BOOKED))
     if not credited:
         return memos
     return [
@@ -223,15 +339,18 @@ def lost_calls(deals: list[dict], memos: list[dict]) -> dict[str, datetime]:
 
 
 def crm_lost_calls(supabase: Any, company_id: Optional[str], memos: list[dict]) -> dict[str, datetime]:
-    """The calls whose deal the rep marked lost in HubSpot (read only). Empty for another CRM or on
-    any failure: the Head of Sales then sees the losses declared in Vocify only. Never raises."""
+    """The calls the rep marked lost in HubSpot (read only): the deal in the lost stage, or the
+    contact's lead status set to lost / not qualified. Empty for another CRM or on any failure:
+    the Head of Sales then sees the losses declared in Vocify only. Never raises."""
     if not company_id or not memos:
         return {}
+    lost: dict[str, datetime] = {}
     try:
-        return lost_calls(_hubspot_deals(supabase, str(company_id), HUBSPOT_LOST_STAGE), memos)
+        lost.update(lost_calls(_hubspot_deals(supabase, str(company_id), HUBSPOT_LOST_STAGE), memos))
     except Exception:
         logger.warning("crm lost deals: read failed; losses come from Vocify outcomes only", exc_info=True)
-        return {}
+    lost.update(lead_status_calls(supabase, company_id, memos, LOST))
+    return lost
 
 
 # Proposal decisions where the rep confirmed the meeting in Vocify (meetings/accept.py).
