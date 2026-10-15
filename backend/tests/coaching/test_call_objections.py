@@ -26,3 +26,19 @@ def test_lists_objections_with_the_key_the_playbook_answers_them_by():
 
 def test_a_non_conversation_has_none():
     assert engine.call_objections(_row([{"kind": "objection", "category": "price"}], conversation=False), ENTRIES) == []
+
+
+def _step_row(memo_id, at, state, quote="cita"):
+    return {
+        "memo_id": memo_id, "observed_at": at, "is_conversation": True,
+        "steps": [{"step_id": "s1", "label": "Abrir", "criterion": "Cita algo", "state": state, "quote": quote, "reason": "motivo", "advice": None}],
+    }
+
+
+def test_slipped_steps_list_the_calls_it_went_well_in_only_when_asked():
+    steps = [{"step_id": "s1", "label": "Abrir", "criterion": "Cita algo"}]
+    rows = [_step_row("m1", "2026-10-14T10:00:00+00:00", "missing"), _step_row("m2", "2026-10-13T10:00:00+00:00", "done"), _step_row("m3", "2026-10-12T10:00:00+00:00", "done")]
+    slips_only = engine.slipped_steps(rows, steps)[0]["occurrences"]
+    with_done = engine.slipped_steps(rows, steps, include_done=True)[0]["occurrences"]
+    assert [o["state"] for o in slips_only] == ["missing"]
+    assert [o["state"] for o in with_done] == ["missing", "done", "done"]

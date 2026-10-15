@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Timer } from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, Timer } from "lucide-react";
 import { AudioLines } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
@@ -49,6 +49,12 @@ function StepMeter({ call }: { call: CoachCall }) {
       <span className="text-xs tabular-nums text-muted-foreground">
         {call.done}/{call.applicable}
       </span>
+      {!call.slips.length ? (
+        <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">
+          <Check aria-hidden className="h-3 w-3" strokeWidth={2} />
+          {p.coachAllDone}
+        </span>
+      ) : null}
       {call.meeting_agreed ? <span className="text-xs text-success">{p.coachCardMeeting} · {p.coachCardYes}</span> : null}
     </span>
   );

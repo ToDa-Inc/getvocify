@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 SAY_MAX_CHARS = 320
 CACHE_SECONDS = 24 * 3600.0
 _MAX_CACHED = 2000
-_cache: dict[str, tuple[float, Optional[str]]] = {}
+_cache: dict[str, tuple[float, tuple[Optional[str], bool]]] = {}
 
 SYSTEM = """You write the one thing a sales rep could have said at a specific moment of a call, so they can say it next time.
 You get what the team's playbook says for this moment, what was said in the call, and the company's own facts.
@@ -32,8 +32,10 @@ Rules:
 - For a step: say the step the way the playbook's example does, in this call's terms (this prospect, what they just said).
 - Fit the line to the call excerpt: pick up what the prospect just said. You may reuse the playbook example's words, but never paste it whole when the excerpt makes it not fit.
 - No coaching voice ("deberías", "intenta"), no filler ("entiendo perfectamente", "excelente pregunta"), no emojis, no quotation marks around the line.
-- If the playbook text gives nothing to base a reply on for this moment, answer {"say": null}. Do not improvise.
-Return only JSON: {"say": "<the line>" | null}"""
+- If the rep replied and their reply already makes the playbook's move, even in different words, order or style, the line is not needed:
+  answer {"say": null, "fine": true}. Judge by purpose, not wording. A reply that dodges, only agrees, or skips the move is not fine.
+- If the playbook text gives nothing to base a reply on for this moment, answer {"say": null, "fine": false}. Do not improvise.
+Return only JSON: {"say": "<the line>" | null, "fine": true | false}"""
 
 
 def _clean(value: Any) -> str:
@@ -116,24 +118,29 @@ async def _ask(messages: list[dict]) -> Any:
     )
 
 
-def _accept(raw: Any) -> Optional[str]:
-    say = _clean(raw.get("say")) if isinstance(raw, dict) else ""
-    say = say.strip("«»\"“” ")
-    return say[:SAY_MAX_CHARS] or None
+def _accept(raw: Any) -> tuple[Optional[str], bool]:
+    """(the line, whether the rep's own reply already did the job). A reply that was fine needs no line."""
+    if not isinstance(raw, dict):
+        return None, False
+    if raw.get("fine") is True:
+        return None, True
+    say = _clean(raw.get("say")).strip("«»\"“” ")
+    return (say[:SAY_MAX_CHARS] or None), False
 
 
-async def better_reply(messages: list[dict], *, cache_key: str) -> Optional[str]:
-    """The line, or None when the playbook gives no base for it. A failed model call raises: the screen
-    says it could not write it, which is true, instead of saying the playbook has nothing."""
+async def better_reply(messages: list[dict], *, cache_key: str) -> tuple[Optional[str], bool]:
+    """(line, fine). The line is None when the playbook gives no base for it or the rep's reply was already
+    fine. A failed model call raises: the screen says it could not write it, which is true, instead of
+    saying the playbook has nothing."""
     digest = hashlib.sha256((cache_key + "\n" + messages[-1]["content"]).encode()).hexdigest()
     hit = _cache.get(digest)
     if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
         return hit[1]
     raw = await _ask(messages)
-    if not isinstance(raw, dict) or "say" not in raw:
+    if not isinstance(raw, dict) or ("say" not in raw and "fine" not in raw):
         raw = await _ask(messages)  # a reply with no answer at all (not even a null) is asked once more
-    say = _accept(raw)
+    result = _accept(raw)
     if len(_cache) >= _MAX_CACHED:
         _cache.clear()
-    _cache[digest] = (time.monotonic(), say)
-    return say
+    _cache[digest] = (time.monotonic(), result)
+    return result

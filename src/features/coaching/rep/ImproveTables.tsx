@@ -110,7 +110,7 @@ function Table({
 
 function StepDetail({ step, type }: { step: CoachSlippedStep; type: string }) {
   const moments: Moment[] = step.occurrences.map((o) => ({
-    memo_id: o.memo_id, observed_at: o.observed_at, tone: o.state === "missing" ? "bad" : "half", quote: o.quote, response: null, reason: o.reason, advice: o.advice,
+    memo_id: o.memo_id, observed_at: o.observed_at, tone: o.state === "missing" ? "bad" : o.state === "done" ? "good" : "half", quote: o.quote, response: null, reason: o.reason, advice: o.advice,
   }));
   return <OccurrencePager key={step.step_id} type={type} kind="step" itemKey={step.step_id} how={step.example} moments={moments} />;
 }

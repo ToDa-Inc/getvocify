@@ -68,9 +68,9 @@ def test_an_objection_without_an_answer_in_the_playbook_has_no_base():
 
 
 def test_the_model_line_is_cleaned_and_bounded():
-    assert better._accept({"say": "  «Entiendo. ¿Qué cambiaría en un mes?» "}) == "Entiendo. ¿Qué cambiaría en un mes?"
-    assert better._accept({"say": None}) is None
-    assert len(better._accept({"say": "a" * 900})) == better.SAY_MAX_CHARS
+    assert better._accept({"say": "  «Entiendo. ¿Qué cambiaría en un mes?» "}) == ("Entiendo. ¿Qué cambiaría en un mes?", False)
+    assert better._accept({"say": None}) == (None, False)
+    assert len(better._accept({"say": "a" * 900})[0]) == better.SAY_MAX_CHARS
 
 
 def test_returns_the_line_and_asks_the_model_once(monkeypatch):
@@ -139,3 +139,20 @@ def test_a_reply_with_no_answer_field_is_asked_once_more(monkeypatch):
     monkeypatch.setattr(better, "_ask", ask)
     out = _client().post("/api/v1/coaching/me/better-reply", json=_body()).json()
     assert out["say"] == "Vale. ¿Qué cambiaría en un mes?" and len(calls) == 2
+
+
+def test_a_reply_that_was_already_fine_gets_no_rewrite(monkeypatch):
+    seen = []
+
+    async def ask(messages):
+        seen.append(messages[-1]["content"])
+        return {"say": "Algo que no debe mostrarse", "fine": True}
+
+    monkeypatch.setattr(better, "_ask", ask)
+    out = _client().post("/api/v1/coaching/me/better-reply", json=_body(response="¿Es por presupuesto o por prioridades?")).json()
+    assert out == {"say": None, "reason": "already_fine"}
+    assert "¿Es por presupuesto o por prioridades?" in seen[0]
+
+
+def test_the_prompt_tells_the_model_to_judge_by_purpose_not_wording():
+    assert "Judge by purpose, not wording" in better.SYSTEM and '"fine": true' in better.SYSTEM

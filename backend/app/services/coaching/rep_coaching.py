@@ -293,15 +293,19 @@ def call_objections(row: dict, entries: list[dict]) -> list[dict]:
     return out
 
 
-OCCURRENCE_LIMIT = 10
+# Every time the thing came up in the window (four weeks of one rep): the screen says "3/12", so 12 are sent.
+OCCURRENCE_LIMIT = 60
 
 
-def slipped_steps(rows: list[dict], steps: list[dict], limit: int = OCCURRENCE_LIMIT) -> list[dict]:
+def slipped_steps(rows: list[dict], steps: list[dict], limit: int = OCCURRENCE_LIMIT, include_done: bool = False) -> list[dict]:
     """Every coachable step the rep slipped on in these conversations (not done or halfway), worst
-    first, each with the calls it slipped in, newest first: what went wrong, the moment, what to try."""
+    first, each with the calls it slipped in, newest first: what went wrong, the moment, what to try.
+    `include_done` also lists the calls where the step went well (their quote and why), so the screen
+    can show what worked next to what did not; the weekly digest asks for the slips alone."""
     coachable = [step for step in steps if not step.get("outcome")]
     by_id = {str(step.get("step_id")): step for step in coachable}
     out = []
+    listed = SLIP_STATES + (("done",) if include_done else ())
     for rate in step_rates(rows, coachable):
         if not rate["missing"] and not rate["improvable"]:
             continue
@@ -312,7 +316,7 @@ def slipped_steps(rows: list[dict], steps: list[dict], limit: int = OCCURRENCE_L
             if not row.get("is_conversation", True):
                 continue
             for observed in row["steps"]:
-                if observed["state"] in SLIP_STATES and matcher.match(observed["step_id"], observed.get("criterion")) == rate["step_id"]:
+                if observed["state"] in listed and matcher.match(observed["step_id"], observed.get("criterion")) == rate["step_id"]:
                     occurrences.append({
                         "memo_id": row["memo_id"],
                         "observed_at": row["observed_at"],
