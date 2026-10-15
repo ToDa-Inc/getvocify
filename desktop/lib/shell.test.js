@@ -35,6 +35,11 @@ describe('desktop shell', () => {
     assert.equal(live.find((i) => i.id === 'stop').enabled, true);
   });
 
+  it('offers the demo buyer only when signed in', () => {
+    assert.equal(trayMenuTemplate({ loggedIn: true }).find((i) => i.id === 'demo').enabled, true);
+    assert.equal(trayMenuTemplate({ loggedIn: false }).find((i) => i.id === 'demo').enabled, false);
+  });
+
   it('keeps the Mac app alive in the tray when the last window closes', () => {
     assert.equal(shouldQuitOnLastWindow({ platform: 'darwin', isQuitting: false }), false);
     assert.equal(shouldQuitOnLastWindow({ platform: 'darwin', isQuitting: true }), true);

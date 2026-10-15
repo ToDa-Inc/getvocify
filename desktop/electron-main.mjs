@@ -44,6 +44,7 @@ if (process.platform === 'linux') {
 
 let mainWindow = null;
 let overlayWindow = null;
+let demoWindow = null;
 let tray = null;
 let rendererUrl = '';
 let overlayUrl = '';
@@ -129,6 +130,30 @@ function createWindow() {
   return win;
 }
 
+function showDemoWindow() {
+  if (demoWindow && !demoWindow.isDestroyed()) {
+    revealWindow(demoWindow);
+    return;
+  }
+  const win = new BrowserWindow({
+    width: 460,
+    height: 760,
+    minWidth: 400,
+    minHeight: 560,
+    backgroundColor: '#f7f4ee',
+    title: 'Vocify Demo',
+    icon: path.join(__dirname, 'build', 'icon.png'),
+    autoHideMenuBar: true,
+    webPreferences: webPrefs(),
+  });
+  win.loadURL(rendererUrl.replace(/index\.html$/, 'demo.html'));
+  win.on('closed', () => {
+    if (demoWindow === win) demoWindow = null;
+  });
+  demoWindow = win;
+  revealWindow(win);
+}
+
 function syncOverlayBounds() {
   if (!overlayWindow) return;
   const display = screen.getPrimaryDisplay();
@@ -174,6 +199,10 @@ function hideOverlay() {
 function sendCommand(name) {
   if (name === 'show') {
     showMainWindow();
+    return;
+  }
+  if (name === 'demo') {
+    showDemoWindow();
     return;
   }
   if (name === 'dashboard') {
@@ -343,6 +372,15 @@ ipcMain.on('shell:state', (_event, state) => {
 });
 
 ipcMain.on('shell:command', (_event, name) => sendCommand(name));
+
+ipcMain.handle('demo:open', () => {
+  showDemoWindow();
+  return { ok: true };
+});
+
+ipcMain.on('demo:seller-text', (_event, text) => {
+  if (demoWindow && !demoWindow.isDestroyed()) demoWindow.webContents.send('demo:seller-text', String(text || ''));
+});
 
 ipcMain.handle('overlay:show', () => {
   showOverlay();

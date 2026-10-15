@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vocify Demo</title>
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./theme.css" />
+    <link rel="stylesheet" href="./shared/ui/vocify-ui.css" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./demo.css" />
+  </head>
+  <body class="paper-app demo-body">
+    <div class="title-drag"></div>
+    <main class="demo">
+      <header class="demo-head">
+        <p class="section-label">Demo buyer</p>
+        <h1 id="demo-title">Prepara al comprador</h1>
+        <p id="demo-status" class="muted" role="status"></p>
+      </header>
+
+      <form id="demo-form" class="demo-form">
+        <label>Tu oferta
+          <textarea id="f-offer" rows="2" required placeholder="Copiloto de ventas con objeciones en tiempo real"></textarea>
+        </label>
+        <label>Sector del prospect
+          <input id="f-niche" required placeholder="Agencia de marketing de 8 comerciales" />
+        </label>
+        <div class="demo-row">
+          <label>Empresa <input id="f-company" placeholder="opcional" /></label>
+          <label>Nombre <input id="f-name" placeholder="opcional" /></label>
+        </div>
+        <div class="demo-row">
+          <label>Idioma
+            <select id="f-lang"><option value="es">Español</option><option value="en">English</option></select>
+          </label>
+          <label>Voz <input id="f-voice" value="Kore" /></label>
+        </div>
+        <button id="btn-prepare" class="v-pill" type="submit">Preparar comprador</button>
+      </form>
+
+      <section id="demo-live" hidden>
+        <div class="demo-persona" id="persona"></div>
+        <div class="demo-actions">
+          <button id="btn-listen" class="v-pill" type="button">Empezar llamada</button>
+          <button id="btn-stop-audio" class="ghost v-pill v-pill--ghost" type="button">Callar</button>
+        </div>
+        <p class="section-label">Objeciones</p>
+        <div id="clips" class="demo-clips"></div>
+        <label class="demo-toggle"><input id="free-toggle" type="checkbox" checked /> Respuesta libre al vendedor</label>
+        <button id="btn-reply-now" class="ghost v-pill v-pill--ghost" type="button">Responder ahora</button>
+        <p class="section-label">Conversación</p>
+        <div id="log" class="demo-log"></div>
+        <button id="btn-reset" class="ghost" type="button">Nuevo prospect</button>
+      </section>
+    </main>
+    <script type="module" src="./demo.js"></script>
+  </body>
+</html>

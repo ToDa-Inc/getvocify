@@ -37,6 +37,15 @@ contextBridge.exposeInMainWorld('vocifyDesktop', {
       return () => ipcRenderer.removeListener('overlay:state', handler);
     },
   },
+  demo: {
+    open: () => ipcRenderer.invoke('demo:open'),
+    sellerText: (text) => ipcRenderer.send('demo:seller-text', text),
+    onSellerText: (cb) => {
+      const handler = (_event, text) => cb(text);
+      ipcRenderer.on('demo:seller-text', handler);
+      return () => ipcRenderer.removeListener('demo:seller-text', handler);
+    },
+  },
   saas: {
     request: (payload) => ipcRenderer.invoke('saas:request', payload),
   },

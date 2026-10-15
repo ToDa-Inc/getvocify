@@ -45,6 +45,7 @@ export function trayMenuTemplate({ loggedIn = false, listening = false } = {}) {
     { id: 'stop', label: 'Stop & review', enabled: Boolean(listening) },
     { type: 'separator' },
     { id: 'dashboard', label: 'Open dashboard' },
+    { id: 'demo', label: 'Demo buyer', enabled: Boolean(loggedIn) },
     { type: 'separator' },
     { id: 'quit', label: 'Quit Vocify Companion' },
   ];

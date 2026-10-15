@@ -1145,6 +1145,7 @@ function openTranscriptionWebSocket() {
       const speaker =
         data.audio_channel === 'rep' ? 'rep' : data.audio_channel === 'prospect' ? 'prospect' : '';
       liveNote = applyChunk(liveNote, { text, isFinal, speaker });
+      if (isFinal && speaker === 'rep') desktop()?.demo?.sellerText(text);
       if (isFinal) {
         const latestTurn = latestFinal(liveNote);
         void requestCopilotSuggest(latestTurn);
@@ -1829,6 +1830,10 @@ homeHoyEl?.addEventListener('click', (event) => {
   } else if (action.dataset.action === 'undo') {
     undoHomeHoyCard(cardEl).catch(() => {});
   }
+});
+
+document.getElementById('btn-demo').addEventListener('click', () => {
+  void desktop()?.demo?.open();
 });
 
 document.getElementById('btn-logout').addEventListener('click', () => {
