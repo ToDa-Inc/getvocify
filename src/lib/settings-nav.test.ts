@@ -24,7 +24,7 @@ describe("visibleSettingsTabs", () => {
     assert.deepEqual(groups, [...groups].sort((a, b) => (a === b ? 0 : a === "personal" ? -1 : 1)));
   });
 
-  it("has no playbooks tab: the editor lives in Proceso de venta", () => {
+  it("has no playbooks tab: the editor lives in Playbook", () => {
     const ids: string[] = SETTINGS_TABS.map((t) => t.id);
     assert.equal(ids.includes("playbooks"), false);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/playbooks", true), false);
