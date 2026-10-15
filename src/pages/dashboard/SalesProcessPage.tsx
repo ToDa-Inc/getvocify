@@ -4,7 +4,7 @@ import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 
 /**
- * Proceso de venta: the process itself, what Vocify checks on every call. Whether it is working
+ * Playbook: the playbook itself, what Vocify checks on every call. Whether it is working
  * (process health, objections) is read in Equipo, next to the people it is about.
  */
 export default function SalesProcessPage() {

@@ -56,7 +56,7 @@ export function retagOptions(options: TypeOption[]): TypeOption[] {
 }
 
 /**
- * The author filter the Interacciones page opens on: a manager sees everyone unless `?author=`
+ * The author filter the Conversaciones page opens on: a manager sees everyone unless `?author=`
  * names a person (rep detail links here); a member's list is already their own.
  */
 export function interactionsAuthor(canViewCompany: boolean, authorParam: string | null | undefined): string | null {

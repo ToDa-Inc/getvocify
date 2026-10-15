@@ -219,3 +219,23 @@ export function summarizeCalls(
     meetings: calls.filter((call) => call.meeting_agreed).length,
   };
 }
+
+/** How many moments a pager shows: the newest `cap` until the person asks for the earlier ones. */
+export function visibleMomentCount(total: number, expanded: boolean, cap = 5): number {
+  return expanded || total <= cap ? total : cap;
+}
+
+/** The objections the table lists: the catch-all "Otra" is left out (the summary totals still count it). */
+export function tableObjections(objections: CoachObjectionBreakdown[]): CoachObjectionBreakdown[] {
+  return objections.filter((objection) => objection.category !== "other");
+}
+
+/** The empty text of the objections table: nothing given at all, or only the untyped ones it leaves out. */
+export function noObjectionsKey(given: number, listed: number): "coachNoObjections" | "coachOnlyUntyped" {
+  return given > 0 && listed === 0 ? "coachOnlyUntyped" : "coachNoObjections";
+}
+
+/** The pager's "show earlier" action: a singular wording when exactly one moment is left. */
+export function earlierKey(count: number): "coachShowEarlier" | "coachShowEarlierOne" {
+  return count === 1 ? "coachShowEarlierOne" : "coachShowEarlier";
+}

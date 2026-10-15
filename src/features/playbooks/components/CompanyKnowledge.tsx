@@ -79,7 +79,7 @@ export function CompanyKnowledge({ canEdit, onSaved }: { canEdit: boolean; onSav
   latest.current = knowledge;
   const savedRef = useRef(onSaved);
   savedRef.current = onSaved;
-  // Competitors the team's calls mention: the Sales process page already reads this (same cache).
+  // Competitors the team's calls mention: the Playbook page already reads this (same cache).
   const adherence = useTeamAdherence(HOS_DEFAULT_PERIOD, "all");
 
   const adopt = useCallback((doc: { knowledge?: Knowledge | null; updated_at: string | null }) => {

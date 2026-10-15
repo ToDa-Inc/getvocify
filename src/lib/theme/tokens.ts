@@ -73,7 +73,7 @@ export const THEME_TOKENS = {
     navPill: "rounded-full px-3.5 py-1.5 text-[13px] transition-colors",
     navPillActive: "glass-nav text-foreground",
     navPillIdle: "text-muted-foreground hover:bg-white/25 hover:text-foreground dark:hover:bg-white/5",
-    /** Kit `Tabs` as a compact pill row (TabsList / TabsTrigger): Interacciones, Equipo, Coaching. */
+    /** Kit `Tabs` as a compact pill row (TabsList / TabsTrigger): Conversaciones, Equipo, Coaching. */
     segmentList: "h-auto max-w-full flex-wrap justify-start rounded-full border border-border/50 bg-secondary/30 p-1",
     /** The active tab takes the nav pill's glass (materials.css .glass-segment), not a solid fill. */
     segmentTab:

@@ -1,9 +1,12 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, BookOpen, Check, ChevronLeft, ChevronRight, Copy, Lightbulb, RotateCw } from "lucide-react";
+import { ArrowUpRight, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Lightbulb, RotateCw, ThumbsDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
+import { useDismissed } from "@/features/playbooks/hooks/useDismissed";
 import { useLanguage } from "@/lib/i18n";
+import { earlierKey, visibleMomentCount } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { useBetterReply, type BetterReplyRequest } from "./useBetterReply";
@@ -50,14 +53,31 @@ function Bubble({ kind, caption, children, actions }: { kind: BubbleKind; captio
   );
 }
 
+const lineKey = (request: BetterReplyRequest) => [request.type, request.kind, request.key, request.memo_id].join(":");
+
 /** The line to say, written for this moment. A copy icon, a link to where the playbook says it, and
  * an honest line when the playbook gives nothing to write one from. */
 function Better({ request, how, fallback, playbookHref, show }: { request: BetterReplyRequest; how: string | null; fallback: string | null; playbookHref: string; show: boolean }) {
   const { t } = useLanguage();
   const p = t.product;
-  const reply = useBetterReply(request, show);
+  // "No me sirve" hides a written line in this browser only; nothing is sent anywhere. A hidden line is
+  // not asked for again, so a reload costs no request.
+  const hidden = useDismissed("coach-lines");
+  const key = lineKey(request);
+  const isHidden = hidden.has(key);
+  const reply = useBetterReply(request, show && !isHidden);
   const [copied, setCopied] = useState(false);
   if (!show) return null;
+  if (isHidden) {
+    return (
+      <div className="flex items-center justify-end gap-2 text-[13px] text-muted-foreground">
+        {p.coachLineHidden}
+        <Button type="button" variant="quiet" size="text" onClick={() => hidden.remove(key)}>
+          {p.undo}
+        </Button>
+      </div>
+    );
+  }
   const say = reply.data?.say ?? null;
   const copy = () => {
     if (!say) return;
@@ -114,6 +134,11 @@ function Better({ request, how, fallback, playbookHref, show }: { request: Bette
               {copied ? <Check className="h-4 w-4 text-success" strokeWidth={1.75} /> : <Copy className="h-4 w-4" strokeWidth={1.5} />}
             </IconAction>
           ) : null}
+          {say ? (
+            <IconAction label={p.coachHideLine} onClick={() => hidden.add(key)}>
+              <ThumbsDown className="h-4 w-4" strokeWidth={1.5} />
+            </IconAction>
+          ) : null}
           {reply.isError ? (
             <IconAction label={p.coachRetry} pending={reply.isFetching} onClick={() => void reply.refetch()}>
               <RotateCw className="h-4 w-4" strokeWidth={1.5} />
@@ -133,12 +158,17 @@ function Better({ request, how, fallback, playbookHref, show }: { request: Bette
   );
 }
 
-/** One moment at a time: when, what was said, and what to say instead. The arrows go through the rest;
- * nothing else is on screen, so the row opens to something that can be read in five seconds. */
-export function OccurrencePager({ type, kind, itemKey, how, moments }: { type: string; kind: "step" | "objection"; itemKey: string; how: string | null; moments: Moment[] }) {
+/** One moment at a time: when, what was said, and what to say instead. The arrows go through the newest
+ * five; the earlier ones open on request. With `eager` off, the line to say is written only when asked for
+ * ("Ver qué decir"), so a call with many items does not write them all on opening. */
+export function OccurrencePager({ type, kind, itemKey, how, moments, eager = true }: { type: string; kind: "step" | "objection"; itemKey: string; how: string | null; moments: Moment[]; eager?: boolean }) {
   const { t, language } = useLanguage();
   const p = t.product;
   const [index, setIndex] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const [asked, setAsked] = useState(false);
+  const hidden = useDismissed("coach-lines");
+  const total = visibleMomentCount(moments.length, expanded);
   const moment = moments[index];
   if (!moment) return null;
   const objection = kind === "objection";
@@ -157,13 +187,13 @@ export function OccurrencePager({ type, kind, itemKey, how, moments }: { type: s
           {day}
           <ArrowUpRight aria-hidden className="h-3 w-3" />
         </Link>
-        {moments.length > 1 ? (
+        {total > 1 ? (
           <span className="ml-auto inline-flex items-center">
             <button type="button" aria-label={p.coachPrevious} disabled={index === 0} onClick={() => setIndex(index - 1)} className={cn(THEME_TOKENS.interaction.iconButton, "h-7 w-7")}>
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <span className="min-w-9 text-center tabular-nums">{index + 1}/{moments.length}</span>
-            <button type="button" aria-label={p.coachNext} disabled={index === moments.length - 1} onClick={() => setIndex(index + 1)} className={cn(THEME_TOKENS.interaction.iconButton, "h-7 w-7")}>
+            <span className="min-w-9 text-center tabular-nums">{index + 1}/{total}</span>
+            <button type="button" aria-label={p.coachNext} disabled={index === total - 1} onClick={() => setIndex(index + 1)} className={cn(THEME_TOKENS.interaction.iconButton, "h-7 w-7")}>
               <ChevronRight className="h-4 w-4" />
             </button>
           </span>
@@ -183,8 +213,23 @@ export function OccurrencePager({ type, kind, itemKey, how, moments }: { type: s
         {!objection && moment.tone === "good" && moment.quote && moment.reason ? (
           <p className="text-[13.5px] leading-snug text-muted-foreground">{moment.reason}</p>
         ) : null}
-        <Better request={request} how={objection ? how : null} fallback={objection ? null : moment.advice ?? how} playbookHref={href} show={moment.tone !== "good"} />
+        {eager || asked || moment.tone === "good" || hidden.has(lineKey(request)) ? (
+          <Better request={request} how={objection ? how : null} fallback={objection ? null : moment.advice ?? how} playbookHref={href} show={moment.tone !== "good"} />
+        ) : (
+          <div className="flex justify-end">
+            <Button type="button" variant="quiet" size="text" onClick={() => setAsked(true)}>
+              <Lightbulb aria-hidden className="h-3.5 w-3.5" strokeWidth={1.5} />
+              {p.coachShowBetter}
+            </Button>
+          </div>
+        )}
       </div>
+      {!expanded && moments.length > total ? (
+        <Button type="button" variant="quiet" size="text" onClick={() => setExpanded(true)}>
+          <ChevronDown aria-hidden className="h-3.5 w-3.5" strokeWidth={1.5} />
+          {p[earlierKey(moments.length - total)].replace("{count}", String(moments.length - total))}
+        </Button>
+      ) : null}
     </div>
   );
 }

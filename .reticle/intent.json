@@ -202,7 +202,7 @@
         }
       },
       "surface": {
-        "route": "/dashboard/process",
+        "route": "/dashboard/playbook",
         "files": [
           "src/components/dashboard/DashboardLayout.tsx"
         ]
@@ -227,7 +227,7 @@
         "absent": true
       },
       "surface": {
-        "route": "/dashboard/process",
+        "route": "/dashboard/playbook",
         "files": [
           "src/components/ui/icon-action.tsx"
         ]

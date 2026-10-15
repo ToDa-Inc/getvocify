@@ -10,15 +10,15 @@ import { callTypeIcon } from "@/features/playbooks/icons";
 import { insightsKey } from "@/features/playbooks/keys";
 import { PUBLISH_TONE } from "@/features/playbooks/styles";
 import { useLanguage } from "@/lib/i18n";
-import type { PlaybookRow, PublishState } from "@/lib/playbook-doc";
+import { publishControl, publishLabelKey, type PlaybookRow, type PublishState } from "@/lib/playbook-doc";
 import type { EditorStep } from "@/lib/playbook-editor";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 
 /**
  * One call type on the right of "Vuestro proceso": its name and role, one sentence with where it
- * is used and what success is, its state in words, and the one action that state needs
- * ("Publicar" when there is something the team doesn't have yet; the switch once it is live).
+ * is used and what success is, and the one control its state needs: "Publicar" when never
+ * published, "Publicar cambios" while changes are pending, the switch once it is live and unchanged.
  * The insights query only runs for the call type on screen.
  */
 export function CallTypePanel({
@@ -74,7 +74,8 @@ export function CallTypePanel({
     paused: copy.statusPaused,
     empty: copy.statusMissing,
   };
-  const publishable = canEdit && (state === "changes" || state === "unpublished");
+  const control = canEdit ? publishControl(state, switchOn) : "none";
+  const stateWord = (text: string) => <span className={cn("whitespace-nowrap text-[13px]", PUBLISH_TONE[state])}>{text}</span>;
 
   const heading = (
     <h3 className={cn(THEME_TOKENS.typography.panelTitle, "flex flex-wrap items-center gap-2.5")}>
@@ -84,36 +85,38 @@ export function CallTypePanel({
     </h3>
   );
 
-  const controls = (
-    <span className="flex items-center gap-3">
-      {/* On a phone "Publicar" already says there is something to publish: the word would only wrap. */}
-      <span className={cn("whitespace-nowrap text-[13px]", PUBLISH_TONE[state], publishable && "hidden sm:inline")}>
-        {statusText[state]}
-      </span>
-      {publishable ? (
-        <Button type="button" size="sm" disabled={busy} onClick={onPublish}>
-          {busy ? (
-            <>
-              <VocifySpinner size={12} />
-              <span className="ml-1.5">{copy.publishing}</span>
-            </>
-          ) : (
-            copy.publish
-          )}
-        </Button>
-      ) : null}
-      {canEdit && switchOn !== null ? (
-        <Switch
-          // Off has to read as "off", not as missing: the default unchecked track is near-white.
-          className="data-[state=unchecked]:bg-muted-foreground/30"
-          checked={switchOn}
-          disabled={busy}
-          aria-label={copy.switchLabel.replace("{name}", label)}
-          onCheckedChange={onSwitch}
-        />
-      ) : null}
-    </span>
+  const publishButton = (text: string) => (
+    <Button type="button" size="sm" disabled={busy} onClick={onPublish}>
+      {busy ? (
+        <>
+          <VocifySpinner size={12} />
+          <span className="ml-1.5">{copy.publishing}</span>
+        </>
+      ) : (
+        text
+      )}
+    </Button>
   );
+
+  const controls = !canEdit ? (
+    stateWord(statusText[state])
+  ) : control === "publish" ? (
+    publishButton(copy.publish)
+  ) : control === "publishChanges" ? (
+    publishButton(copy[publishLabelKey(control, switchOn)])
+  ) : control === "switch" && switchOn !== null ? (
+    <span className="flex items-center gap-3">
+      {stateWord(state === "paused" ? copy.statusPaused : copy.statusLive)}
+      <Switch
+        // Off has to read as "off", not as missing: the default unchecked track is near-white.
+        className="data-[state=unchecked]:bg-muted-foreground/30"
+        checked={switchOn}
+        disabled={busy}
+        aria-label={copy.switchLabel.replace("{name}", label)}
+        onCheckedChange={onSwitch}
+      />
+    </span>
+  ) : null;
 
   return (
     <PlaybookDocument

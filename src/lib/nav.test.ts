@@ -1,10 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { productCatalog } from "./product-catalog.ts";
 import { isManagerRole, isNavActive, navItemsFor, topBarActions, usesRepHome, type NavItem } from "./nav.ts";
 
 const home: NavItem = { id: "home", labelKey: "navHome", path: "/dashboard" };
 const insights: NavItem = { id: "insights", labelKey: "navInsights", path: "/dashboard/insights" };
-const process: NavItem = { id: "process", labelKey: "navProcess", path: "/dashboard/process" };
+const process: NavItem = { id: "process", labelKey: "navProcess", path: "/dashboard/playbook" };
 const coach: NavItem = { id: "coach", labelKey: "navCoach", path: "/dashboard/coach" };
 const settings: NavItem = { id: "settings", labelKey: "navSettings", path: "/dashboard/settings" };
 
@@ -23,7 +24,7 @@ describe("navItemsFor for a rep", () => {
     });
   });
 
-  it("has no Playbook or Interacciones item: the playbook is a tab of Coaching, interactions live in Inicio", () => {
+  it("has no Playbook or Conversaciones item: the playbook is a tab of Coaching, conversations live in Inicio", () => {
     for (const repWorkspace of [false, true]) {
       const ids = navItemsFor({ role: "member", repWorkspace }).items.map((item) => item.id);
       assert.deepEqual(ids, ["home", "coach", "settings"]);
@@ -38,7 +39,7 @@ describe("navItemsFor for a rep", () => {
 });
 
 describe("navItemsFor for the Head of Sales", () => {
-  it("is Inicio, Equipo, Proceso de venta and Ajustes, whatever the flags", () => {
+  it("is Inicio, Equipo, Playbook and Ajustes, whatever the flags", () => {
     for (const role of ["owner", "admin"]) {
       for (const repWorkspace of [false, true]) {
         assert.deepEqual(navItemsFor({ role, repWorkspace }), {
@@ -80,11 +81,11 @@ describe("isManagerRole / usesRepHome", () => {
 });
 
 describe("isNavActive", () => {
-  it("lights Inicio on /dashboard and on what Inicio opens: the full Hoy, the interactions and a memo's detail", () => {
+  it("lights Inicio on /dashboard and on what Inicio opens: the full Hoy, the conversations and a memo's detail", () => {
     assert.equal(isNavActive("/dashboard", home), true);
     assert.equal(isNavActive("/dashboard/today", home), true);
-    assert.equal(isNavActive("/dashboard/interactions", home), true);
-    assert.equal(isNavActive("/dashboard/interactions/anything", home), true);
+    assert.equal(isNavActive("/dashboard/conversations", home), true);
+    assert.equal(isNavActive("/dashboard/conversations/anything", home), true);
     assert.equal(isNavActive("/dashboard/memos/123", home), true);
     assert.equal(isNavActive("/dashboard/coach", home), false);
     assert.equal(isNavActive("/dashboard/settings", home), false);
@@ -92,9 +93,22 @@ describe("isNavActive", () => {
 
   it("lights the other items on their path and below it, not on a longer sibling", () => {
     assert.equal(isNavActive("/dashboard/settings/team", settings), true);
-    assert.equal(isNavActive("/dashboard/process", process), true);
+    assert.equal(isNavActive("/dashboard/playbook", process), true);
     assert.equal(isNavActive("/dashboard/insights/rep/u1", insights), true);
     assert.equal(isNavActive("/dashboard/coach", coach), true);
     assert.equal(isNavActive("/dashboard/coaching", coach), false);
+  });
+});
+
+describe("menu and page names", () => {
+  it("call the list Conversaciones and the editor Playbook, in both languages", () => {
+    const p = productCatalog;
+    assert.deepEqual([p.ES.navInteractions, p.ES.navProcess, p.ES.interactions.title, p.ES.hosProcessTitle], ["Conversaciones", "Playbook", "Conversaciones", "Playbook"]);
+    assert.deepEqual([p.EN.navInteractions, p.EN.navProcess, p.EN.interactions.title, p.EN.hosProcessTitle], ["Conversations", "Playbook", "Conversations", "Playbook"]);
+    assert.equal(p.ES.hosProcessPageSubtitle, "Tus playbooks de llamadas y reuniones, y si funcionan.");
+    assert.equal(p.EN.hosProcessPageSubtitle, "Your call and meeting playbooks, and whether they work.");
+    assert.equal(p.ES.home.latest, "Últimas conversaciones");
+    assert.equal(p.EN.home.latest, "Latest conversations");
+    assert.equal(p.ES.coachTypeLabel, "Tipo");
   });
 });

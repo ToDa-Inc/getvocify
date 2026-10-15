@@ -24,6 +24,8 @@ from app.services.activity_scope import effective_visibility, memo_readable_by
 from app.services.company import CompanyService, Membership
 from app.services.feature_flags import is_enabled
 from app.services.playbooks.catalog import INTERNAL_KEY
+from app.services.playbooks.live import live_snapshots
+from app.services.playbooks.motion import visible_to_role
 from app.services.playbooks.step_identity import StepMatcher
 from app.services.team_insights.aggregate import load_team_reps, madrid_week_bounds
 
@@ -473,15 +475,33 @@ _CALLS_WEEKS = STEP_WINDOW_WEEKS
 _MAX_CALLS = 200
 
 
-def _type_labels(supabase, company_id: str) -> dict[str, str]:
-    """The company's own names for its interaction types; catalog types fall back to the app's."""
+def _type_rows(company_id: str) -> dict[str, dict]:
+    """The company's interaction types (their own name and rule); catalog types fall back to the app's."""
     try:
         from app.services.playbooks.repository import get_playbook_repository
 
-        types = get_playbook_repository().list_types(company_id, include_draft=False)
+        return get_playbook_repository().list_types(company_id, include_draft=False)
     except Exception:
         return {}
-    return {key: str(row.get("label")) for key, row in types.items() if row.get("label")}
+
+
+def _readable_unused_types(supabase, membership: Membership, taken: list[str], type_rows: dict[str, dict]) -> list[str]:
+    """The company's other live playbooks this member can read, by key: the ones they had no conversations of."""
+    try:
+        snapshots = live_snapshots(supabase, membership.company_id)
+    except Exception:
+        logging.getLogger(__name__).warning("coaching: could not list the company's live playbooks", exc_info=True)
+        return []
+    keys = {
+        str(s["sales_motion_key"])
+        for s in snapshots
+        if any(isinstance(step, dict) and step.get("step_id") for step in s["steps"])
+    }
+    return sorted(
+        key for key in keys - set(taken)
+        if key != INTERNAL_KEY
+        and visible_to_role(key, membership.sales_role, (type_rows.get(key) or {}).get("applies_to"))
+    )
 
 
 @router.get("/coaching/me/calls")
@@ -516,10 +536,13 @@ async def get_my_coaching_calls(
         fallback = motion_for_flow(flow, recent, playbook_for)
         if playbook_for(fallback)["published"]:
             types = [fallback]
-    chosen = type_key if type_key in types else (types[0] if types else None)
-    labels = _type_labels(supabase, membership.company_id) if types else {}
+    type_rows = _type_rows(membership.company_id)
+    # Then every other playbook they can read: Coaching can be opened on a type before its first conversation.
+    listed = types + _readable_unused_types(supabase, membership, types, type_rows)
+    chosen = type_key if type_key in listed else (listed[0] if listed else None)
+    labels = {key: str(row["label"]) for key, row in type_rows.items() if row.get("label")}
     body: dict = {
-        "types": [{"key": m, "label": labels.get(m), "conversations": counts.get(m, 0)} for m in types],
+        "types": [{"key": m, "label": labels.get(m), "conversations": counts.get(m, 0)} for m in listed],
         "type": chosen,
         "window_weeks": _CALLS_WEEKS,
         "conversations": 0,

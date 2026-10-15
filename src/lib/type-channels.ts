@@ -54,7 +54,7 @@ export function otherChannel(kind: LiveChannel): LiveChannel {
   return kind === "call" ? "meeting" : "call";
 }
 
-/** The channels a type is listed under in "Proceso de venta", whatever the company's mode: its own
+/** The channels a type is listed under in "Playbook", whatever the company's mode: its own
  * `channels` when types go by channel, else the channels of its routing rule (a visit is a meeting).
  * A type with none is both. */
 export function railChannels(payload: unknown, key: string): LiveChannel[] {
@@ -69,4 +69,11 @@ export function railChannels(payload: unknown, key: string): LiveChannel[] {
 /** The rule channels a tab stands for: "Reuniones" also covers visits. */
 export function ruleChannelsOf(channel: LiveChannel): string[] {
   return channel === "meeting" ? ["meeting", "visit"] : ["call"];
+}
+
+/** Which of the three texts says where a type is used: "Llamadas", "Reuniones" or "Llamadas y reuniones". */
+export function channelsLabelKey(channels: LiveChannel[]): "call" | "meeting" | "both" {
+  const call = channels.includes("call");
+  const meeting = channels.includes("meeting");
+  return call && !meeting ? "call" : meeting && !call ? "meeting" : "both";
 }

@@ -33,7 +33,7 @@ export function CoachingScore({ memoId }: { memoId: string }) {
         <div className="space-y-3">
           <p className="text-[13px] leading-relaxed text-muted-foreground">{surface.title}</p>
           {surface.action ? (
-            <Button type="button" variant="outline" onClick={() => navigate("/dashboard/process")}>
+            <Button type="button" variant="outline" onClick={() => navigate("/dashboard/playbook")}>
               {surface.action}
             </Button>
           ) : (

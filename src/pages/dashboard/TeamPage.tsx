@@ -37,7 +37,7 @@ function apiErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-/** What the member works on (calls, meetings or both) as a chip that is its own control, like the type chip in Interacciones. */
+/** What the member works on (calls, meetings or both) as a chip that is its own control, like the type chip in Conversaciones. */
 function RoleChip({
   value,
   label,
