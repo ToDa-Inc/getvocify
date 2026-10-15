@@ -1,6 +1,7 @@
 import { ArrowRight, Download, Mail } from "lucide-react";
 import { Suspense, lazy } from "react";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useLanguage } from "@/lib/i18n";
 import { blurReveal } from "@/lib/scrollReveal";
@@ -42,14 +43,13 @@ const FinalCTA = () => {
           </div>
 
           <div className="mb-10 flex flex-col items-center gap-2">
-            <a
-              href="/download/windows"
+            <Link
+              to="/download"
               className="inline-flex items-center gap-2 text-sm font-medium text-cream underline underline-offset-4 transition-colors hover:text-white"
             >
               <Download className="h-4 w-4" />
-              {t.finalCta.windows}
-            </a>
-            <p className="max-w-sm text-xs text-cream/40">{t.finalCta.windowsNote}</p>
+              {t.finalCta.download}
+            </Link>
           </div>
 
           <div className="flex flex-col items-center gap-2">
