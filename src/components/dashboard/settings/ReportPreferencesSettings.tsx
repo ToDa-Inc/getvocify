@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
 import { Switch } from "@/components/ui/switch";
 import { useLanguage } from "@/lib/i18n";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { reportKeys, reportsApi, type ReportPreferences } from "@/lib/api/reports";
 
 type ReportKey = keyof ReportPreferences;
 
-/** One switch per report the backend offers this person. Nothing offered, nothing rendered. */
+/** One row per report the backend offers this person. Nothing offered, nothing rendered. */
 export const ReportPreferencesSettings = () => {
   const { t } = useLanguage();
   const queryClient = useQueryClient();
@@ -27,22 +27,21 @@ export const ReportPreferencesSettings = () => {
   if (!keys.length) return null;
 
   return (
-    <div id="report-preferences" className="space-y-3 border-t border-border/60 pt-5">
-      <h3 className={THEME_TOKENS.typography.sectionTitle}>{t.product.reportsLabel}</h3>
+    <SettingsSection id="report-preferences" label={t.product.reportsLabel}>
       {keys.map((key) => {
         // T13: the team weekly report is fixed for owner/admin - shown, never toggled.
         const fixed = key === "team";
         return (
-          <label key={key} className="flex items-center justify-between gap-4 text-sm">
-            <span>{labels[key]}</span>
+          <SettingsRow key={key} title={labels[key]}>
             <Switch
               checked={Boolean(data?.[key])}
               disabled={fixed || save.isPending}
               onCheckedChange={fixed ? undefined : (checked) => save.mutate({ [key]: checked })}
+              aria-label={labels[key]}
             />
-          </label>
+          </SettingsRow>
         );
       })}
-    </div>
+    </SettingsSection>
   );
 };

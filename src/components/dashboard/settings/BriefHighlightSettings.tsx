@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Segmented } from "@/components/ui/segmented";
+import { Sparkles } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SettingsRow } from "@/components/ui/settings-card";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { useLanguage } from "@/lib/i18n";
 import {
   briefPreferenceKeys,
@@ -28,27 +28,16 @@ export const BriefHighlightSettings = () => {
     queryKey: briefPreferenceKeys.current(),
     queryFn: () => briefPreferencesApi.get(),
   });
-  const [selected, setSelected] = useState<BriefHighlightMode>("immediate");
-
-  useEffect(() => {
-    if (data?.highlight_mode) {
-      setSelected(data.highlight_mode);
-    }
-  }, [data?.highlight_mode]);
-
   const save = useMutation({
     mutationFn: (mode: BriefHighlightMode) => briefPreferencesApi.put({ highlight_mode: mode }),
     onSuccess: (updated: BriefPreference) => {
       queryClient.setQueryData(briefPreferenceKeys.current(), updated);
-      setSelected(updated.highlight_mode);
       toast.success(t.product.briefHighlightSaved);
     },
     onError: () => {
       toast.error(t.product.briefHighlightSaveFailed);
     },
   });
-
-  const dirty = data != null && selected !== data.highlight_mode;
 
   if (isLoading) {
     return (
@@ -65,38 +54,23 @@ export const BriefHighlightSettings = () => {
   }
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h3 className={THEME_TOKENS.typography.sectionTitle}>{t.product.briefHighlightHeading}</h3>
-        <p className="text-xs text-muted-foreground mt-1">{t.product.briefHighlightHelper}</p>
-      </div>
-
-      <Segmented<BriefHighlightMode>
-        value={selected}
-        onValueChange={setSelected}
-        options={options.map((opt) => ({
-          value: opt.mode,
-          label: opt.label,
-        }))}
-        aria-label={t.product.briefHighlightWhenAria}
-      />
-
-      <div className="flex justify-end">
-        <Button
-          onClick={() => save.mutate(selected)}
-          disabled={!dirty || save.isPending}
-          className="rounded-full bg-beige text-cream px-6 text-[10px] font-medium"
-        >
-          {save.isPending ? (
-            <>
-              <VocifySpinner size={12} />
-              {t.product.noteSaving}
-            </>
-          ) : (
-            t.product.saveButton
-          )}
-        </Button>
-      </div>
-    </div>
+    <SettingsRow icon={Sparkles} title={t.product.briefHighlightHeading} description={t.product.briefHighlightHelper}>
+      <Select
+        value={data?.highlight_mode}
+        onValueChange={(mode) => save.mutate(mode as BriefHighlightMode)}
+        disabled={save.isPending}
+      >
+        <SelectTrigger variant="chip" aria-label={t.product.briefHighlightWhenAria}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((opt) => (
+            <SelectItem key={opt.mode} value={opt.mode}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </SettingsRow>
   );
 };

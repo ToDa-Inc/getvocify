@@ -11,18 +11,20 @@ describe("visibleSettingsTabs", () => {
   it("gives the Head of Sales every tab", () => {
     assert.deepEqual(
       visibleSettingsTabs(true).map((t) => t.id),
-      ["crm", "calling", "offer", "transcription", "brief", "team", "usage", "agents", "billing"],
+      ["preferences", "calling", "agents", "usage", "crm", "offer", "team", "billing"],
     );
   });
 
-  it("keeps the spec's order", () => {
+  it("keeps the spec's order: mine first, then the company's", () => {
     assert.deepEqual(
       SETTINGS_TABS.map((t) => t.id),
-      ["crm", "calling", "calendar", "offer", "transcription", "brief", "team", "usage", "agents", "billing", "system"],
+      ["preferences", "calling", "calendar", "agents", "system", "usage", "crm", "offer", "team", "billing"],
     );
+    const groups = SETTINGS_TABS.map((t) => t.group);
+    assert.deepEqual(groups, [...groups].sort((a, b) => (a === b ? 0 : a === "personal" ? -1 : 1)));
   });
 
-  it("has no playbooks tab: the editor lives in Playbook", () => {
+  it("has no playbooks tab: the editor lives in Proceso de venta", () => {
     const ids: string[] = SETTINGS_TABS.map((t) => t.id);
     assert.equal(ids.includes("playbooks"), false);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/playbooks", true), false);
@@ -34,27 +36,25 @@ describe("visibleSettingsTabs", () => {
     assert.equal(ids.includes("theme"), false);
   });
 
-  it("shows Calling and Usage to the Head of Sales: they set their own call languages", () => {
-    const ids = visibleSettingsTabs(true).map((t) => t.id);
-    assert.equal(ids.includes("calling"), true);
-    assert.equal(ids.includes("usage"), true);
+  it("has no transcription or brief tab: they are inside Preferences", () => {
+    const ids: string[] = SETTINGS_TABS.map((t) => t.id);
+    assert.equal(ids.includes("transcription"), false);
+    assert.equal(ids.includes("brief"), false);
   });
 
   it("gives a rep only the personal tabs", () => {
     assert.deepEqual(
       visibleSettingsTabs(false).map((t) => t.id),
-      ["calling", "transcription", "usage", "agents"],
+      ["preferences", "calling", "agents", "usage"],
     );
+    assert.equal(visibleSettingsTabs(false).every((t) => t.group === "personal"), true);
   });
 });
 
 describe("firstAllowedSettingsPath", () => {
-  it("is the CRM tab for the Head of Sales", () => {
-    assert.equal(firstAllowedSettingsPath(true), "/dashboard/settings");
-  });
-
-  it("is Calling for a rep", () => {
-    assert.equal(firstAllowedSettingsPath(false), "/dashboard/settings/calling");
+  it("is Preferences for everyone", () => {
+    assert.equal(firstAllowedSettingsPath(true), "/dashboard/settings/preferences");
+    assert.equal(firstAllowedSettingsPath(false), "/dashboard/settings/preferences");
   });
 });
 
@@ -63,28 +63,23 @@ describe("isSettingsPathAllowed", () => {
     for (const tab of SETTINGS_TABS) {
       assert.equal(isSettingsPathAllowed(tab.to, true), !tab.flag && !tab.desktopOnly, tab.id);
     }
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/calling", true), true);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/usage", true), true);
   });
 
   it("blocks a rep from company-wide tabs by direct URL", () => {
+    for (const path of ["crm", "team", "billing", "offer"]) {
+      assert.equal(isSettingsPathAllowed(`/dashboard/settings/${path}`, false), false, path);
+    }
     assert.equal(isSettingsPathAllowed("/dashboard/settings", false), false);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/team", false), false);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/billing", false), false);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/offer", false), false);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/brief", false), false);
   });
 
   it("lets a rep onto their personal tabs, including nested paths", () => {
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/preferences", false), true);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/calling", false), true);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/transcription", false), true);
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/usage", false), true);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/usage/anything", false), true);
   });
 
-  it("does not let the CRM index match a sibling path by prefix", () => {
-    assert.equal(isSettingsPathAllowed("/dashboard/settings/transcription", true), true);
-    // The index tab uses exact match, so it never swallows a sibling route.
+  it("lets the Head of Sales into a CRM's own page, not a sibling by prefix", () => {
+    assert.equal(isSettingsPathAllowed("/dashboard/settings/crm/hubspot", true), true);
     assert.equal(isSettingsPathAllowed("/dashboard/settings/whatever", true), false);
   });
 });

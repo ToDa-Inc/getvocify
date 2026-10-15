@@ -4,9 +4,11 @@ import { CallRecordingsSettings } from "@/components/dashboard/settings/CallReco
 import { CallerIdSettings } from "@/components/dashboard/settings/CallerIdSettings";
 import { VocifyCallingSettings } from "@/components/dashboard/settings/VocifyCallingSettings";
 import { useDesktopCalling } from "@/features/desktop/useDesktopCalling";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { SettingsSection } from "@/components/ui/settings-card";
+import { useLanguage } from "@/lib/i18n";
 
 const CallingSection = () => {
+  const { t } = useLanguage();
   const { hash } = useLocation();
 
   // The desktop app: whether its island calls through Vocify or on the rep's own phone.
@@ -19,21 +21,18 @@ const CallingSection = () => {
   }, [hash, calling]);
 
   return (
-    <div className="space-y-6">
-      {calling ? (
-        <div id="vocify-calling" className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} scroll-mt-6 p-6 md:p-8`}>
-          <VocifyCallingSettings />
+    <div className="mx-auto max-w-[680px]">
+      <SettingsSection label={t.product.settingsNavCalling}>
+        {calling ? (
+          <div id="vocify-calling" className="scroll-mt-6">
+            <VocifyCallingSettings />
+          </div>
+        ) : null}
+        <div id="caller-id" className="scroll-mt-6 py-5">
+          <CallerIdSettings />
         </div>
-      ) : null}
-      <div
-        id="caller-id"
-        className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} scroll-mt-6 p-6 md:p-8`}
-      >
-        <CallerIdSettings />
-      </div>
-      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
         <CallRecordingsSettings />
-      </div>
+      </SettingsSection>
     </div>
   );
 };

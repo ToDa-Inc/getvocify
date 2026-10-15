@@ -53,7 +53,7 @@ export const WritingSamplesSettings = () => {
   const count = countLabel(saved.length, t.product.writingSamplesCountOne, t.product.writingSamplesCountMany);
 
   return (
-    <Collapsible className="border-t border-border/60 pt-5">
+    <Collapsible className="py-4">
       <CollapsibleTrigger className="group flex w-full items-center justify-between gap-4 text-left">
         <span className={THEME_TOKENS.typography.sectionRail}>{t.product.writingSamplesHeading}</span>
         <span className="flex items-center gap-2 text-xs text-muted-foreground">

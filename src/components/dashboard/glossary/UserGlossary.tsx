@@ -12,9 +12,12 @@ import { glossaryApi, glossaryKeys, GlossaryItem, BulkAddItem } from "@/lib/api/
 import { parseBulkInput, type ParsedBulkItem } from "@/lib/glossary/parseBulkInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+// A stable default: a fresh [] on every render re-ran the bulk preview effect in a loop while the list loaded.
+const NO_ITEMS: GlossaryItem[] = [];
+
 export const UserGlossary = ({ readOnly = false }: { readOnly?: boolean }) => {
   const queryClient = useQueryClient();
-  const { data: items = [], isLoading } = useQuery({
+  const { data: items = NO_ITEMS, isLoading } = useQuery({
     queryKey: glossaryKeys.list(),
     queryFn: () => glossaryApi.getGlossary(),
     staleTime: Infinity,

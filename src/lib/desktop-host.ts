@@ -7,6 +7,10 @@ export type RecordShortcutState = { label: string | null; defaultLabel: string }
 /** Vocify calling on this computer: `onPhone`, the island's Call opens in `phoneApp` (null: this computer has none). */
 export type DesktopCalling = { onPhone: boolean; phoneApp: string | null };
 
+/** The island's own settings on this computer (the tray's "Hide island" is the same switch). */
+export type IslandAppearance = "auto" | "light" | "dark";
+export type IslandState = { appearance: IslandAppearance; visible: boolean };
+
 export type VocifyDesktopBridge = {
   platform: "darwin" | "win32";
   systemAudio: {
@@ -115,6 +119,12 @@ export type VocifyDesktopBridge = {
     setup?(): Promise<unknown>;
     /** Opens where the call's microphone is chosen (Mac: FaceTime; Windows: Sound › Recording). Missing in older builds. */
     micSettings?(): Promise<unknown>;
+  };
+  /** The island's appearance and whether it shows. Missing in older builds. */
+  island?: {
+    get(): Promise<IslandState>;
+    setAppearance(appearance: IslandAppearance): Promise<IslandState>;
+    setVisible(visible: boolean): Promise<IslandState>;
   };
   /** The global record shortcut. Missing in older builds. */
   shortcut?: {

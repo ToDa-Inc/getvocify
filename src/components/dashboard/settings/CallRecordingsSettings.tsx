@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { PhoneIncoming } from "lucide-react";
+import { SettingsRow } from "@/components/ui/settings-card";
 import { Switch } from "@/components/ui/switch";
 import { crmApi } from "@/lib/api/crm";
 import { useLanguage } from "@/lib/i18n";
-import { THEME_TOKENS } from "@/lib/theme/tokens";
 
 const preferenceKey = ["crm-call-recordings-preference"] as const;
 
@@ -23,17 +24,13 @@ export const CallRecordingsSettings = () => {
   });
 
   return (
-    <div className="flex items-start justify-between gap-6">
-      <div>
-        <h3 className={THEME_TOKENS.typography.sectionTitle}>{t.product.callRecordingsHeading}</h3>
-        <p className="text-xs text-muted-foreground mt-1">{t.product.callRecordingsHelper}</p>
-      </div>
+    <SettingsRow icon={PhoneIncoming} title={t.product.callRecordingsHeading} description={t.product.callRecordingsHelper}>
       <Switch
         checked={data?.process ?? false}
         disabled={!data}
         onCheckedChange={(process) => save.mutate(process)}
         aria-label={t.product.callRecordingsHeading}
       />
-    </div>
+    </SettingsRow>
   );
 };

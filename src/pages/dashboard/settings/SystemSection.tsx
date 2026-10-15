@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { Mic, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RecordShortcutSettings } from "@/components/dashboard/settings/RecordShortcutSettings";
 import { DesktopPermissionRows } from "@/features/desktop/DesktopPermissionsPanel";
 import { useDesktopMeeting } from "@/features/desktop/DesktopMeetingProvider";
 import { useAudioCheck } from "@/features/desktop/useAudioCheck";
@@ -113,7 +112,6 @@ const SystemSection = () => {
         ) : null}
       </div>
 
-      <RecordShortcutSettings className={card} />
     </div>
   );
 };

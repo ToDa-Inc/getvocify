@@ -42,8 +42,9 @@ import CallingSection from "./pages/dashboard/settings/CallingSection";
 import SystemSection from "./pages/dashboard/settings/SystemSection";
 import { CalendarSettings } from "@/components/dashboard/settings/CalendarSettings";
 import OfferSection from "./pages/dashboard/settings/OfferSection";
-import TranscriptionSection from "./pages/dashboard/settings/TranscriptionSection";
-import BriefHighlightSection from "./pages/dashboard/settings/BriefHighlightSection";
+import PreferencesSection from "./pages/dashboard/settings/PreferencesSection";
+import CrmProviderPage from "./pages/dashboard/settings/CrmProviderPage";
+import SettingsIndex from "./pages/dashboard/settings/SettingsIndex";
 import AgentsSection from "./pages/dashboard/settings/AgentsSection";
 import ConsentPage from "./pages/oauth/ConsentPage";
 import ProfilePage from "./pages/dashboard/ProfilePage";
@@ -190,19 +191,21 @@ const App = () => (
             }>
               <Route index element={<DashboardHome />} />
               <Route path="record" element={<RecordPage />} />
-              <Route path="conversations" element={<InteractionsPage />} />
-              <Route path="interactions" element={<MovedTo pathname="/dashboard/conversations" />} />
-              <Route path="memos" element={<MovedTo pathname="/dashboard/conversations" />} />
+              <Route path="interactions" element={<InteractionsPage />} />
+              <Route path="memos" element={<MovedTo pathname="/dashboard/interactions" />} />
               <Route path="memos/:id" element={<MemoDetail />} />
               <Route path="integrations" element={<IntegrationsPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="settings" element={<SettingsLayout />}>
-                <Route index element={<SettingsPage />} />
+                <Route index element={<SettingsIndex />} />
+                <Route path="preferences" element={<PreferencesSection />} />
+                <Route path="crm" element={<SettingsPage />} />
+                <Route path="crm/:provider" element={<CrmProviderPage />} />
                 <Route path="calling" element={<CallingSection />} />
                 <Route path="calendar" element={<CalendarSettings />} />
                 <Route path="offer" element={<OfferSection />} />
-                <Route path="transcription" element={<TranscriptionSection />} />
-                <Route path="brief" element={<BriefHighlightSection />} />
+                <Route path="transcription" element={<Navigate to="/dashboard/settings/preferences" replace />} />
+                <Route path="brief" element={<Navigate to="/dashboard/settings/preferences" replace />} />
                 <Route path="team" element={<TeamPage />} />
                 <Route path="integrations" element={<IntegrationsPage />} />
                 <Route path="usage" element={<UsagePage />} />
@@ -211,22 +214,23 @@ const App = () => (
                 <Route path="system" element={<SystemSection />} />
               </Route>
               <Route path="insights" element={<InsightsRoute />} />
-              {/* Playbook: the editor (Head of Sales); a member lands on the Coaching tab. Its health and objections are in Equipo. */}
-              <Route path="playbook" element={<ManagerOnly><SalesProcessPage /></ManagerOnly>} />
-              <Route path="process" element={<MovedTo pathname="/dashboard/playbook" />} />
+              {/* Proceso de venta: the playbook editor (Head of Sales). Its health and objections are in Equipo. */}
+              <Route path="process" element={<ManagerOnly><SalesProcessPage /></ManagerOnly>} />
               {/* The playbook editor left Ajustes; outside the settings layout so its tab guard does not bounce the old URL first. */}
-              <Route path="settings/playbooks" element={<Navigate to="/dashboard/playbook" replace />} />
+              <Route path="settings/playbooks" element={<Navigate to="/dashboard/process" replace />} />
               <Route path="insights/rep/:userId" element={<TeamRepDetailPage />} />
               <Route path="coach" element={<RepOnly><CoachPage /></RepOnly>} />
               {/* T13: MANAGER_HOME_ENABLED moves an owner/admin's home to the team panel;
                   this is where "go to my Today" points a manager who also sells. */}
               <Route path="today" element={<RepHome />} />
+              {/* The rep's playbook is a tab of Coaching. */}
+              <Route path="playbook" element={<Navigate to="/dashboard/coach?tab=playbook" replace />} />
               <Route path="ask" element={<Navigate to="/dashboard" replace state={{ ask: true }} />} />
               <Route path="reports/:id" element={<ReportPage />} />
               <Route path="team" element={<Navigate to="/dashboard/settings/team" replace />} />
               <Route path="billing" element={<Navigate to="/dashboard/settings/billing" replace />} />
               <Route path="calling" element={<Navigate to="/dashboard/settings/calling" replace />} />
-              <Route path="settings/glossary" element={<Navigate to="/dashboard/settings/transcription" replace />} />
+              <Route path="settings/glossary" element={<Navigate to="/dashboard/settings/preferences" replace />} />
               <Route path="usage" element={<Navigate to="/dashboard/settings/usage" replace />} />
               <Route path="copilot" element={<ObjectionCopilotPage />} />
               <Route path="*" element={<NotFound />} />

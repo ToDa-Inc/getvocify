@@ -1,54 +1,21 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { integrationKeys } from "@/features/integrations/api";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
+import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
 import { crmApi, crmKeys, SESSION_QUERY_STALE_MS } from "@/lib/api/crm";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
-import { ConfirmAction } from "@/components/ui/confirm-action";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { IconAction } from "@/components/ui/icon-action";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
-import { HubSpotConfiguration } from "@/components/dashboard/hubspot/HubSpotConfiguration";
-import { HubSpotFieldPermissions } from "@/components/dashboard/hubspot/HubSpotFieldPermissions";
 import { HubSpotConnection } from "@/components/dashboard/hubspot/HubSpotConnection";
-import { SalesforceConfiguration } from "@/components/dashboard/salesforce/SalesforceConfiguration";
 import { SalesforceConnection } from "@/components/dashboard/salesforce/SalesforceConnection";
-import { PipedriveConfiguration } from "@/components/dashboard/pipedrive/PipedriveConfiguration";
 import { PipedriveConnection } from "@/components/dashboard/pipedrive/PipedriveConnection";
 
-type LiveCrmId = "hubspot" | "salesforce" | "pipedrive";
-
-const CRM_LABEL: Record<LiveCrmId, string> = {
-  hubspot: "HubSpot",
-  salesforce: "Salesforce",
-  pipedrive: "Pipedrive",
-};
-
-const LIVE: { id: LiveCrmId; name: string; description: string; logo: string }[] = [
-  {
-    id: "hubspot",
-    name: "HubSpot",
-    description: "Deals, contacts, and call activities",
-    logo: "https://cdn.worldvectorlogo.com/logos/hubspot.svg",
-  },
-  {
-    id: "salesforce",
-    name: "Salesforce",
-    description: "Opportunities and contacts",
-    logo: "https://cdn.worldvectorlogo.com/logos/salesforce-2.svg",
-  },
-  {
-    id: "pipedrive",
-    name: "Pipedrive",
-    description: "Deals, people, and organizations",
-    logo: "https://cdn.worldvectorlogo.com/logos/pipedrive.svg",
-  },
-];
+import { CRM_LABEL, CRM_PROVIDERS, type LiveCrmId } from "./settings/crmProviders";
 
 function oauthErrorMessage(params: URLSearchParams): string | null {
   const hubspot = params.get("hubspot");
@@ -105,9 +72,9 @@ const SettingsPage = () => {
   const { user } = useAuth();
   const canManage = user?.company?.role === "owner" || user?.company?.role === "admin";
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [connectId, setConnectId] = useState<LiveCrmId | null>(null);
-  const [disconnectId, setDisconnectId] = useState<LiveCrmId | null>(null);
 
   const { data: connections = [], isLoading: connectionsLoading } = useQuery({
     queryKey: crmKeys.connections(),
@@ -125,10 +92,11 @@ const SettingsPage = () => {
   });
 
   const primaryConnectionId = prefs?.primary_crm_connection_id ?? null;
-  const hubspot = connections.find((c) => c.provider === "hubspot");
-  const salesforce = connections.find((c) => c.provider === "salesforce");
-  const pipedrive = connections.find((c) => c.provider === "pipedrive");
-  const byProvider = { hubspot, salesforce, pipedrive };
+  const byProvider = {
+    hubspot: connections.find((c) => c.provider === "hubspot"),
+    salesforce: connections.find((c) => c.provider === "salesforce"),
+    pipedrive: connections.find((c) => c.provider === "pipedrive"),
+  };
 
   const refreshCrm = () => {
     queryClient.invalidateQueries({ queryKey: crmKeys.all });
@@ -174,55 +142,6 @@ const SettingsPage = () => {
     onError: () => toast.error("Could not update primary CRM"),
   });
 
-  const disconnectMutation = useMutation({
-    mutationFn: async (id: LiveCrmId) => {
-      if (id === "hubspot") await crmApi.disconnectHubSpot();
-      else if (id === "salesforce") await crmApi.disconnectSalesforce();
-      else await crmApi.disconnectPipedrive();
-    },
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: crmKeys.connections() });
-      const previous = queryClient.getQueryData(crmKeys.connections());
-      queryClient.setQueryData(
-        crmKeys.connections(),
-        (rows: { provider: string }[] | undefined) => (rows || []).filter((row) => row.provider !== id),
-      );
-      const setupKey =
-        id === "hubspot"
-          ? crmKeys.hubspotSetup()
-          : id === "salesforce"
-            ? crmKeys.salesforceSetup()
-            : crmKeys.pipedriveSetup();
-      await queryClient.cancelQueries({ queryKey: setupKey });
-      queryClient.removeQueries({ queryKey: setupKey });
-      setDisconnectId(null);
-      return { previous };
-    },
-    onSuccess: () => {
-      toast.success("Disconnected");
-      queryClient.invalidateQueries({ queryKey: crmKeys.connections() });
-      queryClient.invalidateQueries({ queryKey: crmKeys.preferences() });
-    },
-    onError: (_error, _id, context) => {
-      if (context?.previous) queryClient.setQueryData(crmKeys.connections(), context.previous);
-      toast.error("Failed to disconnect");
-    },
-  });
-
-  const refreshPermissions = useMutation({
-    mutationFn: async () => {
-      const { redirect_url } = await crmApi.getHubSpotAuthorizeUrl();
-      window.location.href = redirect_url;
-    },
-    onError: (error: unknown) => {
-      const msg =
-        error && typeof error === "object" && "data" in error
-          ? String((error as { data?: { detail?: string } }).data?.detail ?? "Failed to refresh HubSpot permissions")
-          : "Failed to refresh HubSpot permissions";
-      toast.error(msg);
-    },
-  });
-
   if (connectionsLoading) {
     return (
       <div className={THEME_TOKENS.interaction.pageLoad}>
@@ -232,20 +151,10 @@ const SettingsPage = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
-        <div className="mb-6">
-          <h2 className={THEME_TOKENS.typography.sectionTitle}>CRM</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            {canManage
-              ? "Connect a CRM, then choose the pipeline and fields AI may fill."
-              : "Workspace CRM. Ask an admin to connect or change it."}
-          </p>
-        </div>
-
-        {canManage && connections.length > 1 && (
-          <div className="mb-6">
-            <p className={`${THEME_TOKENS.typography.capsLabel} mb-2`}>Primary for memo sync</p>
+    <div className="mx-auto max-w-[680px] space-y-8">
+      {canManage && connections.length > 1 && (
+        <SettingsSection>
+          <SettingsRow title="Primary for memo sync">
             <Segmented<string>
               value={primaryConnectionId ?? ""}
               onValueChange={(id) => primaryMutation.mutate(id)}
@@ -256,122 +165,40 @@ const SettingsPage = () => {
               aria-label="Primary CRM"
               className={primaryMutation.isPending ? "opacity-50" : ""}
             />
-          </div>
-        )}
+          </SettingsRow>
+        </SettingsSection>
+      )}
 
-        <div className="divide-y divide-border/40">
-          {LIVE.map((item) => {
-            const connection = byProvider[item.id];
-            const connected = Boolean(connection);
-            const isPrimary =
-              Boolean(connection) &&
-              connections.length > 1 &&
-              primaryConnectionId === connection?.id;
-
+      <SettingsSection label="CRM">
+        {CRM_PROVIDERS.map((item) => {
+          const connection = byProvider[item.id];
+          if (connection) {
+            const isPrimary = connections.length > 1 && primaryConnectionId === connection.id;
             return (
-              <div key={item.id} className="flex items-center gap-4 py-4 first:pt-0 last:pb-0">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary/5 p-2">
-                  <img src={item.logo} alt="" className="h-full w-full object-contain" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-foreground">{item.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {connected ? (
-                      <span className="text-success">
-                        Connected{isPrimary ? " · primary" : ""}
-                      </span>
-                    ) : (
-                      item.description
-                    )}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {connected ? (
-                    <>
-                      {canManage && item.id === "hubspot" && (
-                        <IconAction
-                          label="Refresh HubSpot permissions"
-                          pendingLabel="Redirecting…"
-                          pending={refreshPermissions.isPending}
-                          onClick={() => refreshPermissions.mutate()}
-                        >
-                          <ShieldCheck className="h-4 w-4" />
-                        </IconAction>
-                      )}
-                      {canManage && (
-                        <IconAction
-                          label={`Disconnect ${item.name}`}
-                          tone="danger"
-                          onClick={() => setDisconnectId(item.id)}
-                        >
-                          <Unplug className="h-4 w-4" />
-                        </IconAction>
-                      )}
-                    </>
-                  ) : canManage ? (
-                    <Button
-                      size="sm"
-                      className="rounded-full bg-beige text-cream h-9 px-4"
-                      onClick={() => setConnectId(item.id)}
-                    >
-                      Connect
-                    </Button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">Not connected</span>
-                  )}
-                </div>
-              </div>
+              <SettingsRow
+                key={item.id}
+                logo={item.logo}
+                title={item.name}
+                description={item.description}
+                value={<span className="text-success">Connected{isPrimary ? " · primary" : ""}</span>}
+                onClick={() => navigate(`/dashboard/settings/crm/${item.id}`)}
+              />
             );
-          })}
-        </div>
-      </div>
-
-      {hubspot && (
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
-          <div className="mb-6">
-            <h2 className={THEME_TOKENS.typography.sectionTitle}>HubSpot fields</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {canManage
-                ? "Pipeline, who gets credit, and whether Vocify writes after processing — HubSpot recordings, the Vocify dialer, and memos locked to a contact. Or wait for Approve."
-                : "Workspace field mapping. Ask an admin to change it."}
-            </p>
-          </div>
-          <HubSpotConfiguration readOnly={!canManage} />
-          {canManage && (
-            <div className="mt-10 pt-8 border-t border-border/20">
-              <HubSpotFieldPermissions />
-            </div>
-          )}
-        </div>
-      )}
-
-      {salesforce && (
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
-          <div className="mb-6">
-            <h2 className={THEME_TOKENS.typography.sectionTitle}>Salesforce fields</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {canManage
-                ? "Default stage, fields AI may fill, and whether Vocify writes after processing — or waits for Approve."
-                : "Workspace field mapping. Ask an admin to change it."}
-            </p>
-          </div>
-          <SalesforceConfiguration readOnly={!canManage} />
-        </div>
-      )}
-
-      {pipedrive && (
-        <div className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-6 md:p-8`}>
-          <div className="mb-6">
-            <h2 className={THEME_TOKENS.typography.sectionTitle}>Pipedrive fields</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {canManage
-                ? "Default pipeline and stage, fields AI may fill, and whether Vocify writes after processing — or waits for Approve."
-                : "Workspace field mapping. Ask an admin to change it."}
-            </p>
-          </div>
-          <PipedriveConfiguration readOnly={!canManage} />
-        </div>
-      )}
+          }
+          return (
+            <SettingsRow key={item.id} logo={item.logo} title={item.name} description={item.description}>
+              {canManage ? (
+                <Button size="sm" className="rounded-full bg-beige text-cream h-9 px-4" onClick={() => setConnectId(item.id)}>
+                  Connect
+                </Button>
+              ) : (
+                <span className="text-xs text-muted-foreground">Not connected</span>
+              )}
+            </SettingsRow>
+          );
+        })}
+      </SettingsSection>
+      {!canManage && <p className="px-1 text-xs text-muted-foreground">Workspace CRM. Ask an admin to connect or change it.</p>}
 
       <Dialog open={connectId !== null} onOpenChange={(open) => !open && setConnectId(null)}>
         <DialogContent className={`${THEME_TOKENS.radius.container} max-w-lg border-border/70 bg-card p-6 md:p-8`}>
@@ -408,17 +235,6 @@ const SettingsPage = () => {
         </DialogContent>
       </Dialog>
 
-      <ConfirmAction
-        open={disconnectId !== null}
-        onOpenChange={(open) => !open && setDisconnectId(null)}
-        title={`Disconnect ${disconnectId ? CRM_LABEL[disconnectId] : "CRM"}?`}
-        description="Saved field mapping and sync history for this CRM will be removed."
-        confirmLabel="Disconnect"
-        pending={disconnectMutation.isPending}
-        onConfirm={() => {
-          if (disconnectId) disconnectMutation.mutate(disconnectId);
-        }}
-      />
     </div>
   );
 };

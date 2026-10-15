@@ -195,7 +195,7 @@ export default function ReportPage() {
           ))}
         </ul>
       ) : null}
-      <Link to="/dashboard/settings/brief#report-preferences" className="inline-block text-[13px] text-muted-foreground hover:text-foreground">
+      <Link to="/dashboard/settings/preferences#report-preferences" className="inline-block text-[13px] text-muted-foreground hover:text-foreground">
         {t.product.reportConfigure}
       </Link>
     </main>

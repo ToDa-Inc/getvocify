@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Keyboard } from "lucide-react";
+import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
 import { getDesktopBridge, type RecordShortcutState } from "@/lib/desktop-host";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -6,7 +8,7 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 const MODIFIER_CODES = new Set(["MetaLeft", "MetaRight", "AltLeft", "AltRight", "ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight"]);
 
 /** The Mac app's global shortcut to start and stop recording. Only inside the app. */
-export const RecordShortcutSettings = ({ className }: { className?: string }) => {
+export const RecordShortcutSettings = () => {
   const { t } = useLanguage();
   const shortcut = getDesktopBridge()?.shortcut;
   const [state, setState] = useState<RecordShortcutState | null>(null);
@@ -46,35 +48,33 @@ export const RecordShortcutSettings = ({ className }: { className?: string }) =>
   if (!shortcut || !state) return null;
 
   return (
-    <div className={className}>
-      <h3 className={`${THEME_TOKENS.typography.sectionTitle} mb-3`}>{t.product.recordShortcutTitle}</h3>
-      <div className="flex items-center gap-2">
+    <SettingsSection label={t.product.settingsSectionGeneral}>
+    <SettingsRow icon={Keyboard} title={t.product.recordShortcutTitle} description={problem ?? t.product.recordShortcutHelper}>
+      {state.label && !listening ? (
         <button
           type="button"
-          aria-pressed={listening}
-          onClick={() => {
-            setProblem(null);
-            setListening((on) => !on);
-          }}
-          className={`inline-flex h-9 min-w-20 items-center justify-center rounded-full border px-4 text-xs transition-colors ${
-            listening
-              ? "border-beige text-beige"
-              : "border-border/40 bg-secondary/5 text-foreground hover:bg-secondary/10"
-          }`}
+          onClick={() => void shortcut.clear().then(setState)}
+          className="text-xs text-muted-foreground hover:text-foreground"
         >
-          {listening ? t.product.recordShortcutPress : state.label ?? t.product.recordShortcutOff}
+          {t.product.recordShortcutTurnOff}
         </button>
-        {state.label && !listening ? (
-          <button
-            type="button"
-            onClick={() => void shortcut.clear().then(setState)}
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            {t.product.recordShortcutTurnOff}
-          </button>
-        ) : null}
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">{problem ?? t.product.recordShortcutHelper}</p>
-    </div>
+      ) : null}
+      <button
+        type="button"
+        aria-pressed={listening}
+        onClick={() => {
+          setProblem(null);
+          setListening((on) => !on);
+        }}
+        className={`inline-flex h-9 min-w-20 items-center justify-center rounded-full border px-4 text-xs transition-colors ${
+          listening
+            ? "border-beige text-beige"
+            : `border-border/40 bg-secondary/5 text-foreground ${THEME_TOKENS.interaction.rowHover}`
+        }`}
+      >
+        {listening ? t.product.recordShortcutPress : state.label ?? t.product.recordShortcutOff}
+      </button>
+    </SettingsRow>
+    </SettingsSection>
   );
 };
