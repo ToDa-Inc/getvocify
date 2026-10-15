@@ -10,7 +10,6 @@ import {
   Phone,
   Users,
   GraduationCap,
-  ListChecks,
   type LucideIcon,
   Workflow,
 } from "lucide-react";
@@ -19,13 +18,11 @@ import Logo from "@/components/Logo";
 import { isAskShortcut } from "@/lib/ask-shortcut";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { ReportBell } from "@/components/dashboard/ReportBell";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
 import ImpersonationBanner from "@/components/admin/ImpersonationBanner";
 import { AvatarMenu } from "@/components/dashboard/AvatarMenu";
 import { DialerDock } from "@/components/dashboard/calling/DialerDock";
-import { DockHeader, DockPanel, DockTab, DockTabs } from "@/components/dashboard/RightDock";
-import { TodayPanel } from "@/features/today/components/TodayPanel";
+import { DockTab, DockTabs } from "@/components/dashboard/RightDock";
 import { DialerFocusProvider, useDialerFocus } from "@/features/calling/DialerFocusProvider";
 import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
 import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
@@ -37,7 +34,7 @@ import { DesktopRecordingChip } from "@/features/desktop/DesktopRecordingChip";
 import { DesktopSetupDialog } from "@/features/desktop/DesktopSetupDialog";
 import { DesktopPermissionBanner } from "@/features/desktop/DesktopPermissionBanner";
 import { isDesktopHost } from "@/lib/desktop-host";
-import { isManagerRole, isNavActive, navItemsFor, topBarActions, usesRepHome, type NavItemId } from "@/lib/nav";
+import { isManagerRole, isNavActive, navItemsFor, topBarActions, type NavItemId } from "@/lib/nav";
 import { HomeColumnContext } from "@/components/dashboard/HomeColumn";
 
 const NAV_ICONS: Record<NavItemId, LucideIcon> = {
@@ -52,8 +49,8 @@ const BILLING_PATH = "/dashboard/settings/billing";
 
 const DashboardLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  // The right dock holds one panel at a time: the call panel (Llamar), later Hoy on Inicio.
-  const [dock, setDock] = useState<"call" | "today" | null>(null);
+  // The right dock holds the call panel (Llamar).
+  const [dock, setDock] = useState<"call" | null>(null);
   const [askOpen, setAskOpen] = useState(false);
   const [callState, setCallState] = useState<CallState>(CALL_STATES.IDLE);
   const [columnNode, setColumnNode] = useState<HTMLElement | null>(null);
@@ -69,11 +66,6 @@ const DashboardLayout = () => {
   const canManageBilling = isManagerRole(user?.company?.role);
   const paywalled = companyIsPaywalled(user?.company);
   const repTopBar = topBarActions(user?.company?.role);
-  // Hoy lives on the right of Inicio for a rep with the workspace: a panel you open and close.
-  const todayDock = location.pathname === "/dashboard" && repTopBar && usesRepHome(user?.company);
-  useEffect(() => {
-    if (dock === "today" && !todayDock) setDock(null);
-  }, [dock, todayDock]);
   const menu = navItemsFor({
     role: user?.company?.role,
     repWorkspace: user?.company?.repWorkspace,
@@ -139,7 +131,6 @@ const DashboardLayout = () => {
             <span className="px-1.5 py-px text-[10px] font-medium text-beige bg-beige/10 rounded-md">
               Beta
             </span>
-            <ReportBell />
           </div>
           <Button
             variant="ghost"
@@ -262,20 +253,12 @@ const DashboardLayout = () => {
         <div className="fixed inset-0 z-30 bg-foreground/20 xl:hidden" onClick={() => setDock(null)} aria-hidden />
       ) : null}
 
-      {dock === "today" && todayDock ? (
-        <DockPanel open label={t.product.todayTitle}>
-          <DockHeader title={t.product.todayTitle} closeLabel={t.product.askClose} onClose={() => setDock(null)} />
-          <TodayPanel />
-        </DockPanel>
-      ) : null}
-
       {showDialer ? (
         <DialerDockMount open={dialerOpen} onOpenChange={setDialerOpen} onCallStateChange={setCallState} />
       ) : null}
 
       {dock === null && !askOpen ? (
         <DockTabs>
-          {todayDock ? <DockTab label={t.product.todayTitle} icon={ListChecks} onClick={() => setDock("today")} /> : null}
           {repTopBar && showDialer ? (
             <CallTab live={dialerLive} onOpen={() => setDialerOpen(true)} label={t.product.navCall} />
           ) : null}
