@@ -136,7 +136,8 @@ export function PlaybookList() {
       );
     }
     const rule = process.ruleOf(row.key);
-    const line = usedForLine(row.key, rule, process.routing, process.goalOf(row.key), {
+    // Where it is used, without the "success = …" goal: a thing the rep cannot act on and the admin does not need here.
+    const line = usedForLine(row.key, rule, process.routing, null, {
       ...copy,
       roles: copy.ruleRoles,
       channels: copy.ruleChannels,

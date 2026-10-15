@@ -1,4 +1,4 @@
-import { Plus, Tag } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -106,7 +106,7 @@ export function PlaybookObjections({
             lead={<QuoteMark muted />}
             title={<p className={cn(itemTitle, "text-muted-foreground")}>{usual(row.objection)}</p>}
           >
-            <MetaLine icon={<Tag size={12} strokeWidth={1.5} />}>
+            <MetaLine>
               {[kindOf(row.objection), row.count > 0 ? `${copy.heardShare.replace("{share}", percent(row.share))} · ${copy.noAnswerYet}` : null].filter(Boolean).join(" · ")}
             </MetaLine>
             {row.bestExample ? (
@@ -190,7 +190,7 @@ export function PlaybookObjections({
                 <p className={itemBody}>{item.guidance}</p>
               )}
               {custom && editable ? (
-                <MetaLine icon={<Tag size={12} strokeWidth={1.5} />}>
+                <MetaLine>
                   <InlineTextarea
                     className="w-56 max-w-full rounded-md bg-transparent px-0 py-0 text-xs text-muted-foreground focus:text-foreground"
                     value={item.label ?? ""}
@@ -205,7 +205,7 @@ export function PlaybookObjections({
                   />
                 </MetaLine>
               ) : kindOf(item) ? (
-                <MetaLine icon={<Tag size={12} strokeWidth={1.5} />}>{kindOf(item)}</MetaLine>
+                <MetaLine>{kindOf(item)}</MetaLine>
               ) : null}
               {editable && !item.guidance.trim() && onComplete && (!custom || item.label?.trim()) ? (
                 <div className="pt-1">

@@ -77,6 +77,13 @@ describe("playbook document", () => {
     assert.deepEqual(hiddenObjectionCategories(rows), ["competitor", "status_quo", "trust", "other"]);
   });
 
+  it("never proposes the catch-all \"Otra\" from what the team hears, but keeps one somebody wrote or added", () => {
+    const heard = [{ category: "other", count: 7, share: 0.1, answered: false, best_example: "Tengo otra duda" }];
+    assert.deepEqual(visibleObjections([], heard).map((row) => row.key), []);
+    assert.deepEqual(visibleObjections([{ category: "other", guidance: "Pregunta cuál es la duda." }], heard).map((row) => row.key), ["other"]);
+    assert.deepEqual(visibleObjections([], heard, ["other"]).map((row) => row.key), ["other"]);
+  });
+
   it("keeps a category on screen while its answer is being cleared", () => {
     const rows = visibleObjections([{ category: "trust", guidance: "" }], null);
     assert.deepEqual(rows.map((row) => row.key), ["trust"]);

@@ -56,15 +56,10 @@ export function TypeTag({ children }: { children: ReactNode }) {
   return <span className="whitespace-nowrap rounded-full bg-secondary px-2.5 py-0.5 text-[11.5px] text-muted-foreground">{children}</span>;
 }
 
-/** What kind of thing an item is, as a quiet line under it ("Precio · 12 % de las veces"): never a pill that
- * wraps on the right, so long names and short ones sit the same. */
-export function MetaLine({ icon, children }: { icon?: ReactNode; children: ReactNode }) {
-  return (
-    <p className="flex min-w-0 items-center gap-1.5 pt-1.5 text-xs text-muted-foreground">
-      {icon ? <span className="shrink-0">{icon}</span> : null}
-      <span className="min-w-0 truncate">{children}</span>
-    </p>
-  );
+/** What kind of thing an item is, as one quiet line under it ("Precio · 12 % de las veces"): plain text that
+ * wraps like the rest, never a pill on the right and no icon to sit on top of the first letter. */
+export function MetaLine({ children }: { children: ReactNode }) {
+  return <p className="pt-1.5 text-xs text-muted-foreground">{children}</p>;
 }
 
 /** "✦ Completar con Vocify": asks Vocify to write what's missing; says so while it writes. */

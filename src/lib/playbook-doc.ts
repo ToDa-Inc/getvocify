@@ -184,6 +184,9 @@ export function visibleObjections(
     const data = byCategory.get(category);
     const heard = (data?.count ?? 0) > 0;
     if (!answer && !heard && !added.includes(category)) continue;
+    // "Otra" is where the call reading puts what it could not classify ("tengo otra duda"): not an objection a
+    // team writes an answer for, so hearing it never proposes one. It is still there if someone wrote it.
+    if (category === "other" && !answer && !added.includes(category)) continue;
     rows.push({
       key: category,
       objection: answer ?? { category, guidance: "" },
