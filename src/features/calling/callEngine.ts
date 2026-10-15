@@ -143,9 +143,9 @@ function pollDisposition() {
       if (state.failed || state.outcome || waited > MISSED_OUTCOME_WAIT_MS) return;
     }
     try {
-      const raw = state.callSid
-        ? (await callsApi.getCall(state.callSid)).callDisposition || null
-        : (await callsApi.getLatestDisposition()).disposition || null;
+      // Until Twilio gives the call its sid there is nothing of this call to read: "the latest call" would be the
+      // previous one, and its busy / no answer would end this call on the screen while it goes out.
+      const raw = state.callSid ? (await callsApi.getCall(state.callSid)).callDisposition || null : null;
       const message = copy ? dispositionMessage(raw, copy) : null;
       if (ticket !== pollToken) return;
       if (message) {
@@ -219,6 +219,12 @@ async function startTwilio(token: string, target: DialTarget) {
   } catch (err) {
     if (!isVoiceAccessTokenError(err)) throw err;
     call = await connect(true);
+  }
+  // The call ended on screen while Twilio was still connecting (cancelled, timed out): it must not go out unseen.
+  if (!isCallUp(state)) {
+    report("connected-after-end");
+    call.disconnect();
+    return;
   }
   twilioCall = call;
   report("connected", { callSid: call.parameters?.CallSid ?? null });

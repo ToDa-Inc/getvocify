@@ -20,11 +20,6 @@ export const callsApi = {
     provider?: string;
   }> => api.post('/calls/token', {}),
 
-  getLatestDisposition: (): Promise<{
-    disposition: string | null;
-    status: string | null;
-  }> => api.get('/calls/outbound/latest-disposition'),
-
   getCall: (callSid: string): Promise<{
     callSid?: string | null;
     callDisposition?: string | null;
