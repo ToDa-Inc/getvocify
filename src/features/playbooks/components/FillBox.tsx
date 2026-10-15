@@ -80,8 +80,9 @@ export function FillBox({
     <div className="space-y-1.5">
       <div
         className={cn(
-          // Glass: it floats over the list (materials.css), the one surface on this page that does.
-          "glass-panel relative flex items-center gap-1 rounded-[1.75rem] py-1.5 pl-4 pr-1.5 transition-shadow",
+          // Paper, not glass: the list scrolls behind it, and a see-through bar made that movement read as the
+          // box itself shaking. Opaque and raised, it stays one still thing.
+          "relative flex items-center gap-1 rounded-[1.75rem] border border-border bg-card py-1.5 pl-4 pr-1.5 shadow-medium transition-shadow",
           "focus-within:ring-1 focus-within:ring-beige/40",
           dragging && "ring-1 ring-beige/60",
         )}

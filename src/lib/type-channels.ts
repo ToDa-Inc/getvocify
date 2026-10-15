@@ -12,7 +12,7 @@ export const LIVE_CHANNELS: LiveChannel[] = ["call", "meeting"];
 export type TypeDetection = { by_channel: boolean; call_reading: boolean };
 
 type Payload = {
-  details?: Record<string, { channels?: string[] | null } | undefined>;
+  details?: Record<string, { channels?: string[] | null; applies_to?: { channels?: string[] | null } | null } | undefined>;
   type_detection?: TypeDetection;
 } | null | undefined;
 
@@ -52,4 +52,21 @@ export function channelGroups(keys: string[], payload: unknown): Record<LiveChan
 
 export function otherChannel(kind: LiveChannel): LiveChannel {
   return kind === "call" ? "meeting" : "call";
+}
+
+/** The channels a type is listed under in "Proceso de venta", whatever the company's mode: its own
+ * `channels` when types go by channel, else the channels of its routing rule (a visit is a meeting).
+ * A type with none is both. */
+export function railChannels(payload: unknown, key: string): LiveChannel[] {
+  const detail = (payload as Payload)?.details?.[key];
+  const own = (detail?.channels ?? []).filter((channel): channel is LiveChannel => LIVE_CHANNELS.includes(channel as LiveChannel));
+  if (own.length) return own;
+  const rule = detail?.applies_to?.channels ?? [];
+  const mapped = LIVE_CHANNELS.filter((channel) => rule.includes(channel) || (channel === "meeting" && rule.includes("visit")));
+  return mapped.length ? mapped : [...LIVE_CHANNELS];
+}
+
+/** The rule channels a tab stands for: "Reuniones" also covers visits. */
+export function ruleChannelsOf(channel: LiveChannel): string[] {
+  return channel === "meeting" ? ["meeting", "visit"] : ["call"];
 }

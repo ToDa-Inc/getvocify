@@ -16,7 +16,7 @@ import {
 import { newStepKey, templateSteps, type EditorStep } from "@/lib/playbook-editor";
 import { isEmptyKnowledge, knowledgeSummary } from "@/lib/playbook-knowledge";
 import type { MotionStatus } from "@/lib/playbook-setup";
-import { byChannel as typesByChannel, channelsOf, type LiveChannel } from "@/lib/type-channels";
+import { byChannel as typesByChannel, railChannels, ruleChannelsOf, type LiveChannel } from "@/lib/type-channels";
 
 /** A manager always sees the two base flows, even before anything was created. */
 function withBaseFlows(motions: Record<string, MotionStatus>, canEdit: boolean): Record<string, MotionStatus> {
@@ -183,18 +183,25 @@ export function usePlaybookProcess() {
     }
   };
 
-  /** Types by channel: "Quitar de Llamadas". The type stays (and keeps its playbook) in its other channel;
-   * the toast offers to put it back. Never the last channel: that is a delete. */
+  /** "Quitar de Llamadas": the type stays (and keeps its playbook) in its other channel; the toast offers
+   * to put it back. Never the last channel: that is a delete. By channel it is the type's channels; without
+   * types by channel it is the channels of its routing rule. */
   const leaveChannel = async (key: string, channel: LiveChannel): Promise<boolean> => {
-    const current = channelsOf(list.data, key);
+    const current = railChannels(list.data, key);
     const rest = current.filter((item) => item !== channel);
     if (!rest.length) return false;
     const label = name(key);
+    const rule = ruleOf(key);
+    const apply = async (channels: LiveChannel[], ruleChannels: string[]) => {
+      if (byChannel) await editType(key, { channels });
+      else await saveRule(key, { ...(rule ?? { role: "any", contact: "any", deal_stages: [] }), channels: ruleChannels as AppliesTo["channels"] });
+    };
+    const left = new Set(ruleChannelsOf(channel));
     setBusyKey(key);
     try {
-      await editType(key, { channels: rest });
+      await apply(rest, (rule?.channels ?? current).filter((item) => !left.has(item)));
       toast(copy.leftChannelToast.replace("{name}", label).replace("{channel}", copy.ruleChannels[channel]), {
-        action: { label: copy.undo, onClick: () => void editType(key, { channels: current }).catch(() => toast.error(copy.actionFailed)) },
+        action: { label: copy.undo, onClick: () => void apply(current, (rule?.channels ?? current) as string[]).catch(() => toast.error(copy.actionFailed)) },
       });
       return true;
     } catch {

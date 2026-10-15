@@ -50,26 +50,24 @@ export function SaveStatus({
       </button>
     );
   }
+  // One fixed-size slot, so a state coming and going never moves the actions next to it.
+  const slot = "inline-flex h-5 w-5 items-center justify-center";
   if (state === "saving") {
     return (
-      <span className={cn(THEME_TOKENS.typography.capsLabel, "inline-flex items-center gap-1.5")} role="status">
-        <VocifySpinner size={10} />
-        {copy.saving}
+      <span className={slot} role="status" title={copy.saving} aria-label={copy.saving}>
+        <VocifySpinner size={12} />
       </span>
     );
   }
   return (
     <span
-      className={cn(
-        THEME_TOKENS.typography.capsLabel,
-        "inline-flex items-center gap-1 transition-opacity duration-500",
-        showSaved ? "opacity-100" : "opacity-0",
-      )}
+      className={cn(slot, "transition-opacity duration-500", showSaved ? "opacity-100" : "opacity-0")}
       role="status"
+      title={copy.saved}
+      aria-label={copy.saved}
       aria-hidden={!showSaved}
     >
-      <Check size={12} strokeWidth={2.25} className="text-success" />
-      {copy.saved}
+      <Check size={14} strokeWidth={2.25} className="text-success" />
     </span>
   );
 }
