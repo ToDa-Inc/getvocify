@@ -32,7 +32,7 @@ export function RepOnly({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** Proceso de venta is the Head of Sales's: a member reads the playbook as a Coaching tab. */
+/** Playbook is the Head of Sales's: a member reads the playbook as a Coaching tab. */
 export function ManagerOnly({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   if (!user) return <RouteLoader />;

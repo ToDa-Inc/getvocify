@@ -6,15 +6,20 @@ import {
   cleanSummaryLine,
   countTone,
   durationLabel,
+  earlierKey,
   focusTitle,
   formatPercent,
+  noObjectionsKey,
   peerMedianLabel,
   stateView,
   summarizeCalls,
+  tableObjections,
   trendArrow,
   trendOf,
+  visibleMomentCount,
   weekTotalLine,
   type CoachKey,
+  type CoachObjectionBreakdown,
 } from "./rep-coaching.ts";
 
 const ES = productCatalog.ES;
@@ -124,5 +129,67 @@ describe("summarizeCalls", () => {
     const out = summarizeCalls([...recent, ...before], now);
     assert.deepEqual(out.recent, { rate: 0.5, prev: 0.2 });
     assert.equal(summarizeCalls([...recent, before[0]], now).recent, null);
+  });
+});
+
+describe("visible moments", () => {
+  it("shows all of them up to the cap", () => {
+    assert.equal(visibleMomentCount(3, false), 3);
+    assert.equal(visibleMomentCount(5, false), 5);
+  });
+  it("caps at five above it, until expanded", () => {
+    assert.equal(visibleMomentCount(42, false), 5);
+    assert.equal(visibleMomentCount(42, true), 42);
+  });
+  it("takes another cap", () => {
+    assert.equal(visibleMomentCount(10, false, 3), 3);
+  });
+});
+
+describe("earlier-moments copy", () => {
+  it("is in both languages with the count slot", () => {
+    for (const p of [ES, EN]) {
+      assert.ok(p.coachShowEarlier.includes("{count}"));
+      assert.ok(p.coachShowBetter.length > 0);
+    }
+  });
+});
+
+describe("objections table", () => {
+  const objection = (key: string, category: string): CoachObjectionBreakdown => ({
+    key, category, label: null, how: null, total: 2, open: 1, resolved: 1, occurrences: [],
+  });
+  it("leaves out Otra and keeps the rest in order, even a custom one", () => {
+    const all = [objection("price", "price"), objection("other", "other"), objection("c-1", "custom")];
+    assert.deepEqual(tableObjections(all).map((o) => o.key), ["price", "c-1"]);
+  });
+  it("does not change the list it is given", () => {
+    const all = [objection("other", "other")];
+    assert.deepEqual(tableObjections(all), []);
+    assert.equal(all.length, 1);
+  });
+  it("has the no-conversations mark in both languages", () => {
+    assert.equal(ES.coachNoConversations, "sin conversaciones");
+    assert.equal(EN.coachNoConversations, "no conversations");
+  });
+});
+
+describe("empty objections text", () => {
+  it("tells apart no objections from only untyped ones", () => {
+    assert.equal(noObjectionsKey(0, 0), "coachNoObjections");
+    assert.equal(noObjectionsKey(2, 0), "coachOnlyUntyped");
+    assert.equal(noObjectionsKey(2, 1), "coachNoObjections");
+    for (const p of [ES, EN]) assert.ok(p.coachOnlyUntyped.length > 0);
+    assert.equal(ES.coachOnlyUntyped, "Solo objeciones sin tipo en estas semanas.");
+    assert.equal(EN.coachOnlyUntyped, "Only untyped objections in these weeks.");
+  });
+});
+
+describe("earlier action wording", () => {
+  it("is singular for exactly one earlier moment", () => {
+    assert.equal(earlierKey(1), "coachShowEarlierOne");
+    assert.equal(earlierKey(2), "coachShowEarlier");
+    assert.equal(ES.coachShowEarlierOne, "Ver la anterior");
+    assert.equal(EN.coachShowEarlierOne, "Show the earlier one");
   });
 });

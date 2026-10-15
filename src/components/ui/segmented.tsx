@@ -24,7 +24,7 @@ type SegmentedProps<T extends string> = {
 
 /**
  * Pick one of 2–4 values of the same setting (billing interval, role, access): the compact glass
- * pill row the Interacciones / Equipo tabs use. For switching views of one page use `Tabs`.
+ * pill row the Conversaciones / Equipo tabs use. For switching views of one page use `Tabs`.
  */
 export function Segmented<T extends string>({ value, onValueChange, options, className, itemClassName, ...rest }: SegmentedProps<T>) {
   return (

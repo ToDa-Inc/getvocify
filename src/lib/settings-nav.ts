@@ -1,6 +1,6 @@
 /**
  * Which Settings tabs a role can see (Lista 3, item 2; Lista 4 E6). Company-wide sections
- * (CRM, Offer/strategy, Brief/timing, Team, Billing; the playbook editor lives in Proceso de venta) are the
+ * (CRM, Offer/strategy, Brief/timing, Team, Billing; the playbook editor lives in Playbook) are the
  * Head of Sales's (owner/admin's) call; a rep sees Calling, Transcription (with the shared glossary) and Usage. The
  * Head of Sales sees those too: they record and transcribe calls with their own caller-id and
  * transcription languages. Language and theme live in the avatar menu, not here.

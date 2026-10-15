@@ -34,6 +34,10 @@ _UUID_RE = re.compile(
 )
 
 
+# Never "*": crm_connections also holds the provider's access and refresh tokens.
+_CRM_CONNECTION_COLUMNS = "id,user_id,company_id,provider,status,token_expires_at,last_synced_at,created_at"
+
+
 def _write_audit(
     supabase: Client,
     action: str,
@@ -224,7 +228,9 @@ async def get_account(
 
     auth_user = _auth_user_by_id(supabase, uid) or {}
 
-    conn_result = supabase.table("crm_connections").select("*").eq("user_id", uid).execute()
+    conn_result = (
+        supabase.table("crm_connections").select(_CRM_CONNECTION_COLUMNS).eq("user_id", uid).execute()
+    )
     connections = conn_result.data or []
     connection_ids = [str(c["id"]) for c in connections if c.get("id")]
 
@@ -468,7 +474,12 @@ async def get_company_admin(
     svc = CompanyService(supabase)
     payload = _company_admin_payload(svc, cid)
     connections = (
-        supabase.table("crm_connections").select("*").eq("company_id", cid).execute().data or []
+        supabase.table("crm_connections")
+        .select(_CRM_CONNECTION_COLUMNS)
+        .eq("company_id", cid)
+        .execute()
+        .data
+        or []
     )
     payload["crm_connections"] = connections
     return payload

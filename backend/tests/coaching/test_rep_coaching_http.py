@@ -330,6 +330,46 @@ def test_calls_is_one_type_at_a_time_and_only_conversations_count():
     assert client.get("/api/v1/coaching/me/calls?type=bogus").json()["type"] == "discovery"
 
 
+def test_calls_list_the_other_published_playbooks_the_member_can_read_without_conversations():
+    memos = [_obs_memo(f"d{i}", {"open": "missed"}) for i in range(2)]
+    client = _client(memos, published=("discovery", "inbound", "closing"))
+    body = client.get("/api/v1/coaching/me/calls").json()
+    # An sdr reads inbound (sdr) but not closing (ae); the type with conversations stays first and chosen.
+    assert [(t["key"], t["conversations"]) for t in body["types"]] == [("discovery", 2), ("inbound", 0)]
+    assert body["type"] == "discovery" and body["conversations"] == 2
+    empty = client.get("/api/v1/coaching/me/calls?type=inbound").json()
+    assert empty["type"] == "inbound" and empty["conversations"] == 0 and empty["calls"] == []
+    published = ("discovery", "inbound", "closing")
+    ae = _client(memos, sales_role="ae", published=published).get("/api/v1/coaching/me/calls").json()
+    assert [t["key"] for t in ae["types"]] == ["discovery", "closing"]
+    general = _client(memos, sales_role=None, published=published).get("/api/v1/coaching/me/calls").json()
+    assert [t["key"] for t in general["types"]] == ["discovery", "closing", "inbound"]
+
+
+def test_calls_do_not_list_an_unpublished_or_paused_playbook():
+    client = _client([_obs_memo("d", {"open": "met"})], published=("discovery", "inbound", "ae_discovery"), sales_role=None)
+    store = client.app.dependency_overrides[get_supabase]()
+    for row in store.tables["playbooks"]:
+        if row["sales_motion_key"] == "inbound":
+            row["active_version_id"] = None  # never published
+        if row["sales_motion_key"] == "ae_discovery":
+            row["state"] = "paused"
+    assert [t["key"] for t in client.get("/api/v1/coaching/me/calls").json()["types"]] == ["discovery"]
+
+
+def test_calls_without_conversations_list_the_playbooks_the_member_can_read():
+    body = _client([], published=("discovery", "inbound")).get("/api/v1/coaching/me/calls").json()
+    assert body["type"] == "discovery" and [t["key"] for t in body["types"]] == ["discovery", "inbound"]
+    assert [t["conversations"] for t in body["types"]] == [0, 0]
+
+
+def test_calls_without_conversations_or_own_flow_playbook_default_to_the_first_readable_one():
+    body = _client([], published=("inbound", "outbound")).get("/api/v1/coaching/me/calls").json()
+    assert [t["key"] for t in body["types"]] == ["inbound", "outbound"]
+    assert body["type"] == "inbound"
+    assert [t["conversations"] for t in body["types"]] == [0, 0]
+
+
 def test_calls_leave_out_the_meeting_the_rep_declares_and_other_reps():
     memo = _obs_memo("m", {"open": "met"})
     memo["extraction"]["intelligence"]["playbook_observations"].append(

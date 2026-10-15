@@ -17,7 +17,7 @@ function rep(overrides: Partial<SignalRep> & { name: string }): SignalRep {
 }
 
 const coach: Diagnosis = { tone: "rep", key: "hosDiagCoach", motion: "discovery", href: "/dashboard/insights?tab=people" };
-const playbook: Diagnosis = { tone: "process", key: "hosDiagPlaybook", motion: "closing", href: "/dashboard/process" };
+const playbook: Diagnosis = { tone: "process", key: "hosDiagPlaybook", motion: "closing", href: "/dashboard/playbook" };
 
 describe("teamSignals", () => {
   it("returns nothing for an empty team", () => {

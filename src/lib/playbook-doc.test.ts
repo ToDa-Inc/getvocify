@@ -1,11 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { productCatalog } from "./product-catalog.ts";
 import {
   addableTypes,
   appendDictation,
   countLine,
   optimisticStatus,
   matchedMethod,
+  publishControl,
+  publishLabelKey,
   publishState,
   publishSwitch,
   usedForLine,
@@ -14,6 +17,8 @@ import {
   ruleNeeded,
   rowState,
   showProcessAnalytics,
+  newlyAddedKey,
+  toggleOpenKey,
   editorFromStructure,
   hiddenObjectionCategories,
   needsCriterion,
@@ -299,5 +304,59 @@ describe("pause, resume and delete", () => {
     assert.equal(optimisticStatus("resume", "paused"), "published");
     assert.equal(optimisticStatus("pause", "draft"), "draft");
     assert.equal(optimisticStatus("delete", "published"), null);
+  });
+});
+
+describe("publishControl", () => {
+  it("offers one control per state", () => {
+    assert.equal(publishControl("empty", null), "none");
+    assert.equal(publishControl("unpublished", null), "publish");
+    assert.equal(publishControl("changes", true), "publishChanges");
+    assert.equal(publishControl("changes", false), "publishChanges");
+    assert.equal(publishControl("live", true), "switch");
+    assert.equal(publishControl("paused", false), "switch");
+  });
+
+  it("shows nothing for a live or paused state without a switch value", () => {
+    assert.equal(publishControl("live", null), "none");
+    assert.equal(publishControl("paused", null), "none");
+  });
+});
+
+describe("publishLabelKey", () => {
+  it("says it turns a paused playbook on when publishing its changes", () => {
+    const detail = { label: null, role: null, applies_to: null, goal: null, catalog: true, paused: true, has_draft: true };
+    const state = publishState("paused", detail);
+    assert.equal(state, "changes");
+    assert.equal(publishLabelKey(publishControl(state, publishSwitch("paused", detail)), publishSwitch("paused", detail)), "publishAndTurnOn");
+  });
+  it("keeps Publicar cambios over a live playbook and Publicar for a first publish", () => {
+    assert.equal(publishLabelKey("publishChanges", true), "publishChanges");
+    assert.equal(publishLabelKey("publish", null), "publish");
+  });
+  it("has the new wording in both languages", () => {
+    assert.equal(productCatalog.ES.pb2.publishAndTurnOn, "Publicar y activar");
+    assert.equal(productCatalog.EN.pb2.publishAndTurnOn, "Publish and turn on");
+  });
+});
+
+describe("toggleOpenKey", () => {
+  it("opens the clicked row and closes the one that was open", () => {
+    assert.equal(toggleOpenKey(null, "price"), "price");
+    assert.equal(toggleOpenKey("price", "timing"), "timing");
+  });
+  it("closes the open row when it is clicked again", () => {
+    assert.equal(toggleOpenKey("price", "price"), null);
+  });
+});
+
+describe("newlyAddedKey", () => {
+  it("finds the row that was not there before", () => {
+    assert.equal(newlyAddedKey(["price", "custom:a"], ["price", "custom:a", "custom:b"]), "custom:b");
+  });
+  it("is none on the first look and when nothing was added or a row only left", () => {
+    assert.equal(newlyAddedKey(null, ["price"]), null);
+    assert.equal(newlyAddedKey(["price", "timing"], ["price", "timing"]), null);
+    assert.equal(newlyAddedKey(["price", "timing"], ["price"]), null);
   });
 });

@@ -117,7 +117,7 @@ export type Diagnosis = {
 };
 
 /** Where a process problem is fixed (the playbooks, in Ajustes) and where people are read (Equipo → Personas). */
-export const PROCESS_HREF = "/dashboard/process";
+export const PROCESS_HREF = "/dashboard/playbook";
 const TEAM_HREF = "/dashboard/insights?tab=people";
 
 /** Lower = more severe. Only verdicts that say something about the flow have an entry. */

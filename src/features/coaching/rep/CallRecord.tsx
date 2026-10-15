@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { OccurrencePager, type Moment } from "./OccurrencePager";
 
 /** The record shows the app's list size per page, in a panel that dissolves at its bottom edge while
- * there is more to read (Inicio's list), with the pager of Interacciones under it. */
+ * there is more to read (Inicio's list), with the pager of Conversaciones under it. */
 const CALLS_PER_PAGE = 20;
 const FADE = "linear-gradient(to bottom, black calc(100% - 72px), transparent 100%)";
 
@@ -71,12 +71,12 @@ function CallDetail({ call, type }: { call: CoachCall; type: string }) {
   const at = call.observed_at ?? "";
   return (
     <div className="space-y-5 py-3">
-      {slips.map((slip) => {
+      {slips.map((slip, slipIndex) => {
         const moment: Moment = { memo_id: call.memo_id, observed_at: at, tone: slip.state === "missing" ? "bad" : "half", quote: slip.quote, response: null, reason: slip.reason, advice: slip.advice };
         return (
           <section key={slip.step_id} className="space-y-2">
             <h4 className="text-[15px] font-medium text-foreground">{slip.label}</h4>
-            <OccurrencePager type={type} kind="step" itemKey={slip.step_id} how={null} moments={[moment]} />
+            <OccurrencePager type={type} kind="step" itemKey={slip.step_id} how={null} moments={[moment]} eager={slipIndex === 0} />
           </section>
         );
       })}
@@ -88,7 +88,7 @@ function CallDetail({ call, type }: { call: CoachCall; type: string }) {
         return (
           <section key={`${objection.key}-${index}`} className="space-y-2">
             <h4 className="text-[15px] font-medium text-foreground">{objection.label || categories[objection.category] || objection.category}</h4>
-            <OccurrencePager type={type} kind="objection" itemKey={objection.key} how={objection.how} moments={[moment]} />
+            <OccurrencePager type={type} kind="objection" itemKey={objection.key} how={objection.how} moments={[moment]} eager={slips.length === 0 && index === 0} />
           </section>
         );
       })}
@@ -96,7 +96,7 @@ function CallDetail({ call, type }: { call: CoachCall; type: string }) {
   );
 }
 
-/** One call, the row of Interacciones: its channel, what happened, its steps as a meter, and when. A
+/** One call, the row of Conversaciones: its channel, what happened, its steps as a meter, and when. A
  * call with something to improve opens in place; one with nothing opens the call. */
 function CallRow({ call, type }: { call: CoachCall; type: string }) {
   const { t } = useLanguage();

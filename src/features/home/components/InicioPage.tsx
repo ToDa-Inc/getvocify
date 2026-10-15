@@ -28,7 +28,7 @@ function greetingKey(hour: number) {
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
- * Inicio (/dashboard), one page for every role: ask on top, the latest interactions under it. A rep's
+ * Inicio (/dashboard), one page for every role: ask on top, the latest conversations under it. A rep's
  * day sits under the composer as a row of chips; the Admin/Owner's team signals sit on the side. Sending a question turns the main column into
  * the conversation; Esc or "Nuevo" brings the home back. At home the page scrolls as one piece (the
  * side column stays put); in the chat only the thread scrolls.

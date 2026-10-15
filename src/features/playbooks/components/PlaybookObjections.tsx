@@ -1,5 +1,7 @@
-import { Plus } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconAction } from "@/components/ui/icon-action";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,7 +13,7 @@ import { CompleteButton, DocRow, ItemMenu, MetaLine, QuoteMark, TypeTag } from "
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { itemBody, itemTitle, linkButton } from "@/features/playbooks/styles";
 import { useLanguage } from "@/lib/i18n";
-import { hiddenObjectionCategories, isSuggestion, percent, type ObjectionRow } from "@/lib/playbook-doc";
+import { hiddenObjectionCategories, isSuggestion, newlyAddedKey, percent, toggleOpenKey, type ObjectionRow } from "@/lib/playbook-doc";
 import { MAX_OBJECTION_LABEL, MAX_TRIGGER, type EditorObjection, type ObjectionCategory } from "@/lib/playbook-editor";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +24,8 @@ const STARTERS: ObjectionCategory[] = ["price", "timing", "authority"];
  * "Cuando el cliente dice…": each objection is three things. What the prospect says, in bold;
  * its kind, as a tag; and the answer the rep sees. Objections the team hears without an answer
  * come as suggestions (the best rep's answer, or one Vocify writes); with nothing written or heard
- * yet, the three every team gets.
+ * yet, the three every team gets. Written ones are collapsed (the words and two lines of the answer)
+ * and one opens at a time to be edited.
  */
 export function PlaybookObjections({
   rows,
@@ -38,6 +41,7 @@ export function PlaybookObjections({
   onRemove,
   onDismiss,
   onDismissAll,
+  typesControl,
 }: {
   rows: ObjectionRow[];
   /** Categories the manager added by hand: an entry to fill, not a suggestion. */
@@ -55,9 +59,12 @@ export function PlaybookObjections({
   onDismiss: (key: string) => void;
   /** Dismiss every suggestion at once, so the count on the tab can be cleared. */
   onDismissAll?: (keys: string[]) => void;
+  /** The "also in other types" control of a written objection (by its key); none when there is nothing to offer. */
+  typesControl?: (key: string) => ReactNode;
 }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
+  const [openKey, setOpenKey] = useState<string | null>(null);
   const kinds = t.product.playbookObjectionCategories;
   const hidden = hiddenObjectionCategories(rows);
   const answered = rows.filter((row) => !isSuggestion(row, added));
@@ -77,6 +84,16 @@ export function PlaybookObjections({
         }))
       : [];
   const suggestions = [...heard, ...starters];
+  // A custom objection just added has no name yet: it opens, with its name box focused.
+  const keys = shown.map((row) => row.key);
+  const seenKeys = useRef<string[] | null>(null);
+  useEffect(() => {
+    const added = newlyAddedKey(seenKeys.current, keys);
+    seenKeys.current = keys;
+    const row = added ? shown.find((candidate) => candidate.key === added) : undefined;
+    if (editable && row?.objection.category === "custom" && !row.objection.label?.trim()) setOpenKey(row.key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the set of rows changes
+  }, [keys.join("|")]);
 
   if (!editable && shown.length === 0) return null;
 
@@ -139,12 +156,33 @@ export function PlaybookObjections({
           const item = row.objection;
           const custom = item.category === "custom";
           const set = (patch: Patch) => onChange(row.key, patch);
+          const open = openKey === row.key;
+          const toggle = () => setOpenKey((current) => toggleOpenKey(current, row.key));
+          const answer = item.guidance.trim();
           return (
             <DocRow
               key={row.key}
-              lead={<QuoteMark muted={!item.guidance.trim()} />}
+              lead={
+                // One toggle, mounted open or closed, so keyboard focus stays on it.
+                <span className="-my-2">
+                  <IconAction label={open ? copy.objCollapse : copy.objExpand} expanded={open} onClick={toggle}>
+                    <ChevronDown size={16} strokeWidth={1.5} className={cn("transition-transform duration-150 motion-reduce:transition-none", open && "rotate-180")} />
+                  </IconAction>
+                </span>
+              }
               title={
-                editable ? (
+                !(open && editable) ? (
+                  // A click on the words or the answer toggles too; the lead button is the keyboard way in.
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={toggle}
+                    className="block w-full rounded-md text-left"
+                  >
+                    <span className={cn(itemTitle, "block")}>{item.trigger?.trim() || usual(item)}</span>
+                    {answer ? <span className={cn(itemBody, "mt-1 block whitespace-pre-wrap", !open && "line-clamp-2")}>{item.guidance}</span> : null}
+                  </button>
+                ) : (
                   <InlineTextarea
                     // Until someone writes the prospect's words, how it usually sounds reads as text.
                     className={cn(itemTitle, "placeholder:text-foreground/70")}
@@ -157,8 +195,6 @@ export function PlaybookObjections({
                     }}
                     onChange={(event) => set({ trigger: event.target.value.replace(/\n/g, " ") })}
                   />
-                ) : (
-                  <p className={itemTitle}>{item.trigger?.trim() || usual(item)}</p>
                 )
               }
               side={
@@ -187,6 +223,7 @@ export function PlaybookObjections({
                       {percent(row.share)}
                     </span>
                   ) : null}
+                  {editable && answer && (!custom || item.label?.trim()) ? typesControl?.(row.key) : null}
                   {editable ? (
                     <ItemMenu
                       label={copy.itemMenu.replace("{name}", kindOf(item) || copy.objCustomName)}
@@ -196,7 +233,7 @@ export function PlaybookObjections({
                 </>
               }
             >
-              {editable ? (
+              {open && editable ? (
                 <InlineTextarea
                   className={itemBody}
                   value={item.guidance}
@@ -204,10 +241,8 @@ export function PlaybookObjections({
                   aria-label={copy.objAnswer}
                   onChange={(event) => set({ guidance: event.target.value })}
                 />
-              ) : (
-                <p className={itemBody}>{item.guidance}</p>
-              )}
-              {editable && !item.guidance.trim() && onComplete && (!custom || item.label?.trim()) ? (
+              ) : null}
+              {open && editable && !answer && onComplete && (!custom || item.label?.trim()) ? (
                 <div className="pt-1">
                   <CompleteButton label={copy.writeAnswer} pending={completingKey === row.key} disabled={busy} onClick={() => onComplete(row)} />
                 </div>

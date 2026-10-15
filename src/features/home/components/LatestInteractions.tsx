@@ -14,13 +14,13 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { PAGINATION } from "@/shared/lib/constants";
 
-/** Inicio shows the latest page in a panel you scroll; everything else is one click away in Interacciones. */
+/** Inicio shows the latest page in a panel you scroll; everything else is one click away in Conversaciones. */
 const FEED_SIZE = PAGINATION.DEFAULT_PAGE_SIZE;
 const FADE = "linear-gradient(to bottom, black calc(100% - 72px), transparent 100%)";
 const boxClass = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 
 
-/** The latest captures, the same rows as Interacciones: a rep's own, the whole company for a manager. */
+/** The latest captures, the same rows as Conversaciones: a rep's own, the whole company for a manager. */
 export function LatestInteractions({ manager }: { manager: boolean }) {
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -60,7 +60,7 @@ export function LatestInteractions({ manager }: { manager: boolean }) {
           <div className="flex items-center gap-3">
             <ChannelFilter channel={feed.channel} onChannel={feed.setChannel} />
             <Link
-              to="/dashboard/interactions"
+              to="/dashboard/conversations"
               className="inline-flex items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
             >
               {home.seeAll}
@@ -102,7 +102,7 @@ export function LatestInteractions({ manager }: { manager: boolean }) {
           {feed.hasMore ? (
             <div className="flex justify-center px-3 py-3">
               <Button asChild variant="quiet" size="text">
-                <Link to="/dashboard/interactions">
+                <Link to="/dashboard/conversations">
                   {home.seeAll}
                   <ArrowRight aria-hidden strokeWidth={1.5} />
                 </Link>

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { byChannel, channelGroups, channelsOf, channelTypeOptions, otherChannel, railChannels, ruleChannelsOf } from "./type-channels.ts";
+import { byChannel, channelGroups, channelsLabelKey, channelsOf, channelTypeOptions, otherChannel, railChannels, ruleChannelsOf } from "./type-channels.ts";
 
 const PAYLOAD = {
   motions: { cold: "published", inbound_lead: "missing", demo: "draft", old: "paused", both: "published" },
@@ -75,5 +75,17 @@ describe("railChannels", () => {
   it("maps a tab back to the rule channels it covers", () => {
     assert.deepEqual(ruleChannelsOf("call"), ["call"]);
     assert.deepEqual(ruleChannelsOf("meeting"), ["meeting", "visit"]);
+  });
+});
+
+describe("channelsLabelKey", () => {
+  it("names one channel, or both", () => {
+    assert.equal(channelsLabelKey(["call"]), "call");
+    assert.equal(channelsLabelKey(["meeting"]), "meeting");
+    assert.equal(channelsLabelKey(["call", "meeting"]), "both");
+  });
+
+  it("reads a type with no channels as both, like the rest of the page", () => {
+    assert.equal(channelsLabelKey([]), "both");
   });
 });

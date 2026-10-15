@@ -190,8 +190,9 @@ const App = () => (
             }>
               <Route index element={<DashboardHome />} />
               <Route path="record" element={<RecordPage />} />
-              <Route path="interactions" element={<InteractionsPage />} />
-              <Route path="memos" element={<MovedTo pathname="/dashboard/interactions" />} />
+              <Route path="conversations" element={<InteractionsPage />} />
+              <Route path="interactions" element={<MovedTo pathname="/dashboard/conversations" />} />
+              <Route path="memos" element={<MovedTo pathname="/dashboard/conversations" />} />
               <Route path="memos/:id" element={<MemoDetail />} />
               <Route path="integrations" element={<IntegrationsPage />} />
               <Route path="profile" element={<ProfilePage />} />
@@ -210,17 +211,16 @@ const App = () => (
                 <Route path="system" element={<SystemSection />} />
               </Route>
               <Route path="insights" element={<InsightsRoute />} />
-              {/* Proceso de venta: the playbook editor (Head of Sales). Its health and objections are in Equipo. */}
-              <Route path="process" element={<ManagerOnly><SalesProcessPage /></ManagerOnly>} />
+              {/* Playbook: the editor (Head of Sales); a member lands on the Coaching tab. Its health and objections are in Equipo. */}
+              <Route path="playbook" element={<ManagerOnly><SalesProcessPage /></ManagerOnly>} />
+              <Route path="process" element={<MovedTo pathname="/dashboard/playbook" />} />
               {/* The playbook editor left Ajustes; outside the settings layout so its tab guard does not bounce the old URL first. */}
-              <Route path="settings/playbooks" element={<Navigate to="/dashboard/process" replace />} />
+              <Route path="settings/playbooks" element={<Navigate to="/dashboard/playbook" replace />} />
               <Route path="insights/rep/:userId" element={<TeamRepDetailPage />} />
               <Route path="coach" element={<RepOnly><CoachPage /></RepOnly>} />
               {/* T13: MANAGER_HOME_ENABLED moves an owner/admin's home to the team panel;
                   this is where "go to my Today" points a manager who also sells. */}
               <Route path="today" element={<RepHome />} />
-              {/* The rep's playbook is a tab of Coaching. */}
-              <Route path="playbook" element={<Navigate to="/dashboard/coach?tab=playbook" replace />} />
               <Route path="ask" element={<Navigate to="/dashboard" replace state={{ ask: true }} />} />
               <Route path="reports/:id" element={<ReportPage />} />
               <Route path="team" element={<Navigate to="/dashboard/settings/team" replace />} />

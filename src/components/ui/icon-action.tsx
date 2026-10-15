@@ -11,6 +11,8 @@ type IconActionProps = {
   tone?: "default" | "danger" | "primary";
   /** A toggle ("mute"): shows the held state and sets `aria-pressed`. */
   pressed?: boolean;
+  /** Opens and closes something ("show more"): sets `aria-expanded`. */
+  expanded?: boolean;
   disabled?: boolean;
   /** Shown while pending instead of the spinner, e.g. `<AnimIcon name="refresh" state="busy" />`. */
   pendingIcon?: React.ReactNode;
@@ -27,6 +29,7 @@ export function IconAction({
   pending = false,
   tone = "default",
   pressed,
+  expanded,
   disabled = false,
   pendingIcon,
   shortcut,
@@ -43,6 +46,7 @@ export function IconAction({
             type="button"
             aria-label={tip}
             aria-pressed={pressed}
+            aria-expanded={expanded}
             disabled={disabled || pending}
             onClick={onClick}
             className={cn(

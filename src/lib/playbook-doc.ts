@@ -355,6 +355,25 @@ export function publishSwitch(status: MotionStatus, detail: PlaybookDetail | nul
   return null;
 }
 
+/**
+ * The one control beside a playbook's title: "Publicar" when never published, "Publicar cambios"
+ * while changes are pending (no pausing then), the Activo switch once published and unchanged.
+ */
+export type PublishControl = "none" | "publish" | "publishChanges" | "switch";
+
+export function publishControl(state: PublishState, switchOn: boolean | null): PublishControl {
+  if (state === "unpublished") return "publish";
+  if (state === "changes") return "publishChanges";
+  if (state === "live" || state === "paused") return switchOn !== null ? "switch" : "none";
+  return "none";
+}
+
+/** The publish button's wording: publishing changes over a paused playbook also turns it on for the team. */
+export function publishLabelKey(control: PublishControl, switchOn: boolean | null): "publish" | "publishChanges" | "publishAndTurnOn" {
+  if (control === "publishChanges") return switchOn === false ? "publishAndTurnOn" : "publishChanges";
+  return "publish";
+}
+
 /** Nothing created anywhere yet: the whole section is the intake box. */
 export function nothingYet(
   motions: Record<string, MotionStatus>,
@@ -470,4 +489,15 @@ export function optimisticStatus(action: "pause" | "resume" | "delete", status: 
   if (action === "pause") return status === "published" ? "paused" : status;
   if (action === "resume") return status === "paused" ? "published" : status;
   return null;
+}
+
+/** Which objection is open after a click on `clicked`: that one, or none if it was the open one. Only one at a time. */
+export function toggleOpenKey(current: string | null, clicked: string): string | null {
+  return current === clicked ? null : clicked;
+}
+
+/** The first key in `current` that was not in `previous`: a row that was just added. None on the first look (`previous` null). */
+export function newlyAddedKey(previous: readonly string[] | null, current: readonly string[]): string | null {
+  if (!previous) return null;
+  return current.find((key) => !previous.includes(key)) ?? null;
 }

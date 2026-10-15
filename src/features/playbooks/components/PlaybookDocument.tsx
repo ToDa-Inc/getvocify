@@ -9,6 +9,7 @@ import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { playbooksApi, type FillScope, type FillSource } from "@/features/playbooks/api";
 import { CompleteButton } from "@/features/playbooks/components/DocParts";
 import { FillBox } from "@/features/playbooks/components/FillBox";
+import { ObjectionTypes } from "@/features/playbooks/components/ObjectionTypes";
 import { PlaybookObjections } from "@/features/playbooks/components/PlaybookObjections";
 import { PlaybookQualification } from "@/features/playbooks/components/PlaybookQualification";
 import { PlaybookStart, type SourceInput } from "@/features/playbooks/components/PlaybookStart";
@@ -16,6 +17,7 @@ import { PlaybookStepRow } from "@/features/playbooks/components/PlaybookStepRow
 import { SaveStatus } from "@/features/playbooks/components/SaveStatus";
 import { usePlaybookDraft, type DraftContent, type Flush } from "@/features/playbooks/hooks/usePlaybookDraft";
 import { useDismissed } from "@/features/playbooks/hooks/useDismissed";
+import { useObjectionTypes } from "@/features/playbooks/hooks/useObjectionTypes";
 import { linkButton } from "@/features/playbooks/styles";
 import { useLanguage } from "@/lib/i18n";
 import {
@@ -111,6 +113,7 @@ export function PlaybookDocument({
   // What Vocify is writing: the whole request ("box") or one item's missing part (its key).
   const [filling, setFilling] = useState<string | null>(null);
   const dismissed = useDismissed(`playbook:${motionKey}`);
+  const objectionTypes = useObjectionTypes({ motionKey, enabled: canEdit, objections: draft.objections });
 
   const rows = useMemo(
     () => visibleObjections(draft.objections, insights?.objections, draft.addedCategories),
@@ -458,6 +461,22 @@ export function PlaybookDocument({
             onRemove={draft.removeObjection}
             onDismiss={dismissed.add}
             onDismissAll={(keys) => keys.forEach(dismissed.add)}
+            typesControl={
+              objectionTypes.available
+                ? (key) => (
+                    <ObjectionTypes
+                      current={motionKey}
+                      appearsIn={objectionTypes.appearsIn(key)}
+                      allTypes={objectionTypes.allTypes}
+                      names={objectionTypes.names}
+                      canEdit
+                      busy={objectionTypes.busy}
+                      onToggle={(type, on) => void objectionTypes.toggle(key, type, on)}
+                      onCopyAnswer={(types) => void objectionTypes.copyAnswer(key, types)}
+                    />
+                  )
+                : undefined
+            }
           />
         </TabsContent>
       </Tabs>

@@ -57,7 +57,8 @@ export function TypePicker({
       <SelectItem key={key} value={key}>
         <span className="inline-flex items-center gap-2">
           <ItemIcon aria-hidden size={14} strokeWidth={1.5} className="shrink-0 text-muted-foreground" />
-          {name(key, type?.label)}
+          <span className={type?.conversations === 0 ? "text-muted-foreground" : undefined}>{name(key, type?.label)}</span>
+          {type?.conversations === 0 ? <span className="text-muted-foreground">{p.coachNoConversations}</span> : null}
         </span>
       </SelectItem>
     );

@@ -52,7 +52,7 @@ describe("team adherence trend", () => {
   it("unscored conversations are said apart, by reason", () => {
     const noPlaybook = week({ state: "unscored", interactions: 3, without_playbook: 2, without_score: 1 });
     assert.equal(trendBarRatio(noPlaybook), null);
-    assert.equal(trendCellText(noPlaybook, copy), "2 sin proceso · 1 sin puntuar");
+    assert.equal(trendCellText(noPlaybook, copy), "2 sin playbook · 1 sin puntuar");
     const mixed = { ...scored, interactions: 4, without_score: 1 };
     assert.equal(trendCellText(mixed, copy), "18 de 24 · 1 sin puntuar");
   });
@@ -63,7 +63,7 @@ describe("team adherence trend", () => {
   });
 
   it("a playbook version change is named in the cell", () => {
-    assert.equal(trendCellText({ ...scored, new_playbook_version: true }, copy), "18 de 24 · Proceso actualizado");
+    assert.equal(trendCellText({ ...scored, new_playbook_version: true }, copy), "18 de 24 · Playbook actualizado");
   });
 
   it("team first, then reps by name, never by adherence", () => {

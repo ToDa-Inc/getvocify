@@ -1,17 +1,21 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { RuleChange } from "@/features/playbooks/components/RuleChange";
 import { useLanguage } from "@/lib/i18n";
 import type { AppliesTo } from "@/lib/playbook-doc";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { LIVE_CHANNELS, type LiveChannel } from "@/lib/type-channels";
-import { cn } from "@/lib/utils";
+import { channelsLabelKey, LIVE_CHANNELS, type LiveChannel } from "@/lib/type-channels";
+
+const CHANNELS_TEXT = { call: "typeChannelsCall", meeting: "typeChannelsMeeting", both: "typeChannelsBoth" } as const;
 
 /**
  * Types by channel: under a type's name, the three things that make Vocify detect it. Its channels
- * (one tap each, at least one), the one sentence that says how to recognise it, and how it did in
- * the last 30 days; the CRM condition is one link away. A type reads as a document, never a form.
+ * (a line of text; a manager ticks them in a popover, at least one), the one sentence that says how
+ * to recognise it, and how it did in the last 30 days; the CRM condition is one link away. A type
+ * reads as a document, never a form.
  */
 export function TypeSetup({
   channels,
@@ -59,30 +63,42 @@ export function TypeSetup({
     ? copy.typeStats.replace("{count}", String(stats.count)).replace("{corrected}", String(stats.corrected))
     : copy.typeStatsNone;
 
+  const channelsText = copy[CHANNELS_TEXT[channelsLabelKey(channels)]];
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <div className="flex gap-1" role="group" aria-label={copy.typeChannel}>
-          {LIVE_CHANNELS.map((channel) => {
-            const on = channels.includes(channel);
-            return (
-              <button
-                key={channel}
-                type="button"
-                aria-pressed={on}
-                disabled={!canEdit || saving || (on && channels.length === 1)}
-                onClick={() => toggle(channel)}
-                className={cn(
-                  "rounded-full px-2.5 py-0.5 text-[12px] transition-colors disabled:cursor-default",
-                  on ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                )}
-              >
-                {copy.ruleChannels[channel]}
-              </button>
-            );
-          })}
-        </div>
         <span className={THEME_TOKENS.typography.capsLabel}>
+          {canEdit ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button type="button" className="text-foreground underline-offset-4 hover:underline">
+                  {channelsText}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-56">
+                <p className="mb-2 text-[13px] text-muted-foreground">{copy.typeUsedIn}</p>
+                <div className="space-y-2">
+                  {LIVE_CHANNELS.map((channel) => {
+                    const on = channels.includes(channel);
+                    return (
+                      <label key={channel} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={on}
+                          disabled={saving || (on && channels.length === 1)}
+                          onCheckedChange={() => toggle(channel)}
+                        />
+                        {copy.ruleChannels[channel]}
+                      </label>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
+          ) : (
+            channelsText
+          )}
+          {" · "}
           {statsLine}
           {canEdit ? (
             <>

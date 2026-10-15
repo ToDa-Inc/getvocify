@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/i18n";
-import type { CoachObjectionBreakdown, CoachSlippedStep } from "@/lib/rep-coaching";
+import { noObjectionsKey, tableObjections, type CoachObjectionBreakdown, type CoachSlippedStep } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { OccurrencePager, type Moment } from "./OccurrencePager";
@@ -138,7 +138,8 @@ export function ImproveTables({ type, steps, objections }: { type: string; steps
     bad: step.missing,
     of: step.applicable,
   }));
-  const objectionRows: Row[] = objections.map((objection) => ({
+  const listed = tableObjections(objections);
+  const objectionRows: Row[] = listed.map((objection) => ({
     id: objection.key,
     title: objection.label || categories[objection.category] || objection.category,
     good: objection.resolved,
@@ -165,9 +166,9 @@ export function ImproveTables({ type, steps, objections }: { type: string; steps
         title={p.coachTableObjections}
         column={p.coachColResolved}
         rows={objectionRows}
-        empty={p.coachNoObjections}
+        empty={p[noObjectionsKey(objections.length, listed.length)]}
         detail={(id) => {
-          const objection = objections.find((candidate) => candidate.key === id);
+          const objection = listed.find((candidate) => candidate.key === id);
           return objection ? <ObjectionDetail objection={objection} type={type} /> : null;
         }}
       />

@@ -13,7 +13,7 @@ export type NavMenu = { items: NavItem[]; showPlans: boolean };
 
 const HOME: NavItem = { id: "home", labelKey: "navHome", path: "/dashboard" };
 const INSIGHTS: NavItem = { id: "insights", labelKey: "navInsights", path: "/dashboard/insights" };
-const PROCESS: NavItem = { id: "process", labelKey: "navProcess", path: "/dashboard/process" };
+const PROCESS: NavItem = { id: "process", labelKey: "navProcess", path: "/dashboard/playbook" };
 const COACH: NavItem = { id: "coach", labelKey: "navCoach", path: "/dashboard/coach" };
 const SETTINGS: NavItem = { id: "settings", labelKey: "navSettings", path: "/dashboard/settings" };
 
@@ -21,8 +21,8 @@ export function isManagerRole(role?: string | null): boolean {
   return role === "owner" || role === "admin";
 }
 
-// Inicio (/dashboard) is every role's home, and it lists the latest interactions ("Ver todas" opens
-// /dashboard/interactions). The Head of Sales: Inicio, Equipo, Proceso de venta, Ajustes. A rep:
+// Inicio (/dashboard) is every role's home, and it lists the latest conversations ("Ver todas" opens
+// /dashboard/conversations). The Head of Sales: Inicio, Equipo, Playbook, Ajustes. A rep:
 // Inicio, Coaching, Ajustes; the playbook they are scored against is a Coaching tab. Llamar sits
 // at the top of the sidebar for reps (`topBarActions`); Ask is the floating sheet (⌘K), not a
 // place. Every other route still exists, just unlinked.
@@ -40,9 +40,9 @@ export function navItemsFor({
   return { items: [HOME, COACH, SETTINGS], showPlans: !repWorkspace };
 }
 
-/** Paths an item also owns: the full Hoy, Interacciones and a memo's detail are reached from Inicio. */
+/** Paths an item also owns: the full Hoy, Conversaciones and a memo's detail are reached from Inicio. */
 const ALSO_UNDER: Partial<Record<NavItemId, string[]>> = {
-  home: ["/dashboard/today", "/dashboard/interactions", "/dashboard/memos"],
+  home: ["/dashboard/today", "/dashboard/conversations", "/dashboard/memos"],
 };
 
 const within = (pathname: string, path: string) => pathname === path || pathname.startsWith(`${path}/`);
