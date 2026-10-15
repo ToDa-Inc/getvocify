@@ -2,7 +2,8 @@ import { useState } from "react";
 import { CallTypePanel } from "@/features/playbooks/components/CallTypePanel";
 import { CompanyKnowledge } from "@/features/playbooks/components/CompanyKnowledge";
 import { IntakePanel } from "@/features/playbooks/components/IntakePanel";
-import { ProcessNav, type NavGroup, type NavItem } from "@/features/playbooks/components/ProcessNav";
+import { ProcessNav, type NavChannel, type NavItem } from "@/features/playbooks/components/ProcessNav";
+import { AddTypeMenu } from "@/features/playbooks/components/AddTypeMenu";
 import { RuleChange } from "@/features/playbooks/components/RuleChange";
 import { TypeSetup } from "@/features/playbooks/components/TypeSetup";
 import { useIntake } from "@/features/playbooks/hooks/useIntake";
@@ -14,7 +15,7 @@ import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
 import { addableTypes, publishState, publishSwitch, ruleNeeded, usedForLine } from "@/lib/playbook-doc";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
-import { channelGroups, channelsOf, LIVE_CHANNELS } from "@/lib/type-channels";
+import { channelsOf, otherChannel, type LiveChannel } from "@/lib/type-channels";
 import { cn } from "@/lib/utils";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
@@ -34,10 +35,20 @@ export function PlaybookList() {
   const [picked, setPicked] = useState<string | null>(null);
   const [browse, setBrowse] = useState(false);
   const [deleteKey, setDeleteKey] = useState<string | null>(null);
+  // Types by channel: the rail shows one channel at a time; until one is chosen, the one that has types.
+  const [channelPick, setChannelPick] = useState<LiveChannel | null>(null);
+  /** Opens a type, switching the rail to a channel it belongs to. */
+  const open = (key: string, channels?: LiveChannel[]) => {
+    setPicked(key);
+    if (process.byChannel && key !== COMPANY_ROW) {
+      const own = channels?.length ? channels : channelsOf(process.list.data, key);
+      setChannelPick((current) => (current && own.includes(current) ? current : own[0]));
+    }
+  };
   const intake = useIntake({
     refresh: process.refresh,
     onDone: (key) => {
-      if (key) setPicked(key);
+      if (key) open(key);
       setBrowse(true);
     },
   });
@@ -80,21 +91,42 @@ export function PlaybookList() {
     // Types by channel: a type has no role.
     role: !process.byChannel && row.role && row.role !== "any" ? copy.ruleRoles[row.role] : null,
   }));
-  const grouped = channelGroups(items.map((entry) => entry.key), process.list.data);
-  const groups: NavGroup[] | null = process.byChannel
-    ? LIVE_CHANNELS.map((channel) => ({
-        label: copy.ruleChannels[channel],
-        items: items.filter((entry) => grouped[channel].includes(entry.key)),
-      }))
+  const counts = {
+    call: items.filter((entry) => channelsOf(process.list.data, entry.key).includes("call")).length,
+    meeting: items.filter((entry) => channelsOf(process.list.data, entry.key).includes("meeting")).length,
+  };
+  const channel: LiveChannel = channelPick ?? (counts.call || !counts.meeting ? "call" : "meeting");
+  const shown = process.byChannel ? items.filter((entry) => channelsOf(process.list.data, entry.key).includes(channel)) : items;
+  const nav: NavChannel | null = process.byChannel
+    ? { value: channel, counts, onChange: (next) => { setChannelPick(next); setPicked(null); intake.close(); } }
     : null;
-  const fallbackKey = items.find((item) => item.state !== "empty")?.key ?? items[0]?.key ?? COMPANY_ROW;
-  const selected = picked === COMPANY_ROW || items.some((item) => item.key === picked) ? (picked as string) : fallbackKey;
+  const fallbackKey = shown.find((item) => item.state !== "empty")?.key ?? shown[0]?.key ?? COMPANY_ROW;
+  const selected = picked === COMPANY_ROW || shown.some((item) => item.key === picked) ? (picked as string) : fallbackKey;
   const row = process.rows.find((item) => item.key === selected);
   const item = items.find((entry) => entry.key === selected);
+  // Deleting from a channel on screen: a type that also serves the other channel only leaves this one.
+  const leaves = (key: string) => process.byChannel && channelsOf(process.list.data, key).length > 1;
+  const channelName = copy.ruleChannels[channel];
+
+  const onTypeAdded = (key: string, label: string, channels: LiveChannel[]) => {
+    if (process.byChannel) void process.typeAdded(key, label, channels);
+    else void process.refresh();
+    open(key, channels);
+  };
 
   const detail = () => {
     if (canEdit && intake.open) {
       return <IntakePanel intake={intake} alone={false} name={process.name} onTemplate={() => setBrowse(true)} />;
+    }
+    if (process.byChannel && selected === COMPANY_ROW && picked !== COMPANY_ROW && !shown.length) {
+      return (
+        <div className="flex flex-col items-start gap-3 py-6">
+          <p className="text-sm text-muted-foreground">{copy.channelEmpty[channel]}</p>
+          {canEdit ? (
+            <AddTypeMenu catalog={addableTypes(process.types, process.motions)} stages={process.stages} channel={channel} onAdded={onTypeAdded} />
+          ) : null}
+        </div>
+      );
     }
     if (selected === COMPANY_ROW || !row || !item) {
       return (
@@ -130,6 +162,7 @@ export function PlaybookList() {
         onPublish={() => void process.publish(row.key)}
         onSwitch={(on) => void process.toggle(row.key, on)}
         onDelete={() => setDeleteKey(row.key)}
+        deleteLabel={leaves(row.key) ? copy.leaveChannel.replace("{channel}", channelName) : undefined}
         onSaved={() => void process.refresh()}
         registerFlush={(flush) => process.registerFlush(row.key, flush)}
         meta={
@@ -179,25 +212,21 @@ export function PlaybookList() {
 
       <div className="flex flex-col gap-4 md:flex-row md:gap-6">
         <ProcessNav
-          items={items}
+          items={shown}
           selected={intake.open ? "" : selected}
           companyFilled={Boolean(process.companySummary)}
           canEdit={canEdit}
           onSelect={(key) => {
             if (intake.open) intake.close();
             intake.clearFound();
-            setPicked(key);
+            open(key);
           }}
           onImport={() => intake.setOpen(true)}
           addable={addableTypes(process.types, process.motions)}
           stages={process.stages}
           showAddType={process.routing || process.byChannel}
-          groups={groups}
-          onTypeAdded={(key, label, channels) => {
-            if (process.byChannel) void process.typeAdded(key, label, channels);
-            else void process.refresh();
-            setPicked(key);
-          }}
+          channel={nav}
+          onTypeAdded={onTypeAdded}
         />
         <div className="min-w-0 flex-1">{detail()}</div>
       </div>
@@ -207,16 +236,24 @@ export function PlaybookList() {
         onOpenChange={(next) => {
           if (!next) setDeleteKey(null);
         }}
-        title={copy.deleteTitle.replace("{name}", deleteKey ? process.name(deleteKey) : "")}
-        description={copy.deleteConfirm}
-        confirmLabel={copy.deleteAction}
+        title={(deleteKey && leaves(deleteKey) ? copy.leaveChannelTitle.replace("{channel}", channelName) : copy.deleteTitle).replace(
+          "{name}",
+          deleteKey ? process.name(deleteKey) : "",
+        )}
+        description={
+          deleteKey && leaves(deleteKey)
+            ? copy.leaveChannelConfirm.replace("{other}", copy.ruleChannels[otherChannel(channel)])
+            : copy.deleteConfirm
+        }
+        confirmLabel={deleteKey && leaves(deleteKey) ? copy.leaveChannelAction : copy.deleteAction}
         cancelLabel={t.product.cancelAction}
         tone="danger"
         pending={deleteKey !== null && process.busyKey === deleteKey}
         onConfirm={() => {
           const key = deleteKey;
           if (!key) return;
-          void process.remove(key).then(() => setDeleteKey(null));
+          const done = leaves(key) ? process.leaveChannel(key, channel) : process.remove(key);
+          void done.then(() => setDeleteKey(null));
         }}
       />
     </div>

@@ -35,6 +35,7 @@ export function CallTypePanel({
   onPublish,
   onSwitch,
   onDelete,
+  deleteLabel,
   onSaved,
   registerFlush,
 }: {
@@ -51,6 +52,8 @@ export function CallTypePanel({
   onPublish: () => void;
   onSwitch: (on: boolean) => void;
   onDelete: () => void;
+  /** The menu's name for it: "Eliminar playbook", or "Quitar de Llamadas" when it only leaves a channel. */
+  deleteLabel?: string;
   onSaved: () => void;
   registerFlush: (flush: Flush | null) => void;
 }) {
@@ -125,6 +128,7 @@ export function CallTypePanel({
       onSaved={onSaved}
       registerFlush={registerFlush}
       onDelete={deletable ? onDelete : undefined}
+      deleteLabel={deleteLabel}
     />
   );
 }

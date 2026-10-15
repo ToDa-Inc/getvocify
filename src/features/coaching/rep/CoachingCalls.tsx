@@ -1,9 +1,7 @@
 import { Link } from "react-router-dom";
 import { ArrowUpRight, ChevronDown, Lightbulb } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Segmented } from "@/components/ui/segmented";
 import { useLanguage } from "@/lib/i18n";
-import { motionLabel } from "@/lib/motion-label";
 import {
   cleanSummaryLine,
   durationLabel,
@@ -14,8 +12,6 @@ import {
 } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
-import { CoachEmpty, CoachError, CoachLoading } from "./CoachingState";
-import { useCoachCalls } from "./useRepCoaching";
 import { ImproveTables } from "./ImproveTables";
 
 /** Colour only where it means something: red not done, amber halfway, green done. */
@@ -171,36 +167,20 @@ function CallRow({ call }: { call: CoachCall }) {
   );
 }
 
-/** Coaching: what to improve next to the rep's steps, then the record of their calls. Only the rep
- * against their own playbook, one interaction type at a time. */
-export function CoachingCalls({ type, onType }: { type: string | null; onType: (type: string) => void }) {
+/** Progreso: what to improve (steps and objections), then the record of the rep's calls. Only the rep
+ * against their own playbook; the type is the page's dropdown, so this only reads what it is given. */
+export function CoachingCalls({ data }: { data: CoachCalls }) {
   const { t } = useLanguage();
   const p = t.product;
-  const query = useCoachCalls(type);
-  if (query.isError) return <CoachError onRetry={() => void query.refetch()} />;
-  if (!query.data) return <CoachLoading />;
-  const data: CoachCalls = query.data;
-  if (!data.type) return <CoachEmpty text={p.coachNoPlaybook} />;
-  const name = (key: string, label: string | null) => label || p.pb2.typeLabels[key as keyof typeof p.pb2.typeLabels] || motionLabel(key, p.motions);
   const weeks = data.window_weeks;
   return (
     <div className="space-y-14" data-testid="coach-calls">
-      {data.types.length > 1 ? (
-        <div className="px-3">
-          <Segmented
-            value={data.type}
-            onValueChange={onType}
-            options={data.types.map((option) => ({ value: option.key, label: name(option.key, option.label) }))}
-            aria-label={p.coachTypeLabel}
-          />
-        </div>
-      ) : null}
       <section aria-labelledby="coach-improve" className="space-y-5 px-3">
         <SectionHead id="coach-improve" title={p.coachImproveHeading} meta={fill(p.coachImproveWindow, { weeks, count: data.conversations })} />
         {!data.conversations ? (
           <p className="text-[14.5px] text-muted-foreground">{fill(p.coachImproveNoCalls, { weeks })}</p>
         ) : data.slipped_steps && data.objections ? (
-          <ImproveTables steps={data.slipped_steps} objections={data.objections} />
+          <ImproveTables type={data.type ?? ""} steps={data.slipped_steps} objections={data.objections} />
         ) : (
           // A backend older than the tables (the web deploys before it): never say "nothing slipped".
           <p className="text-[14.5px] text-muted-foreground">{p.coachImproveUpdating}</p>

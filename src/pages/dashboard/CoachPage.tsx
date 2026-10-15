@@ -1,49 +1,84 @@
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { ArrowLeft, BookOpen } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { BarChart3, BookOpen, Building2 } from "lucide-react";
+import { Segmented } from "@/components/ui/segmented";
 import { CoachingCalls } from "@/features/coaching/rep/CoachingCalls";
-import { CoachingPlaybook } from "@/features/coaching/rep/CoachingPlaybook";
+import { CoachingCompany, CoachingPlaybook } from "@/features/coaching/rep/CoachingPlaybook";
+import { CoachEmpty, CoachError, CoachLoading } from "@/features/coaching/rep/CoachingState";
+import { TypePicker } from "@/features/coaching/rep/TypePicker";
 import { useCoachCalls } from "@/features/coaching/rep/useRepCoaching";
+import { playbooksApi } from "@/features/playbooks/api";
+import { COMPANY_KEY, PLAYBOOKS_KEY } from "@/features/playbooks/keys";
 import { useLanguage } from "@/lib/i18n";
+import { isEmptyKnowledge } from "@/lib/playbook-knowledge";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 
-// The rep's own coaching (docs/superpowers/plans/2026-10-13-coaching-v2-comercial-y-conclusiones.md §2):
-// one plane with what to improve and the record of their calls; the playbook one click away.
+type View = "progress" | "playbook" | "company";
+
+// The rep's own coaching (docs/superpowers/plans/2026-10-13-coaching-v2-comercial-y-conclusiones.md §2).
+// One page, two questions: which interaction type (a dropdown, always visible) and what to look at
+// (how I am doing, or the playbook I am coached against). Both live in the URL, so the playbook of
+// the type on screen is one click away and any of it can be linked to.
 export default function CoachPage() {
   const { t } = useLanguage();
   const p = t.product;
-  // ?tab=playbook opens the playbook, so /dashboard/playbook and Ask can link to it; anything else is coaching.
   const [params, setParams] = useSearchParams();
-  const playbook = params.get("tab") === "playbook";
-  const show = (next: "playbook" | null) =>
-    setParams((previous) => {
-      const search = new URLSearchParams(previous);
-      if (next) search.set("tab", next);
-      else search.delete("tab");
-      return search;
-    });
+  const change = (key: "tab" | "type", value: string | null, replace = false) =>
+    setParams(
+      (previous) => {
+        const search = new URLSearchParams(previous);
+        if (value) search.set(key, value);
+        else search.delete(key);
+        return search;
+      },
+      { replace },
+    );
+
   // null = the backend picks the type the rep had most conversations of.
-  const [type, setType] = useState<string | null>(null);
+  const type = params.get("type");
   const calls = useCoachCalls(type);
-  // Edge to edge within the page's margins and 12px in, like Inicio.
+  const playbooks = useQuery({ queryKey: PLAYBOOKS_KEY, queryFn: playbooksApi.list, retry: false });
+  const company = useQuery({ queryKey: COMPANY_KEY, queryFn: playbooksApi.company, retry: false });
+  const hasCompany = Boolean(company.data) && !isEmptyKnowledge(company.data?.knowledge);
+
+  const asked = params.get("tab");
+  const view: View = asked === "playbook" ? "playbook" : asked === "company" && hasCompany ? "company" : "progress";
+  const data = calls.data;
+  // What was asked for shows at once; the backend's pick (the type with most conversations) only when nothing valid was asked.
+  const active = (type && data?.types.some((option) => option.key === type) ? type : data?.type) ?? null;
+
+  const views = [
+    { value: "progress" as const, label: <><BarChart3 aria-hidden size={14} strokeWidth={1.5} />{p.coachViewProgress}</> },
+    { value: "playbook" as const, label: <><BookOpen aria-hidden size={14} strokeWidth={1.5} />{p.coachTabPlaybook}</> },
+    ...(hasCompany ? [{ value: "company" as const, label: <><Building2 aria-hidden size={14} strokeWidth={1.5} />{p.coachViewCompany}</> }] : []),
+  ];
+
+  const body = () => {
+    if (view === "company") return <CoachingCompany />;
+    if (calls.isError) return <CoachError onRetry={() => void calls.refetch()} />;
+    if (!data) return <CoachLoading />;
+    if (!active) return <CoachEmpty text={p.coachNoPlaybook} />;
+    if (view === "playbook") return <CoachingPlaybook type={active} playbooks={playbooks.data} />;
+    // The previous type's numbers stay, dimmed, until the new ones arrive: no blank page between types.
+    return (
+      <div className={calls.isPlaceholderData ? "pointer-events-none opacity-50 transition-opacity" : "transition-opacity"}>
+        <CoachingCalls data={data} />
+      </div>
+    );
+  };
+
   return (
     <main className={`w-full space-y-10 ${THEME_TOKENS.motion.fadeIn}`}>
-      <header className="flex items-center justify-between gap-4 px-3">
-        <h1 className={THEME_TOKENS.typography.pageTitle}>{playbook ? p.coachTabPlaybook : p.navCoach}</h1>
-        {playbook ? (
-          <Button type="button" variant="outline" size="sm" onClick={() => show(null)} data-testid="coach-back">
-            <ArrowLeft aria-hidden strokeWidth={1.5} />
-            {p.navCoach}
-          </Button>
-        ) : (
-          <Button type="button" variant="outline" size="sm" onClick={() => show("playbook")} data-testid="coach-open-playbook">
-            <BookOpen aria-hidden strokeWidth={1.5} />
-            {p.coachTabPlaybook}
-          </Button>
-        )}
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-3">
+        <h1 className={THEME_TOKENS.typography.pageTitle}>{p.navCoach}</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          {view !== "company" && data && active ? (
+            <TypePicker types={data.types} value={active} onChange={(key) => change("type", key, true)} playbooks={playbooks.data} />
+          ) : null}
+          <Segmented<View> value={view} onValueChange={(next) => change("tab", next === "progress" ? null : next)} options={views} aria-label={p.coachViewLabel} />
+        </div>
       </header>
-      {playbook ? <CoachingPlaybook coachedMotion={calls.isError ? null : calls.data?.type} /> : <CoachingCalls type={type} onType={setType} />}
+      {body()}
     </main>
   );
 }

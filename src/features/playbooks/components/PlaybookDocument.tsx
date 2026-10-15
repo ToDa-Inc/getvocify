@@ -80,6 +80,7 @@ export function PlaybookDocument({
   onSaved,
   registerFlush,
   onDelete,
+  deleteLabel,
 }: {
   motionKey: string;
   canEdit: boolean;
@@ -99,6 +100,8 @@ export function PlaybookDocument({
   registerFlush?: (flush: Flush | null) => void;
   /** "Eliminar playbook", owned by the list; shown in this document's "···" menu. */
   onDelete?: () => void;
+  /** Replaces "Eliminar playbook" in that menu. */
+  deleteLabel?: string;
 }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
@@ -288,7 +291,7 @@ export function PlaybookDocument({
         </DropdownMenuContent>
       </DropdownMenu>
     ) : null;
-  const deleteItem = onDelete ? [{ label: copy.deleteAction, onSelect: onDelete, danger: true }] : [];
+  const deleteItem = onDelete ? [{ label: deleteLabel ?? copy.deleteAction, onSelect: onDelete, danger: true }] : [];
 
   const header = (right: ReactNode) => (
     // The title keeps a readable minimum; when the actions don't fit beside it they wrap below it.
