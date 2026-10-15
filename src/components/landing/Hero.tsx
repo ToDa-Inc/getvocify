@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+import { AppleMark, WindowsMark } from "./brand-icons";
 import { ArrowRight, Play } from "lucide-react";
 import { DEMO_BOOKING_URL } from "@/lib/app-url";
 import { motion } from "framer-motion";
@@ -29,7 +31,7 @@ const Hero = () => {
             {t.hero.subtitle1} <br className="hidden md:block" />
             <span className="font-medium text-cream">{t.hero.subtitle2}</span> {t.hero.subtitle3}
           </p>
-          <div className="mb-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <div className="mb-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <a
               href={DEMO_BOOKING_URL}
               target="_blank"
@@ -48,6 +50,14 @@ const Hero = () => {
               {t.hero.cta2}
             </button>
           </div>
+          <Link
+            to="/download"
+            className="mb-8 inline-flex items-center gap-2.5 text-sm font-medium text-cream/70 transition-colors hover:text-cream"
+          >
+            <WindowsMark className="h-3.5 w-3.5" />
+            <AppleMark className="h-3.5 w-3.5" />
+            {t.finalCta.download}
+          </Link>
           <div className="flex flex-wrap items-center justify-center gap-4 text-xs font-medium text-cream/45 md:gap-8">
             {[t.hero.trust1, t.hero.trust2, t.hero.trust3].map((trust: string) => (
               <span key={trust} className="flex items-center gap-2">
