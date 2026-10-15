@@ -145,7 +145,6 @@ let wsIntentionalClose = false;
 let wsReconnectAttempts = 0;
 let wsReconnectTimer = null;
 let transcriptionOffline = false;
-let demoBuyerAllowed = false;
 let clientCaptureId = null;
 let captureStreams = [];
 let processors = [];
@@ -656,12 +655,9 @@ function notifyShell() {
     if (!loggedIn) accountMenu.open = false;
   }
   if (sessionChip) sessionChip.textContent = loggedIn ? email : '';
-  const demoBtn = document.getElementById('btn-demo');
-  if (demoBtn) demoBtn.hidden = !(loggedIn && demoBuyerAllowed);
   desktop()?.shell?.setState({
     listening,
     loggedIn: Boolean(localStorage.getItem(STORAGE.token)),
-    demoBuyer: loggedIn && demoBuyerAllowed,
     lastLine: overlaySnippet(transcriptState, uiLang()),
     backend: currentBackend,
     email,
@@ -842,18 +838,7 @@ async function handlePermissionClick(type) {
   await refreshPermissions();
 }
 
-async function refreshDemoAccess() {
-  try {
-    const me = await request('/auth/me', { token: localStorage.getItem(STORAGE.token) });
-    demoBuyerAllowed =
-      ['owner', 'admin'].includes(me?.company?.role) && (me?.company?.features || []).includes('DEMO_BUYER_ENABLED');
-  } catch {
-    demoBuyerAllowed = false;
-  }
-}
-
 async function enterApp() {
-  await refreshDemoAccess();
   await refreshPermissions();
   showScreen('listen');
   setLiveUi(false);
@@ -1160,7 +1145,6 @@ function openTranscriptionWebSocket() {
       const speaker =
         data.audio_channel === 'rep' ? 'rep' : data.audio_channel === 'prospect' ? 'prospect' : '';
       liveNote = applyChunk(liveNote, { text, isFinal, speaker });
-      if (isFinal && speaker === 'rep') desktop()?.demo?.sellerText(text);
       if (isFinal) {
         const latestTurn = latestFinal(liveNote);
         void requestCopilotSuggest(latestTurn);
@@ -1845,10 +1829,6 @@ homeHoyEl?.addEventListener('click', (event) => {
   } else if (action.dataset.action === 'undo') {
     undoHomeHoyCard(cardEl).catch(() => {});
   }
-});
-
-document.getElementById('btn-demo').addEventListener('click', () => {
-  void desktop()?.demo?.open();
 });
 
 document.getElementById('btn-logout').addEventListener('click', () => {

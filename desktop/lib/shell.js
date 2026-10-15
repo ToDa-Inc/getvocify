@@ -37,7 +37,7 @@ export function overlayBoundsForState(state = {}, { workArea } = {}) {
   return { ...base, y: base.y - extra, height: base.height + extra };
 }
 
-export function trayMenuTemplate({ loggedIn = false, listening = false, demoBuyer = false } = {}) {
+export function trayMenuTemplate({ loggedIn = false, listening = false } = {}) {
   return [
     { id: 'show', label: 'Open Vocify' },
     { type: 'separator' },
@@ -45,7 +45,6 @@ export function trayMenuTemplate({ loggedIn = false, listening = false, demoBuye
     { id: 'stop', label: 'Stop & review', enabled: Boolean(listening) },
     { type: 'separator' },
     { id: 'dashboard', label: 'Open dashboard' },
-    ...(loggedIn && demoBuyer ? [{ id: 'demo', label: 'Demo buyer' }] : []),
     { type: 'separator' },
     { id: 'quit', label: 'Quit Vocify Companion' },
   ];

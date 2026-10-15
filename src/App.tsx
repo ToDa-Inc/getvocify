@@ -49,6 +49,7 @@ import AgentsSection from "./pages/dashboard/settings/AgentsSection";
 import ConsentPage from "./pages/oauth/ConsentPage";
 import ProfilePage from "./pages/dashboard/ProfilePage";
 import UsagePage from "./pages/dashboard/UsagePage";
+import DemoBuyerSection from "@/features/demo-buyer/DemoBuyerSection";
 import ObjectionCopilotPage from "./pages/dashboard/ObjectionCopilotPage";
 import AdminLayout from "./components/admin/AdminLayout";
 import AdminAccountsPage from "./pages/admin/AdminAccountsPage";
@@ -213,6 +214,7 @@ const App = () => (
                 <Route path="agents" element={<AgentsSection />} />
                 <Route path="billing" element={<BillingPage />} />
                 <Route path="system" element={<SystemSection />} />
+                <Route path="demo" element={<DemoBuyerSection />} />
               </Route>
               <Route path="insights" element={<InsightsRoute />} />
               {/* Playbook: the editor (Head of Sales); a member lands on the Coaching tab. Its health and objections are in Equipo. */}
