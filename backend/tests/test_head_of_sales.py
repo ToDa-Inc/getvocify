@@ -231,12 +231,12 @@ def test_invite_email_names_the_commercial_type_and_the_inviter():
         sales_role="sdr",
         inviter_name="Dana Head",
     )
-    assert "SDR" in html
+    assert "working on <strong>calls</strong>" in html
     assert "Dana Head" in html
     assert "Acme" in html
 
 
 def test_invite_email_omits_type_and_inviter_when_not_given():
     html = build_invite_email_html(company_name="Acme", invite_url="https://vocify.app/invite/tok")
-    assert "as a <strong>" not in html
+    assert "working on <strong>" not in html
     assert "your Head of Sales" not in html

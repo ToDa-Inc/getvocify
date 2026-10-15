@@ -162,9 +162,13 @@ export function summaryDiagnosis(input: {
   return [{ tone: "neutral", key: "hosDiagCollecting", motion: null, href: PROCESS_HREF }];
 }
 
-/** Short name for a flow inside a sentence: "SDR" / "AE" for the two role flows. */
-export function flowShortName(motion: string | null, fallback: string): string {
-  if (motion === "discovery") return "SDR";
-  if (motion === "closing") return "AE";
+/** Short name for a flow inside a sentence: "Llamadas" / "Reuniones" for the two work-type flows. */
+export function flowShortName(
+  motion: string | null,
+  fallback: string,
+  copy: { hosRoleSdr: string; hosRoleAe: string },
+): string {
+  if (motion === "discovery") return copy.hosRoleSdr;
+  if (motion === "closing") return copy.hosRoleAe;
   return fallback;
 }

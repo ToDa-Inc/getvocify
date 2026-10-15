@@ -160,8 +160,9 @@ describe("summaryDiagnosis", () => {
 
 describe("flowShortName", () => {
   it("names the role flows by role and anything else by its label", () => {
-    assert.equal(flowShortName("discovery", "Flujo SDR"), "SDR");
-    assert.equal(flowShortName("closing", "Flujo AE"), "AE");
-    assert.equal(flowShortName("qualification", "Cualificación"), "Cualificación");
+    const copy = { hosRoleSdr: "Llamadas", hosRoleAe: "Reuniones" };
+    assert.equal(flowShortName("discovery", "Flujo Llamadas", copy), "Llamadas");
+    assert.equal(flowShortName("closing", "Flujo Reuniones", copy), "Reuniones");
+    assert.equal(flowShortName("qualification", "Cualificación", copy), "Cualificación");
   });
 });

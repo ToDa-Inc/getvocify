@@ -10,7 +10,7 @@ const ROLE_FILTERS: { value: HosSalesRole; key: "hosRoleAll" | "hosRoleSdr" | "h
   { value: "ae", key: "hosRoleAe" },
 ];
 
-/** One filter row for every Head of Sales page: period and position. */
+/** One filter row for every Head of Sales page: period and what the person works on (calls or meetings). */
 export function HosFilters({
   period,
   salesRole,
@@ -22,7 +22,7 @@ export function HosFilters({
   salesRole: HosSalesRole;
   onPeriod: (value: HosPeriod) => void;
   onSalesRole: (value: HosSalesRole) => void;
-  /** Only when the company uses SDR/AE positions; otherwise the filter would do nothing. */
+  /** Only when the company uses Calls/Meetings profiles; otherwise the filter would do nothing. */
   showRoles: boolean;
 }) {
   const { t } = useLanguage();

@@ -77,7 +77,7 @@ describe("sentences", () => {
     assert.equal(durationLabel(ES, 20), "1 min");
     assert.equal(durationLabel(ES, 300), "5 min");
     assert.equal(peerMedianLabel(ES, null), null);
-    assert.equal(peerMedianLabel(ES, 0.5), "Mediana del puesto 50 %");
+    assert.equal(peerMedianLabel(ES, 0.5), "Mediana del equipo 50 %");
   });
 });
 
