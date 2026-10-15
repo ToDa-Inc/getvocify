@@ -2408,7 +2408,7 @@ async def delete_memo(
     user_id: str = Depends(get_user_id),
 ):
     """
-    Delete a memo and its audio file.
+    Delete a memo and its audio file. The recorder can; so can an owner or admin of the same company.
 
     Permanently removes the memo record and associated audio file from storage.
     crm_updates rows for this memo are removed too (ON DELETE CASCADE on
@@ -2419,16 +2419,9 @@ async def delete_memo(
     to be a distinct table that doesn't key off personal data, not a change to
     this cascade. Tracked as debt, not implemented.
     """
-    # Get memo
-    memo_result = supabase.table("memos").select("*").eq("id", str(memo_id)).eq("user_id", user_id).single().execute()
-    
-    if not memo_result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Memo not found",
-        )
-    
-    memo_data = memo_result.data
+    # Your own memo, or one of your company's when you are its owner or admin (a teammate with
+    # team visibility only reads: it never deletes). Anyone else gets the same 404 as a missing memo.
+    memo_data = _require_readable_memo(supabase, str(memo_id), user_id)
     audio_url = memo_data.get("audio_url")
     
     # Delete audio file from storage
