@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 
 from app.deps import get_membership, get_supabase
 from app.services.coaching.best import FLAG as PLAYBOOK_TAB_FLAG, best_by_flow
 from app.services.coaching.brief_preferences import highlight_at, read_preference
 from app.services.coaching.briefs import absent_brief
+from app.services.coaching import better_reply as better
 from app.services.coaching import rep_coaching as engine
 from app.services.coaching import rep_coaching_reads as reads
 from app.services.coaching.rep_focus import FLOW_WEEKS, motion_for_flow, published_flows, resolve_flow
@@ -549,3 +552,60 @@ async def get_my_coaching_calls(
         })
     body["calls"] = calls[:_MAX_CALLS]
     return body
+
+
+class BetterReplyRequest(BaseModel):
+    """One occurrence of Coaching's "En qué mejorar": a step the rep slipped on or an objection they were given."""
+
+    type: str = Field(..., max_length=64)
+    kind: Literal["step", "objection"]
+    key: str = Field(..., max_length=120)
+    memo_id: str = Field(..., max_length=64)
+    # What the call says about this moment; the playbook text comes from the server, never from here.
+    quote: Optional[str] = Field(default=None, max_length=600)
+    response: Optional[str] = Field(default=None, max_length=600)
+    reason: Optional[str] = Field(default=None, max_length=600)
+
+
+@router.post("/coaching/me/better-reply")
+async def post_better_reply(
+    body: BetterReplyRequest,
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    """The line the rep could have said at that moment, written from their playbook and "Vuestra
+    empresa". `say` is null when the playbook gives nothing to base it on: the screen says so rather than
+    showing something made up. 502 when the model failed (nothing is stored; try again)."""
+    memo = _require_readable_memo(supabase, membership, body.memo_id)
+    if str(memo.get("user_id") or "") != membership.user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo no encontrado")
+    playbook = reads.load_published_playbook(supabase, membership.company_id, body.type)
+    if body.kind == "step":
+        step = next((s for s in playbook["steps"] if str(s.get("step_id")) == body.key), None)
+        base = better.playbook_text_for_step(step) if step else None
+    else:
+        answer = engine._objection_answers(playbook["entries"]).get(body.key)
+        base = better.playbook_text_for_objection(answer, engine.objection_entry(playbook["entries"], body.key)) if answer else None
+    if not base:
+        return {"say": None, "reason": "no_playbook_answer"}
+    from app.services.copilot.load_grounding import load_company_knowledge
+    from app.services.copilot.prompts import format_company_knowledge
+
+    knowledge = format_company_knowledge(
+        load_company_knowledge(supabase, company_id=membership.company_id),
+        call_text=f"{body.quote or ''} {body.response or ''}",
+    )
+    try:
+        rows = supabase.table("memos").select("transcript").eq("id", body.memo_id).execute().data or []
+    except Exception:
+        rows = []  # the line is then written from the quote alone
+    messages = better.build_messages(
+        kind=body.kind, playbook_text=base, said=body.quote, reply=body.response, reason=body.reason, knowledge=knowledge,
+        excerpt=better.excerpt((rows[0] if rows else {}).get("transcript"), body.quote),
+    )
+    try:
+        say = await better.better_reply(messages, cache_key=f"{membership.company_id}:{body.type}:{body.kind}:{body.key}:{body.memo_id}")
+    except Exception:
+        logging.getLogger(__name__).warning("coaching better-reply failed", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="No se pudo escribir la respuesta") from None
+    return {"say": say, "reason": None if say else "no_playbook_answer"}

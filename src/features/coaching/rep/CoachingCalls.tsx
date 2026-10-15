@@ -180,7 +180,7 @@ export function CoachingCalls({ data }: { data: CoachCalls }) {
         {!data.conversations ? (
           <p className="text-[14.5px] text-muted-foreground">{fill(p.coachImproveNoCalls, { weeks })}</p>
         ) : data.slipped_steps && data.objections ? (
-          <ImproveTables steps={data.slipped_steps} objections={data.objections} />
+          <ImproveTables type={data.type ?? ""} steps={data.slipped_steps} objections={data.objections} />
         ) : (
           // A backend older than the tables (the web deploys before it): never say "nothing slipped".
           <p className="text-[14.5px] text-muted-foreground">{p.coachImproveUpdating}</p>

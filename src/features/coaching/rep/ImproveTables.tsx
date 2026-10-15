@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
-import { ArrowUpRight, ChevronDown, Lightbulb } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/i18n";
 import type { CoachObjectionBreakdown, CoachSlippedStep } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
+import { OccurrencePager, type Moment } from "./OccurrencePager";
 
 // One row of either table: how many of the times it came up went well, half way, unclear or badly.
 type Row = { id: string; title: string; good: number; half: number; unknown: number; bad: number; of: number };
@@ -14,24 +14,6 @@ type Row = { id: string; title: string; good: number; half: number; unknown: num
 const GRID = "grid grid-cols-[minmax(0,1fr)_5rem_2.75rem_1rem] items-center gap-3";
 // The worst few first; the rest one click away, so twelve objections never push the calls off the page.
 const VISIBLE_ROWS = 5;
-
-function dayLabel(iso: string, language: string, weekday = true) {
-  return new Date(iso).toLocaleDateString(language === "EN" ? "en-GB" : "es-ES", {
-    ...(weekday ? { weekday: "short" as const } : {}),
-    day: "numeric",
-    month: "short",
-  });
-}
-
-function CallLink({ memoId, at }: { memoId: string; at: string }) {
-  const { language } = useLanguage();
-  return (
-    <Link to={`/dashboard/memos/${memoId}`} className="inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-foreground">
-      {dayLabel(at, language)}
-      <ArrowUpRight aria-hidden className="h-3 w-3" />
-    </Link>
-  );
-}
 
 /** Where every time it came up ended: green went well, amber half way, grey unclear, red not. The bar
  * is the whole story, so the row needs no colour on the number. */
@@ -49,22 +31,6 @@ function OutcomeBar({ row, label }: { row: Row; label: string }) {
       )}
     </span>
   );
-}
-
-/** What to do next time, whole: the one line to take into the next call. */
-function NextTime({ text }: { text: string }) {
-  return (
-    <div className={`flex gap-2.5 ${THEME_TOKENS.radius.control} bg-success/10 px-4 py-3`}>
-      <Lightbulb aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-success" strokeWidth={1.75} />
-      <p className="text-[14.5px] leading-relaxed text-foreground">{text}</p>
-    </div>
-  );
-}
-
-const TAG_TONE = { bad: "text-destructive", half: "text-warning", good: "text-success" } as const;
-
-function Tag({ tone, children }: { tone: keyof typeof TAG_TONE; children: string }) {
-  return <span className={cn("text-xs font-medium", TAG_TONE[tone])}>{children}</span>;
 }
 
 /** A table that opens in place: each row says how often it went well, a row shows next time and every call. */
@@ -142,62 +108,23 @@ function Table({
   );
 }
 
-function StepDetail({ step }: { step: CoachSlippedStep }) {
-  const { t } = useLanguage();
-  const p = t.product;
-  // This rep's own advice from the latest call that has one; else the playbook's example phrase.
-  const how = step.occurrences.find((occurrence) => occurrence.advice)?.advice ?? step.example;
-  return (
-    <>
-      {how ? <NextTime text={how} /> : null}
-      <ol className="space-y-4 border-l border-border/70 pl-4">
-        {step.occurrences.map((occurrence) => (
-          <li key={occurrence.memo_id} className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <Tag tone={occurrence.state === "missing" ? "bad" : "half"}>
-                {occurrence.state === "missing" ? p.coachStateMissing : p.coachStateImprovable}
-              </Tag>
-              <CallLink memoId={occurrence.memo_id} at={occurrence.observed_at} />
-            </div>
-            {occurrence.reason ? <p className="text-[14.5px] leading-relaxed text-foreground">{occurrence.reason}</p> : null}
-            {occurrence.quote ? <p className="text-[14px] italic leading-relaxed text-muted-foreground">«{occurrence.quote}»</p> : null}
-          </li>
-        ))}
-      </ol>
-    </>
-  );
+function StepDetail({ step, type }: { step: CoachSlippedStep; type: string }) {
+  const moments: Moment[] = step.occurrences.map((o) => ({
+    memo_id: o.memo_id, observed_at: o.observed_at, tone: o.state === "missing" ? "bad" : "half", quote: o.quote, response: null, reason: o.reason, advice: o.advice,
+  }));
+  return <OccurrencePager key={step.step_id} type={type} kind="step" itemKey={step.step_id} how={step.example} moments={moments} />;
 }
 
-function ObjectionDetail({ objection }: { objection: CoachObjectionBreakdown }) {
-  const { t } = useLanguage();
-  const p = t.product;
-  const status = { open: p.coachObjectionOpen, resolved: p.coachObjectionResolved, unknown: p.coachObjectionUnknown };
-  return (
-    <>
-      {objection.how ? <NextTime text={objection.how} /> : null}
-      <ol className="space-y-4 border-l border-border/70 pl-4">
-        {objection.occurrences.map((occurrence, index) => (
-          <li key={`${occurrence.memo_id}-${index}`} className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <Tag tone={occurrence.resolution === "resolved" ? "good" : occurrence.resolution === "open" ? "bad" : "half"}>
-                {status[occurrence.resolution]}
-              </Tag>
-              <CallLink memoId={occurrence.memo_id} at={occurrence.observed_at} />
-            </div>
-            {occurrence.quote ? <p className="text-[14.5px] italic leading-relaxed text-foreground">«{occurrence.quote}»</p> : null}
-            <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-              {occurrence.response ? `${p.coachYouReplied}: «${occurrence.response}»` : p.coachNoReply}
-            </p>
-          </li>
-        ))}
-      </ol>
-    </>
-  );
+function ObjectionDetail({ objection, type }: { objection: CoachObjectionBreakdown; type: string }) {
+  const moments: Moment[] = objection.occurrences.map((o) => ({
+    memo_id: o.memo_id, observed_at: o.observed_at, tone: o.resolution === "resolved" ? "good" : o.resolution === "open" ? "bad" : "unknown", quote: o.quote, response: o.response, reason: null, advice: null,
+  }));
+  return <OccurrencePager key={objection.key} type={type} kind="objection" itemKey={objection.key} how={objection.how} moments={moments} />;
 }
 
 /** "En qué mejorar": every step slipped on and every objection given in the last weeks, as two tables
  * side by side (stacked on a phone). Little text by default; a row opens with everything, uncut. */
-export function ImproveTables({ steps, objections }: { steps: CoachSlippedStep[]; objections: CoachObjectionBreakdown[] }) {
+export function ImproveTables({ type, steps, objections }: { type: string; steps: CoachSlippedStep[]; objections: CoachObjectionBreakdown[] }) {
   const { t } = useLanguage();
   const p = t.product;
   const categories = p.playbookObjectionCategories as Record<string, string>;
@@ -230,7 +157,7 @@ export function ImproveTables({ steps, objections }: { steps: CoachSlippedStep[]
         empty={p.coachNothingSlipped}
         detail={(id) => {
           const step = steps.find((candidate) => candidate.step_id === id);
-          return step ? <StepDetail step={step} /> : null;
+          return step ? <StepDetail step={step} type={type} /> : null;
         }}
       />
       <Table
@@ -241,7 +168,7 @@ export function ImproveTables({ steps, objections }: { steps: CoachSlippedStep[]
         empty={p.coachNoObjections}
         detail={(id) => {
           const objection = objections.find((candidate) => candidate.key === id);
-          return objection ? <ObjectionDetail objection={objection} /> : null;
+          return objection ? <ObjectionDetail objection={objection} type={type} /> : null;
         }}
       />
     </div>

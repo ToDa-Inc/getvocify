@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from statistics import median
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from app.services.playbooks.outcome_steps import MEETING_BOOKED, status_from_rep_outcome
@@ -250,6 +251,21 @@ def _objection_answers(entries: list[dict]) -> dict[str, dict]:
         elif category and category != "custom":
             out.setdefault(category, {"label": None, "how": guidance})
     return out
+
+
+def objection_entry(entries: list[dict], key: str) -> Optional[dict]:
+    """The playbook entry an objection key names (a category, or "custom:<slug>"), or None."""
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        category = str(entry.get("category") or "").strip().lower()
+        entry_id = str(entry.get("entry_id") or "")
+        if category == "custom" and entry_id.startswith(_CUSTOM_ENTRY_PREFIX):
+            if key == f"custom:{entry_id[len(_CUSTOM_ENTRY_PREFIX):]}":
+                return entry
+        elif category and category != "custom" and category == key:
+            return entry
+    return None
 
 
 OCCURRENCE_LIMIT = 10
