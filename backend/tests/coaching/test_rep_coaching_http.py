@@ -295,7 +295,8 @@ def test_calls_list_every_slipped_step_with_the_calls_it_slipped_in():
     [pain] = body["slipped_steps"]  # "open" never slipped
     assert (pain["step_id"], pain["missing"], pain["applicable"]) == ("pain", 4, 5)
     assert pain["criterion"] == "Pregunta por el dolor"
-    assert [o["memo_id"] for o in pain["occurrences"]] == ["m0", "m1", "m2", "m3"]  # newest first
+    # Newest first, and the call where it went well sits among the slips, marked as done.
+    assert [(o["memo_id"], o["state"]) for o in pain["occurrences"]] == [("m0", "missing"), ("m1", "missing"), ("ok", "done"), ("m2", "missing"), ("m3", "missing")]
     assert pain["occurrences"][0]["quote"] == "Vale, te mando info."
     assert pain["occurrences"][0]["advice"].startswith("Cuando dijo")
     # The record holds every conversation, newest first; "ok" has nothing to improve.

@@ -535,7 +535,7 @@ async def get_my_coaching_calls(
     body["conversations"] = len(conversations)
     playbook = playbook_for(chosen)
     # Everything to go through one by one: each slipped step and each objection, with its calls.
-    body["slipped_steps"] = engine.slipped_steps(window, playbook["steps"])
+    body["slipped_steps"] = engine.slipped_steps(window, playbook["steps"], include_done=True)
     body["objections"] = engine.objection_breakdown(window, playbook["entries"])
     calls: list[dict] = []
     for row in conversations:
@@ -607,8 +607,10 @@ async def post_better_reply(
         excerpt=better.excerpt((rows[0] if rows else {}).get("transcript"), body.quote),
     )
     try:
-        say = await better.better_reply(messages, cache_key=f"{membership.company_id}:{body.type}:{body.kind}:{body.key}:{body.memo_id}")
+        say, fine = await better.better_reply(messages, cache_key=f"{membership.company_id}:{body.type}:{body.kind}:{body.key}:{body.memo_id}")
     except Exception:
         logging.getLogger(__name__).warning("coaching better-reply failed", exc_info=True)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="No se pudo escribir la respuesta") from None
+    if fine:
+        return {"say": None, "reason": "already_fine"}
     return {"say": say, "reason": None if say else "no_playbook_answer"}

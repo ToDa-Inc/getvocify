@@ -23,6 +23,8 @@ export type Moment = {
   advice: string | null;
 };
 
+/** The state as a small tag: green when it went well, amber halfway, red not. */
+const TAG = { bad: "bg-destructive/10 text-destructive", half: "bg-warning/10 text-warning", good: "bg-success/10 text-success", unknown: "bg-secondary text-muted-foreground" } as const;
 const DOT = { bad: "bg-destructive/70", half: "bg-warning/80", good: "bg-success/70", unknown: "bg-muted-foreground/40" } as const;
 
 type BubbleKind = "prospect" | "you" | "none" | "better";
@@ -67,6 +69,25 @@ function Better({ request, how, fallback, playbookHref, show }: { request: Bette
   // The playbook's own answer is what is shown while nothing better could be written (or it could not
   // be asked): a failure never leaves the moment without the playbook's way to say it.
   const shown = fallback ?? how;
+  // The rep's own reply already did what the playbook asks, in their words: say so instead of rewriting it.
+  if (reply.data?.reason === "already_fine") {
+    return (
+      <Bubble
+        kind="better"
+        caption={p.coachFineCaption}
+        actions={
+          <Link to={playbookHref} aria-label={p.coachSeePlaybook} title={p.coachSeePlaybook} className={cn(THEME_TOKENS.interaction.iconButton)}>
+            <BookOpen className="h-4 w-4" strokeWidth={1.5} />
+          </Link>
+        }
+      >
+        <span className="flex items-start gap-2">
+          <Check aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" strokeWidth={2} />
+          <span className="min-w-0">{p.coachFine}</span>
+        </span>
+      </Bubble>
+    );
+  }
   let body: ReactNode;
   if (reply.isPending) {
     body = (
@@ -128,8 +149,10 @@ export function OccurrencePager({ type, kind, itemKey, how, moments }: { type: s
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span aria-hidden className={cn("h-2 w-2 rounded-full", DOT[moment.tone])} />
-        <span>{stateWord}</span>
+        <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium", TAG[moment.tone])}>
+          <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", DOT[moment.tone])} />
+          {stateWord}
+        </span>
         <Link to={`/dashboard/memos/${moment.memo_id}`} className="inline-flex items-center gap-0.5 hover:text-foreground">
           {day}
           <ArrowUpRight aria-hidden className="h-3 w-3" />
@@ -157,6 +180,9 @@ export function OccurrencePager({ type, kind, itemKey, how, moments }: { type: s
         ) : (
           <p className="text-[13.5px] leading-snug text-muted-foreground">{moment.reason ?? stateWord}</p>
         )}
+        {!objection && moment.tone === "good" && moment.quote && moment.reason ? (
+          <p className="text-[13.5px] leading-snug text-muted-foreground">{moment.reason}</p>
+        ) : null}
         <Better request={request} how={objection ? how : null} fallback={objection ? null : moment.advice ?? how} playbookHref={href} show={moment.tone !== "good"} />
       </div>
     </div>

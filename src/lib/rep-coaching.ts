@@ -75,7 +75,7 @@ export type CoachSlippedStep = {
   applicable: number;
   /** The playbook's own example phrase for the step. */
   example: string | null;
-  occurrences: { memo_id: string; observed_at: string; state: "missing" | "improvable"; reason: string | null; quote: string | null; advice: string | null }[];
+  occurrences: { memo_id: string; observed_at: string; state: "missing" | "improvable" | "done"; reason: string | null; quote: string | null; advice: string | null }[];
 };
 /** Every objection the prospects raised, how each went and the playbook's answer. */
 export type CoachObjectionBreakdown = {
