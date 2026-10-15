@@ -27,7 +27,7 @@ export function DocRow({ lead, title, side, children }: { lead: ReactNode; title
     <li className="group grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-start gap-x-3 border-t border-border/60 py-4 first:border-t-0">
       <span className="row-span-2 flex justify-center pt-0.5">{lead}</span>
       <div className="min-w-0">{title}</div>
-      <div className="flex items-center gap-2 pt-0.5">{side}</div>
+      <div className="flex items-center gap-2 pl-4 pt-0.5">{side}</div>
       {children ? <div className="col-span-2 col-start-2 min-w-0 pt-1">{children}</div> : null}
     </li>
   );
@@ -53,7 +53,7 @@ export function QuoteMark({ muted }: { muted?: boolean }) {
 
 /** A quiet tag on the right of an item ("Precio", "SDR"). */
 export function TypeTag({ children }: { children: ReactNode }) {
-  return <span className="whitespace-nowrap rounded-full bg-secondary px-2.5 py-0.5 text-[11.5px] text-muted-foreground">{children}</span>;
+  return <span className="max-w-[15rem] truncate whitespace-nowrap rounded-full bg-secondary px-3 py-0.5 text-[11.5px] text-muted-foreground">{children}</span>;
 }
 
 /** What kind of thing an item is, as one quiet line under it ("Precio · 12 % de las veces"): plain text that

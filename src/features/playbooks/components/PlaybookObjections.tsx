@@ -7,7 +7,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CompleteButton, DocRow, ItemMenu, MetaLine, QuoteMark } from "@/features/playbooks/components/DocParts";
+import { CompleteButton, DocRow, ItemMenu, MetaLine, QuoteMark, TypeTag } from "@/features/playbooks/components/DocParts";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { itemBody, itemTitle, linkButton } from "@/features/playbooks/styles";
 import { useLanguage } from "@/lib/i18n";
@@ -105,10 +105,9 @@ export function PlaybookObjections({
             key={row.key}
             lead={<QuoteMark muted />}
             title={<p className={cn(itemTitle, "text-muted-foreground")}>{usual(row.objection)}</p>}
+            side={kindOf(row.objection) ? <TypeTag>{kindOf(row.objection)}</TypeTag> : null}
           >
-            <MetaLine>
-              {[kindOf(row.objection), row.count > 0 ? `${copy.heardShare.replace("{share}", percent(row.share))} · ${copy.noAnswerYet}` : null].filter(Boolean).join(" · ")}
-            </MetaLine>
+            {row.count > 0 ? <MetaLine>{copy.heardShare.replace("{share}", percent(row.share))} · {copy.noAnswerYet}</MetaLine> : null}
             {row.bestExample ? (
               <p className={itemBody}>
                 {copy.bestCall} «{row.bestExample}»
@@ -164,6 +163,25 @@ export function PlaybookObjections({
               }
               side={
                 <>
+                  {custom && editable ? (
+                    <InlineTextarea
+                      // The field's own negative side margins are off (they pulled the box under the title), there is room
+                      // on its left inside, and it is as wide as the name, so a longer one stays on one line.
+                      className="mx-0 w-auto rounded-full bg-secondary py-0.5 pl-3.5 pr-3 text-[11.5px] text-muted-foreground focus:text-foreground"
+                      style={{ width: `calc(${Math.min(Math.max((item.label ?? "").length, 12), 30)}ch + 2.25rem)` }}
+                      value={item.label ?? ""}
+                      maxLength={MAX_OBJECTION_LABEL + 20}
+                      placeholder={copy.objCustomName}
+                      aria-label={copy.objCustomName}
+                      autoFocus={!item.label}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.preventDefault();
+                      }}
+                      onChange={(event) => set({ label: event.target.value.replace(/\n/g, " ") })}
+                    />
+                  ) : kindOf(item) ? (
+                    <TypeTag>{kindOf(item)}</TypeTag>
+                  ) : null}
                   {row.count > 0 ? (
                     <span className="text-xs tabular-nums text-muted-foreground" title={copy.heardShare.replace("{share}", percent(row.share))}>
                       {percent(row.share)}
@@ -189,24 +207,6 @@ export function PlaybookObjections({
               ) : (
                 <p className={itemBody}>{item.guidance}</p>
               )}
-              {custom && editable ? (
-                <MetaLine>
-                  <InlineTextarea
-                    className="w-56 max-w-full rounded-md bg-transparent px-0 py-0 text-xs text-muted-foreground focus:text-foreground"
-                    value={item.label ?? ""}
-                    maxLength={MAX_OBJECTION_LABEL + 20}
-                    placeholder={copy.objCustomName}
-                    aria-label={copy.objCustomName}
-                    autoFocus={!item.label}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") event.preventDefault();
-                    }}
-                    onChange={(event) => set({ label: event.target.value.replace(/\n/g, " ") })}
-                  />
-                </MetaLine>
-              ) : kindOf(item) ? (
-                <MetaLine>{kindOf(item)}</MetaLine>
-              ) : null}
               {editable && !item.guidance.trim() && onComplete && (!custom || item.label?.trim()) ? (
                 <div className="pt-1">
                   <CompleteButton label={copy.writeAnswer} pending={completingKey === row.key} disabled={busy} onClick={() => onComplete(row)} />
