@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Timer } from "lucide-react";
 import { AudioLines } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { CHANNEL_ICON, CHANNEL_TILE } from "@/features/interactions/components/InteractionRow";
@@ -164,9 +165,15 @@ export function CallRecord({ calls, type }: { calls: CoachCall[]; type: string }
   const p = t.product;
   const copy = p.interactions;
   const [page, setPage] = useState(0);
-  const pages = Math.ceil(calls.length / CALLS_PER_PAGE);
+  // Calls and meetings are listed together; a switch appears only when the type has both.
+  const [channel, setChannel] = useState("all");
+  const present = [...new Set(calls.map((call) => call.kind || "call"))];
+  const active = present.includes(channel) ? channel : "all";
+  const visible = active === "all" ? calls : calls.filter((call) => (call.kind || "call") === active);
+  const pages = Math.ceil(visible.length / CALLS_PER_PAGE);
   const current = Math.min(page, Math.max(0, pages - 1));
-  const shown = calls.slice(current * CALLS_PER_PAGE, (current + 1) * CALLS_PER_PAGE);
+  const shown = visible.slice(current * CALLS_PER_PAGE, (current + 1) * CALLS_PER_PAGE);
+  const names = p.pb2.ruleChannels as Record<string, string>;
   const groups = groupByDay(shown.map((call) => ({ call, createdAt: call.observed_at ?? "" })), new Date(), p.hourLocale);
 
   const scroller = useRef<HTMLDivElement>(null);
@@ -192,6 +199,19 @@ export function CallRecord({ calls, type }: { calls: CoachCall[]; type: string }
 
   return (
     <div className="space-y-3">
+      {present.length > 1 ? (
+        <div className="px-3">
+          <Segmented
+            value={active}
+            onValueChange={(next) => {
+              setChannel(next);
+              setPage(0);
+            }}
+            aria-label={copy.channelFilter}
+            options={[{ value: "all", label: p.coachChannelAll }, ...present.map((kind) => ({ value: kind, label: names[kind] ?? kind }))]}
+          />
+        </div>
+      ) : null}
       <div ref={scroller} onScroll={measure} style={fade} className="app-scroll max-h-[min(56vh,34rem)] overflow-y-auto overscroll-contain">
         <div className="space-y-4">
           {groups.map((group) => (

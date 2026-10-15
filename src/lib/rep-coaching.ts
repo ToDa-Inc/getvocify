@@ -173,3 +173,49 @@ export function peerMedianLabel(p: Product, median: number | null | undefined): 
 
 /** Below this many calls where a step applied, a rate says nothing ("0 %" of one call): show the count. */
 export const MIN_CALLS_FOR_RATE = 3;
+
+/** The window's calls at a glance, from what GET /coaching/me/calls already sends: how many conversations
+ * (and of which channel), the share of the process done (the backend's own count: done over done + not
+ * done, so it matches every other surface), how that compares with the weeks before, and meetings agreed. */
+export type CoachSummary = {
+  conversations: number;
+  byKind: Record<string, number>;
+  rate: number | null;
+  /** The last two weeks against the two before them; null while either side has fewer than MIN_CALLS_FOR_RATE calls. */
+  recent: { rate: number; prev: number } | null;
+  meetings: number;
+};
+
+const TWO_WEEKS_MS = 14 * 24 * 3600 * 1000;
+
+export function summarizeCalls(
+  calls: Pick<CoachCall, "observed_at" | "kind" | "done" | "applicable" | "meeting_agreed">[],
+  now: number = Date.now(),
+): CoachSummary {
+  const byKind: Record<string, number> = {};
+  let done = 0;
+  let applicable = 0;
+  const sides = { recent: { done: 0, applicable: 0, calls: 0 }, prev: { done: 0, applicable: 0, calls: 0 } };
+  for (const call of calls) {
+    const kind = call.kind || "call";
+    byKind[kind] = (byKind[kind] ?? 0) + 1;
+    if (!call.applicable) continue;
+    done += call.done;
+    applicable += call.applicable;
+    const age = now - new Date(call.observed_at ?? "").getTime();
+    const side = age >= 0 && age < TWO_WEEKS_MS ? sides.recent : age >= TWO_WEEKS_MS && age < 2 * TWO_WEEKS_MS ? sides.prev : null;
+    if (side) {
+      side.done += call.done;
+      side.applicable += call.applicable;
+      side.calls += 1;
+    }
+  }
+  const enough = sides.recent.calls >= MIN_CALLS_FOR_RATE && sides.prev.calls >= MIN_CALLS_FOR_RATE;
+  return {
+    conversations: calls.length,
+    byKind,
+    rate: applicable ? done / applicable : null,
+    recent: enough ? { rate: sides.recent.done / sides.recent.applicable, prev: sides.prev.done / sides.prev.applicable } : null,
+    meetings: calls.filter((call) => call.meeting_agreed).length,
+  };
+}

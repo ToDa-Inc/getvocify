@@ -2,6 +2,7 @@ import { useLanguage } from "@/lib/i18n";
 import { fill, type CoachCalls } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { CallRecord } from "./CallRecord";
+import { CoachKpis } from "./CoachKpis";
 import { ImproveTables } from "./ImproveTables";
 
 function SectionHead({ id, title, meta }: { id: string; title: string; meta?: string }) {
@@ -20,7 +21,8 @@ export function CoachingCalls({ data }: { data: CoachCalls }) {
   const p = t.product;
   const weeks = data.window_weeks;
   return (
-    <div className="space-y-14" data-testid="coach-calls">
+    <div className="space-y-12" data-testid="coach-calls">
+      {data.conversations ? <CoachKpis data={data} /> : null}
       <section aria-labelledby="coach-improve" className="space-y-5 px-3">
         <SectionHead id="coach-improve" title={p.coachImproveHeading} meta={fill(p.coachImproveWindow, { weeks, count: data.conversations })} />
         {!data.conversations ? (

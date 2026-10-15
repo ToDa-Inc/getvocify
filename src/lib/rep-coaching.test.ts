@@ -10,6 +10,7 @@ import {
   formatPercent,
   peerMedianLabel,
   stateView,
+  summarizeCalls,
   trendArrow,
   trendOf,
   weekTotalLine,
@@ -93,6 +94,35 @@ describe("catalog", () => {
     }
     assert.equal(EN.navCoach, "Coaching");
     assert.equal(ES.navCoach, "Coaching");
-    assert.equal(ES.coachCallsHeading, "Tus llamadas");
+    assert.equal(ES.coachCallsHeading, "Tus conversaciones");
+  });
+});
+
+describe("summarizeCalls", () => {
+  const day = 24 * 3600 * 1000;
+  const now = Date.parse("2026-10-15T12:00:00Z");
+  const call = (daysAgo: number, done: number, applicable: number, extra = {}) => ({
+    observed_at: new Date(now - daysAgo * day).toISOString(), kind: "call", done, applicable, meeting_agreed: false, ...extra,
+  });
+
+  it("counts conversations by channel and the process done over what was judged", () => {
+    const out = summarizeCalls([call(1, 3, 6), call(2, 1, 4, { kind: "meeting" }), call(3, 0, 0, { meeting_agreed: true })], now);
+    assert.equal(out.conversations, 3);
+    assert.deepEqual(out.byKind, { call: 2, meeting: 1 });
+    assert.equal(out.rate, 4 / 10);
+    assert.equal(out.meetings, 1);
+  });
+
+  it("has no rate when nothing was judged", () => {
+    assert.equal(summarizeCalls([call(1, 0, 0)], now).rate, null);
+    assert.equal(summarizeCalls([], now).rate, null);
+  });
+
+  it("compares the last two weeks with the two before only with three calls on each side", () => {
+    const recent = [call(1, 5, 10), call(3, 5, 10), call(5, 5, 10)];
+    const before = [call(15, 2, 10), call(18, 2, 10), call(20, 2, 10)];
+    const out = summarizeCalls([...recent, ...before], now);
+    assert.deepEqual(out.recent, { rate: 0.5, prev: 0.2 });
+    assert.equal(summarizeCalls([...recent, before[0]], now).recent, null);
   });
 });
