@@ -16,7 +16,7 @@ import {
 
 const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
 const settingsSource = read("../components/dashboard/settings/WritingSamplesSettings.tsx");
-const sectionSource = read("../pages/dashboard/settings/BriefHighlightSection.tsx");
+const sectionSource = read("../pages/dashboard/settings/PreferencesSection.tsx");
 const apiSource = read("./api/writing-samples.ts");
 const LONG = "Hola Nuria, te paso el resumen de lo que vimos ayer con el equipo.";
 
