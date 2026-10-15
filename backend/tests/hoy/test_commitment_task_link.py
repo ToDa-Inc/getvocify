@@ -9,7 +9,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-for-hoy-task-link")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-hoy-task-link")
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -187,3 +187,21 @@ def test_get_today_without_task_ids_is_as_before():
         ("commitment_due", None), ("manual_task", "T-1"), ("manual_task", "T-2"),
     ]
     assert "crm_task_id" not in body["items"][0]
+
+
+def _callback(days_ago: int, key: str) -> Signal:
+    return Signal(
+        type="callback_no_answer",
+        contact_id=key,
+        deal_id=None,
+        source_memo_id="",
+        due_at=None,
+        payload={"outcome": "no_response", "at": (NOW - timedelta(days=days_ago)).isoformat(), "signal_id": f"sig-{key}", "version": 1, "status": "pending"},
+        dedupe_key=f"callback:call:{key}",
+        connection_id="crm-A",
+    )
+
+
+def test_an_unanswered_call_from_over_two_weeks_ago_is_not_a_task_for_today():
+    view = _view([_callback(14, "a"), _callback(36, "b")], [])
+    assert [item["contact_id"] for item in view["items"]] == ["a"]

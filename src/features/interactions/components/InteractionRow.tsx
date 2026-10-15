@@ -19,6 +19,7 @@ import {
 import { useLanguage } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/features/auth";
+import { isManagerRole } from "@/lib/nav";
 import { useCrmContactLink } from "../hooks/useCrmContactLink";
 import { InteractionMenu } from "./InteractionMenu";
 import { ContactStack } from "./ContactStack";
@@ -161,7 +162,7 @@ export function InteractionRow({
           ) : null}
         </div>
         <span className="relative z-10">
-          <InteractionMenu memoId={memo.id} canDelete={memo.userId === user?.id} />
+          <InteractionMenu memoId={memo.id} canDelete={memo.userId === user?.id || isManagerRole(user?.company?.role)} />
         </span>
       </div>
     </li>
