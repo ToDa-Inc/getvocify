@@ -51,3 +51,6 @@ vite.config.ts.timestamp-*
 *.njsproj
 *.sln
 *.sw?
+
+# Live call assistant evals: real calls exported from the database (customer speech)
+backend/evals/copilot/calls/

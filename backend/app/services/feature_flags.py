@@ -82,7 +82,8 @@ PLAYBOOK_V2_FLAGS: tuple[str, ...] = (
 # Types by channel (spec 2026-10-07-interaction-types-by-channel-design).
 TYPE_FLAGS: tuple[str, ...] = ("TYPE_BY_CHANNEL_ENABLED",)
 DEMO_FLAGS: tuple[str, ...] = ("DEMO_BUYER_ENABLED",)
-CLIENT_FLAGS: tuple[str, ...] = LISTA_3_FLAGS + LISTA_4_FLAGS + PLAYBOOK_V2_FLAGS + TYPE_FLAGS + DEMO_FLAGS
+LIVE_FLAGS: tuple[str, ...] = ("LIVE_BRAIN_ENABLED",)
+CLIENT_FLAGS: tuple[str, ...] = LISTA_3_FLAGS + LISTA_4_FLAGS + PLAYBOOK_V2_FLAGS + TYPE_FLAGS + DEMO_FLAGS + LIVE_FLAGS
 
 
 def enabled_features(supabase: Any, company_id: Optional[str], names: "list[str] | tuple[str, ...]") -> list[str]:

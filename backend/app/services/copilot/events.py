@@ -26,6 +26,10 @@ PURGE_EVERY_S = 3600.0
 PROMPT_VERSION = "copilot_suggest_v4"
 
 _paused_until = 0.0
+# The live call assistant's rows (migration 082) pause on their own: until it is applied their insert fails, and that
+# must not silence the turn checks and cards.
+_brain_paused_until = 0.0
+BRAIN_KINDS = ("points", "progress", "recap")
 _last_purge = float("-inf")  # never purged yet (monotonic time may be small right after a boot)
 # Until then rows go without the client's timing: its column (migration 080) was not there.
 _no_client_until = 0.0
@@ -129,12 +133,36 @@ def suggest_row(
     }
 
 
+def brain_row(
+    *, kind: str, user_id: str, company_id: Optional[str], call_mode: str, sales_motion_key: Optional[str],
+    call_id: Optional[str], latest_turn: str, result: Optional[dict], error: Optional[str], detail: dict,
+) -> dict:
+    """The row for one reading of the live call assistant: which producer, how long it took, who wrote it and what
+    came out (counts and what the checks dropped; the points' words are in the call's own transcript)."""
+    return {
+        "kind": kind, "user_id": user_id, "company_id": company_id, "sales_motion_key": sales_motion_key or None,
+        "call_mode": call_mode, "latest_turn": _clip(latest_turn), "provider": (result or {}).get("model"),
+        "latency_ms": (result or {}).get("latency_ms"), "error": _clip(error, 200),
+        "playbook_version_id": (result or {}).get("playbook_version_id"), "capture_id": _clip(call_id, 128),
+        "prompt_version": detail.pop("prompt_version", None), "build": _build(), "detail": detail or None,
+    }
+
+
 def record(supabase: Any, row: Optional[dict]) -> None:
     """Writes one row. Blocking (it runs as a background task, off the request). Never raises."""
-    global _paused_until, _last_purge, _no_client_until
+    global _paused_until, _brain_paused_until, _last_purge, _no_client_until
     if row is None or not settings.COPILOT_LOG_EVENTS:
         return
     now = time.monotonic()
+    if row.get("kind") in BRAIN_KINDS:
+        if now < _brain_paused_until:
+            return
+        try:
+            supabase.table(TABLE).insert({k: v for k, v in row.items() if v is not None}).execute()
+        except Exception as exc:
+            _brain_paused_until = now + PAUSE_AFTER_FAILURE_S
+            logger.warning("live brain event log unavailable (is migration 082 applied?): %s", str(exc)[:160])
+        return
     if now < _paused_until:
         return
     payload = {k: v for k, v in row.items() if v is not None}

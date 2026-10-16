@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, replace
 from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
@@ -22,7 +22,8 @@ from app.services.company import Membership
 from app.services.copilot.contact_history import load_contact_history
 from app.services.copilot.context import live_assist_kind_from_call_mode, resolve_suggest_context
 from app.services import demo_profile
-from app.services.copilot import call_type, events, live_context, playbook_objections, turn
+from app.services.copilot import call_type, events, live_brain, live_context, live_points, live_progress, playbook_objections, turn
+from app.services.copilot.live_models import LiveReading
 from app.services.copilot.checklist import build_meeting_checklist
 from app.services.copilot.load_grounding import (
     load_company_knowledge,
@@ -33,6 +34,7 @@ from app.services.copilot.prompts import today_line
 from app.services.copilot.grounding import SuggestGrounding
 from app.services.copilot.suggest import silent_suggestion, stream_objection_suggestion
 from app.services.rep_timezone import DEFAULT_TZ, rep_timezone
+from app.services.feature_flags import is_enabled
 from app.services.playbooks.catalog import INTERNAL_KEY
 
 logger = logging.getLogger(__name__)
@@ -380,6 +382,150 @@ async def check_turn(
         ),
     )
     return reading
+
+
+# ---------- the live call assistant (spec 2026-10-16-live-call-assistant-design.md) ----------
+# Behind LIVE_BRAIN_ENABLED, per company; /turn and /suggest above stay as the fallback. The producers are stateless:
+# the renderer sends the call and the state it holds, and merges what comes back (shared/live-call/state.js).
+
+LIVE_BRAIN_FLAG = "LIVE_BRAIN_ENABLED"
+
+
+async def _brain_gate(supabase: Client, membership: Membership) -> None:
+    if not await run_in_threadpool(is_enabled, supabase, membership.company_id, LIVE_BRAIN_FLAG):
+        raise HTTPException(status_code=403, detail="live_brain_disabled")
+
+
+async def _brain_context(supabase: Client, membership: Membership, body: LiveReading) -> live_brain.BrainContext:
+    """What a reading knows besides the call, read the way a card reads it (short-lived cache, worker threads)."""
+    motion = (body.sales_motion_key or "").strip() or None
+    kind = live_assist_kind_from_call_mode(body.call_mode)
+    offer = (body.product_context or "").strip()
+    live = await _live_context(
+        supabase, user_id=membership.user_id, company_id=membership.company_id, motion=motion, kind=kind,
+        need_product=not offer,
+    )
+    grounding = live.grounding
+    context = resolve_suggest_context(body.contact_id, call_mode=body.call_mode)
+    if grounding is None and not motion:
+        # No call type yet: the playbook this rep's routing would pin, as a card does.
+        grounding = await run_in_threadpool(
+            lambda: load_company_suggest_grounding(
+                supabase, company_id=membership.company_id, call_mode=body.call_mode, context=context, user_id=membership.user_id,
+            )
+        )
+    history = None
+    if context.contact_id:
+        allowed = await run_in_threadpool(
+            _handoff_restricted_user_ids, supabase, membership, connection_id=None, contact_id=context.contact_id,
+        )
+        history = await load_contact_history(
+            supabase, company_id=membership.company_id, contact_id=context.contact_id, allowed_user_ids=allowed,
+        )
+    return live_brain.BrainContext(
+        snapshot=grounding.playbook_snapshot if grounding else None,
+        knowledge=live.knowledge,
+        product_context=offer or live.product_context,
+        history=history,
+        today=today_line(live.timezone),
+        playbook_version_id=grounding.playbook_version_id if grounding else None,
+    )
+
+
+def _brain_log(
+    supabase: Client, membership: Membership, body: LiveReading, kind: str, trail: dict, ctx_ms: Optional[int],
+) -> None:
+    result = trail.get("result") or {}
+    them = next((t.text for t in reversed(body.turns) if t.who == "them"), "")
+    detail = {
+        "prompt_version": live_brain.PROMPT_VERSION, "reason": body.reason, "state_version": body.state_version,
+        "turns": len(body.turns), "prep_ms": ctx_ms, "skipped": result.get("skipped"), "guards": result.get("guards") or None,
+        "points": len([p for p in result.get("points") or [] if not p.get("is_update")]) if kind == "points" else None,
+        "updates": len([p for p in result.get("points") or [] if p.get("is_update")]) if kind == "points" else None,
+        "closed": len(result.get("closed") or []) if kind == "points" else None,
+        "steps": len(result.get("steps") or []) if kind == "progress" else None,
+        "data": len(result.get("data") or []) if kind == "progress" else None,
+        "type_changed": body.type_changed or None,
+    }
+    events.record(supabase, events.brain_row(
+        kind=kind, user_id=membership.user_id, company_id=membership.company_id, call_mode=body.call_mode,
+        sales_motion_key=(body.sales_motion_key or "").strip() or None, call_id=body.call_id, latest_turn=them,
+        result=result or None, error=trail.get("error"), detail={k: v for k, v in detail.items() if v is not None},
+    ))
+
+
+@router.post("/live/points")
+async def live_points_reading(
+    body: LiveReading,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+):
+    """The fast producer (SSE): points with a decision and what to say. Token events, then one result, then done."""
+    await _brain_gate(supabase, membership)
+    started = time.perf_counter()
+    if (body.sales_motion_key or "").strip() == INTERNAL_KEY:
+        return _sse([{"type": "result", "producer": "points", "state_version": body.state_version, "points": [], "closed": [],
+                      "nothing": True, "skipped": "internal", "guards": {}}, {"type": "done"}])
+    ctx = await _brain_context(supabase, membership, body)
+    prep_ms = int((time.perf_counter() - started) * 1000)
+    trail: dict = {"result": None, "error": None}
+
+    async def event_gen():
+        async for event in live_points.read_points(body, ctx):
+            if event["type"] == "result":
+                trail["result"] = event
+            elif event["type"] == "error":
+                trail["error"] = event.get("message")
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        yield "data: {\"type\": \"done\"}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        background=BackgroundTask(lambda: _brain_log(supabase, membership, body, "points", trail, prep_ms)),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+async def _slow_reading(body: LiveReading, membership: Membership, supabase: Client, background: BackgroundTasks, kind: str):
+    await _brain_gate(supabase, membership)
+    if (body.sales_motion_key or "").strip() == INTERNAL_KEY:
+        return {"type": "result", "producer": kind, "state_version": body.state_version, "skipped": "internal", "guards": {}}
+    started = time.perf_counter()
+    ctx = await _brain_context(supabase, membership, body)
+    prep_ms = int((time.perf_counter() - started) * 1000)
+    result = await (live_progress.read_progress if kind == "progress" else live_progress.read_recap)(body, ctx)
+    trail = {"result": result if result.get("type") == "result" else None,
+             "error": result.get("message") if result.get("type") == "error" else None}
+    if result.get("type") == "error":
+        # Background tasks do not run behind an exception: a reading that failed is logged before it is raised.
+        await run_in_threadpool(_brain_log, supabase, membership, body, kind, trail, prep_ms)
+        raise HTTPException(status_code=502, detail=result.get("message") or "the live brain could not answer")
+    background.add_task(_brain_log, supabase, membership, body, kind, trail, prep_ms)
+    return result
+
+
+@router.post("/live/progress")
+async def live_progress_reading(
+    body: LiveReading,
+    background: BackgroundTasks,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+):
+    """The slow producer: steps by step_id, data by criterion_id (with the quotes that prove them), the goal, and the
+    stable "now" pick. 1-3 s behind the points."""
+    return await _slow_reading(body, membership, supabase, background, "progress")
+
+
+@router.post("/live/recap")
+async def live_recap_reading(
+    body: LiveReading,
+    background: BackgroundTasks,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+):
+    """Resumen, on request: the other side's situation up to the tap, computed and stored nowhere."""
+    return await _slow_reading(body, membership, supabase, background, "recap")
 
 
 @router.post("/call-type/guess")
