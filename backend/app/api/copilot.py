@@ -21,6 +21,7 @@ from app.deps import get_membership, get_supabase, get_user_id
 from app.services.company import Membership
 from app.services.copilot.contact_history import load_contact_history
 from app.services.copilot.context import live_assist_kind_from_call_mode, resolve_suggest_context
+from app.services import demo_profile
 from app.services.copilot import call_type, events, live_context, playbook_objections, turn
 from app.services.copilot.checklist import build_meeting_checklist
 from app.services.copilot.load_grounding import (
@@ -245,8 +246,18 @@ async def suggest_objection_handling(
         )
 
     company_knowledge = live.knowledge
+    # A sales demo: help answers as the company being demoed, never from the rep's own playbook or offer.
+    demo = await run_in_threadpool(demo_profile.active, supabase, membership.user_id)
+    if demo:
+        product_context, company_knowledge = demo.product_context, demo.knowledge or None
+        grounding = SuggestGrounding(
+            interaction_kind=live_assist_kind_from_call_mode(body.call_mode),
+            playbook_version_id=None,
+            evidence_ids=frozenset(),
+            playbook_snapshot=demo.snapshot,
+        )
     contact_history = None
-    if context.contact_id:
+    if context.contact_id and not demo:
         # Same memo visibility as the pre-call brief for this contact.
         allowed_user_ids = await run_in_threadpool(
             _handoff_restricted_user_ids, supabase, membership, connection_id=None, contact_id=context.contact_id,
@@ -348,7 +359,11 @@ async def check_turn(
     motion = (body.sales_motion_key or "").strip()
     if motion == INTERNAL_KEY:
         return {"finished": True, "objection": "none"}
-    custom = await run_in_threadpool(playbook_objections.custom_for, supabase, user_id, motion) if motion else None
+    demo = await run_in_threadpool(demo_profile.active, supabase, user_id)
+    if demo:
+        custom = demo.custom
+    else:
+        custom = await run_in_threadpool(playbook_objections.custom_for, supabase, user_id, motion) if motion else None
     started = time.perf_counter()
     reading = await turn.read_turn(body.transcript_window, body.latest_turn, custom)
     # The card that may follow reads its context next: have it ready (a worker thread, after this response).

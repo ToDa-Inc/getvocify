@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from app.deps import get_supabase, require_company_role
-from app.services import demo_buyer
+from app.services import demo_buyer, demo_profile
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
 
@@ -33,7 +34,10 @@ class ScenarioRequest(BaseModel):
     niche: str = Field(..., min_length=2, max_length=200)
     company: str | None = Field(default=None, max_length=120)
     prospect_name: str | None = Field(default=None, max_length=80)
-    context: str | None = Field(default=None, max_length=600)
+    # The company being demoed, as read from its website: live help answers as it.
+    seller_company: str | None = Field(default=None, max_length=120)
+    knowledge: dict | None = None
+    facts: list[str] = Field(default_factory=list, max_length=12)
     language: Language = "es"
     voice: str | None = Field(default=None, max_length=40)
 
@@ -70,12 +74,33 @@ def _upstream_failure(exc: demo_buyer.DemoBuyerError) -> HTTPException:
 @router.post("/scenario")
 async def create_scenario(
     body: ScenarioRequest,
-    _membership: Membership = Depends(require_demo_buyer),
+    membership: Membership = Depends(require_demo_buyer),
+    supabase=Depends(get_supabase),
 ):
     try:
-        return await demo_buyer.build_scenario(body.model_dump())
+        scenario = await demo_buyer.build_scenario(body.model_dump())
     except demo_buyer.DemoBuyerError as exc:
         raise _upstream_failure(exc) from exc
+    profile = scenario.pop("profile")
+    # Live help answers as the company being demoed from now on; if this fails the page says so.
+    try:
+        await run_in_threadpool(
+            lambda: demo_profile.save(supabase, user_id=membership.user_id, company_id=membership.company_id, profile=profile)
+        )
+        scenario["profile_saved"] = True
+    except demo_profile.DemoProfileError as exc:
+        scenario["profile_saved"] = False
+        scenario["profile_error"] = str(exc)
+    return scenario
+
+
+@router.post("/profile/clear")
+async def clear_profile(
+    membership: Membership = Depends(require_demo_buyer),
+    supabase=Depends(get_supabase),
+):
+    await run_in_threadpool(demo_profile.clear, supabase, membership.user_id)
+    return {"ok": True}
 
 
 @router.post("/reply")

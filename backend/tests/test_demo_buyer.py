@@ -22,8 +22,8 @@ SCENARIO = {
     "persona": {"name": "Marta", "gender": "female", "role": "Directora", "company": "Agencia Norte", "background": "8 reps. Usa Excel."},
     "opening": "¿Sí, dígame?",
     "objections": [
-        {"label": "Precio", "line": "Es caro para nosotros."},
-        {"label": "Socio", "line": "Lo hablo con mi socio."},
+        {"label": "Precio", "category": "price", "line": "Es caro para nosotros.", "guidance": "Reconoce el coste y pregunta cuánto cuesta una parada de línea."},
+        {"label": "Socio", "category": "authority", "line": "Lo hablo con mi socio.", "guidance": "Ofrece una llamada a tres con él."},
     ],
 }
 
@@ -49,13 +49,27 @@ async def test_build_scenario_speaks_opening_and_every_objection():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_build_scenario_passes_what_the_prospect_company_does(monkeypatch):
+async def test_build_scenario_rests_the_answers_on_the_demoed_company_facts_and_returns_its_profile():
     chat = respx.post(demo_buyer.CHAT_URL).mock(return_value=_chat(json.dumps(SCENARIO)))
     respx.post(demo_buyer.SPEECH_URL).mock(return_value=httpx.Response(200, content=b"x"))
 
-    await demo_buyer.build_scenario({"offer": "Copiloto", "niche": "agencias", "context": "Vende software de facturación a pymes"})
+    out = await demo_buyer.build_scenario(
+        {
+            "offer": "Embotelladoras industriales",
+            "niche": "bodegas",
+            "seller_company": "Acme Pack",
+            "knowledge": {"value_short": "Menos paradas de línea", "differentiators": ["Mantenimiento remoto"]},
+            "facts": ["Garantía de 5 años"],
+        }
+    )
 
-    assert "Vende software de facturación a pymes" in json.loads(chat.calls[0].request.content)["messages"][0]["content"]
+    prompt = json.loads(chat.calls[0].request.content)["messages"][0]["content"]
+    assert "Embotelladoras industriales" in prompt and "Mantenimiento remoto" in prompt and "Garantía de 5 años" in prompt
+    assert "never invent" in prompt
+    profile = out["profile"]
+    assert profile["company"] == "Acme Pack" and profile["knowledge"]["value_short"] == "Menos paradas de línea"
+    assert [e["entry_id"] for e in profile["entries"]] == ["objection:price", "objection:authority"]
+    assert profile["entries"][0]["guidance"].startswith("Reconoce el coste")
 
 
 @respx.mock
@@ -162,12 +176,34 @@ async def test_analyze_url_reads_the_page_and_returns_company_offer_industry(mon
         return_value=httpx.Response(200, text=HTML, headers={"content-type": "text/html; charset=utf-8"})
     )
     chat = respx.post(demo_buyer.CHAT_URL).mock(
-        return_value=_chat(json.dumps({"company": "Acme", "offer": "CRM para agencias.", "industry": "software comercial"}))
+        return_value=_chat(
+            json.dumps(
+                {
+                    "company": "Acme",
+                    "offer": "CRM para agencias.",
+                    "buyer": "agencias de marketing",
+                    "value_short": "Vende más",
+                    "differentiators": ["Fácil", " "],
+                    "proofs": [{"customer": "Norte", "change": "+20% de cierres"}, {"customer": "", "change": ""}],
+                    "facts": ["Integra con HubSpot"],
+                }
+            )
+        )
     )
 
     out = await demo_buyer.analyze_url("https://acme.example/")
 
-    assert out == {"company": "Acme", "offer": "CRM para agencias.", "industry": "software comercial"}
+    assert out == {
+        "company": "Acme",
+        "offer": "CRM para agencias.",
+        "buyer": "agencias de marketing",
+        "knowledge": {
+            "value_short": "Vende más",
+            "differentiators": ["Fácil"],
+            "proofs": [{"customer": "Norte", "change": "+20% de cierres"}],
+        },
+        "facts": ["Integra con HubSpot"],
+    }
     sent = json.loads(chat.calls[0].request.content)
     assert sent["model"] == "deepseek/deepseek-v4.1-flash" and "Vende más" in sent["messages"][0]["content"]
 
