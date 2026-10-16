@@ -5,6 +5,7 @@ export type DemoLanguage = "es" | "en";
 
 export interface DemoPersona {
   name: string;
+  gender: "male" | "female";
   role: string;
   company: string;
   background: string;
@@ -38,7 +39,14 @@ export interface DemoReply {
   audio_b64: string;
 }
 
+export interface DemoUrlAnalysis {
+  company: string;
+  offer: string;
+  industry: string;
+}
+
 export const demoBuyerApi = {
+  analyzeUrl: (url: string) => api.post<DemoUrlAnalysis>("/demo/analyze-url", { url }),
   createScenario: (body: DemoScenarioRequest) => api.post<DemoScenario>("/demo/scenario", body),
   reply: (scenario: DemoScenario, history: DemoTurn[], sellerText: string) =>
     api.post<DemoReply>("/demo/reply", {

@@ -26,6 +26,7 @@ import { useLanguage } from "@/lib/i18n";
 import { demoBuyerApi, type DemoClip, type DemoLanguage, type DemoScenario } from "./api";
 
 const SCENARIO_KEY = "vocify_demo_scenario";
+const OFFER_KEY = "vocify_demo_offer";
 
 type Recognition = {
   lang: string;
@@ -42,6 +43,14 @@ function speechRecognition(): (new () => Recognition) | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+function savedOffer(): string {
+  try {
+    return localStorage.getItem(OFFER_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 function loadSaved(): DemoScenario | null {
   try {
     const raw = localStorage.getItem(SCENARIO_KEY);
@@ -49,6 +58,45 @@ function loadSaved(): DemoScenario | null {
   } catch {
     return null;
   }
+}
+
+/** A web address next to a field: reading it fills the field from what the site says. */
+function UrlRead({
+  placeholder,
+  value,
+  onChange,
+  busy,
+  label,
+  onRead,
+}: {
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+  busy: boolean;
+  label: string;
+  onRead: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <Input
+        type="url"
+        inputMode="url"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && value.trim()) {
+            e.preventDefault();
+            onRead();
+          }
+        }}
+      />
+      <Button type="button" variant="outline" size="sm" disabled={busy || !value.trim()} onClick={onRead}>
+        {busy ? <VocifySpinner /> : null}
+        {label}
+      </Button>
+    </div>
+  );
 }
 
 /**
@@ -60,10 +108,13 @@ export default function DemoBuyerSection() {
   const { t } = useLanguage();
   const copy = t.product;
   const [scenario, setScenario] = useState<DemoScenario | null>(null);
-  const [form, setForm] = useState({ offer: "", niche: "", company: "", name: "", language: "es" as DemoLanguage });
+  const [form, setForm] = useState({ offer: savedOffer(), niche: "", company: "", name: "", language: "es" as DemoLanguage });
   const [busy, setBusy] = useState(false);
   const [thinking, setThinking] = useState(false);
-  const [free, setFree] = useState(true);
+  // Off by default: the browser's speech recognition takes the mic, which can leave the desktop recording with silence.
+  const [free, setFree] = useState(false);
+  const [urls, setUrls] = useState({ offer: "", prospect: "" });
+  const [reading, setReading] = useState<"offer" | "prospect" | null>(null);
   const [played, setPlayed] = useState<Set<string>>(new Set());
   const [log, setLog] = useState<DemoTurn[]>([]);
 
@@ -190,9 +241,31 @@ export default function DemoBuyerSection() {
     stopAudio();
   };
 
+  const readUrl = async (kind: "offer" | "prospect") => {
+    setReading(kind);
+    try {
+      const out = await demoBuyerApi.analyzeUrl(urls[kind].trim());
+      if (kind === "offer") {
+        if (out.offer) setForm((f) => ({ ...f, offer: out.offer }));
+      } else {
+        setForm((f) => ({ ...f, niche: out.industry || f.niche, company: out.company || f.company }));
+      }
+      if (!out.offer && !out.industry && !out.company) toast.error(copy.demoUrlEmpty);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReading(null);
+    }
+  };
+
   const prepare = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
+    try {
+      localStorage.setItem(OFFER_KEY, form.offer.trim());
+    } catch {
+      /* the offer is typed again next time */
+    }
     try {
       const next = await demoBuyerApi.createScenario({
         offer: form.offer.trim(),
@@ -293,10 +366,26 @@ export default function DemoBuyerSection() {
             {copy.demoOffer}
             <Textarea required rows={2} value={form.offer} onChange={(e) => setForm({ ...form, offer: e.target.value })} />
           </label>
+          <UrlRead
+            placeholder={copy.demoUrlOffer}
+            value={urls.offer}
+            onChange={(offer) => setUrls({ ...urls, offer })}
+            busy={reading === "offer"}
+            label={copy.demoRead}
+            onRead={() => void readUrl("offer")}
+          />
           <label className="grid gap-1 text-xs text-muted-foreground">
             {copy.demoNiche}
             <Input required value={form.niche} onChange={(e) => setForm({ ...form, niche: e.target.value })} />
           </label>
+          <UrlRead
+            placeholder={copy.demoUrlProspect}
+            value={urls.prospect}
+            onChange={(prospect) => setUrls({ ...urls, prospect })}
+            busy={reading === "prospect"}
+            label={copy.demoRead}
+            onRead={() => void readUrl("prospect")}
+          />
           <div className="grid grid-cols-2 gap-3">
             <label className="grid gap-1 text-xs text-muted-foreground">
               {copy.demoCompany}

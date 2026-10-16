@@ -44,6 +44,7 @@ class Turn(BaseModel):
 
 class Persona(BaseModel):
     name: str = Field(..., max_length=120)
+    gender: Literal["male", "female"] = "female"
     role: str = Field(..., max_length=160)
     company: str = Field(..., max_length=160)
     background: str = Field(..., max_length=600)
@@ -52,9 +53,13 @@ class Persona(BaseModel):
 class ReplyRequest(BaseModel):
     persona: Persona
     language: Language = "es"
-    voice: str = Field(default=demo_buyer.DEFAULT_VOICE, max_length=40)
+    voice: str = Field(default=demo_buyer.VOICES["female"], max_length=40)
     history: list[Turn] = Field(default_factory=list, max_length=40)
     seller_text: str = Field(..., min_length=1, max_length=1200)
+
+
+class AnalyzeUrlRequest(BaseModel):
+    url: str = Field(..., min_length=4, max_length=500)
 
 
 def _upstream_failure(exc: demo_buyer.DemoBuyerError) -> HTTPException:
@@ -85,5 +90,16 @@ async def create_reply(
             [t.model_dump() for t in body.history],
             body.seller_text,
         )
+    except demo_buyer.DemoBuyerError as exc:
+        raise _upstream_failure(exc) from exc
+
+
+@router.post("/analyze-url")
+async def analyze_url(
+    body: AnalyzeUrlRequest,
+    _membership: Membership = Depends(require_demo_buyer),
+):
+    try:
+        return await demo_buyer.analyze_url(body.url)
     except demo_buyer.DemoBuyerError as exc:
         raise _upstream_failure(exc) from exc
