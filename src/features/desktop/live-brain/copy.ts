@@ -1,0 +1,177 @@
+import type { Language } from "@/lib/i18n";
+
+/** The words of the dashboard's live view (spec 2026-10-16-live-call-assistant-design.md, "UI specification"). */
+const ES = {
+  title: "Ayuda en vivo",
+  switchLabel: "Ayuda en vivo",
+  tabs: { transcript: "Transcripción", help: "Ayuda", conversation: "Conversación" },
+  tabCountHelp: (n: number) => `${n} por responder`,
+  tabCountDo: (n: number) => `${n} por hacer`,
+  bar: { respond: "Responder", ask: "Preguntar", recap: "Resumen" },
+  barTips: {
+    respond: "Lee el último minuto y responde a lo que lo necesite",
+    ask: "Qué toca hacer ahora",
+    recap: "Resume lo que sabes de la otra parte hasta ahora",
+  },
+  chipWaiting: (n: number) => (n === 1 ? "1 por responder" : `${n} por responder`),
+  chipMissing: "Falta",
+  question: "Pregunta",
+  repeats: "Lo repite",
+  kinds: {
+    question: "Pregunta",
+    price: "Precio",
+    timing: "Momento",
+    authority: "Quién decide",
+    competitor: "Competidor",
+    status_quo: "Ya tienen algo",
+    trust: "Confianza",
+    other: "Objeción",
+  } as Record<string, string>,
+  objection: "Objeción",
+  outcomes: {
+    open: "",
+    answered: "Respondido",
+    promised: "Prometido",
+    unanswered: "Sin responder",
+    gone: "Ya no aplica",
+    dismissed: "Descartado",
+  } as Record<string, string>,
+  before: (n: number) => `Antes · ${n}`,
+  unanswered: (n: number) => `${n} sin responder`,
+  emptyHelp: "Aquí aparecen las respuestas a sus preguntas y objeciones.",
+  nothingFound: "No encuentro una pregunta ni una objeción en el último minuto.",
+  reading: "Leyendo…",
+  readingMinute: "Leyendo el último minuto",
+  notInKnowledge: "No está en tu conocimiento",
+  sourceFallback: (source: string) => `${source}. Puedes decir esto mientras lo confirmas.`,
+  sourceOf: (source: string) => `Fuente: ${source}`,
+  dismiss: "No es una pregunta ni una objeción",
+  dismissAria: "Descartar",
+  open: "Abrir",
+  off: "La ayuda en vivo está apagada en esta llamada.",
+  offline: "Sin conexión con Vocify",
+  offlineAge: (s: number) => `Lo que ves es de hace ${s} s. Reintentando.`,
+  now: "Ahora",
+  ahora: "Ahora",
+  find: "Averiguar",
+  markDone: "Marcar como hecho",
+  unmark: "Desmarcar",
+  missing: (n: number) => `Falta · ${n}`,
+  done: (n: number) => `Hecho · ${n}`,
+  more: (n: number) => `+${n} más`,
+  less: "Ver menos",
+  progressOf: (done: number, total: number) => `${done} de ${total}`,
+  markedByYou: "Marcado por ti",
+  reread: "leído de nuevo para este tipo",
+  goal: "Objetivo de la llamada",
+  noPlaybook: (type: string) => `${type} no tiene playbook`,
+  noPlaybookBody: "La ayuda solo usa tu conocimiento.",
+  noType: "Esta llamada aún no tiene tipo",
+  playbook: "Playbook",
+  recapTitle: (time: string) => `Resumen · hasta el ${time}`,
+  recapReading: "Resumiendo",
+  recapEmpty: "Aún no hay nada que resumir.",
+  recapUnknown: (items: string) => `Aún no sabes: ${items}`,
+  closePeek: "Cerrar",
+  point: "Punto",
+  typeChanged: "El tipo cambió: se lee la llamada de nuevo con su playbook.",
+  transcriptEmpty: "Aquí aparece la conversación.",
+};
+
+type Copy = typeof ES;
+
+const EN: Copy = {
+  title: "Live help",
+  switchLabel: "Live help",
+  tabs: { transcript: "Transcript", help: "Help", conversation: "Conversation" },
+  tabCountHelp: (n) => `${n} to answer`,
+  tabCountDo: (n) => `${n} to do`,
+  bar: { respond: "Respond", ask: "Ask", recap: "Recap" },
+  barTips: {
+    respond: "Reads the last minute and answers what needs it",
+    ask: "What to do now",
+    recap: "What you know about the other side so far",
+  },
+  chipWaiting: (n) => (n === 1 ? "1 to answer" : `${n} to answer`),
+  chipMissing: "Missing",
+  question: "Question",
+  repeats: "Said again",
+  kinds: {
+    question: "Question",
+    price: "Price",
+    timing: "Timing",
+    authority: "Decision maker",
+    competitor: "Competitor",
+    status_quo: "Already have one",
+    trust: "Trust",
+    other: "Objection",
+  },
+  objection: "Objection",
+  outcomes: {
+    open: "",
+    answered: "Answered",
+    promised: "Promised",
+    unanswered: "Unanswered",
+    gone: "No longer applies",
+    dismissed: "Dismissed",
+  },
+  before: (n) => `Before · ${n}`,
+  unanswered: (n) => `${n} unanswered`,
+  emptyHelp: "Answers to their questions and objections appear here.",
+  nothingFound: "I can't find a question or an objection in the last minute.",
+  reading: "Reading…",
+  readingMinute: "Reading the last minute",
+  notInKnowledge: "Not in your knowledge",
+  sourceFallback: (source) => `${source}. You can say this while you confirm it.`,
+  sourceOf: (source) => `Source: ${source}`,
+  dismiss: "Not a question or an objection",
+  dismissAria: "Dismiss",
+  open: "Open",
+  off: "Live help is off for this call.",
+  offline: "No connection to Vocify",
+  offlineAge: (s) => `What you see is ${s} s old. Retrying.`,
+  now: "Now",
+  ahora: "Now",
+  find: "Find out",
+  markDone: "Mark as done",
+  unmark: "Unmark",
+  missing: (n) => `Missing · ${n}`,
+  done: (n) => `Done · ${n}`,
+  more: (n) => `+${n} more`,
+  less: "Show less",
+  progressOf: (done, total) => `${done} of ${total}`,
+  markedByYou: "Marked by you",
+  reread: "read again for this type",
+  goal: "The call's goal",
+  noPlaybook: (type) => `${type} has no playbook`,
+  noPlaybookBody: "Help only uses your knowledge.",
+  noType: "This call has no type yet",
+  playbook: "Playbook",
+  recapTitle: (time) => `Recap · up to ${time}`,
+  recapReading: "Summarising",
+  recapEmpty: "Nothing to summarise yet.",
+  recapUnknown: (items) => `You don't know yet: ${items}`,
+  closePeek: "Close",
+  point: "Point",
+  typeChanged: "The type changed: the call is read again with its playbook.",
+  transcriptEmpty: "The conversation appears here.",
+};
+
+export function liveCopy(language: Language): Copy {
+  return language === "ES" ? ES : EN;
+}
+
+export type LiveCopy = Copy;
+
+/** The tag of a point: the playbook entry's name when it has one, else the kind in words. */
+export function pointTag(copy: Copy, point: { kind: string; tag_key: string; tag: string | null }): string {
+  if (point.tag) return point.tag;
+  if (point.tag_key === "question" || point.kind === "question") return copy.question;
+  return copy.kinds[point.tag_key] ?? copy.objection;
+}
+
+/** "mm:ss" into the call. */
+export function clock(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
