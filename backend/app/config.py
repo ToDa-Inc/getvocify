@@ -344,6 +344,8 @@ class Settings(BaseSettings):
     # meeting), never decided by the member's sales role, and needs no playbook. Only takes effect
     # with INTELLIGENCE_CALL_READING_ENABLED, which makes the final call after the call.
     TYPE_BY_CHANNEL_ENABLED: bool = False
+    # Demo buyer (AI buyer for sales demos): off everywhere, switched on per company for the founder's own workspace.
+    DEMO_BUYER_ENABLED: bool = False
     # Playbooks v2, per company. QUALIFICATION: C04 v7 reads "what has to come out of the call"
     # criteria and the company's own objections, and the score is built from three blocks
     # (steps, qualification, objections) instead of steps alone.

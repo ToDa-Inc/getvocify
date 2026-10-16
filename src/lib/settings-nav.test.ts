@@ -18,10 +18,16 @@ describe("visibleSettingsTabs", () => {
   it("keeps the spec's order: mine first, then the company's", () => {
     assert.deepEqual(
       SETTINGS_TABS.map((t) => t.id),
-      ["preferences", "calling", "calendar", "agents", "system", "usage", "crm", "offer", "team", "billing"],
+      ["preferences", "calling", "calendar", "agents", "system", "usage", "crm", "offer", "team", "billing", "demo"],
     );
     const groups = SETTINGS_TABS.map((t) => t.group);
     assert.deepEqual(groups, [...groups].sort((a, b) => (a === b ? 0 : a === "personal" ? -1 : 1)));
+  });
+
+  it("shows the demo buyer only to the Head of Sales of a company with its flag", () => {
+    assert.equal(visibleSettingsTabs(true, ["DEMO_BUYER_ENABLED"]).some((t) => t.id === "demo"), true);
+    assert.equal(visibleSettingsTabs(true).some((t) => t.id === "demo"), false);
+    assert.equal(visibleSettingsTabs(false, ["DEMO_BUYER_ENABLED"]).some((t) => t.id === "demo"), false);
   });
 
   it("has no playbooks tab: the editor lives in Playbook", () => {

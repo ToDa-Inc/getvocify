@@ -14,6 +14,7 @@ export type SettingsTabId =
   | "calling"
   | "calendar"
   | "agents"
+  | "demo"
   | "system"
   | "usage"
   | "crm"
@@ -58,6 +59,8 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: "offer", to: "/dashboard/settings/offer", labelKey: "settingsNavOffer", group: "workspace", managerOnly: true },
   { id: "team", to: "/dashboard/settings/team", labelKey: "settingsNavTeam", group: "workspace", managerOnly: true },
   { id: "billing", to: "/dashboard/settings/billing", labelKey: "settingsNavBilling", group: "workspace", managerOnly: true },
+  // Owner/admin of a company with DEMO_BUYER_ENABLED: the AI buyer for sales demos.
+  { id: "demo", to: "/dashboard/settings/demo", labelKey: "settingsNavDemo", group: "workspace", managerOnly: true, flag: "DEMO_BUYER_ENABLED" },
 ] as const;
 
 export function visibleSettingsTabs(

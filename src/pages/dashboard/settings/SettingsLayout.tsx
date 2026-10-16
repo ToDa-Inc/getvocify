@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo } from "react";
 import {
-  BarChart3, Bot, CalendarDays, CreditCard, Monitor, Package, Phone, Plug, SlidersHorizontal, Users,
+  BarChart3, Bot, CalendarDays, CreditCard, Drama, Monitor, Package, Phone, Plug, SlidersHorizontal, Users,
   type LucideIcon,
 } from "lucide-react";
 import { Navigate, NavLink, Outlet, useLocation } from "react-router-dom";
@@ -34,6 +34,7 @@ const TAB_ICONS: Record<SettingsTabId, LucideIcon> = {
   offer: Package,
   team: Users,
   billing: CreditCard,
+  demo: Drama,
 };
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
