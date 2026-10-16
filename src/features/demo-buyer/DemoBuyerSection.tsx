@@ -25,8 +25,12 @@ import {
 import { useLanguage } from "@/lib/i18n";
 import { demoBuyerApi, type DemoClip, type DemoLanguage, type DemoScenario } from "./api";
 
+type UrlKind = "prospect" | "offer";
+
 const SCENARIO_KEY = "vocify_demo_scenario";
 const OFFER_KEY = "vocify_demo_offer";
+
+type MicState = "idle" | "waiting" | "listening" | "blocked" | "missing" | "offline";
 
 type Recognition = {
   lang: string;
@@ -34,6 +38,9 @@ type Recognition = {
   interimResults: boolean;
   onresult: ((event: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
   onend: (() => void) | null;
+  onstart: (() => void) | null;
+  onaudiostart: (() => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
   start: () => void;
   stop: () => void;
 };
@@ -60,41 +67,54 @@ function loadSaved(): DemoScenario | null {
   }
 }
 
-/** A web address next to a field: reading it fills the field from what the site says. */
-function UrlRead({
-  placeholder,
+/** One web address: reading it fills every field the site answers, for the prospect's company or for your own. */
+function UrlFill({
   value,
   onChange,
+  kind,
+  onKind,
   busy,
-  label,
+  copy,
   onRead,
 }: {
-  placeholder: string;
   value: string;
   onChange: (value: string) => void;
+  kind: UrlKind;
+  onKind: (kind: UrlKind) => void;
   busy: boolean;
-  label: string;
+  copy: Record<string, string>;
   onRead: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <Input
-        type="url"
-        inputMode="url"
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && value.trim()) {
-            e.preventDefault();
-            onRead();
-          }
-        }}
+    <div className="grid gap-2">
+      <div className="flex items-center gap-2">
+        <Input
+          type="url"
+          inputMode="url"
+          placeholder={copy.demoUrlPlaceholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && value.trim()) {
+              e.preventDefault();
+              onRead();
+            }
+          }}
+        />
+        <Button type="button" variant="outline" size="sm" disabled={busy || !value.trim()} onClick={onRead}>
+          {busy ? <VocifySpinner /> : null}
+          {copy.demoRead}
+        </Button>
+      </div>
+      <Segmented
+        aria-label={copy.demoUrlKind}
+        value={kind}
+        onValueChange={onKind}
+        options={[
+          { value: "prospect", label: copy.demoUrlProspect },
+          { value: "offer", label: copy.demoUrlOffer },
+        ]}
       />
-      <Button type="button" variant="outline" size="sm" disabled={busy || !value.trim()} onClick={onRead}>
-        {busy ? <VocifySpinner /> : null}
-        {label}
-      </Button>
     </div>
   );
 }
@@ -113,8 +133,12 @@ export default function DemoBuyerSection() {
   const [thinking, setThinking] = useState(false);
   // Off by default: the browser's speech recognition takes the mic, which can leave the desktop recording with silence.
   const [free, setFree] = useState(false);
-  const [urls, setUrls] = useState({ offer: "", prospect: "" });
-  const [reading, setReading] = useState<"offer" | "prospect" | null>(null);
+  const [url, setUrl] = useState("");
+  const [urlKind, setUrlKind] = useState<UrlKind>("prospect");
+  const [reading, setReading] = useState(false);
+  const [context, setContext] = useState("");
+  const [mic, setMic] = useState<MicState>("idle");
+  const [heard, setHeard] = useState("");
   const [played, setPlayed] = useState<Set<string>>(new Set());
   const [log, setLog] = useState<DemoTurn[]>([]);
 
@@ -241,20 +265,21 @@ export default function DemoBuyerSection() {
     stopAudio();
   };
 
-  const readUrl = async (kind: "offer" | "prospect") => {
-    setReading(kind);
+  const readUrl = async () => {
+    setReading(true);
     try {
-      const out = await demoBuyerApi.analyzeUrl(urls[kind].trim());
-      if (kind === "offer") {
-        if (out.offer) setForm((f) => ({ ...f, offer: out.offer }));
+      const out = await demoBuyerApi.analyzeUrl(url.trim());
+      if (urlKind === "offer") {
+        setForm((f) => ({ ...f, offer: out.offer || f.offer, company: f.company }));
       } else {
         setForm((f) => ({ ...f, niche: out.industry || f.niche, company: out.company || f.company }));
+        setContext(out.offer);
       }
       if (!out.offer && !out.industry && !out.company) toast.error(copy.demoUrlEmpty);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     } finally {
-      setReading(null);
+      setReading(false);
     }
   };
 
@@ -272,6 +297,7 @@ export default function DemoBuyerSection() {
         niche: form.niche.trim(),
         company: form.company.trim() || null,
         prospect_name: form.name.trim() || null,
+        context: context.trim() || null,
         language: form.language,
       });
       try {
@@ -308,35 +334,48 @@ export default function DemoBuyerSection() {
   // The seller's free speech: the browser's recognition, restarted while the page is live.
   const Recognition = speechRecognition();
   useEffect(() => {
-    if (!scenario || !free || !Recognition) return;
+    if (!scenario || !free || !Recognition) {
+      setMic("idle");
+      return;
+    }
     const rec = new Recognition();
     rec.lang = scenario.language === "en" ? "en-US" : "es-ES";
     rec.continuous = true;
-    rec.interimResults = false;
+    rec.interimResults = true;
     let active = true;
+    setMic("waiting");
+    rec.onaudiostart = () => setMic("listening");
     rec.onresult = (event) => {
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        if (event.results[i].isFinal) onSellerText(event.results[i][0].transcript);
+        const result = event.results[i];
+        setHeard(result[0].transcript.trim());
+        if (result.isFinal) onSellerText(result[0].transcript);
       }
     };
+    rec.onerror = (event) => {
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") setMic("blocked");
+      else if (event.error === "audio-capture") setMic("missing");
+      else if (event.error === "network") setMic("offline");
+    };
     rec.onend = () => {
-      if (active) {
-        try {
-          rec.start();
-        } catch {
-          /* already starting */
-        }
+      if (!active) return;
+      setMic((m) => (m === "blocked" || m === "missing" ? m : "waiting"));
+      try {
+        rec.start();
+      } catch {
+        /* already starting */
       }
     };
     try {
       rec.start();
     } catch {
-      /* mic denied: clips still work */
+      setMic("blocked");
     }
     return () => {
       active = false;
       rec.onend = null;
       rec.stop();
+      setMic("idle");
     };
   }, [scenario, free, Recognition, onSellerText]);
 
@@ -362,30 +401,23 @@ export default function DemoBuyerSection() {
     return (
       <SettingsSection label={copy.demoPrepareLabel}>
         <form onSubmit={prepare} className="flex flex-col gap-3 p-4">
+          <UrlFill
+            value={url}
+            onChange={setUrl}
+            kind={urlKind}
+            onKind={setUrlKind}
+            busy={reading}
+            copy={copy as unknown as Record<string, string>}
+            onRead={() => void readUrl()}
+          />
           <label className="grid gap-1 text-xs text-muted-foreground">
             {copy.demoOffer}
             <Textarea required rows={2} value={form.offer} onChange={(e) => setForm({ ...form, offer: e.target.value })} />
           </label>
-          <UrlRead
-            placeholder={copy.demoUrlOffer}
-            value={urls.offer}
-            onChange={(offer) => setUrls({ ...urls, offer })}
-            busy={reading === "offer"}
-            label={copy.demoRead}
-            onRead={() => void readUrl("offer")}
-          />
           <label className="grid gap-1 text-xs text-muted-foreground">
             {copy.demoNiche}
             <Input required value={form.niche} onChange={(e) => setForm({ ...form, niche: e.target.value })} />
           </label>
-          <UrlRead
-            placeholder={copy.demoUrlProspect}
-            value={urls.prospect}
-            onChange={(prospect) => setUrls({ ...urls, prospect })}
-            busy={reading === "prospect"}
-            label={copy.demoRead}
-            onRead={() => void readUrl("prospect")}
-          />
           <div className="grid grid-cols-2 gap-3">
             <label className="grid gap-1 text-xs text-muted-foreground">
               {copy.demoCompany}
@@ -469,6 +501,28 @@ export default function DemoBuyerSection() {
             <Switch checked={free && Boolean(Recognition)} disabled={!Recognition} onCheckedChange={setFree} aria-label={copy.demoFreeReply} />
           </div>
         </div>
+        {free && Recognition ? (
+          <div className="flex items-center gap-2 border-b border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground" role="status">
+            <span
+              className={`h-2 w-2 shrink-0 rounded-full ${
+                mic === "listening" ? "bg-success" : mic === "waiting" ? "bg-warning" : "bg-destructive"
+              }`}
+            />
+            <span className="min-w-0 truncate">
+              {mic === "listening"
+                ? heard
+                  ? `${copy.demoHeard}: ${heard}`
+                  : copy.demoMicListening
+                : mic === "blocked"
+                  ? copy.demoMicBlocked
+                  : mic === "missing"
+                    ? copy.demoMicMissing
+                    : mic === "offline"
+                      ? copy.demoMicOffline
+                      : copy.demoMicWaiting}
+            </span>
+          </div>
+        ) : null}
         <div className="flex max-h-64 flex-col gap-1.5 overflow-y-auto p-3 text-sm">
           {log.map((turn, i) => (
             <p key={i} className={turn.role === "buyer" ? "text-foreground" : "text-muted-foreground"}>

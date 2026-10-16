@@ -130,6 +130,7 @@ async def build_scenario(brief: dict) -> dict:
         f"All spoken text in {lang}.\n"
         f"Seller offer: {brief['offer']}\nBuyer industry: {brief['niche']}\n"
         f"Buyer company: {brief.get('company') or 'invent one'}\nBuyer name: {brief.get('prospect_name') or 'invent one'}"
+        + (f"\nWhat the buyer's company does (from its website; keep the background and objections true to it): {brief['context']}" if brief.get("context") else "")
     )
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         raw = await _chat(client, [{"role": "user", "content": prompt}], max_tokens=900, json_mode=True)

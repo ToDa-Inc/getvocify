@@ -31,6 +31,7 @@ export interface DemoScenarioRequest {
   niche: string;
   company: string | null;
   prospect_name: string | null;
+  context: string | null;
   language: DemoLanguage;
 }
 

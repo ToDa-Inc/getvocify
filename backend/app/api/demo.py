@@ -33,6 +33,7 @@ class ScenarioRequest(BaseModel):
     niche: str = Field(..., min_length=2, max_length=200)
     company: str | None = Field(default=None, max_length=120)
     prospect_name: str | None = Field(default=None, max_length=80)
+    context: str | None = Field(default=None, max_length=600)
     language: Language = "es"
     voice: str | None = Field(default=None, max_length=40)
 

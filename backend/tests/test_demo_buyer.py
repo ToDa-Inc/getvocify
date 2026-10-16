@@ -49,6 +49,17 @@ async def test_build_scenario_speaks_opening_and_every_objection():
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_build_scenario_passes_what_the_prospect_company_does(monkeypatch):
+    chat = respx.post(demo_buyer.CHAT_URL).mock(return_value=_chat(json.dumps(SCENARIO)))
+    respx.post(demo_buyer.SPEECH_URL).mock(return_value=httpx.Response(200, content=b"x"))
+
+    await demo_buyer.build_scenario({"offer": "Copiloto", "niche": "agencias", "context": "Vende software de facturación a pymes"})
+
+    assert "Vende software de facturación a pymes" in json.loads(chat.calls[0].request.content)["messages"][0]["content"]
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_build_scenario_rejects_unusable_json():
     respx.post(demo_buyer.CHAT_URL).mock(return_value=_chat('{"persona": {}}'))
     with pytest.raises(demo_buyer.DemoBuyerError):
