@@ -7,6 +7,7 @@ import { ProcessNav, type NavChannel, type NavItem } from "@/features/playbooks/
 import { AddTypeMenu } from "@/features/playbooks/components/AddTypeMenu";
 import { GapAssistant } from "@/features/playbooks/components/GapAssistant";
 import { ImproveHub } from "@/features/playbooks/components/ImproveHub";
+import { ImproveScreen } from "@/features/playbooks/components/ImproveQueue";
 import { ModelCallImport } from "@/features/playbooks/components/ModelCallImport";
 import { TrialRunner } from "@/features/playbooks/components/TrialRunner";
 import { UnderstoodSummary } from "@/features/playbooks/components/UnderstoodSummary";
@@ -28,7 +29,7 @@ import { cn } from "@/lib/utils";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 /** The improvement views that exist today (the hub only offers these). */
-const IMPROVE_VIEWS: readonly ImproveView[] = ["assistant", "trial"];
+const IMPROVE_VIEWS: readonly ImproveView[] = ["assistant", "trial", "improve"];
 
 /**
  * "Vuestro proceso" (plan §14–16) as a list and a detail: on the left "Vuestra empresa" and
@@ -328,6 +329,8 @@ export function PlaybookList() {
         />
       ) : view === "trial" ? (
         <TrialRunner motionKey={selected === COMPANY_ROW ? null : selected} onChanged={() => void process.refresh()} onBack={closeView} />
+      ) : view === "improve" ? (
+        <ImproveScreen typeName={(key) => (key ? process.name(key) : "")} onChanged={() => void process.refresh()} />
       ) : (
         playbook
       )}

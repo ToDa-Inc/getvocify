@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 export const ASSISTANT_QUERY = ["playbook-assistant", "current"] as const;
+export const STATS_QUERY = ["playbook-assistant", "improve-stats"] as const;
 
 export type ImproveHubViewProps = {
   view: ImproveView | null;
@@ -63,14 +64,20 @@ export function ImproveHubView({ view, views, line, primaryLabel, onView, onPrim
   );
 }
 
-/** The sentence and the main button for where the guided questions stand. */
-export function hubTexts(session: GapSession | null | undefined, notActivated: boolean, c: ReturnType<typeof useHubCopy>) {
-  if (notActivated) return { line: c.notActivated, primary: c.hubStartAssistant };
+/**
+ * The sentence and the main button for where the Head of Sales stands: questions still open come first, then the answers
+ * the queue is waiting on, and otherwise the guided questions start from the top.
+ */
+export function hubTexts(session: GapSession | null | undefined, notActivated: boolean, c: ReturnType<typeof useHubCopy>, queueAnswers = 0) {
+  if (notActivated) return { line: c.notActivated, primary: c.hubStartAssistant, view: "assistant" as const };
   const left = session ? Math.max(session.total - session.answered - session.skipped, 0) : 0;
   if (session && left > 0) {
-    return { line: left === 1 ? c.hubOpenOne : c.hubOpen.replace("{count}", String(left)), primary: c.hubContinueAssistant };
+    return { line: left === 1 ? c.hubOpenOne : c.hubOpen.replace("{count}", String(left)), primary: c.hubContinueAssistant, view: "assistant" as const };
   }
-  return { line: c.hubFresh, primary: c.hubStartAssistant };
+  if (queueAnswers > 0) {
+    return { line: queueAnswers === 1 ? c.hubQueueOne : c.hubQueue.replace("{count}", String(queueAnswers)), primary: c.hubImprove, view: "improve" as const };
+  }
+  return { line: c.hubFresh, primary: c.hubStartAssistant, view: "assistant" as const };
 }
 
 function useHubCopy() {
@@ -81,6 +88,8 @@ function useHubCopy() {
 export function ImproveHub({ view, views, onView }: { view: ImproveView | null; views: readonly ImproveView[]; onView: (view: ImproveView | null) => void }) {
   const c = useHubCopy();
   const current = useQuery({ queryKey: ASSISTANT_QUERY, queryFn: assistantApi.currentGaps, retry: false, staleTime: 60_000 });
-  const { line, primary } = hubTexts(current.data?.session, isNotActivated(current.error), c);
-  return <ImproveHubView view={view} views={views} line={line} primaryLabel={primary} onView={onView} onPrimary={() => onView("assistant")} />;
+  // The queue of answers that keep failing, when the success rate is on: a quiet reminder, never an error.
+  const stats = useQuery({ queryKey: STATS_QUERY, queryFn: assistantApi.improveStats, retry: false, staleTime: 60_000, enabled: views.includes("improve") });
+  const { line, primary, view: next } = hubTexts(current.data?.session, isNotActivated(current.error), c, stats.data?.queue?.answers ?? 0);
+  return <ImproveHubView view={view} views={views} line={line} primaryLabel={primary} onView={onView} onPrimary={() => onView(next)} />;
 }

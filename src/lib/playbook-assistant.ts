@@ -108,3 +108,24 @@ export function topicLabel(topic: string, names: TopicNames): string {
   if (topic === "unknown") return names.unknown;
   return names.kinds[topic] ?? topic;
 }
+
+export type QueueTone = "success" | "warning" | "muted" | "pending";
+const MARK_TONE: Record<string, QueueTone> = { success: "success", failed: "warning", unused: "muted" };
+
+/** One segment per judged card of an answer, the latest `max`: green it was said and settled it, amber it was said and did not, grey it was not said, pale unknown. */
+export function queueMeter(marks: string[], max = 12): QueueTone[] {
+  return marks.slice(-max).map((mark) => MARK_TONE[mark] ?? "pending");
+}
+
+/** The verdicts the Head of Sales can set on a card, i.e. the ones that differ from what the judge decided. A suggestion nobody said has nothing to correct. */
+export function verdictChoices(mark: string): ("resolved" | "not_resolved")[] {
+  if (mark === "success") return ["not_resolved"];
+  if (mark === "failed") return ["resolved"];
+  if (mark === "unknown") return ["resolved", "not_resolved"];
+  return [];
+}
+
+/** The big figure of a stat: "78%" from three cases, "2 de 2" below, a dash when there is nothing to count. */
+export function statFigure(good: number, total: number, of: string): string {
+  return total > 0 ? rateLabel(good, total, { of }).text : "—";
+}

@@ -1,9 +1,11 @@
 import { useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { DashboardThemeProvider } from "@/components/ThemeProvider";
-import type { GapSession, ModelProposal } from "@/features/playbooks/assistantApi";
+import type { GapSession, ImproveQueue, ImproveStats, ModelProposal, QueueGroup, QueueMoment, SuccessStats } from "@/features/playbooks/assistantApi";
 import { GapAssistantView } from "@/features/playbooks/components/GapAssistant";
 import { ImproveHubView } from "@/features/playbooks/components/ImproveHub";
+import { ImproveScreenView, type Writing } from "@/features/playbooks/components/ImproveQueue";
+import type { ImproveProblem, Publication } from "@/features/playbooks/hooks/useImprove";
 import { ModelCallImport } from "@/features/playbooks/components/ModelCallImport";
 import { ModelCallProposalsView } from "@/features/playbooks/components/ModelCallProposals";
 import { TrialResultView } from "@/features/playbooks/components/TrialResult";
@@ -178,9 +180,56 @@ function Hub({ line, primary, view = null, views = ["assistant"] }: { line: stri
   return <ImproveHubView view={view} views={views} line={line} primaryLabel={primary} onView={noop} onPrimary={noop} />;
 }
 
+
+const SUCCESS: SuccessStats = { resolved: 13, clear: 19, unknown: 2, rate: 13 / 19, used: 21, judged: 30, use_rate: 0.7, sample: 40 };
+const FEW: SuccessStats = { resolved: 1, clear: 2, unknown: 0, rate: null, used: 3, judged: 5, use_rate: null, sample: 6 };
+const NONE: SuccessStats = { resolved: 0, clear: 0, unknown: 0, rate: null, used: 0, judged: 0, use_rate: null, sample: 0 };
+const moment = (id: string, mark: QueueMoment["mark"], client: string, suggestion: string | null, rep: string | null): QueueMoment => ({
+  id, event_id: `e-${id}`, client_text: client, suggestion_text: suggestion, rep_text: rep, mark,
+});
+const GROUPS: QueueGroup[] = [
+  {
+    answer_key: "objection:price", sales_motion_key: "discovery", failing: 4, total: 7,
+    marks: ["success", "unused", "failed", "success", "unused", "failed", "unused"], stats: SUCCESS,
+    answer: { category: "price", label: null, guidance: "Pregunta cuánto tiempo pierden hoy apuntando a mano y compara con lo que cuesta Vocify al mes." },
+    moments: [
+      moment("m1", "unused", "Me parece caro para lo que hacéis.", "Pregunta cuánto tiempo pierden hoy apuntando a mano.", "Es que el precio incluye todo el soporte y las actualizaciones."),
+      moment("m2", "failed", "Con lo que cuesta no nos sale a cuenta ahora mismo.", "Compara con lo que pierden al mes en leads sin atender.", "Lo comparamos con lo que pierden al mes en leads sin atender, ¿te parece?"),
+      moment("m3", "unknown", "No tenemos presupuesto este trimestre.", "Pregunta cuándo se cierra el presupuesto.", null),
+    ],
+  },
+  {
+    answer_key: "objection:custom:cancelar", sales_motion_key: "closing", failing: 3, total: 3,
+    marks: ["unused", "unused", "failed"], stats: FEW,
+    answer: { category: "custom", label: "Cancelar el servicio", guidance: "Cancelan cuando quieran desde Ajustes; no hay permanencia." },
+    moments: [
+      moment("m4", "unused", "Y si no nos gusta, ¿cómo cancelamos?", "Cancelan cuando quieran desde Ajustes; no hay permanencia.", "Eso lo vemos más adelante."),
+      moment("m5", "failed", "¿Hay permanencia?", "No hay permanencia.", "Mmm, creo que no, déjame mirarlo."),
+    ],
+  },
+];
+const typeName = (key: string | null) => ({ discovery: "Llamada en frío", closing: "Cierre" })[key ?? ""] ?? "";
+
+function Improve({ stats, queue, status = "ready", openKey = null, writing = null, start = "", problem = null, publication = { state: "idle", failed: [] }, note = null, refreshing = false }: {
+  stats: ImproveStats | null; queue: ImproveQueue | null; status?: "loading" | "ready" | "error" | "not_activated"; openKey?: string | null; writing?: Writing | null;
+  start?: string; problem?: ImproveProblem | null; publication?: Publication; note?: string | null; refreshing?: boolean;
+}) {
+  const [open, setOpen] = useState<string | null>(openKey);
+  const [value, setValue] = useState(start);
+  return (
+    <ImproveScreenView
+      status={status} stats={stats} queue={queue} refreshing={refreshing} note={note} acting={null} problem={problem} publication={publication}
+      typeName={typeName} onRefresh={noop} onRetry={noop} onPublish={noop}
+      queueProps={{ openKey: open, onOpen: setOpen, writing, value, onValue: setValue, onKeep: noop, onWrite: noop, onCancel: noop, onSubmit: noop, onVerdict: noop }}
+    />
+  );
+}
+const WITH_QUEUE: ImproveQueue = { groups: GROUPS, publish: [] };
+
 const SCENARIOS: { id: string; label: string; render: () => ReactNode }[] = [
   { id: "hub-fresh", label: "Portada, primera vez", render: () => <Hub line="Vocify te hace unas preguntas para completar el playbook. Son unos 10 minutos." primary="Responder lo que falta" /> },
   { id: "hub-open", label: "Portada, preguntas pendientes", render: () => <Hub line="Tienes 6 preguntas por responder." primary="Continuar" /> },
+  { id: "hub-queue", label: "Portada, respuestas por mirar", render: () => <Hub view={null} views={["assistant", "trial", "improve"]} line="3 respuestas necesitan que las mires." primary="Ver las mejoras" /> },
   { id: "hub-views", label: "Portada, con vistas", render: () => <Hub view="assistant" views={["assistant", "trial", "improve"]} line="Tienes 6 preguntas por responder." primary="Continuar" /> },
   {
     id: "understood",
@@ -213,6 +262,19 @@ const SCENARIOS: { id: string; label: string; render: () => ReactNode }[] = [
   { id: "trial-result-good", label: "Resultado, bien", render: () => <Result trial={trialWith(["approve", "approve", "approve", "approve", "approve", "approve"], { result: { approved: 6, total: 6, percent: 100, weak_topics: [], warn: false, can_activate: true } })} topics={[]} resume={false} /> },
   { id: "trial-result-few", label: "Resultado, pocos casos", render: () => <Result trial={trialWith(["approve", "corrected"], { result: { approved: 1, total: 2, percent: null, weak_topics: ["price"], warn: false, can_activate: true } })} topics={["Precio"]} /> },
   { id: "trial-result-done", label: "Resultado, activado", render: () => <Result trial={trialWith(["approve", "approve", "corrected", "corrected", "unknown", "approve"])} activation={{ state: "done", failed: [] }} /> },
+  { id: "stats-few", label: "Mejoras, pocos casos", render: () => <Improve stats={{ coverage: { detected: 2, answered: 2, rate: null }, success: FEW, queue: { answers: 0, cases: 0 } }} queue={{ groups: [], publish: [] }} /> },
+  { id: "stats-ok", label: "Mejoras, con cifras", render: () => <Improve stats={{ coverage: { detected: 40, answered: 31, rate: 0.775 }, success: SUCCESS, queue: { answers: 2, cases: 5 } }} queue={WITH_QUEUE} note="He revisado 12 sugerencias. Casos nuevos para mirar: 5." /> },
+  { id: "queue", label: "Mejoras, cola cerrada", render: () => <Improve stats={{ coverage: { detected: 40, answered: 31, rate: 0.775 }, success: SUCCESS, queue: { answers: 2, cases: 5 } }} queue={WITH_QUEUE} /> },
+  { id: "queue-open", label: "Mejoras, respuesta abierta", render: () => <Improve stats={{ coverage: { detected: 40, answered: 31, rate: 0.775 }, success: SUCCESS, queue: { answers: 2, cases: 5 } }} queue={{ ...WITH_QUEUE, publish: ["discovery", "closing"] }} openKey="discovery:objection:price" /> },
+  { id: "queue-writing", label: "Mejoras, yo diría…", render: () => <Improve stats={{ coverage: { detected: 40, answered: 31, rate: 0.775 }, success: SUCCESS, queue: { answers: 2, cases: 5 } }} queue={WITH_QUEUE} openKey="discovery:objection:price" writing={{ momentId: "m1", mode: "correct" }} start="Antes de hablar de precio, ¿cuánto tiempo pierde el equipo a la semana apuntando a mano?" /> },
+  { id: "queue-problem", label: "Mejoras, no cabe", render: () => <Improve stats={{ coverage: { detected: 40, answered: 31, rate: 0.775 }, success: SUCCESS, queue: { answers: 2, cases: 5 } }} queue={WITH_QUEUE} openKey="discovery:objection:price" writing={{ momentId: "m1", mode: "branch" }} start="Una respuesta demasiado larga…" problem={{ code: "guidance_too_long", at: "m1" }} /> },
+  { id: "publish", label: "Mejoras, publicado", render: () => <Improve stats={{ coverage: { detected: 40, answered: 31, rate: 0.775 }, success: SUCCESS, queue: { answers: 1, cases: 2 } }} queue={{ groups: [GROUPS[1]], publish: [] }} publication={{ state: "done", failed: [] }} /> },
+  { id: "empty", label: "Mejoras, todo en orden", render: () => <Improve stats={{ coverage: { detected: 40, answered: 36, rate: 0.9 }, success: SUCCESS, queue: { answers: 0, cases: 0 } }} queue={{ groups: [], publish: [] }} /> },
+  { id: "empty-new", label: "Mejoras, aún sin revisar", render: () => <Improve stats={{ coverage: { detected: 0, answered: 0, rate: null }, success: NONE, queue: { answers: 0, cases: 0 } }} queue={{ groups: [], publish: [] }} /> },
+  { id: "not-enabled", label: "Mejoras, sin success rate", render: () => <Improve stats={{ coverage: { detected: 40, answered: 31, rate: 0.775 } }} queue={null} /> },
+  { id: "improve-loading", label: "Mejoras, cargando", render: () => <Improve stats={null} queue={null} status="loading" /> },
+  { id: "improve-error", label: "Mejoras, no se pudo cargar", render: () => <Improve stats={null} queue={null} status="error" /> },
+  { id: "improve-off", label: "Mejoras, aún sin activar", render: () => <Improve stats={null} queue={null} status="not_activated" /> },
   { id: "gap-loading", label: "Pregunta, cargando", render: () => <Gap s={null} status="loading" /> },
   { id: "gap-real", label: "Pregunta de llamadas reales", render: () => <Gap s={session(REAL)} /> },
   { id: "gap-topic", label: "Pregunta habitual", render: () => <Gap s={session(TOPIC, { answered: 0, skipped: 0 })} /> },

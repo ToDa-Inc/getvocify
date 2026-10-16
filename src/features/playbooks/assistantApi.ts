@@ -102,6 +102,36 @@ export type Verdict = "approve" | "corrected" | "unknown" | "never_say" | "branc
 export type VerdictOutcome = { run: TrialRun | null; similar: { text: string; run: TrialRun } | null; result: TrialResultData; trial: Trial };
 export type ActivateOutcome = { published: string[]; failed: { key: string; code: string }[] };
 
+export type Coverage = { detected: number; answered: number; rate: number | null };
+/** What judged calls say. `rate` is null below three cases with a clear verdict: two cases say nothing. */
+export type SuccessStats = {
+  resolved: number;
+  clear: number;
+  unknown: number;
+  rate: number | null;
+  used: number;
+  judged: number;
+  use_rate: number | null;
+  sample: number;
+};
+/** `success` and `queue` are absent while the success rate is not switched on for the company. */
+export type ImproveStats = { coverage: Coverage; success?: SuccessStats; queue?: { answers: number; cases: number } };
+export type CaseMark = "success" | "failed" | "unused" | "unknown";
+export type QueueMoment = { id: string; event_id: string | null; client_text: string; suggestion_text: string | null; rep_text: string | null; mark: CaseMark };
+export type QueueGroup = {
+  answer_key: string;
+  sales_motion_key: string | null;
+  failing: number;
+  total: number;
+  marks: CaseMark[];
+  stats: SuccessStats;
+  /** What the answer says now; null when it is no longer in the playbook. */
+  answer: { category: string | null; label: string | null; guidance: string | null } | null;
+  moments: QueueMoment[];
+};
+export type ImproveQueue = { groups: QueueGroup[]; /** Call types with changes waiting to be published. */ publish: string[] };
+export type QueueActionKind = "keep" | "correct" | "branch" | "new_objection";
+
 /** The API says the assistant's tables are not in the database yet: a calm "come back soon", not a failure. */
 export function isNotActivated(error: unknown): boolean {
   if (!(error instanceof ApiError) || error.status !== 503) return false;
@@ -139,4 +169,17 @@ export const assistantApi = {
   proposeFromCall: (body: ModelCallRequest) => api.post<ProposeResult>(`${BASE}/model-calls/propose`, body, SLOW),
   applyProposals: (motionKey: string, proposals: ModelProposal[]) =>
     api.post<ApplyResult>(`${BASE}/model-calls/apply`, { motion_key: motionKey, proposals }),
+
+  improveStats: () => api.get<ImproveStats>(`${BASE}/improve/stats`),
+  // The model reads a batch of finished calls: well past the default 20 s.
+  improveRefresh: () => api.post<{ judged: number; queued: number }>(`${BASE}/improve/refresh`, undefined, { timeoutMs: 180_000 }),
+  improveQueue: () => api.get<ImproveQueue>(`${BASE}/improve/queue`),
+  improveAct: (momentId: string, body: { action: QueueActionKind; text?: string; when?: string; lang?: "es" | "en" }) =>
+    api.post<{ status: string; queue: ImproveQueue }>(`${BASE}/improve/queue/${encodeURIComponent(momentId)}/action`, body, SLOW),
+  improvePublish: () => api.post<ActivateOutcome>(`${BASE}/improve/publish`),
+  improveVerdict: (eventId: string, resolved: "resolved" | "not_resolved") =>
+    api.post<{ resolved: string; success: SuccessStats; queue: { answers: number; cases: number } }>(
+      `${BASE}/improve/outcomes/${encodeURIComponent(eventId)}/verdict`,
+      { resolved },
+    ),
 };

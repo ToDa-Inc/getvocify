@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import {
   intakeSummary,
   progressText,
+  queueMeter,
   rateLabel,
   savedLine,
   splitQuestion,
+  statFigure,
   topicLabel,
   trialMeter,
+  verdictChoices,
   viewFromParams,
   type IntakeLike,
 } from "./playbook-assistant.ts";
@@ -106,3 +109,26 @@ describe("playbook assistant helpers", () => {
     assert.equal(topicLabel("", names), "Sin clasificar");
   });
 });
+
+describe("improvement screen helpers", () => {
+  it("draws one segment per judged card of an answer, keeping the latest twelve", () => {
+    assert.deepEqual(queueMeter(["success", "failed", "unused", "unknown"]), ["success", "warning", "muted", "pending"]);
+    assert.equal(queueMeter(Array(20).fill("failed")).length, 12);
+    assert.deepEqual(queueMeter(["failed", ...Array(12).fill("success")]), Array(12).fill("success"));
+    assert.deepEqual(queueMeter([]), []);
+  });
+
+  it("offers the verdicts that would change what the judge decided", () => {
+    assert.deepEqual(verdictChoices("success"), ["not_resolved"]);
+    assert.deepEqual(verdictChoices("failed"), ["resolved"]);
+    assert.deepEqual(verdictChoices("unknown"), ["resolved", "not_resolved"]);
+    assert.deepEqual(verdictChoices("unused"), []);
+  });
+
+  it("writes a figure as a percentage from three cases, as a count below, and as a dash with nothing", () => {
+    assert.equal(statFigure(31, 40, "de"), "78%");
+    assert.equal(statFigure(2, 2, "de"), "2 de 2");
+    assert.equal(statFigure(0, 0, "de"), "—");
+  });
+});
+
