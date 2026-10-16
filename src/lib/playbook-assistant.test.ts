@@ -6,6 +6,7 @@ import {
   rateLabel,
   savedLine,
   splitQuestion,
+  topicLabel,
   trialMeter,
   viewFromParams,
   type IntakeLike,
@@ -93,5 +94,15 @@ describe("playbook assistant helpers", () => {
   it("keeps the whole sentence when there is no quote to separate", () => {
     assert.deepEqual(splitQuestion("Tu material no coincide sobre los precios.", null), { lead: "", quote: null, ask: "Tu material no coincide sobre los precios." });
     assert.deepEqual(splitQuestion("Algo distinto", "no está"), { lead: "", quote: null, ask: "Algo distinto" });
+  });
+
+  it("names a topic by its kind or by the team's own objection", () => {
+    const names = { kinds: { price: "Precio" }, question: "Preguntas del producto", none: "Lo que Vocify no reconoce", unknown: "Sin clasificar" };
+    assert.equal(topicLabel("price", names), "Precio");
+    assert.equal(topicLabel("question", names), "Preguntas del producto");
+    assert.equal(topicLabel("none", names), "Lo que Vocify no reconoce");
+    assert.equal(topicLabel("unknown", names), "Sin clasificar");
+    assert.equal(topicLabel("Mándame un email", names), "Mándame un email");
+    assert.equal(topicLabel("", names), "Sin clasificar");
   });
 });

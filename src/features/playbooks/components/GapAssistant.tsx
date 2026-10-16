@@ -6,6 +6,7 @@ import { VocifySpinner } from "@/components/ui/vocify-loader";
 import type { GapSession } from "@/features/playbooks/assistantApi";
 import { AnswerBox } from "@/features/playbooks/components/AnswerBox";
 import { QuoteBubble, SavedBubble } from "@/features/playbooks/components/Bubbles";
+import { SegmentMeter, type SegmentTone } from "@/features/playbooks/components/SegmentMeter";
 import type { SourceInput } from "@/features/playbooks/components/PlaybookStart";
 import { useAssistant, type AssistantStatus } from "@/features/playbooks/hooks/useAssistant";
 import { useLanguage } from "@/lib/i18n";
@@ -38,19 +39,10 @@ function Meter({ session }: { session: GapSession }) {
   const { t } = useLanguage();
   const done = session.answered;
   const left = done + session.skipped;
-  return (
-    <span className="flex w-24 gap-0.5" role="img" aria-label={progressText(session, t.product.pb2.improve.of)}>
-      {Array.from({ length: session.total }, (_, index) => (
-        <span
-          key={index}
-          className={cn(
-            "h-1.5 flex-1 rounded-full transition-colors duration-200",
-            index < done ? "bg-success/70" : index < left ? "bg-muted-foreground/40" : index === left ? "bg-beige" : "bg-secondary",
-          )}
-        />
-      ))}
-    </span>
+  const segments = Array.from({ length: session.total }, (_, index): SegmentTone =>
+    index < done ? "success" : index < left ? "muted" : index === left ? "current" : "pending",
   );
+  return <SegmentMeter segments={segments} label={progressText(session, t.product.pb2.improve.of)} />;
 }
 
 /**

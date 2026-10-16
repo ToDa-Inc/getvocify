@@ -78,6 +78,16 @@ def test_a_trial_has_ten_to_twelve_cases_and_is_resumed_not_restarted():
     assert client.get(f"{T}/{trial['id']}").json()["id"] == trial["id"]
 
 
+def test_repeating_the_trial_closes_the_open_one_and_starts_a_new_one():
+    client = make_client()
+    first = start(client).json()
+    client.post(f"{T}/{first['id']}/cases/{first_case(first)}/verdict", json={"verdict": "approve"})
+    second = start(client, fresh=True).json()
+    assert second["id"] != first["id"] and second["decided"] == 0 and second["status"] == "open"
+    assert client.get(f"{T}/{first['id']}").json()["status"] == "done"
+    assert start(client).json()["id"] == second["id"]
+
+
 def test_running_a_case_shows_the_card_made_from_the_draft_and_keeps_it(runner):
     fake = runner(run_of("Pregunta cuánto tiempo pierden."))
     client = make_client()
@@ -98,6 +108,32 @@ def test_approving_changes_nothing_and_counts():
     body = done.json()
     assert body["result"]["approved"] == 1 and body["trial"]["decided"] == 1 and body["trial"]["current_id"] != case
     assert guidance(client) == {}
+
+
+def test_approving_vocifys_general_help_keeps_it_as_the_teams_own_answer(runner):
+    runner(run_of("Os lo confirmo y os paso el detalle por escrito.", detected="question", source_id=None))
+    client = make_client()
+    trial = start(client).json()
+    case = first_case(trial)
+    client.post(f"{T}/{trial['id']}/cases/{case}/run")
+    done = client.post(f"{T}/{trial['id']}/cases/{case}/verdict", json={"verdict": "approve"}).json()
+    assert done["result"]["approved"] == 1
+    version = client.repo.editor_snapshot("co-1", "discovery", include_draft=True)["version"]
+    own = [e for e in version["entries"] if e["category"] == "custom"]
+    assert [e["guidance"] for e in own] == ["Os lo confirmo y os paso el detalle por escrito."]
+    assert own[0]["trigger"] == trial["cases"][0]["client_text"]
+
+
+def test_approving_an_answer_that_is_already_the_teams_changes_nothing(runner):
+    runner(run_of("Pregunta cuánto tiempo pierden."))
+    client = make_client()
+    client.repo.save_draft("co-1", "discovery", [STEP], [{"category": "price", "guidance": "Pregunta cuánto tiempo pierden.", "entry_id": "objection:price", "source_ref": "editor"}])
+    before = client.repo.editor_snapshot("co-1", "discovery", include_draft=True)["version"]["updated_at"]
+    trial = start(client).json()
+    case = first_case(trial)
+    client.post(f"{T}/{trial['id']}/cases/{case}/run")
+    client.post(f"{T}/{trial['id']}/cases/{case}/verdict", json={"verdict": "approve"})
+    assert client.repo.editor_snapshot("co-1", "discovery", include_draft=True)["version"]["updated_at"] == before
 
 
 def test_a_correction_changes_the_draft_runs_the_case_again_and_checks_a_similar_phrase(runner):

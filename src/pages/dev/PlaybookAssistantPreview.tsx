@@ -6,6 +6,10 @@ import { GapAssistantView } from "@/features/playbooks/components/GapAssistant";
 import { ImproveHubView } from "@/features/playbooks/components/ImproveHub";
 import { ModelCallImport } from "@/features/playbooks/components/ModelCallImport";
 import { ModelCallProposalsView } from "@/features/playbooks/components/ModelCallProposals";
+import { TrialResultView } from "@/features/playbooks/components/TrialResult";
+import { TrialRunnerView } from "@/features/playbooks/components/TrialRunner";
+import type { Trial, TrialRun } from "@/features/playbooks/assistantApi";
+import type { TrialPhase } from "@/features/playbooks/hooks/useTrial";
 import { UnderstoodSummary } from "@/features/playbooks/components/UnderstoodSummary";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
@@ -53,6 +57,46 @@ const session = (current: GapSession["current"], over: Partial<GapSession> = {})
 });
 
 const noop = () => undefined;
+
+const CASES = [
+  { id: "c1", source: "real" as const, client_text: "Y si no nos gusta, ¿cómo cancelamos el servicio?" },
+  { id: "c2", source: "document" as const, client_text: "¿Dónde se guardan nuestros datos?" },
+  { id: "c3", source: "typical" as const, client_text: "Me parece caro para lo que hacéis." },
+  { id: "c4", source: "typical" as const, client_text: "Ya trabajamos con otra herramienta y estamos contentos." },
+  { id: "c5", source: "typical" as const, client_text: "¿Se integra con nuestro CRM?" },
+  { id: "c6", source: "typical" as const, client_text: "Mándame un email y lo vemos." },
+];
+const trialWith = (verdicts: (string | null)[], over: Partial<Trial> = {}): Trial => {
+  const cases = CASES.map((item, index) => ({ ...item, verdict: verdicts[index] ?? null }));
+  const decided = cases.filter((item) => item.verdict).length;
+  return {
+    id: "t1", motion_key: "discovery", status: "open", total: cases.length, decided, cases,
+    current_id: cases.find((item) => !item.verdict)?.id ?? null, runs: {},
+    result: { approved: cases.filter((i) => i.verdict === "approve").length, total: decided, percent: decided >= 3 ? 67 : null, weak_topics: ["security"], warn: decided >= 3, can_activate: true },
+    ...over,
+  };
+};
+const OWN: TrialRun = { detected: "price", entry_id: null, label: null, grounded: true, card: { say_this: "Pregunta cuánto tiempo pierden hoy.", source_id: "objection:price", objection_type: "price" } };
+const GENERAL: TrialRun = { detected: "question", entry_id: null, label: null, grounded: false, card: { say_this: "Os lo confirmo y os paso el detalle por escrito.", source_id: null, objection_type: "question" } };
+const NOTHING: TrialRun = { detected: "none", entry_id: null, label: null, grounded: false, card: null };
+const NOANSWER: TrialRun = { detected: "question", entry_id: null, label: null, grounded: false, card: null };
+
+function Trial_({ trial, run = OWN, phase = { kind: "judging" }, deciding = false, problem = null, start = "", status = "ready", caseId }: {
+  trial: Trial; run?: TrialRun | null; phase?: TrialPhase; deciding?: boolean; problem?: string | null; start?: string; status?: "loading" | "ready" | "error" | "not_activated"; caseId?: string;
+}) {
+  const [value, setValue] = useState(start);
+  return (
+    <TrialRunnerView
+      status={status} trial={trial} caseId={caseId ?? trial.current_id} run={run} phase={phase} deciding={deciding} problem={problem}
+      value={value} onValue={setValue} onApprove={noop} onUnknown={noop} onWrite={noop} onSubmitWriting={noop} onCancelWriting={noop}
+      onOwn={noop} onSimilarSame={noop} onSimilarOther={noop} onFinish={noop} onRetry={noop}
+    />
+  );
+}
+
+function Result({ trial, topics = ["Seguridad y datos", "Precio"], activation = { state: "idle" as const, failed: [] as string[] }, resume = true }: { trial: Trial; topics?: string[]; activation?: { state: "idle" | "working" | "done"; failed: string[] }; resume?: boolean }) {
+  return <TrialResultView trial={trial} weakTopics={topics} activation={activation} problem={null} onActivate={noop} onAgain={noop} onResume={resume ? noop : null} onBack={noop} />;
+}
 
 const PROPOSALS: ModelProposal[] = [
   {
@@ -156,6 +200,19 @@ const SCENARIOS: { id: string; label: string; render: () => ReactNode }[] = [
   { id: "model-proposals", label: "Llamada modelo, propuestas", render: () => <Proposals /> },
   { id: "model-warning", label: "Llamada modelo, hablantes dudosos", render: () => <Proposals warning /> },
   { id: "model-skipped", label: "Llamada modelo, una no cabe", render: () => <Proposals skipped={{ p2: "guidance_too_long" }} /> },
+  { id: "trial-own", label: "Prueba, respuesta vuestra", render: () => <Trial_ trial={trialWith(["approve", "corrected"])} /> },
+  { id: "trial-general", label: "Prueba, ayuda general", render: () => <Trial_ trial={trialWith(["approve", "approve", "corrected"])} run={GENERAL} /> },
+  { id: "trial-running", label: "Prueba, preparando", render: () => <Trial_ trial={trialWith([])} run={null} /> },
+  { id: "trial-nothing", label: "Prueba, no mostraría nada", render: () => <Trial_ trial={trialWith(["approve"])} run={NOTHING} /> },
+  { id: "trial-noanswer", label: "Prueba, sin respuesta", render: () => <Trial_ trial={trialWith(["approve", "approve"])} run={NOANSWER} /> },
+  { id: "trial-writing", label: "Prueba, yo diría…", render: () => <Trial_ trial={trialWith(["approve", "corrected"])} phase={{ kind: "writing", mode: "say", caseId: "c3", back: { kind: "judging" } }} start="Lo comparamos con lo que pierden al mes en leads sin atender." /> },
+  { id: "trial-never", label: "Prueba, nunca digas esto", render: () => <Trial_ trial={trialWith(["approve", "corrected"])} phase={{ kind: "writing", mode: "never", caseId: "c3", back: { kind: "judging" } }} /> },
+  { id: "trial-after", label: "Prueba, tras corregir", render: () => <Trial_ trial={trialWith(["approve", "corrected", "corrected"])} caseId="c3" phase={{ kind: "after", caseId: "c3", run: { ...OWN, card: { say_this: "Lo comparamos con lo que pierden al mes en leads sin atender.", source_id: "objection:price", objection_type: "price" } }, similar: { text: "Ya tenemos una herramienta gratuita que cubre eso.", run: OWN } }} /> },
+  { id: "trial-branch", label: "Prueba, es otra situación", render: () => <Trial_ trial={trialWith(["approve", "corrected", "corrected"])} caseId="c3" phase={{ kind: "writing", mode: "branch", caseId: "c3", situation: "Ya tenemos una herramienta gratuita que cubre eso.", back: { kind: "judging" } }} problem="guidance_too_long" start="Reconoce que cubre lo básico y enseña el ahorro de horas…" /> },
+  { id: "trial-result-warn", label: "Resultado, por debajo del 80%", render: () => <Result trial={trialWith(["approve", "approve", "corrected", "corrected", "unknown", "approve"])} /> },
+  { id: "trial-result-good", label: "Resultado, bien", render: () => <Result trial={trialWith(["approve", "approve", "approve", "approve", "approve", "approve"], { result: { approved: 6, total: 6, percent: 100, weak_topics: [], warn: false, can_activate: true } })} topics={[]} resume={false} /> },
+  { id: "trial-result-few", label: "Resultado, pocos casos", render: () => <Result trial={trialWith(["approve", "corrected"], { result: { approved: 1, total: 2, percent: null, weak_topics: ["price"], warn: false, can_activate: true } })} topics={["Precio"]} /> },
+  { id: "trial-result-done", label: "Resultado, activado", render: () => <Result trial={trialWith(["approve", "approve", "corrected", "corrected", "unknown", "approve"])} activation={{ state: "done", failed: [] }} /> },
   { id: "gap-loading", label: "Pregunta, cargando", render: () => <Gap s={null} status="loading" /> },
   { id: "gap-real", label: "Pregunta de llamadas reales", render: () => <Gap s={session(REAL)} /> },
   { id: "gap-topic", label: "Pregunta habitual", render: () => <Gap s={session(TOPIC, { answered: 0, skipped: 0 })} /> },

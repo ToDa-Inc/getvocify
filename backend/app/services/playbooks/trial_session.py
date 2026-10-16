@@ -31,7 +31,7 @@ from app.services.playbooks.trial import (
     trial_result,
 )
 
-CHANGING = frozenset({"corrected", "never_say", "branch"})
+CHANGING = frozenset({"corrected", "never_say", "branch", "own"})
 
 
 class TrialError(Exception):
@@ -85,13 +85,15 @@ def public_trial(session: dict) -> dict:
 
 async def start_trial(
     store: AssistantStore, repository: PlaybookRepository, supabase: Any, membership: Membership, *, motion_key: str, lang: str,
-    llm: Any = None,
+    llm: Any = None, fresh: bool = False,
 ) -> dict:
-    """The company's open trial, or a new one with its cases."""
+    """The company's open trial, or a new one with its cases. With `fresh` the open one is closed first (repeating it)."""
     company_id = membership.company_id
     open_session = store.latest_open_session(company_id, "trial")
-    if open_session is not None:
+    if open_session is not None and not fresh:
         return open_session
+    if open_session is not None:
+        store.save_session(company_id, open_session["id"], state=open_session["state"], status="done")
     content, _ = draft_content(repository, company_id, motion_key)
     material = [company_context(supabase, repository, company_id)]
     material += [f"{s.get('label')}: {s.get('criterion')}" for s in content["steps"]]
@@ -160,6 +162,13 @@ async def decide_case(
     run = (state.get("runs") or {}).get(case_id)
     rerun: Optional[dict] = None
     similar_out: Optional[dict] = None
+    card = (run or {}).get("card")
+    if verdict == "approve" and card and not card.get("source_id"):
+        # Vocify's general help, approved: from now on it is the team's own answer, so it is what live help follows.
+        target = _target(run)
+        line = str(card.get("say_this") or "")
+        edit_draft(repository, company_id, motion, lambda content: apply_verdict(content, case, target, "corrected", line), lang=state.get("lang") or "es")
+        state["touched"] = list(dict.fromkeys([*(state.get("touched") or []), motion]))
     if verdict in CHANGING:
         if run is None:
             run = await _run(repository, supabase, company_id, state, case, runner)

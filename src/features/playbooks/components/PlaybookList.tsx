@@ -8,6 +8,7 @@ import { AddTypeMenu } from "@/features/playbooks/components/AddTypeMenu";
 import { GapAssistant } from "@/features/playbooks/components/GapAssistant";
 import { ImproveHub } from "@/features/playbooks/components/ImproveHub";
 import { ModelCallImport } from "@/features/playbooks/components/ModelCallImport";
+import { TrialRunner } from "@/features/playbooks/components/TrialRunner";
 import { UnderstoodSummary } from "@/features/playbooks/components/UnderstoodSummary";
 import { RuleChange } from "@/features/playbooks/components/RuleChange";
 import { TypeSetup } from "@/features/playbooks/components/TypeSetup";
@@ -27,7 +28,7 @@ import { cn } from "@/lib/utils";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 /** The improvement views that exist today (the hub only offers these). */
-const IMPROVE_VIEWS: readonly ImproveView[] = ["assistant"];
+const IMPROVE_VIEWS: readonly ImproveView[] = ["assistant", "trial"];
 
 /**
  * "Vuestro proceso" (plan §14–16) as a list and a detail: on the left "Vuestra empresa" and
@@ -322,9 +323,11 @@ export function PlaybookList() {
         <GapAssistant
           motionKey={selected === COMPANY_ROW ? null : selected}
           onChanged={() => void process.refresh()}
-          onTry={closeView}
+          onTry={() => setView("trial")}
           onBack={closeView}
         />
+      ) : view === "trial" ? (
+        <TrialRunner motionKey={selected === COMPANY_ROW ? null : selected} onChanged={() => void process.refresh()} onBack={closeView} />
       ) : (
         playbook
       )}

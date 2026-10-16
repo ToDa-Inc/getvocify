@@ -441,6 +441,8 @@ async def apply_model_call(
 class TrialRequest(BaseModel):
     motion_key: Optional[str] = None
     lang: Optional[str] = None
+    # "Repetir la prueba": close the open one and start again.
+    fresh: bool = False
 
 
 class VerdictRequest(BaseModel):
@@ -461,7 +463,9 @@ async def start_trial(
     store = _gate(supabase, membership)
     repository = get_playbook_repository()
     motion = (body.motion_key or "").strip() or _default_motion(repository, membership.company_id)
-    session = await trial_session.start_trial(store, repository, supabase, membership, motion_key=motion, lang=_lang(body.lang))
+    session = await trial_session.start_trial(
+        store, repository, supabase, membership, motion_key=motion, lang=_lang(body.lang), fresh=body.fresh,
+    )
     return trial_session.public_trial(session)
 
 

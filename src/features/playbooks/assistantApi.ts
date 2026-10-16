@@ -72,6 +72,36 @@ export type ModelCallRequest = {
   note?: string;
 };
 
+export type TrialSource = "real" | "document" | "typical";
+/** One thing a customer might say; `verdict` is what the Head of Sales decided about it (null until then). */
+export type TrialCase = { id: string; source: TrialSource; client_text: string; verdict: string | null };
+export type RunCard = { say_this: string; source_id: string | null; objection_type: string | null };
+/** What live help would show for a case: what the turn check named and the card (null when it would show nothing). */
+export type TrialRun = { detected: string; entry_id: string | null; label: string | null; card: RunCard | null; grounded: boolean };
+export type TrialResultData = {
+  approved: number;
+  total: number;
+  /** Null below three decided cases: a percentage of two says nothing. */
+  percent: number | null;
+  weak_topics: string[];
+  warn: boolean;
+  can_activate: boolean;
+};
+export type Trial = {
+  id: string;
+  motion_key: string;
+  status: "open" | "done";
+  total: number;
+  decided: number;
+  cases: TrialCase[];
+  current_id: string | null;
+  runs: Record<string, TrialRun>;
+  result: TrialResultData;
+};
+export type Verdict = "approve" | "corrected" | "unknown" | "never_say" | "branch" | "own";
+export type VerdictOutcome = { run: TrialRun | null; similar: { text: string; run: TrialRun } | null; result: TrialResultData; trial: Trial };
+export type ActivateOutcome = { published: string[]; failed: { key: string; code: string }[] };
+
 /** The API says the assistant's tables are not in the database yet: a calm "come back soon", not a failure. */
 export function isNotActivated(error: unknown): boolean {
   if (!(error instanceof ApiError) || error.status !== 503) return false;
@@ -93,6 +123,17 @@ export const assistantApi = {
     api.post<GapSession>(`${BASE}/gaps/session/${encodeURIComponent(sessionId)}/skip`, { gap_key: gapKey }),
   undoGap: (sessionId: string, gapKey: string) =>
     api.post<GapSession>(`${BASE}/gaps/session/${encodeURIComponent(sessionId)}/undo`, { gap_key: gapKey }),
+
+  startTrial: (body: { motion_key?: string; lang: "es" | "en"; fresh?: boolean }) => api.post<Trial>(`${BASE}/trial`, body, SLOW),
+  runCase: (trialId: string, caseId: string) =>
+    api.post<{ case: { id: string; source: TrialSource; client_text: string }; run: TrialRun }>(
+      `${BASE}/trial/${encodeURIComponent(trialId)}/cases/${encodeURIComponent(caseId)}/run`,
+      undefined,
+      SLOW,
+    ),
+  decide: (trialId: string, caseId: string, body: { verdict: Verdict; text?: string; when?: string }) =>
+    api.post<VerdictOutcome>(`${BASE}/trial/${encodeURIComponent(trialId)}/cases/${encodeURIComponent(caseId)}/verdict`, body, SLOW),
+  activateTrial: (trialId: string) => api.post<ActivateOutcome>(`${BASE}/trial/${encodeURIComponent(trialId)}/activate`),
 
   recentCalls: () => api.get<{ calls: RecentCall[] }>(`${BASE}/model-calls/recent`),
   proposeFromCall: (body: ModelCallRequest) => api.post<ProposeResult>(`${BASE}/model-calls/propose`, body, SLOW),

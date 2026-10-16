@@ -97,3 +97,14 @@ export function splitQuestion(question: string, example: string | null): SplitQu
   }
   return { lead: "", quote: null, ask: question };
 }
+
+export type TopicNames = { kinds: Record<string, string>; question: string; none: string; unknown: string };
+
+/** What the trial's weak topics are called: a usual kind by its name, the rest as the team's own objection is named. */
+export function topicLabel(topic: string, names: TopicNames): string {
+  if (!topic) return names.unknown;
+  if (topic === "question") return names.question;
+  if (topic === "none") return names.none;
+  if (topic === "unknown") return names.unknown;
+  return names.kinds[topic] ?? topic;
+}

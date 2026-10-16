@@ -74,6 +74,17 @@ def test_a_branch_is_added_to_the_answer_with_the_situation_that_calls_for_it():
     assert result["objections"][0]["guidance"] == "Pregunta cuánto pierden hoy. Si lo comparan con una herramienta gratuita: Enseña el ahorro de horas."
 
 
+def test_a_branch_that_does_not_fit_can_be_kept_as_an_own_objection_named_after_the_situation():
+    result = verdict(kind="own", text="Enseña el ahorro de horas.", when="Ya tenemos una herramienta gratuita que cubre eso.")
+    created = result["objections"][-1]
+    assert created["category"] == "custom" and created["trigger"] == "Ya tenemos una herramienta gratuita que cubre eso."
+    assert created["label"] == "Ya tenemos una herramienta gratuita que" and created["guidance"] == "Enseña el ahorro de horas."
+    assert result["objections"][0] == EDITOR["objections"][0]
+    assert result["entry_id"] == "objection:custom:ya_tenemos_una_herramienta_gratuita_que"
+    with pytest.raises(ValueError, match="guidance_too_long"):
+        verdict(kind="own", text="x" * (MAX_GUIDANCE + 1), when="Otra situación distinta de las demás")
+
+
 def test_an_answer_that_does_not_fit_is_refused_and_the_draft_is_untouched():
     with pytest.raises(ValueError, match="guidance_too_long"):
         verdict(text="x" * (MAX_GUIDANCE + 1))

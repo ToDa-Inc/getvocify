@@ -229,7 +229,7 @@ async def run_case(case: dict, *, snapshot: dict, knowledge: dict | None, produc
 
 # --- part 3: verdicts, result and activation -----------------------------------------------------------------
 
-VERDICTS = frozenset({"approve", "corrected", "unknown", "never_say", "branch"})
+VERDICTS = frozenset({"approve", "corrected", "unknown", "never_say", "branch", "own"})
 ACTIVATE_AT_PERCENT = 80  # a guide, not a lock: below it the Head of Sales is warned and may still activate
 MIN_FOR_PERCENT = 3
 SIMILAR_PROMPT_VERSION = "playbook_trial_similar_v1"
@@ -284,7 +284,8 @@ def apply_verdict(editor: dict, case: dict, entry_id: str | None, verdict: str, 
       approve / unknown   nothing changes;
       corrected           the answer becomes `text` (an own objection is created when there was none);
       never_say           " No digas: …" is added to the answer;
-      branch              "Si {when}: …" is added to the answer.
+      branch              "Si {when}: …" is added to the answer;
+      own                 `text` is kept as an objection of its own, named after `when` (a branch that did not fit).
     ValueError: text_required, guidance_too_long, no_answer_to_attach, too_many_custom_objections."""
     objections = [dict(o) for o in editor.get("objections") or []]
     result_id = entry_id
@@ -300,6 +301,11 @@ def apply_verdict(editor: dict, case: dict, entry_id: str | None, verdict: str, 
             if len(merged) > MAX_GUIDANCE:
                 raise ValueError("guidance_too_long")
             target["guidance"] = merged
+        elif verdict == "own":
+            if len(body) > MAX_GUIDANCE:
+                raise ValueError("guidance_too_long")
+            created, result_id = _own_objection(objections, {"client_text": when or case.get("client_text")}, body)
+            objections.append(created)
         elif verdict == "branch" and target is not None:
             target["guidance"] = add_branch(str(target.get("guidance") or ""), when or str(case.get("client_text") or "")[:BRANCH_WHEN_CHARS], body)
         else:
