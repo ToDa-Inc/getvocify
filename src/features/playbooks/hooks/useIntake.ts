@@ -1,14 +1,20 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { errorCode, playbooksApi } from "@/features/playbooks/api";
+import { assistantApi } from "@/features/playbooks/assistantApi";
 import type { SourceInput } from "@/features/playbooks/components/PlaybookStart";
+import type { FailedFile } from "@/features/playbooks/components/UnderstoodSummary";
 import { COMPANY_KEY } from "@/features/playbooks/keys";
 import { useLanguage } from "@/lib/i18n";
 import { editorFromStructure } from "@/lib/playbook-doc";
 import { draftPayload, newStepKey } from "@/lib/playbook-editor";
+import { intakeSummary, type IntakeSummary } from "@/lib/playbook-assistant";
 import { knowledgeSummary } from "@/lib/playbook-knowledge";
 
 type Fallback = { candidates: { key: string; label: string }[]; input: SourceInput };
+
+/** What several documents left in the playbook ("Esto es lo que he entendido"), until the person moves on. */
+export type Understood = { summary: IntakeSummary; failed: FailedFile[]; conflicts: boolean };
 
 /**
  * The one way in (plan §14–15): the whole document goes to Vocify, which splits it by call
@@ -25,11 +31,14 @@ export function useIntake({ refresh, onDone }: { refresh: () => Promise<unknown>
   const [fallback, setFallback] = useState<Fallback | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [picking, setPicking] = useState<string | null>(null);
+  const [understood, setUnderstood] = useState<Understood | null>(null);
+  const [failedFiles, setFailedFiles] = useState<FailedFile[]>([]);
 
   const close = () => {
     setOpen(false);
     setFallback(null);
     setNotice(null);
+    setFailedFiles([]);
   };
 
   const finish = (count: number, companyLine: string | null, openKey: string | null) => {
@@ -65,6 +74,27 @@ export function useIntake({ refresh, onDone }: { refresh: () => Promise<unknown>
     );
   };
 
+  /**
+   * Several documents at once (the playbook assistant): the server reads each, puts them together and saves once.
+   * A file it cannot read is named and the others still count. Throws on failure like `submit`.
+   */
+  const submitMany = async (inputs: SourceInput[]) => {
+    setNotice(null);
+    setFallback(null);
+    setFailedFiles([]);
+    const result = await assistantApi.intake(inputs);
+    const companyFilled = (result.company?.filled.length ?? 0) > 0;
+    if (result.types.length === 0 && !companyFilled) {
+      setFailedFiles(result.failed);
+      setNotice(result.failed.length < inputs.length || result.failed.length === 0 ? copy.reasonNoProcess : null);
+      return;
+    }
+    if (result.company) queryClient.setQueryData(COMPANY_KEY, result.company);
+    await refresh();
+    setUnderstood({ summary: intakeSummary([result]), failed: result.failed, conflicts: result.conflicts.length > 0 });
+    finish(result.types.length, null, result.types.length === 1 ? result.types[0].sales_motion_key : null);
+  };
+
   const pick = async (key: string) => {
     if (!fallback) return;
     setPicking(key);
@@ -96,7 +126,12 @@ export function useIntake({ refresh, onDone }: { refresh: () => Promise<unknown>
     setFoundCompany(null);
   };
 
-  return { open, setOpen, close, found, foundCompany, clearFound, fallback, notice, picking, submit, pick };
+  const clearUnderstood = () => setUnderstood(null);
+
+  return {
+    open, setOpen, close, found, foundCompany, clearFound, fallback, notice, picking, submit, pick,
+    submitMany, understood, clearUnderstood, failedFiles,
+  };
 }
 
 export type Intake = ReturnType<typeof useIntake>;

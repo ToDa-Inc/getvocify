@@ -16,20 +16,26 @@ export function IntakePanel({
   alone,
   name,
   onTemplate,
+  assistant = false,
+  onModelCall,
 }: {
   intake: Intake;
   /** Nothing created yet: the box is the whole section (no cancel, template link below). */
   alone: boolean;
   name: (key: string) => string;
   onTemplate: () => void;
+  /** The playbook assistant is on: several files at once, the sales script first, and a way to upload a model call. */
+  assistant?: boolean;
+  onModelCall?: () => void;
 }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
+  const c = copy.improve;
   return (
     <div className={cn("space-y-4", alone && "py-6", THEME_TOKENS.motion.fadeIn)}>
       <div className="space-y-1">
         <h3 className={THEME_TOKENS.typography.sectionTitle}>{copy.intakeTitle}</h3>
-        <p className="text-sm text-muted-foreground">{copy.intakeHint}</p>
+        <p className="text-sm text-muted-foreground">{assistant ? c.intakeScriptHint : copy.intakeHint}</p>
       </div>
       <PlaybookStart
         submit={intake.submit}
@@ -38,7 +44,27 @@ export function IntakePanel({
         readingLabel={copy.intakeReading}
         onTemplate={alone ? onTemplate : undefined}
         onCancel={alone ? undefined : intake.close}
+        multiple={assistant}
+        submitMany={assistant ? intake.submitMany : undefined}
+        manyReadingLabel={c.reading}
+        manyHint={assistant ? c.filesLimit : undefined}
       />
+      {assistant && onModelCall ? (
+        <div>
+          <Button type="button" variant="quiet" size="text" onClick={onModelCall}>
+            {c.modelCallLink}
+          </Button>
+        </div>
+      ) : null}
+      {intake.failedFiles.length ? (
+        <ul className="space-y-1" role="alert">
+          {intake.failedFiles.map((file) => (
+            <li key={file.name} className="text-[13px] text-destructive">
+              {c.fileFailed.replace("{name}", file.name)} {(file.code && copy.readErrors[file.code]) || ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {intake.notice ? (
         <p className="text-sm text-destructive" role="alert">
           {intake.notice}

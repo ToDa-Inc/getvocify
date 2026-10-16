@@ -249,6 +249,7 @@ export function usePlaybookProcess() {
     empty,
     busyKey,
     docVersion,
+    reloadDocuments,
     name,
     template,
     goalOf,

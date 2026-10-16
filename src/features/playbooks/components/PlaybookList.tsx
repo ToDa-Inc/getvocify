@@ -1,24 +1,33 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { CallTypePanel } from "@/features/playbooks/components/CallTypePanel";
 import { CompanyKnowledge } from "@/features/playbooks/components/CompanyKnowledge";
 import { IntakePanel } from "@/features/playbooks/components/IntakePanel";
 import { ProcessNav, type NavChannel, type NavItem } from "@/features/playbooks/components/ProcessNav";
 import { AddTypeMenu } from "@/features/playbooks/components/AddTypeMenu";
+import { GapAssistant } from "@/features/playbooks/components/GapAssistant";
+import { ImproveHub } from "@/features/playbooks/components/ImproveHub";
+import { ModelCallImport } from "@/features/playbooks/components/ModelCallImport";
+import { UnderstoodSummary } from "@/features/playbooks/components/UnderstoodSummary";
 import { RuleChange } from "@/features/playbooks/components/RuleChange";
 import { TypeSetup } from "@/features/playbooks/components/TypeSetup";
 import { useIntake } from "@/features/playbooks/hooks/useIntake";
 import { usePlaybookProcess } from "@/features/playbooks/hooks/usePlaybookProcess";
 import { BASE_KEYS, COMPANY_ROW } from "@/features/playbooks/keys";
+import { useAuth } from "@/features/auth";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
 import { addableTypes, publishState, publishSwitch, ruleNeeded, usedForLine } from "@/lib/playbook-doc";
+import { viewFromParams, type ImproveView } from "@/lib/playbook-assistant";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { otherChannel, railChannels, type LiveChannel } from "@/lib/type-channels";
 import { cn } from "@/lib/utils";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
+/** The improvement views that exist today (the hub only offers these). */
+const IMPROVE_VIEWS: readonly ImproveView[] = ["assistant"];
 
 /**
  * "Vuestro proceso" (plan §14–16) as a list and a detail: on the left "Vuestra empresa" and
@@ -32,9 +41,12 @@ export function PlaybookList() {
   const { t } = useLanguage();
   const copy = t.product.pb2;
   const process = usePlaybookProcess();
+  const { user } = useAuth();
+  const [params, setParams] = useSearchParams();
   const [picked, setPicked] = useState<string | null>(null);
   const [browse, setBrowse] = useState(false);
   const [deleteKey, setDeleteKey] = useState<string | null>(null);
+  const [modelOpen, setModelOpen] = useState(false);
   // Types by channel: the rail shows one channel at a time; until one is chosen, the one that has types.
   const [channelPick, setChannelPick] = useState<LiveChannel | null>(null);
   /** Opens a type, switching the rail to a channel it belongs to. */
@@ -53,6 +65,23 @@ export function PlaybookList() {
     },
   });
   const { canEdit, empty, list } = process;
+  // The playbook assistant (guided questions, trial, improvements) is on per company and only for owner and admin.
+  const assistantOn = canEdit && (user?.company?.features ?? []).includes("PLAYBOOK_ASSISTANT_ENABLED");
+  const asked = viewFromParams(params);
+  const view = assistantOn && asked && IMPROVE_VIEWS.includes(asked) ? asked : null;
+  const setView = (next: ImproveView | null) =>
+    setParams((previous) => {
+      const search = new URLSearchParams(previous);
+      if (next) search.set("view", next);
+      else search.delete("view");
+      return search;
+    });
+  /** Back to the playbook: what the assistant changed is read again. */
+  const closeView = () => {
+    setView(null);
+    void process.refresh();
+    process.reloadDocuments();
+  };
 
   if (list.isError) {
     return (
@@ -79,7 +108,7 @@ export function PlaybookList() {
   if (canEdit && empty && !browse) {
     return (
       <div className={cn(card, "px-5 md:px-7")}>
-        <IntakePanel intake={intake} alone name={process.name} onTemplate={() => setBrowse(true)} />
+        <IntakePanel intake={intake} alone name={process.name} onTemplate={() => setBrowse(true)} assistant={assistantOn} onModelCall={() => setModelOpen(true)} />
       </div>
     );
   }
@@ -114,7 +143,7 @@ export function PlaybookList() {
 
   const detail = () => {
     if (canEdit && intake.open) {
-      return <IntakePanel intake={intake} alone={false} name={process.name} onTemplate={() => setBrowse(true)} />;
+      return <IntakePanel intake={intake} alone={false} name={process.name} onTemplate={() => setBrowse(true)} assistant={assistantOn} onModelCall={() => setModelOpen(true)} />;
     }
     if (selected === COMPANY_ROW && picked !== COMPANY_ROW && !shown.length) {
       return (
@@ -192,9 +221,23 @@ export function PlaybookList() {
     );
   };
 
-  return (
+  const understood = assistantOn && intake.understood ? intake.understood : null;
+  const playbook = (
     <div className={cn(card, "space-y-4 p-4 md:p-6")}>
-      {intake.found || intake.foundCompany ? (
+      {understood ? (
+        <UnderstoodSummary
+          summary={understood.summary}
+          failed={understood.failed}
+          conflicts={understood.conflicts}
+          readError={(code) => (code && copy.readErrors[code]) || ""}
+          onNext={() => {
+            intake.clearUnderstood();
+            setView("assistant");
+          }}
+          onLater={intake.clearUnderstood}
+        />
+      ) : null}
+      {!understood && (intake.found || intake.foundCompany) ? (
         <div className={cn("space-y-0.5 bg-beige/10 px-4 py-2.5 text-sm text-foreground", THEME_TOKENS.radius.control, THEME_TOKENS.motion.fadeIn)} role="status">
           {intake.found ? <p>{intake.found === 1 ? copy.foundOne : copy.foundMany.replace("{count}", String(intake.found))}</p> : null}
           {intake.foundCompany ? (
@@ -256,6 +299,35 @@ export function PlaybookList() {
           void done.then(() => setDeleteKey(null));
         }}
       />
+    </div>
+  );
+
+  if (!assistantOn) return playbook;
+  // The call type a model call is for: the one open, else the first that has something.
+  const modelKey = selected !== COMPANY_ROW && selected ? selected : (shown[0]?.key ?? "discovery");
+  return (
+    <div className="space-y-4">
+      <ModelCallImport
+        open={modelOpen}
+        onOpenChange={setModelOpen}
+        motionKey={modelKey}
+        typeName={process.name(modelKey)}
+        onApplied={() => {
+          void process.refresh();
+          process.reloadDocuments();
+        }}
+      />
+      <ImproveHub view={view} views={IMPROVE_VIEWS} onView={(next) => (next ? setView(next) : closeView())} />
+      {view === "assistant" ? (
+        <GapAssistant
+          motionKey={selected === COMPANY_ROW ? null : selected}
+          onChanged={() => void process.refresh()}
+          onTry={closeView}
+          onBack={closeView}
+        />
+      ) : (
+        playbook
+      )}
     </div>
   );
 }

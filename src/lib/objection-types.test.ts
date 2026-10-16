@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { copyAnswerTo, draftBodyWithObjections, joinNames, objectionsAfter, setInType, typesWithObjection, typesWithPlaybook, type ObjectionLibrary } from "./objection-types.ts";
+import { MAX_GUIDANCE } from "./playbook-editor.ts";
 import { draftPayload, criteriaFromSnapshot, stepsFromSnapshot, type EditorObjection, type EditorSnapshot } from "./playbook-editor.ts";
 
 const price: EditorObjection = { category: "price", guidance: "Habla de valor", trigger: "Es caro" };
@@ -220,6 +221,6 @@ describe("draftBodyWithObjections", () => {
 
   it("returns null when the type has no steps or the answer is too long", () => {
     assert.equal(draftBodyWithObjections({ ...doc, steps: [] }, [timing]), null);
-    assert.equal(draftBodyWithObjections(doc, [{ category: "price", guidance: "x".repeat(601) }]), null);
+    assert.equal(draftBodyWithObjections(doc, [{ category: "price", guidance: "x".repeat(MAX_GUIDANCE + 1) }]), null);
   });
 });

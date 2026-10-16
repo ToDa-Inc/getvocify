@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -135,6 +136,10 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+// Development only: every state of the playbook assistant screens with made-up data (no login). The condition is a
+// build-time constant, so the page is not part of the production bundle.
+const PlaybookAssistantPreview = import.meta.env.DEV ? lazy(() => import("./pages/dev/PlaybookAssistantPreview")) : null;
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -156,6 +161,9 @@ const App = () => (
           <LandingDomainRedirect />
           <Routes>
             <Route path="/" element={<Index />} />
+            {PlaybookAssistantPreview ? (
+              <Route path="/__preview/playbook-assistant" element={<Suspense fallback={null}><PlaybookAssistantPreview /></Suspense>} />
+            ) : null}
             <Route path="/en" element={<Index />} />
             <Route path="/mcp" element={<McpPage />} />
             <Route path="/download" element={<DownloadPage />} />
