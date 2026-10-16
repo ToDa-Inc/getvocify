@@ -15,7 +15,6 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional, Protocol
 
 SESSIONS = "playbook_assistant_sessions"
-MODEL_CALLS = "playbook_model_calls"
 MOMENTS = "playbook_review_moments"
 OUTCOMES = "playbook_suggestion_outcomes"
 
@@ -56,8 +55,6 @@ def _moment_changes(fields: dict) -> dict:
 class AssistantStore(Protocol):
     """Shapes:
       session   {id, company_id, user_id, kind: gaps|trial, state, status: open|done, created_at, updated_at}
-      model call {id, company_id, user_id, sales_motion_key, name, transcript, scope, note, proposals,
-                  status: proposed|applied|dismissed, created_at}
       moment    {id, company_id, source: trial|real, sales_motion_key, entry_id, objection_type, client_text,
                  suggestion_text, rep_text, outcome, status: open|kept|corrected|dismissed, created_at, resolved_at}
       outcome   {event_id, company_id, observed_at, capture_id, sales_motion_key, entry_id, source_id,
@@ -72,12 +69,6 @@ class AssistantStore(Protocol):
 
     def save_session(self, company_id: str, session_id: str, *, state: dict, status: Optional[str] = None) -> dict:
         """Replaces the state; the status only changes when one is given. LookupError for an unknown session."""
-
-    def add_model_call(self, company_id: str, user_id: str, row: dict) -> dict: ...
-
-    def get_model_call(self, company_id: str, model_call_id: str) -> Optional[dict]: ...
-
-    def update_model_call(self, company_id: str, model_call_id: str, **fields: Any) -> dict: ...
 
     def add_moment(self, company_id: str, row: dict) -> dict: ...
 
@@ -106,13 +97,6 @@ def _session_row(company_id: str, user_id: str, kind: str, state: dict) -> dict:
     }
 
 
-def _model_call_row(company_id: str, user_id: str, row: dict) -> dict:
-    return {
-        "proposals": [], "status": "proposed", "note": None, "scope": {"kind": "whole"},
-        **row, "id": _new_id(), "company_id": company_id, "user_id": user_id, "created_at": _now(),
-    }
-
-
 def _moment_row(company_id: str, row: dict) -> dict:
     return {
         "outcome": {}, "status": "open", "resolved_at": None,
@@ -127,7 +111,6 @@ def _outcome_row(company_id: str, row: dict) -> dict:
 class InMemoryAssistantStore:
     def __init__(self) -> None:
         self.sessions: list[dict] = []
-        self.model_calls: list[dict] = []
         self.moments: list[dict] = []
         self.outcomes: dict[str, dict] = {}
 
@@ -156,22 +139,6 @@ class InMemoryAssistantStore:
         if status is not None:
             row["status"] = status
         row["updated_at"] = _now()
-        return dict(row)
-
-    def add_model_call(self, company_id, user_id, row):
-        made = _model_call_row(company_id, user_id, row)
-        self.model_calls.append(made)
-        return dict(made)
-
-    def get_model_call(self, company_id, model_call_id):
-        row = self._find(self.model_calls, company_id, model_call_id)
-        return dict(row) if row else None
-
-    def update_model_call(self, company_id, model_call_id, **fields):
-        row = self._find(self.model_calls, company_id, model_call_id)
-        if row is None:
-            raise LookupError("model_call")
-        row.update(fields)
         return dict(row)
 
     def add_moment(self, company_id, row):
@@ -259,20 +226,6 @@ class SqlAssistantStore:
         row = self._one(lambda db: db.table(SESSIONS).update(changes).eq("company_id", company_id).eq("id", session_id))
         if row is None:
             raise LookupError("session")
-        return row
-
-    def add_model_call(self, company_id, user_id, row):
-        made = _model_call_row(company_id, user_id, row)
-        self._run(lambda db: db.table(MODEL_CALLS).insert(made))
-        return made
-
-    def get_model_call(self, company_id, model_call_id):
-        return self._one(lambda db: db.table(MODEL_CALLS).select("*").eq("company_id", company_id).eq("id", model_call_id).limit(1))
-
-    def update_model_call(self, company_id, model_call_id, **fields):
-        row = self._one(lambda db: db.table(MODEL_CALLS).update(fields).eq("company_id", company_id).eq("id", model_call_id))
-        if row is None:
-            raise LookupError("model_call")
         return row
 
     def add_moment(self, company_id, row):

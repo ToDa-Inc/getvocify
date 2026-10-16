@@ -1,4 +1,4 @@
-"""The playbook assistant's storage: one contract, two implementations (memory for tests, SQL for production),
+"""The playbook assistant's storage (sessions, improvement queue, suggestion verdicts): one contract, two implementations (memory for tests, SQL for production),
 and a store that says "not activated" instead of failing when the migration 081 tables are not there yet."""
 
 from __future__ import annotations
@@ -47,17 +47,6 @@ def test_saving_a_session_replaces_its_state_and_keeps_its_status_when_none_is_g
     session = store.create_session(COMPANY, USER, "trial", {"a": 1})
     saved = store.save_session(COMPANY, session["id"], state={"a": 2})
     assert saved["state"] == {"a": 2} and saved["status"] == "open"
-
-
-def test_a_model_call_is_added_updated_and_isolated(store):
-    row = store.add_model_call(COMPANY, USER, {
-        "sales_motion_key": "discovery", "name": "Llamada buena", "transcript": "Rep: hola", "scope": {"kind": "whole"},
-    })
-    assert row["status"] == "proposed" and row["proposals"] == []
-    updated = store.update_model_call(COMPANY, row["id"], proposals=[{"id": "p1"}], status="applied")
-    assert updated["proposals"] == [{"id": "p1"}] and updated["status"] == "applied"
-    assert store.get_model_call(COMPANY, row["id"])["name"] == "Llamada buena"
-    assert store.get_model_call(OTHER, row["id"]) is None
 
 
 def test_moments_are_listed_by_status_and_updated(store):

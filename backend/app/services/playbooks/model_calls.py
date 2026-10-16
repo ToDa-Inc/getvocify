@@ -27,6 +27,7 @@ from app.services.playbooks.structured import (
     MAX_EXAMPLE,
     MAX_GUIDANCE,
     MAX_OBJECTION_LABEL,
+    MAX_TRIGGER,
     OBJECTION_CATEGORIES,
     clip_text,
 )
@@ -188,7 +189,28 @@ def apply_proposals(current: dict, proposals: list[dict]) -> dict:
     }
 
 
+def _add_own_objection(objections: list[dict], proposal: dict, label: str) -> str | None:
+    """A branch that does not fit in its answer, kept as an objection of its own: the situation is how the prospect
+    says it, the answer is the answer."""
+    label = label[:MAX_OBJECTION_LABEL]
+    if any(o.get("category") == CUSTOM_CATEGORY and str(o.get("label") or "").strip().casefold() == label.casefold() for o in objections):
+        return "already_there"
+    if sum(1 for o in objections if o.get("category") == CUSTOM_CATEGORY) >= MAX_CUSTOM_OBJECTIONS:
+        return "too_many_custom_objections"
+    text = str(proposal.get("text") or "").strip()
+    if len(text) > MAX_GUIDANCE:
+        return "guidance_too_long"
+    objections.append({
+        "category": CUSTOM_CATEGORY, "label": label,
+        "trigger": clip_text(str(proposal.get("when") or ""), MAX_TRIGGER), "guidance": text,
+    })
+    return None
+
+
 def _add_branch(objections: list[dict], proposal: dict) -> str | None:
+    own = str(proposal.get("as_custom") or "").strip()
+    if own:
+        return _add_own_objection(objections, proposal, own)
     category = str(proposal.get("category") or "").lower()
     label = str(proposal.get("label") or "").strip()
     branch = _branch(str(proposal.get("when") or ""), str(proposal.get("text") or ""))

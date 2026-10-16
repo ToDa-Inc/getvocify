@@ -96,16 +96,18 @@ Hechos del código que condicionan el diseño:
 - Todo entra como borrador del playbook y se publica con el flujo existente. Las mejoras de la fase 3 se
   acumulan en el borrador y se publican por lotes, para no crear una versión por cambio.
 
-Tablas nuevas (nombres provisionales; el SQL de activación lo ejecuta el fundador en Supabase):
+Tablas nuevas (tres; nombres provisionales; el SQL de activación lo ejecuta el fundador en Supabase):
 
 - `playbook_assistant_sessions`: estado del asistente de huecos para poder retomarlo.
-- `playbook_model_calls`: llamadas modelo importadas y lo que se extrajo de ellas.
 - `playbook_review_moments`: la cola de casos, copiados del registro para que no se pierdan a los 90 días.
 - `playbook_suggestion_outcomes`: veredicto de cada sugerencia (usada, resuelta) para el success rate.
 
 ## 6. Fase 1: volcar con ayuda
 
 ### 6.1 Entrada
+
+El **guion de ventas** es el documento principal que se pide (todo equipo tiene uno): de él salen los pasos, sus ejemplos
+reales y las respuestas a objeciones. Las llamadas modelo son un complemento, no un requisito.
 
 La caja actual ([PlaybookStart.tsx](../../../src/features/playbooks/components/PlaybookStart.tsx)) acepta un solo
 archivo. Pasa a aceptar varios, cada uno leído con el mismo `read_source` (texto, PDF, audio). Se añade el tipo
@@ -142,6 +144,9 @@ preguntas. La sesión se guarda y se retoma donde se dejó. Una empresa sin llam
 El jefe aporta transcripciones de llamadas donde se hizo bien en general, o donde se respondió bien una objeción
 concreta, para que Vocify aprenda cómo se hace y en qué momento se aplica.
 
+- **La llamada no se guarda.** Vocify la lee, propone y la descarta: no hay tabla de llamadas modelo y solo queda en el
+  playbook lo que el jefe acepta (un ejemplo de paso, una rama de una respuesta). Por eso funciona aunque las tablas
+  nuevas no estén activadas.
 - Se aportan pegando o subiendo la transcripción, o eligiendo una llamada que Vocify ya tiene.
 - El jefe indica si toda la llamada es un buen ejemplo o solo un momento, y opcionalmente por qué (voz o texto).
 - Vocify propone, sin activar nada:

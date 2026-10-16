@@ -6,6 +6,7 @@ Pure helpers over the company's motions and details (see routing.motions_and_sto
 
 from __future__ import annotations
 
+from app.services.playbooks.structured import MAX_CRITERIA, MAX_STEPS
 from app.services.playbooks.catalog import (
     CATALOG_KEYS,
     INTERNAL_KEY,
@@ -116,3 +117,53 @@ def ensure_payload(key: str, *, routing: bool, lang: str) -> dict:
         payload["label"] = catalog_label(key, lang) or None
         payload["applies_to"] = default_applies_to(key)
     return payload
+
+
+def _name(value: object) -> str:
+    return " ".join(str(value or "").split()).casefold()
+
+
+def merge_split_results(results: list[list[dict]]) -> dict[str, dict]:
+    """What several documents found, put together per call type -> {key: {key, reason, steps, objections, qualification}}.
+
+    One intake replaces a type's draft, so a second document must not wipe the first one's: steps are added in order
+    without repeating a name (at most MAX_STEPS; more marks the type "grouped"), the first answer to a fixed objection
+    stays and the company's own objections and the criteria are added by name (criteria up to MAX_CRITERIA). Pure."""
+    merged: dict[str, dict] = {}
+    for types in results:
+        for item in types:
+            into = merged.setdefault(
+                item["key"], {"key": item["key"], "reason": None, "steps": [], "objections": [], "qualification": []},
+            )
+            if item.get("reason") == "grouped":
+                into["reason"] = "grouped"
+            names = {_name(step.get("label")) for step in into["steps"]}
+            for step in item.get("steps") or []:
+                name = _name(step.get("label"))
+                if not name or name in names:
+                    continue
+                if len(into["steps"]) >= MAX_STEPS:
+                    into["reason"] = "grouped"
+                    continue
+                names.add(name)
+                into["steps"].append(dict(step))
+            keys = {_objection_key(o) for o in into["objections"]}
+            for objection in item.get("objections") or []:
+                key = _objection_key(objection)
+                if key in keys:
+                    continue
+                keys.add(key)
+                into["objections"].append(dict(objection))
+            labels = {_name(c.get("label")) for c in into["qualification"]}
+            for criterion in item.get("qualification") or []:
+                name = _name(criterion.get("label"))
+                if not name or name in labels or len(into["qualification"]) >= MAX_CRITERIA:
+                    continue
+                labels.add(name)
+                into["qualification"].append(dict(criterion))
+    return merged
+
+
+def _objection_key(objection: dict) -> str:
+    category = str(objection.get("category") or "").lower()
+    return f"custom:{_name(objection.get('label'))}" if category == "custom" else category

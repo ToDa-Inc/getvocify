@@ -74,14 +74,7 @@ async def structure_company_source(
     repository = get_playbook_repository()
     text = await read_source(body)
     lang = detect_language(text)
-    routing = routing_enabled(supabase, membership.company_id)
-    types = repository.list_types(membership.company_id, include_draft=False)
-    motions, stored = motions_and_stored(types)
-    for key, row in types.items():
-        stored[key]["recognize"] = row.get("recognize")
-    # The types the company's own Proceso de venta lists: with types by channel that list is the company's.
-    by_channel = is_enabled(supabase, membership.company_id, channel_types.FLAG)
-    candidates = candidate_types(routing, motions, stored, lang, by_channel=by_channel)
+    routing, candidates = intake_candidates(supabase, membership.company_id, repository, lang)
     source = _keep_source(repository, membership, None, body, text, lang)
     # The playbook assistant (dark by default) also keeps the product questions a document answers, and lets an
     # objection answer carry branches ("Si X: … Si Y: …").
@@ -90,7 +83,50 @@ async def structure_company_source(
     questions = [] if (result["fallback"] or not assistant) else await extract_questions(text, lang)
 
     found = {item["key"]: item for item in result["types"]}
-    items, reasons = [], {}
+    items, reasons = intake_items(found, candidates, questions, routing=routing, lang=lang)
+    if questions and not items:
+        # A product sheet has no steps: its questions go to the playbook the company already has, else to the first call type.
+        placed = _questions_only_item(repository, membership.company_id, candidates, questions, routing=routing, lang=lang)
+        items.append(placed)
+        reasons[placed["key"]] = None
+        result = {**result, "reason": None}
+    existing, merged, filled = _merge_company(repository, membership.company_id, result.get("company"))
+    source_id = (source or {}).get("id")
+    saved = {"types": [], "knowledge": None}
+    if items or filled:
+        saved = repository.save_intake(membership.company_id, items, merged if filled else None, source_id)
+    types = saved_types(repository, membership.company_id, saved, reasons)
+    return {
+        "source": source,
+        "fallback": bool(result["fallback"]),
+        # Why the model path failed ({kind, detail}), so the screen can say it instead of guessing.
+        "error": result.get("error") if result["fallback"] else None,
+        "reason": result["reason"],
+        "candidates": public_candidates(candidates),
+        "types": types,
+        "company": _company_payload(saved["knowledge"] or existing, merged, filled),
+    }
+
+
+def intake_candidates(supabase: Client, company_id: str, repository: PlaybookRepository, lang: str) -> tuple[bool, list[dict]]:
+    """(routing, the call types a document can be split into) for this company."""
+    routing = routing_enabled(supabase, company_id)
+    types = repository.list_types(company_id, include_draft=False)
+    motions, stored = motions_and_stored(types)
+    for key, row in types.items():
+        stored[key]["recognize"] = row.get("recognize")
+    # The types the company's own Proceso de venta lists: with types by channel that list is the company's.
+    by_channel = is_enabled(supabase, company_id, channel_types.FLAG)
+    return routing, candidate_types(routing, motions, stored, lang, by_channel=by_channel)
+
+
+def intake_items(
+    found: dict[str, dict], candidates: list[dict], questions: list[dict], *, routing: bool, lang: str,
+) -> tuple[list[dict], dict]:
+    """The `save_intake` items for the types a document (or several) covered, in candidate order, and each type's
+    reason. The first type also gets the product questions the document answered."""
+    items: list[dict] = []
+    reasons: dict = {}
     first_key = next((c["key"] for c in candidates if c["key"] in found), None)
     for candidate in candidates:  # candidate order (catalog order), not the model's
         item = found.get(candidate["key"])
@@ -109,38 +145,22 @@ async def structure_company_source(
             "qualification": criteria or None,
             "ensure": ensure_payload(key, routing=routing, lang=lang),
         })
-    if questions and not items:
-        # A product sheet has no steps: its questions go to the playbook the company already has, else to the first call type.
-        placed = _questions_only_item(repository, membership.company_id, candidates, questions, routing=routing, lang=lang)
-        items.append(placed)
-        reasons[placed["key"]] = None
-        result = {**result, "reason": None}
-    existing, merged, filled = _merge_company(repository, membership.company_id, result.get("company"))
-    source_id = (source or {}).get("id")
-    saved = {"types": [], "knowledge": None}
-    if items or filled:
-        saved = repository.save_intake(membership.company_id, items, merged if filled else None, source_id)
-    types = [
+    return items, reasons
+
+
+def saved_types(repository: PlaybookRepository, company_id: str, saved: dict, reasons: dict) -> list[dict]:
+    """The `types` of an intake answer: each saved type with its reason and its editor."""
+    return [
         {
             "sales_motion_key": entry["sales_motion_key"],
-            "reason": reasons[entry["sales_motion_key"]],
+            "reason": reasons.get(entry["sales_motion_key"]),
             "editor": editor_response(
                 entry["sales_motion_key"],
-                repository.editor_snapshot(membership.company_id, entry["sales_motion_key"], include_draft=True),
+                repository.editor_snapshot(company_id, entry["sales_motion_key"], include_draft=True),
             ),
         }
         for entry in saved["types"]
     ]
-    return {
-        "source": source,
-        "fallback": bool(result["fallback"]),
-        # Why the model path failed ({kind, detail}), so the screen can say it instead of guessing.
-        "error": result.get("error") if result["fallback"] else None,
-        "reason": result["reason"],
-        "candidates": public_candidates(candidates),
-        "types": types,
-        "company": _company_payload(saved["knowledge"] or existing, merged, filled),
-    }
 
 
 def _questions_only_item(

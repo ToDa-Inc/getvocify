@@ -52,7 +52,7 @@ def _remaining(state: dict) -> list[dict]:
     return [g for g in state.get("gaps") or [] if g["key"] not in done]
 
 
-def _public_gap(gap: dict) -> dict:
+def public_gap(gap: dict) -> dict:
     return {key: gap.get(key) for key in ("key", "kind", "question", "seen", "example", "motion_key")}
 
 
@@ -69,9 +69,19 @@ def public_session(session: dict) -> dict:
         "total": len(state.get("gaps") or []),
         "answered": len(state.get("answered") or {}),
         "skipped": len(state.get("skipped") or []),
-        "current": _public_gap(current) if current else None,
+        "current": public_gap(current) if current else None,
         "pending_text": (state.get("pending") or {}).get(current["key"]) if current else None,
     }
+
+
+def add_gaps(store: AssistantStore, membership: Membership, session: dict, gaps: list[Gap]) -> dict:
+    """Puts new questions at the front of an open session (what two documents disagree about is asked first),
+    skipping the ones it already has. -> the stored session."""
+    state = dict(session["state"])
+    known = {g["key"] for g in state.get("gaps") or []}
+    fresh = [g.as_dict() for g in gaps if g.key not in known]
+    state["gaps"] = fresh + list(state.get("gaps") or [])
+    return store.save_session(membership.company_id, session["id"], state=state, status="open")
 
 
 def _load(store: AssistantStore, membership: Membership, session_id: str) -> dict:
@@ -149,12 +159,13 @@ def _motion_for(repository: PlaybookRepository, company_id: str, gap: Gap, state
     return state["motion_key"]
 
 
-def _content(repository: PlaybookRepository, company_id: str, key: str) -> tuple[dict, Optional[str]]:
+def draft_content(repository: PlaybookRepository, company_id: str, key: str) -> tuple[dict, Optional[str]]:
+    """The editor content of a call type (its draft, else its published version) and the `updated_at` to save against."""
     version = repository.editor_snapshot(company_id, key, include_draft=True).get("version")
     return editor_view(version), (version or {}).get("updated_at")
 
 
-def _store_content(repository: PlaybookRepository, company_id: str, key: str, content: dict, base: Optional[str]) -> None:
+def save_content(repository: PlaybookRepository, company_id: str, key: str, content: dict, base: Optional[str]) -> None:
     repository.save_draft(
         company_id,
         key,
@@ -174,12 +185,12 @@ async def _apply_to_playbook(
     if row.get("status") in (None, "missing"):
         repository.add_type(company_id, motion, catalog_label(motion, lang) or motion)
     for attempt in (0, 1):
-        before, base = _content(repository, company_id, motion)
+        before, base = draft_content(repository, company_id, motion)
         result = await fill_playbook(motion, request, before, company_context(supabase, repository, company_id))
         if not result["changes"]:
             raise FillError("no_change")
         try:
-            _store_content(repository, company_id, motion, result, base)
+            save_content(repository, company_id, motion, result, base)
         except StaleDraftError:
             if attempt == 1:
                 raise
@@ -237,7 +248,7 @@ async def answer_gap(
     saved = _save(store, membership, session, state)
     editor = None
     if motion:
-        content, _ = _content(repository, company_id, motion)
+        content, _ = draft_content(repository, company_id, motion)
         editor = {"sales_motion_key": motion, **content}
     return {"saved_line": line, "session": public_session(saved), "editor": editor}
 
@@ -264,8 +275,8 @@ def undo_gap(store: AssistantStore, repository: PlaybookRepository, membership: 
     if undo["kind"] == "knowledge":
         repository.save_knowledge(company_id, undo["data"])
     else:
-        _, base = _content(repository, company_id, undo["motion"])
-        _store_content(repository, company_id, undo["motion"], undo, base)
+        _, base = draft_content(repository, company_id, undo["motion"])
+        save_content(repository, company_id, undo["motion"], undo, base)
     state["answered"] = {k: v for k, v in state["answered"].items() if k != gap_key}
     state["undo"] = {k: v for k, v in state["undo"].items() if k != gap_key}
     saved = store.save_session(company_id, session_id, state=state, status="open")

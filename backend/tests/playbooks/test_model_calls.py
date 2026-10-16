@@ -150,3 +150,19 @@ def test_applying_never_touches_what_it_was_not_asked_about():
     result = apply_proposals(CURRENT, [{"id": "p1", "kind": "step_example", "step_index": 7, "text": "x"}, {"id": "p2", "kind": "nope"}])
     assert result["skipped"] == [{"id": "p1", "code": "step_not_found"}, {"id": "p2", "code": "unsupported"}]
     assert result["steps"] == CURRENT["steps"] and result["objections"] == CURRENT["objections"]
+
+
+def test_a_branch_that_does_not_fit_can_become_an_own_objection_with_the_situation_as_its_trigger():
+    proposal = {
+        "id": "p1", "kind": "objection_branch", "category": "price", "when": "lo comparan con algo gratis",
+        "text": "Pregunta cuánto tiempo pierden.", "as_custom": "Es caro, usamos algo gratis",
+    }
+    result = apply_proposals(CURRENT, [proposal])
+    assert result["applied"] == ["p1"]
+    assert result["objections"][0] == CURRENT["objections"][0]
+    assert result["objections"][-1] == {
+        "category": "custom", "label": "Es caro, usamos algo gratis",
+        "trigger": "lo comparan con algo gratis", "guidance": "Pregunta cuánto tiempo pierden.",
+    }
+    again = apply_proposals(result, [proposal])
+    assert again["skipped"] == [{"id": "p1", "code": "already_there"}]
