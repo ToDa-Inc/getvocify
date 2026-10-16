@@ -504,15 +504,17 @@ async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = 
 # --- the whole company's document: which call types does it cover? ---------------------------
 
 SPLIT_PROMPT_VERSION = "playbook_split_v2"
-_SPLIT_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"{SPLIT_PROMPT_VERSION}.md"
+# The same prompt that also teaches branches ("Si X: … Si Y: …") inside one objection answer. Opt-in: the playbook
+# assistant asks for it (split_source(..., branches=True)); everyone else keeps v2.
+SPLIT_PROMPT_BRANCHES_VERSION = "playbook_split_v3"
 
 
-@lru_cache(maxsize=1)
-def _split_prompt() -> str:
-    return _SPLIT_PROMPT_PATH.read_text(encoding="utf-8")
+@lru_cache(maxsize=2)
+def _split_prompt(version: str = SPLIT_PROMPT_VERSION) -> str:
+    return (Path(__file__).resolve().parents[2] / "prompts" / f"{version}.md").read_text(encoding="utf-8")
 
 
-def _split_messages(source: str, candidates: list[dict], lang: str) -> list[dict]:
+def _split_messages(source: str, candidates: list[dict], lang: str, *, branches: bool = False) -> list[dict]:
     listing = "\n".join(
         f"- key: {c['key']} | name: {c['label']} | {c.get('description') or 'no description'}" for c in candidates
     )
@@ -522,7 +524,8 @@ def _split_messages(source: str, candidates: list[dict], lang: str) -> list[dict
         f"{_templates_block(lang)}\n\n"
         f'Source:\n"""\n{source[:MAX_SOURCE_CHARS]}\n"""'
     )
-    return [{"role": "system", "content": _split_prompt()}, {"role": "user", "content": user}]
+    prompt = _split_prompt(SPLIT_PROMPT_BRANCHES_VERSION if branches else SPLIT_PROMPT_VERSION)
+    return [{"role": "system", "content": prompt}, {"role": "user", "content": user}]
 
 
 def _shape_split(data: Any, allowed: set[str], folded_source: str, raw_source: str | None = None) -> dict:
@@ -696,7 +699,9 @@ async def _split_by_titles(
     return {"types": types, "company": company, "reason": None, "fallback": False}
 
 
-async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any = None, by_titles: bool = True) -> dict:
+async def split_source(
+    text: str, candidates: list[dict], lang: str, *, llm: Any = None, by_titles: bool = True, branches: bool = False,
+) -> dict:
     """One model call for a whole company's document. `candidates` is [{key, label,
     description?}]. -> {types: [{key, reason, steps, objections, qualification}], company:
     knowledge shape (empty when the source says nothing about the company), reason: None |
@@ -725,7 +730,7 @@ async def split_source(text: str, candidates: list[dict], lang: str, *, llm: Any
     try:
         shaped = await _ask_with_retry(
             _client(llm),
-            _split_messages(source, candidates, lang),
+            _split_messages(source, candidates, lang, branches=branches),
             lambda raw: _shape_split(raw, allowed, folded_source, source[:MAX_SOURCE_CHARS]),
             _split_generic,
             _split_note,

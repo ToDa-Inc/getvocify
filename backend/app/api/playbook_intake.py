@@ -25,6 +25,7 @@ from app.services.playbooks.api_support import (
 )
 from app.services.playbooks.fill import FillError, fill_playbook
 from app.services.playbooks.intake import candidate_types, ensure_payload, public_candidates
+from app.services.playbooks.questions import add_questions, extract_questions
 from app.services.playbooks.knowledge import merge_knowledge, sections
 from app.services.playbooks.repository import PlaybookRepository, get_playbook_repository
 from app.services.playbooks.routing import motions_and_stored, routing_enabled
@@ -34,7 +35,7 @@ from app.services.playbooks.structure import (
     split_source,
     structure_source,
 )
-from app.services.playbooks.structured import normalize_objections, normalize_qualification
+from app.services.playbooks.structured import editor_view, normalize_objections, normalize_qualification, normalize_steps
 
 logger = logging.getLogger(__name__)
 
@@ -82,10 +83,15 @@ async def structure_company_source(
     by_channel = is_enabled(supabase, membership.company_id, channel_types.FLAG)
     candidates = candidate_types(routing, motions, stored, lang, by_channel=by_channel)
     source = _keep_source(repository, membership, None, body, text, lang)
-    result = await split_source(text, candidates, lang)
+    # The playbook assistant (dark by default) also keeps the product questions a document answers, and lets an
+    # objection answer carry branches ("Si X: … Si Y: …").
+    assistant = is_enabled(supabase, membership.company_id, "PLAYBOOK_ASSISTANT_ENABLED")
+    result = await split_source(text, candidates, lang, branches=assistant)
+    questions = [] if (result["fallback"] or not assistant) else await extract_questions(text, lang)
 
     found = {item["key"]: item for item in result["types"]}
     items, reasons = [], {}
+    first_key = next((c["key"] for c in candidates if c["key"] in found), None)
     for candidate in candidates:  # candidate order (catalog order), not the model's
         item = found.get(candidate["key"])
         if item is None:
@@ -96,11 +102,19 @@ async def structure_company_source(
         items.append({
             "key": key,
             "steps": item["steps"],
-            "entries": normalize_objections(item["objections"]),
+            "entries": normalize_objections(
+                add_questions(item["objections"], questions) if questions and key == first_key else item["objections"]
+            ),
             # A document without criteria must not wipe the ones already in the draft.
             "qualification": criteria or None,
             "ensure": ensure_payload(key, routing=routing, lang=lang),
         })
+    if questions and not items:
+        # A product sheet has no steps: its questions go to the playbook the company already has, else to the first call type.
+        placed = _questions_only_item(repository, membership.company_id, candidates, questions, routing=routing, lang=lang)
+        items.append(placed)
+        reasons[placed["key"]] = None
+        result = {**result, "reason": None}
     existing, merged, filled = _merge_company(repository, membership.company_id, result.get("company"))
     source_id = (source or {}).get("id")
     saved = {"types": [], "knowledge": None}
@@ -126,6 +140,27 @@ async def structure_company_source(
         "candidates": public_candidates(candidates),
         "types": types,
         "company": _company_payload(saved["knowledge"] or existing, merged, filled),
+    }
+
+
+def _questions_only_item(
+    repository: PlaybookRepository, company_id: str, candidates: list[dict], questions: list[dict], *, routing: bool, lang: str,
+) -> dict:
+    """The intake item for a document that only answers questions: the questions added to the content of the first call
+    type that already has some (its steps and criteria stay as they are), else the first call type with nothing but them."""
+    types = repository.list_types(company_id, include_draft=True)
+    key = next((c["key"] for c in candidates if (types.get(c["key"]) or {}).get("status") in {"published", "paused", "draft"}), None)
+    if key is None:
+        key = candidates[0]["key"]
+        return {
+            "key": key, "steps": [], "entries": normalize_objections(add_questions([], questions)),
+            "qualification": None, "ensure": ensure_payload(key, routing=routing, lang=lang),
+        }
+    editor = editor_view(repository.editor_snapshot(company_id, key, include_draft=True).get("version"))
+    return {
+        "key": key, "steps": normalize_steps(editor["steps"]) if editor["steps"] else [],
+        "entries": normalize_objections(add_questions(editor["objections"], questions)),
+        "qualification": None, "ensure": None,
     }
 
 
