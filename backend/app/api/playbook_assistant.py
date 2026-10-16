@@ -11,13 +11,17 @@ Head of Sales publishes.
   POST /gaps/session, GET /gaps/session/current, POST /gaps/session/{id}/answer|skip|undo
   GET  /model-calls/recent, POST /model-calls/propose, POST /model-calls/apply
         (a model call is never stored: it is read, proposals are made, only what is accepted is kept)
+  GET  /improve/stats                coverage always; the success rate and the queue only with PLAYBOOK_SUCCESS_RATE_ENABLED
+  POST /improve/refresh, GET /improve/queue, POST /improve/queue/{moment}/action, POST /improve/publish,
+  POST /improve/outcomes/{event}/verdict
+        (judging a finished call happens here, later and in batches: never when a call ends)
 """
 
 from __future__ import annotations
 
 import functools
 import logging
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -50,12 +54,25 @@ from app.services.playbooks.assistant import (
 )
 from app.services.playbooks.assistant_store import AssistantStore, AssistantUnavailable, get_assistant_store
 from app.services.playbooks.fill import FillError
-from app.services.playbooks.gaps import detect_conflicts
+from app.services.playbooks.gaps import detect_conflicts, recent_suggest_events
 from app.services.playbooks.intake import merge_split_results, public_candidates
 from app.services.playbooks.knowledge import StaleKnowledgeError, merge_knowledge, normalize_knowledge
 from app.services.playbooks.model_calls import apply_proposals, propose
 from app.services.playbooks.questions import add_questions, extract_questions
 from app.services.playbooks.repository import PlaybookRepository, get_playbook_repository
+from app.services.playbooks.review_queue import (
+    COVERAGE_DAYS,
+    act_on_moment,
+    correct_verdict,
+    coverage_stats,
+    failing_by_answer,
+    judged_stats,
+    public_queue,
+    publish_queue_changes,
+    recent_outcomes,
+    refresh_moments,
+    refresh_outcomes,
+)
 from app.services.playbooks import trial_session
 from app.services.playbooks.structure import detect_language, split_source
 from app.services.playbooks.structured import PlaybookDraftError
@@ -66,10 +83,11 @@ from app.services.playbooks.versions import StaleDraftError
 logger = logging.getLogger(__name__)
 
 FLAG = "PLAYBOOK_ASSISTANT_ENABLED"
+SUCCESS_FLAG = "PLAYBOOK_SUCCESS_RATE_ENABLED"
 MAX_SOURCES = 8
 RECENT_CALLS = 30
 SUMMARY_CHARS = 140
-_NOT_FOUND = frozenset({"session_not_found", "gap_not_found", "call_not_found", "case_not_found"})
+_NOT_FOUND = frozenset({"session_not_found", "gap_not_found", "call_not_found", "case_not_found", "moment_not_found", "outcome_not_found"})
 # What a verdict or a transcript can be refused for: the person's words are kept and the screen says why.
 _REFUSED = frozenset({
     "empty_transcript", "transcript_too_long", "guidance_too_long", "text_required", "no_answer_to_attach",
@@ -88,6 +106,14 @@ def _gate(supabase: Client, membership: Membership) -> AssistantStore:
     if not is_enabled(supabase, membership.company_id, FLAG):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     return get_assistant_store(supabase)
+
+
+def _success_gate(supabase: Client, membership: Membership) -> AssistantStore:
+    """The gate of everything that depends on judging finished calls: the assistant's flag and the success rate's."""
+    store = _gate(supabase, membership)
+    if not is_enabled(supabase, membership.company_id, SUCCESS_FLAG):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return store
 
 
 def _mapped(fn):
@@ -544,3 +570,111 @@ async def activate_trial(
     outcome = trial_session.finish_trial(store, get_playbook_repository(), membership, session_id=session_id)
     _playbooks_changed(membership.company_id)
     return outcome
+
+
+# --- improving with use: the numbers, the later batch and the queue ---------------------------------------
+
+
+class QueueAction(BaseModel):
+    action: Literal["keep", "correct", "branch", "new_objection"]
+    text: Optional[str] = Field(default=None, max_length=4000)
+    # For a branch: the situation it is for. For a new objection: what to name it after.
+    when: Optional[str] = Field(default=None, max_length=300)
+    lang: Optional[str] = None
+
+
+class VerdictCorrection(BaseModel):
+    resolved: Literal["resolved", "not_resolved"]
+
+
+def _queue(store: AssistantStore, supabase: Client, membership: Membership) -> dict:
+    repository = get_playbook_repository()
+    return public_queue(store, repository, membership.company_id, _default_motion(repository, membership.company_id))
+
+
+@router.get("/improve/stats")
+@_mapped
+async def improve_stats(
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """{coverage} always: how much of what customers raised had an approved answer (a rate needs three cases). With the
+    success rate switched on also {success, queue}: how often a suggestion that was said settled it, and how many answers wait."""
+    store = _gate(supabase, membership)
+    body: dict = {"coverage": coverage_stats(recent_suggest_events(supabase, membership.company_id, days=COVERAGE_DAYS))}
+    if is_enabled(supabase, membership.company_id, SUCCESS_FLAG):
+        body.update(judged_stats(store, membership.company_id))
+    return body
+
+
+@router.post("/improve/refresh")
+@_mapped
+async def improve_refresh(
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """Judges the next batch of finished calls and queues the answers that keep failing -> {judged, queued}. Calling it
+    again goes on with the next batch; a card is never judged twice."""
+    store = _success_gate(supabase, membership)
+    judged = await refresh_outcomes(store, supabase, membership.company_id)
+    queued = refresh_moments(store, membership.company_id, failing_by_answer(recent_outcomes(store, membership.company_id)))
+    return {"judged": judged, "queued": queued}
+
+
+@router.get("/improve/queue")
+@_mapped
+async def improve_queue(
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """{groups, publish}: the answers that keep failing, each with what it says now and its cases, and the call types
+    with changes waiting to be published."""
+    store = _success_gate(supabase, membership)
+    return _queue(store, supabase, membership)
+
+
+@router.post("/improve/queue/{moment_id}/action")
+@_mapped
+async def improve_queue_action(
+    moment_id: str,
+    body: QueueAction,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """keep | correct | branch | new_objection on one case. The last three edit the draft (nothing goes live until
+    /improve/publish); an answer that does not fit is a 422 and the case stays open -> {status, queue}."""
+    store = _success_gate(supabase, membership)
+    repository = get_playbook_repository()
+    saved = act_on_moment(
+        store, repository, membership.company_id, moment_id, body.action, text=body.text, when=body.when,
+        default_motion=_default_motion(repository, membership.company_id), lang=_lang(body.lang),
+    )
+    return {"status": saved["status"], "queue": _queue(store, supabase, membership)}
+
+
+@router.post("/improve/publish")
+@_mapped
+async def improve_publish(
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """Publishes the drafts the queue changed -> {published, failed}. Live help reads them on its next card."""
+    store = _success_gate(supabase, membership)
+    outcome = publish_queue_changes(store, get_playbook_repository(), membership)
+    if outcome["published"]:
+        _playbooks_changed(membership.company_id)
+    return outcome
+
+
+@router.post("/improve/outcomes/{event_id}/verdict")
+@_mapped
+async def improve_outcome_verdict(
+    event_id: str,
+    body: VerdictCorrection,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """The Head of Sales says whether a suggestion settled it, whatever the judge decided -> {resolved, success, queue}."""
+    store = _success_gate(supabase, membership)
+    saved = correct_verdict(store, membership.company_id, event_id, body.resolved)
+    return {"resolved": saved["resolved"], **judged_stats(store, membership.company_id)}
