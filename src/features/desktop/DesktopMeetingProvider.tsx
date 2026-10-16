@@ -115,7 +115,7 @@ export type VocifyCallSession = {
   contact: MeetingDraft["contact"] | null;
 };
 
-type DesktopMeeting = {
+export type DesktopMeeting = {
   available: boolean;
   phase: MeetingPhase;
   elapsed: string;
@@ -171,7 +171,7 @@ const DRAIN_MS = 4000;
 /** Worst case a crash loses this much transcript. */
 const SAVE_EVERY_MS = 2000;
 
-const DesktopMeetingContext = createContext<DesktopMeeting | null>(null);
+export const DesktopMeetingContext = createContext<DesktopMeeting | null>(null);
 
 function formatElapsed(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));

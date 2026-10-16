@@ -19,6 +19,9 @@ export interface DemoClip {
 }
 
 export interface DemoScenario {
+  /** False when live help could not be set to answer as the demoed company (the migration is missing). */
+  profile_saved?: boolean;
+  profile_error?: string;
   persona: DemoPersona;
   voice: string;
   language: DemoLanguage;
@@ -31,7 +34,10 @@ export interface DemoScenarioRequest {
   niche: string;
   company: string | null;
   prospect_name: string | null;
-  context: string | null;
+  /** The company being demoed, as read from its website: live help answers as it. */
+  seller_company: string | null;
+  knowledge: DemoKnowledge | null;
+  facts: string[];
   language: DemoLanguage;
 }
 
@@ -40,14 +46,24 @@ export interface DemoReply {
   audio_b64: string;
 }
 
+export interface DemoKnowledge {
+  value_short: string;
+  differentiators: string[];
+  proofs: { customer: string; change: string }[];
+}
+
 export interface DemoUrlAnalysis {
   company: string;
   offer: string;
-  industry: string;
+  /** Who the company sells to. */
+  buyer: string;
+  knowledge: DemoKnowledge;
+  facts: string[];
 }
 
 export const demoBuyerApi = {
   analyzeUrl: (url: string) => api.post<DemoUrlAnalysis>("/demo/analyze-url", { url }),
+  clearProfile: () => api.post<{ ok: boolean }>("/demo/profile/clear"),
   createScenario: (body: DemoScenarioRequest) => api.post<DemoScenario>("/demo/scenario", body),
   reply: (scenario: DemoScenario, history: DemoTurn[], sellerText: string) =>
     api.post<DemoReply>("/demo/reply", {

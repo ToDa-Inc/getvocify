@@ -347,6 +347,10 @@ class Settings(BaseSettings):
     TYPE_BY_CHANNEL_ENABLED: bool = False
     # Demo buyer (AI buyer for sales demos): off everywhere, switched on per company for the founder's own workspace.
     DEMO_BUYER_ENABLED: bool = False
+    # Live call assistant (spec 2026-10-16): the brain's points and progress. On for everyone (Dani, 2026-10-16); a company
+    # can still be switched off with a company_feature_flags row, and LIVE_BRAIN_ENABLED=false in the environment switches it off
+    # for all. Today's live help (/copilot/turn + /copilot/suggest) stays as the fallback.
+    LIVE_BRAIN_ENABLED: bool = True
     # Playbooks v2, per company. QUALIFICATION: C04 v7 reads "what has to come out of the call"
     # criteria and the company's own objections, and the score is built from three blocks
     # (steps, qualification, objections) instead of steps alone.

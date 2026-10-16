@@ -16,6 +16,11 @@ import { useDesktopMeeting } from "./DesktopMeetingProvider";
 import { LiveAssistPanel } from "./assist/LiveAssistPanel";
 import { useLiveAssist, useLiveAssistEnabled } from "./assist/useLiveAssist";
 import { liveHelpActive } from "@/lib/live-call-type";
+import { useAuth } from "@/features/auth";
+import { LiveBrainSection } from "./live-brain/LiveBrainSection";
+
+/** The company flag of the live call assistant (one brain: points, progress, recap). Off: today's live help. */
+const LIVE_BRAIN_FLAG = "LIVE_BRAIN_ENABLED";
 
 const BAR_SHAPE = [0.45, 0.8, 1, 0.65];
 
@@ -23,7 +28,13 @@ const BAR_SHAPE = [0.45, 0.8, 1, 0.65];
 export function MeetingLiveView() {
   const meeting = useDesktopMeeting();
   const live = meeting.phase === "live";
-  const [transcriptOpen, setTranscriptOpen] = useState(true);
+  const { user } = useAuth();
+  const brainOn = Boolean(user?.company?.features?.includes(LIVE_BRAIN_FLAG));
+  // With the new live view the transcript is one of its tabs: the dock below keeps the recording controls.
+  const [transcriptOpen, setTranscriptOpen] = useState(!brainOn);
+  useEffect(() => {
+    if (brainOn) setTranscriptOpen(false);
+  }, [brainOn]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -44,7 +55,7 @@ export function MeetingLiveView() {
   const [assistOn, setAssistOn] = useLiveAssistEnabled();
   // On for this call per the remembered switch, unless the rep flipped it in the island; never on an internal call.
   const helpOn = liveHelpActive({ remembered: assistOn, override: meeting.liveHelpOverride, typeKey: meeting.callType.key });
-  const assist = useLiveAssist(meeting.turns, helpOn && live && !meeting.paused, {
+  const assist = useLiveAssist(meeting.turns, helpOn && live && !meeting.paused && !brainOn, {
     contactId: meeting.contact?.hubspotId,
     callMode: meeting.callMode,
     callId: meeting.callId,
@@ -89,6 +100,7 @@ export function MeetingLiveView() {
     <div
       className={cn(
         "mx-auto flex max-w-6xl gap-10",
+        brainOn && "flex-col lg:flex-row",
         THEME_TOKENS.motion.fadeIn,
       )}
     >
@@ -255,16 +267,24 @@ export function MeetingLiveView() {
           </div>
         </div>
       </div>
-      <div className="hidden w-[300px] shrink-0 lg:block">
-        <div className="sticky top-6 pt-3">
-          <LiveAssistPanel
-            active={assist.active}
-            thinking={assist.thinking}
-            enabled={assistOn}
-            onEnabledChange={setAssistOn}
-          />
+      {brainOn ? (
+        <div className="w-full shrink-0 lg:w-[460px]">
+          <div className="sticky top-6 pt-3">
+            <LiveBrainSection meeting={meeting} live={live} helpOn={helpOn} onHelpChange={setAssistOn} />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="hidden w-[300px] shrink-0 lg:block">
+          <div className="sticky top-6 pt-3">
+            <LiveAssistPanel
+              active={assist.active}
+              thinking={assist.thinking}
+              enabled={assistOn}
+              onEnabledChange={setAssistOn}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

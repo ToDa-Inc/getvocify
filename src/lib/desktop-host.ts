@@ -60,6 +60,8 @@ export type VocifyDesktopBridge = {
     onCallChannel?(cb: (payload: { kind: "call" | "meeting" }) => void): () => void;
     /** A choice made in the island's post-call card: { type, ...details }. */
     onPostCallAction?(cb: (action: { type: string; [key: string]: unknown }) => void): () => void;
+    /** What the rep did in the island's live call assistant (flag LIVE_BRAIN_ENABLED): responder, preguntar, resumen, tick, untick, dismiss. */
+    onLiveAction?(cb: (action: { type: string; [key: string]: unknown }) => void): () => void;
   };
   saas: {
     request(payload: Record<string, unknown>): Promise<{

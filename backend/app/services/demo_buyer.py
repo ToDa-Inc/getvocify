@@ -20,6 +20,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 
 from app.config import settings
+from app.services import demo_profile
 from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
@@ -65,9 +66,11 @@ def _headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
 
-async def _chat(client: httpx.AsyncClient, messages: list[dict], *, max_tokens: int, json_mode: bool = False) -> str:
+async def _chat(
+    client: httpx.AsyncClient, messages: list[dict], *, max_tokens: int, json_mode: bool = False, model: str = CHAT_MODEL
+) -> str:
     body: dict[str, Any] = {
-        "model": CHAT_MODEL,
+        "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
         "reasoning": {"effort": "none"},
@@ -115,25 +118,49 @@ def persona_system_prompt(persona: dict, language: str) -> str:
     )
 
 
+def _seller_block(brief: dict) -> str:
+    """What the company being demoed is, from its website: the only facts an answer may rest on."""
+    knowledge = brief.get("knowledge") or {}
+    parts = [f"Seller company: {brief.get('seller_company') or '(not named)'}", f"Seller offer: {brief['offer']}"]
+    if knowledge.get("value_short"):
+        parts.append(f"Value in one line: {knowledge['value_short']}")
+    if knowledge.get("differentiators"):
+        parts.append("Differentiators: " + "; ".join(str(x) for x in knowledge["differentiators"]))
+    for proof in knowledge.get("proofs") or []:
+        parts.append(f"Customer proof: {proof.get('customer', '')} {proof.get('change', '')}".strip())
+    if brief.get("facts"):
+        parts.append("Facts from its website:\n- " + "\n- ".join(str(x) for x in brief["facts"]))
+    return "\n".join(parts)
+
+
 async def build_scenario(brief: dict) -> dict:
-    """Persona, opening line and objection deck for one prospect, with every line already spoken."""
+    """The demo for one company: a buyer from its customers, an opening and an objection deck, every line already
+    spoken, and for each objection the approved answer the seller's live help will follow (from its facts only)."""
     language = brief.get("language") or "es"
     lang = LANGUAGE_NAMES.get(language, LANGUAGE_NAMES["es"])
+    kinds = "|".join([*demo_profile.FIXED_KINDS, "custom"])
     prompt = (
-        "Design a realistic BUYER for a sales-demo roleplay. Return JSON only with keys: "
+        "Design a sales-demo roleplay. A seller (the company below) calls a BUYER who is a typical customer of it. "
+        "Return JSON only with keys: "
         "persona {name (a common first name and surname for the language and country), gender (male or female, "
-        "matching the name), role, company, background (2 sentences, includes team size and current tools)}, "
+        "matching the name), role, company, background (2 sentences, includes team size and what they use today)}, "
         "opening (the buyer's first line when picking up the phone, one short sentence), "
-        f"objections (a list of {MAX_OBJECTIONS} items {{label (2-3 words, e.g. Precio), line (what the buyer "
-        "says, 1-2 short sentences, specific to this industry)}}). Cover price, needing a partner or boss, an "
-        "existing tool, no time, send-me-info, and trust/risk. "
-        f"All spoken text in {lang}.\n"
-        f"Seller offer: {brief['offer']}\nBuyer industry: {brief['niche']}\n"
-        f"Buyer company: {brief.get('company') or 'invent one'}\nBuyer name: {brief.get('prospect_name') or 'invent one'}"
-        + (f"\nWhat the buyer's company does (from its website; keep the background and objections true to it): {brief['context']}" if brief.get("context") else "")
+        f"objections (a list of {MAX_OBJECTIONS} items {{label (2-3 words, e.g. Precio), category ({kinds}), "
+        "line (what the buyer says, 1-2 short sentences, about THIS seller's product and the buyer's real situation), "
+        "guidance (how the SELLER should answer it, 2-3 sentences in imperative: acknowledge it, then one concrete move; "
+        "use ONLY the seller facts below, never invent numbers, prices, customers, certifications or promises, and when "
+        "a fact is missing answer with a question that finds out the buyer's need)}). "
+        "Cover price, needing a partner or boss, what they use today, no time, send-me-info, and risk/trust, each as it "
+        "would really sound for this product. "
+        f"All text in {lang}.\n\n{_seller_block(brief)}\n\n"
+        f"Buyer segment (who the seller sells to): {brief['niche']}\n"
+        f"Buyer company: {brief.get('company') or 'invent one that fits the segment'}\n"
+        f"Buyer name: {brief.get('prospect_name') or 'invent one'}"
     )
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-        raw = await _chat(client, [{"role": "user", "content": prompt}], max_tokens=900, json_mode=True)
+        raw = await _chat(
+            client, [{"role": "user", "content": prompt}], max_tokens=2200, json_mode=True, model=ANALYZE_MODEL
+        )
         try:
             data = extract_json(raw)
             persona = data["persona"]
@@ -144,7 +171,13 @@ async def build_scenario(brief: dict) -> dict:
                 raise ValueError("gender")
             opening = str(data["opening"])
             objections = [
-                {"label": str(o["label"]), "line": str(o["line"])} for o in data["objections"][:MAX_OBJECTIONS]
+                {
+                    "label": str(o["label"]),
+                    "category": str(o.get("category") or "custom"),
+                    "line": str(o["line"]),
+                    "guidance": str(o["guidance"]),
+                }
+                for o in data["objections"][:MAX_OBJECTIONS]
             ]
         except (KeyError, TypeError, ValueError) as exc:
             raise DemoBuyerError("scenario JSON was not usable") from exc
@@ -157,9 +190,17 @@ async def build_scenario(brief: dict) -> dict:
         "language": language,
         "opening": {"id": "opening", "label": "Apertura", "line": opening, "audio_b64": audios[0]},
         "objections": [
-            {"id": f"obj-{i + 1}", **o, "audio_b64": audios[i + 1]} for i, o in enumerate(objections)
+            {"id": f"obj-{i + 1}", "label": o["label"], "line": o["line"], "guidance": o["guidance"], "audio_b64": audios[i + 1]}
+            for i, o in enumerate(objections)
         ],
         "mime": "audio/wav",
+        # Not for the page: stored, so live help answers as this company while the demo runs.
+        "profile": demo_profile.profile_from(
+            company=brief.get("seller_company") or "",
+            offer=brief["offer"],
+            knowledge=brief.get("knowledge") or {},
+            objections=objections,
+        ),
     }
 
 
@@ -265,20 +306,24 @@ def page_summary_text(html: str) -> str:
 
 
 async def analyze_url(url: str) -> dict:
-    """What a company's website says it sells, who it serves and what it is called."""
+    """What a company's website says: who it is, what it sells, who it sells to and the facts an answer may use."""
     text = page_summary_text(await _fetch_page(url.strip()))
     if len(text.strip()) < 40:
         raise DemoBuyerError("No he podido leer texto en esa web")
     prompt = (
-        "From this website text, return JSON only with keys: company (the brand name), offer (what they sell and "
-        "to whom, in 1-2 plain sentences, in the language of the site), industry (the segment they work in or "
-        "serve, 3-8 words, in the language of the site). Use only what the text says; if a key is not stated, "
-        "use an empty string.\n\nWebsite text:\n" + text
+        "From this website text, return JSON only with keys: "
+        "company (the brand name), offer (what they sell, 1-2 plain sentences), "
+        "buyer (who they sell to: their typical customers, 3-10 words), "
+        "value_short (the value in one line), differentiators (up to 5 short items), "
+        "proofs (up to 3 items {customer, change} ONLY if the text names a customer and a result), "
+        "facts (up to 12 short verifiable facts: products, features, numbers, certifications, markets). "
+        "Use ONLY what the text says, in the language of the site; never invent or complete. "
+        "If something is not stated use an empty string or an empty list.\n\nWebsite text:\n" + text
     )
     body = {
         "model": ANALYZE_MODEL,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 300,
+        "max_tokens": 900,
         "response_format": {"type": "json_object"},
         "reasoning": {"effort": "none"},
     }
@@ -288,6 +333,25 @@ async def analyze_url(url: str) -> dict:
         raise DemoBuyerError(f"analyze {resp.status_code}: {resp.text[:200]}")
     try:
         data = extract_json(resp.json()["choices"][0]["message"]["content"] or "")
-        return {k: str(data.get(k) or "").strip() for k in ("company", "offer", "industry")}
+
+        def items(key: str, limit: int) -> list[str]:
+            return [str(x).strip() for x in (data.get(key) or []) if str(x).strip()][:limit]
+
+        proofs = [
+            {"customer": str(p.get("customer") or "").strip(), "change": str(p.get("change") or "").strip()}
+            for p in (data.get("proofs") or [])
+            if isinstance(p, dict) and (p.get("customer") or p.get("change"))
+        ][:3]
+        return {
+            "company": str(data.get("company") or "").strip(),
+            "offer": str(data.get("offer") or "").strip(),
+            "buyer": str(data.get("buyer") or "").strip(),
+            "knowledge": {
+                "value_short": str(data.get("value_short") or "").strip(),
+                "differentiators": items("differentiators", 5),
+                "proofs": proofs,
+            },
+            "facts": items("facts", 12),
+        }
     except (KeyError, IndexError, ValueError, TypeError) as exc:
         raise DemoBuyerError("No he entendido esa web") from exc

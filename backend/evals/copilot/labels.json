@@ -1,0 +1,167 @@
+{
+ "about": "The decision a person says is right at a moment of a real call. A label is anchored by `said` (words of the turn, matched to the first turn of the other side that contains them), never by turn id. expect.decision: responder | reconducir | aplazar | cerrar | null (a point with no decision: only the honest answer) | none (no point should come from that turn). `confirmed` is true only once Dani set or accepted it: the agreement gate is provisional until then. Generate a sheet to label from with `python -m evals.copilot.label_sheet run.json`.",
+ "labels": [
+  {
+   "call": "proto",
+   "said": "yo se lo reenviaré a la directora comercial",
+   "expect": {
+    "decision": "reconducir"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude, from the spec's table and the playbook's authority entry (ask what worries the decision maker, then meet with both)"
+  },
+  {
+   "call": "proto",
+   "said": "mándame un email",
+   "expect": {
+    "decision": "cerrar"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: the team's own «Mándame información por email» entry says to offer 15 minutes tomorrow; the playbook wins"
+  },
+  {
+   "call": "proto",
+   "said": "competidor que se llama igual",
+   "expect": {
+    "decision": null
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: a question whose fact is not in the company's knowledge: the honest line, no decision"
+  },
+  {
+   "call": "proto",
+   "said": "tiempo lleváis",
+   "expect": {
+    "decision": null
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: since when is not in the knowledge"
+  },
+  {
+   "call": "proto",
+   "said": "tú eres el fundador",
+   "expect": {
+    "decision": "responder"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: the prototype answers it from the playbook's trust entry"
+  },
+  {
+   "call": "proto",
+   "said": "cuántos sois",
+   "expect": {
+    "decision": null
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: team size is not in the knowledge"
+  },
+  {
+   "call": "proto",
+   "said": "mándame una convocatoria de reunión",
+   "expect": {
+    "decision": "cerrar"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: spec's example for cerrar («Vale, hablemos» → propose a day)"
+  },
+  {
+   "call": "proto",
+   "said": "Es mi email es",
+   "expect": {
+    "decision": "none"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: giving an email address is not a question or an objection"
+  },
+  {
+   "call": "5c013cf3",
+   "said": "me lo enseñas",
+   "expect": {
+    "decision": "cerrar"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: they ask to be shown: the spec's cerrar (propose a day)"
+  },
+  {
+   "call": "5c013cf3",
+   "said": "mañana por la mañana igual sí que puedo",
+   "expect": {
+    "decision": "cerrar"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: they offer a slot: propose the concrete next step"
+  },
+  {
+   "call": "5c013cf3",
+   "said": "cuántos sois",
+   "expect": {
+    "decision": "null"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: team size is not in the knowledge: honest line, no decision"
+  },
+  {
+   "call": "916d1bd8",
+   "said": "tenemos un CRM que es custom",
+   "expect": {
+    "decision": "aplazar"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: the spec's own example of aplazar: note the name and version, validate before the meeting"
+  },
+  {
+   "call": "aafe089b",
+   "said": "un CRM custom ahora mismo",
+   "expect": {
+    "decision": "aplazar"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: same: a CRM of their own"
+  },
+  {
+   "call": "aafe089b",
+   "said": "cuánto cuesta eso",
+   "expect": {
+    "decision": "responder"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: the discovery playbook says to give the price honestly, so price is a responder for this company"
+  },
+  {
+   "call": "3dd93bcc",
+   "said": "no soy yo quien toma esas decisiones",
+   "expect": {
+    "decision": "reconducir"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: the authority entry: ask who approves and what worries them"
+  },
+  {
+   "call": "0a187842",
+   "said": "tengo 2, no, más",
+   "expect": {
+    "decision": "none"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: they are answering the rep's question with information, not asking or pushing back"
+  },
+  {
+   "call": "aafe089b",
+   "said": "dedico unas 4 o 5 horas diarias",
+   "expect": {
+    "decision": "none"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: information about themselves in answer to a question"
+  },
+  {
+   "call": "512ea713",
+   "said": "50 interacciones por día",
+   "expect": {
+    "decision": "none"
+   },
+   "confirmed": false,
+   "proposed_by": "Claude: information about themselves in answer to a question"
+  }
+ ]
+}

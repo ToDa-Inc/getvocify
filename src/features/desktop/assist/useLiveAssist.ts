@@ -33,7 +33,7 @@ function note(name: string, details: Record<string, unknown> = {}) {
  * Whether the prospect has paused: true once their side has been quiet for PAUSE_MS, false while
  * they speak, null until their audio has been heard at all (then live help reads only the words).
  */
-function useProspectPause(level: number | undefined) {
+export function useProspectPause(level: number | undefined) {
   const heardRef = useRef(false);
   /** When their audio last went quiet (null while they speak or before it was heard): for the event log. */
   const quietSinceRef = useRef<number | null>(null);

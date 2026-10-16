@@ -1,0 +1,37 @@
+{
+  "points_result": {
+    "type": "result", "producer": "points", "state_version": 3, "cursor": "t7:58", "playbook_version_id": "pv-1",
+    "points": [
+      {
+        "id": "pt-1a2b3c4d", "is_update": false, "kind": "question", "tag_key": "question", "tag": null,
+        "title": "¿se integra con HubSpot?", "turn_ids": ["t6"], "said_at": 41.5, "repeated": false, "outcome": "open",
+        "decision": "responder", "decision_note": null, "answer": "Sí, se integra con HubSpot: lo que se dice en la llamada queda en el CRM.",
+        "fallback": null, "gap": null, "source": {"id": "knowledge", "label": "Company knowledge"}
+      },
+      {
+        "id": "pt-9f8e7d6c", "is_update": false, "kind": "objection", "tag_key": "status_quo", "tag": null,
+        "title": "usamos Salesforce y no queremos cambiar", "turn_ids": ["t7"], "said_at": 52, "repeated": false, "outcome": "open",
+        "decision": "reconducir", "decision_note": "Antes de comparar: falta el dolor", "answer": "¿Qué proceso os cuesta más hoy con vuestro Salesforce?",
+        "fallback": null, "gap": null, "source": {"id": "objection:status_quo", "label": "Playbook · Status quo"}
+      },
+      {"id": "pt-0a0b0c0d", "is_update": true, "turn_ids": ["t2", "t7"], "repeated": true}
+    ],
+    "closed": [{"id": "pt-55555555", "outcome": "answered", "why": "El comercial lo explicó"}],
+    "nothing": false, "guards": {"unknown_source": 1}, "model": "direct:deepseek-ai/DeepSeek-V4.1-Flash", "latency_ms": 640
+  },
+  "progress_result": {
+    "type": "result", "producer": "progress", "state_version": 3, "cursor": "t7:58", "playbook": {"key": "discovery", "name": "Llamada en frío"},
+    "has_playbook": true,
+    "steps": [{"id": "apertura_con_marco", "status": "done", "by": "brain", "quote": "soy Toni, fundador de Vocify", "turn_ids": ["t1"]}],
+    "data": [{"id": "crm_que_usan", "value": "Salesforce", "quote": "usamos Salesforce", "turn_ids": ["t7"], "reread": false}],
+    "goal": null,
+    "now": {"kind": "step", "id": "plantear_el_problema", "say": "Lo que vemos en los equipos de campo es que el CRM se deja para luego."},
+    "missing": ["plantear_el_problema", "volumen_de_interacciones"],
+    "aids": {"steps": {"apertura_con_marco": {"concept": "Preséntate y di que será breve", "live": true}}, "data": {"crm_que_usan": {"question": "¿Qué CRM usáis?"}}},
+    "guards": {}, "model": "direct:deepseek-ai/DeepSeek-V4.1-Flash", "latency_ms": 1800
+  },
+  "recap_result": {
+    "type": "result", "producer": "recap", "state_version": 3, "up_to": "t7",
+    "lines": ["Javier es CEO de Kaira.", "Usan Salesforce y no quieren cambiar."], "unknown": ["N.º de comerciales", "Quién decide la compra"], "guards": {}
+  }
+}

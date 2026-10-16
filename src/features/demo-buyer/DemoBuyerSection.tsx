@@ -23,9 +23,7 @@ import {
   type DemoTurn,
 } from "@/lib/demo-session";
 import { useLanguage } from "@/lib/i18n";
-import { demoBuyerApi, type DemoClip, type DemoLanguage, type DemoScenario } from "./api";
-
-type UrlKind = "prospect" | "offer";
+import { demoBuyerApi, type DemoClip, type DemoKnowledge, type DemoLanguage, type DemoScenario } from "./api";
 
 const SCENARIO_KEY = "vocify_demo_scenario";
 const OFFER_KEY = "vocify_demo_offer";
@@ -67,20 +65,16 @@ function loadSaved(): DemoScenario | null {
   }
 }
 
-/** One web address: reading it fills every field the site answers, for the prospect's company or for your own. */
+/** One web address: the company the demo is for. Reading it fills every field the site answers. */
 function UrlFill({
   value,
   onChange,
-  kind,
-  onKind,
   busy,
   copy,
   onRead,
 }: {
   value: string;
   onChange: (value: string) => void;
-  kind: UrlKind;
-  onKind: (kind: UrlKind) => void;
   busy: boolean;
   copy: Record<string, string>;
   onRead: () => void;
@@ -106,15 +100,6 @@ function UrlFill({
           {copy.demoRead}
         </Button>
       </div>
-      <Segmented
-        aria-label={copy.demoUrlKind}
-        value={kind}
-        onValueChange={onKind}
-        options={[
-          { value: "prospect", label: copy.demoUrlProspect },
-          { value: "offer", label: copy.demoUrlOffer },
-        ]}
-      />
     </div>
   );
 }
@@ -134,9 +119,9 @@ export default function DemoBuyerSection() {
   // Off by default: the browser's speech recognition takes the mic, which can leave the desktop recording with silence.
   const [free, setFree] = useState(false);
   const [url, setUrl] = useState("");
-  const [urlKind, setUrlKind] = useState<UrlKind>("prospect");
   const [reading, setReading] = useState(false);
-  const [context, setContext] = useState("");
+  // What the site said about the company being demoed: sent back so live help answers as it, from those facts only.
+  const [site, setSite] = useState<{ company: string; knowledge: DemoKnowledge; facts: string[] } | null>(null);
   const [mic, setMic] = useState<MicState>("idle");
   const [heard, setHeard] = useState("");
   const [played, setPlayed] = useState<Set<string>>(new Set());
@@ -269,13 +254,9 @@ export default function DemoBuyerSection() {
     setReading(true);
     try {
       const out = await demoBuyerApi.analyzeUrl(url.trim());
-      if (urlKind === "offer") {
-        setForm((f) => ({ ...f, offer: out.offer || f.offer, company: f.company }));
-      } else {
-        setForm((f) => ({ ...f, niche: out.industry || f.niche, company: out.company || f.company }));
-        setContext(out.offer);
-      }
-      if (!out.offer && !out.industry && !out.company) toast.error(copy.demoUrlEmpty);
+      setForm((f) => ({ ...f, offer: out.offer || f.offer, niche: out.buyer || f.niche }));
+      setSite({ company: out.company, knowledge: out.knowledge, facts: out.facts });
+      if (!out.offer && !out.buyer && !out.company) toast.error(copy.demoUrlEmpty);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     } finally {
@@ -297,7 +278,9 @@ export default function DemoBuyerSection() {
         niche: form.niche.trim(),
         company: form.company.trim() || null,
         prospect_name: form.name.trim() || null,
-        context: context.trim() || null,
+        seller_company: site?.company || null,
+        knowledge: site?.knowledge ?? null,
+        facts: site?.facts ?? [],
         language: form.language,
       });
       try {
@@ -306,6 +289,7 @@ export default function DemoBuyerSection() {
         /* too large to keep: prepared again next time */
       }
       await loadScenario(next);
+      if (next.profile_saved === false) toast.error(next.profile_error || copy.demoProfileMissing);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     } finally {
@@ -315,6 +299,7 @@ export default function DemoBuyerSection() {
 
   const reset = () => {
     mute();
+    void demoBuyerApi.clearProfile().catch(() => undefined);
     try {
       localStorage.removeItem(SCENARIO_KEY);
     } catch {
@@ -404,8 +389,6 @@ export default function DemoBuyerSection() {
           <UrlFill
             value={url}
             onChange={setUrl}
-            kind={urlKind}
-            onKind={setUrlKind}
             busy={reading}
             copy={copy as unknown as Record<string, string>}
             onRead={() => void readUrl()}
@@ -460,6 +443,7 @@ export default function DemoBuyerSection() {
         }
       >
         <p className="p-4 text-sm text-muted-foreground">{scenario.persona.background}</p>
+        {scenario.profile_saved ? <p className="border-t border-dashed border-border/60 p-3 text-xs text-muted-foreground">{copy.demoProfileActive}</p> : null}
       </SettingsSection>
 
       <SettingsSection
