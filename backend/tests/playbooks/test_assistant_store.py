@@ -1,5 +1,5 @@
 """The playbook assistant's storage (sessions, improvement queue, suggestion verdicts): one contract, two implementations (memory for tests, SQL for production),
-and a store that says "not activated" instead of failing when the migration 081 tables are not there yet."""
+and a store that says "not activated" instead of failing when the migration 082 tables are not there yet."""
 
 from __future__ import annotations
 

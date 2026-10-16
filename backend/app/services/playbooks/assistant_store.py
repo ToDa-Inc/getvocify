@@ -1,4 +1,4 @@
-"""Storage of the playbook assistant (migration 081): the assistant's sessions, the model calls a Head of Sales
+"""Storage of the playbook assistant (migration 082): the assistant's sessions, the model calls a Head of Sales
 imports, the improvement queue and the verdict of each live-help suggestion.
 
 One contract, two implementations: `InMemoryAssistantStore` for tests, `SqlAssistantStore` over the Supabase table
@@ -23,7 +23,7 @@ _MISSING_TABLE_MARKERS = ("does not exist", "could not find the table", "pgrst20
 
 
 class AssistantUnavailable(Exception):
-    """The assistant's tables are not in the database yet (migration 081 not applied)."""
+    """The assistant's tables are not in the database yet (migration 082 not applied)."""
 
     code = "not_activated"
 

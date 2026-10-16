@@ -1,8 +1,8 @@
 # Playbook de ventas: volcado asistido y perfeccionamiento con el uso
 
 Fecha: 2026-10-16
-Estado: borrador para revisión de Toni. Nada de esto está construido.
-Plan de implementación: se escribe después de que este spec esté aprobado.
+Estado: implementado en `main` (commits de Toni, 16 oct 2026), apagado por flags y sin push. Falta activarlo: ver sección 13.
+Plan de implementación: `docs/superpowers/plans/2026-10-16-playbook-volcado-y-perfeccionamiento.md`.
 
 ## 1. Objetivo
 
@@ -289,8 +289,9 @@ Mensaje para Dani en el apéndice A.
   resto de llamadas por-llamada (DeepSeek en Together). No se usa Gemini en pruebas.
 - Nunca se escribe en HubSpot: las pruebas y reprocesados solo leen.
 - Las pantallas nuevas se verifican en el navegador con Reticle antes de darlas por hechas.
-- Es un cambio grande: va a la rama `staging` para que se pruebe en staging.getvocify.com. Las tablas nuevas
-  llevan un SQL de activación para que lo ejecute el fundador; el agente no tiene acceso para crear tablas.
+- Es un cambio grande: la norma del repo lo lleva a la rama `staging`; Toni pidió meterlo directamente en `main`
+  (todo apagado por flags). Las tablas nuevas llevan un SQL de activación para que lo ejecute el fundador; el agente
+  no tiene acceso para crear tablas.
 - Varias sesiones comparten la carpeta: cada commit lleva solo los archivos propios.
 
 ## 12. Preguntas abiertas
@@ -310,8 +311,9 @@ No quedan preguntas abiertas. El tope por respuesta se decidió en 1.200 caracte
 > 2. Muchas preguntas técnicas del producto entrarán como entradas `custom` (hasta 200). No son objeciones: no
 >    deberían contar como "objeción no manejada".
 > 3. Los pasos tendrán `example` con ejemplos reales sacados de llamadas buenas. Sirven para juzgar intención.
-> 4. Habrá una tabla de llamadas modelo (transcripciones que el jefe marca como buen ejemplo, con el momento y el
->    porqué). Puedes usarla como referencia de "así se hace bien".
+> 4. Las llamadas modelo NO se guardan: se leen una vez, Vocify propone qué conservar (un ejemplo real para un
+>    paso, una rama de una respuesta) y solo lo que el jefe acepta entra en el playbook como `example` o rama.
+>    No hay tabla de llamadas modelo.
 > 5. Medimos por respuesta si el comercial dijo lo sugerido y si resolvió la objeción o la duda (success rate).
 >    Tu "¿el playbook funciona?" compara lo mismo. Mejor una sola función y una sola tabla de veredictos para los
 >    dos. Dinos qué criterio de "resuelta" usas.
@@ -322,4 +324,39 @@ No quedan preguntas abiertas. El tope por respuesta se decidió en 1.200 caracte
 > 8. Nuestro success rate depende de saber quién habla en la transcripción guardada. Si cambias esa asignación,
 >    avísanos.
 > 9. Archivos: nosotros en `services/playbooks/`, `api/playbook_*` y `features/playbooks/`; tú en
->    `services/coaching/`. Migraciones: ya hay dos `080_*`; pongámonos de acuerdo en los números siguientes.
+>    `services/coaching/`. Migraciones: ya hay dos `080_*` y una `081_demo_profiles`; la nuestra es la `082`
+>    (`082_playbook_assistant`). Si añades otra `082`, renumera la tuya o la nuestra: solo hay que decirlo.
+> 10. El informe semanal del Head of Sales gana un bloque opcional `playbook_improvement` (solo con los dos flags
+>     y solo si hay respuestas que fallan): `team_snapshot(..., playbook_improvement=None)` y una sección en los dos
+>     renderers del email. No cambia su contrato. La página del informe en la app aún no lo pinta.
+
+## 13. Estado de la implementación (16 oct 2026)
+
+Hecho, en `main`, con tests (backend `tests/playbooks` y `tests/reporting`, front `src/lib/*.test.ts`):
+
+- Fase 1: preguntas guiadas («Lo que falta»), varios documentos a la vez con fusión en servidor, resumen de lo
+  entendido, llamada modelo sin guardar, tope de respuesta en 1.200 caracteres.
+- Fase 2: «La prueba» (10–12 casos, corrección, rama, «nunca digas esto», frase parecida) con el mismo motor de
+  la ayuda en directo llamado con el borrador; activación con aviso por debajo del 80%.
+- Fase 3: cobertura, success rate, cola de respuestas que fallan (≥3 casos en 30 días), acciones sobre cada caso,
+  publicar por lotes, corrección de veredictos por el jefe y bloque en el informe semanal.
+- Los veredictos NO se calculan al cerrar una llamada: se calculan después, por lotes de 40 (botón «Actualizar» o
+  `backend/scripts/refresh_playbook_outcomes.py`), solo sobre llamadas con más de 6 horas y con su lectura posterior.
+- No se tocó la ayuda en directo, ni coaching, ni el escritorio (comprobado con `git diff`).
+
+Decisiones de implementación que se apartan del texto de arriba:
+
+- Migración `082` (no `081`): la `081` pasó a ser `081_demo_profiles`.
+- Una respuesta pertenece a un tipo de llamada: «Precio» de Descubrimiento y de Cierre se cuentan aparte.
+- La barra de publicación nombra los tipos con cambios pendientes en lugar de «Publicar mejoras (3)».
+- Sin el flag del success rate «Mejoras con el uso» muestra solo la cobertura; la cola, el botón Actualizar y la
+  publicación desde la cola necesitan `PLAYBOOK_SUCCESS_RATE_ENABLED`.
+
+Pendiente de Toni / el fundador (ver `docs/superpowers/plans/2026-10-16-activacion-playbook-asistente.sql`):
+
+1. Ejecutar el SQL de las 3 tablas (082) y acordar el número con Dani.
+2. Encender `PLAYBOOK_ASSISTANT_ENABLED` para una empresa de prueba y probarlo de punta a punta.
+3. La hoja de viabilidad del success rate (`backend/evals/outcomes/README.md`) con llamadas reales: no se ha
+   generado (necesita datos de producción y 20 etiquetas a mano). Hasta que dé «SIGUE», el flag se queda apagado.
+4. Las pantallas se vieron en la página de previsualización de desarrollo (claro, oscuro y móvil), no contra la
+   página real del Playbook ni con Reticle (sin sesión de prueba).

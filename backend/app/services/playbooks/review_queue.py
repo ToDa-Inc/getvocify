@@ -160,15 +160,16 @@ async def refresh_outcomes(
     how many were judged. Call it again for the next batch. Cards are judged a few at a time; a card the model could
     not read is stored as unknown rather than lost, and the Head of Sales can still correct it."""
     since = (_now(now) - timedelta(days=days)).isoformat()
-    events = _candidate_events(supabase, company_id, since)
-    judged = store.judged_event_ids(company_id, [str(e["id"]) for e in events])
+    # supabase-py is synchronous: every read and write goes through a thread so a batch never holds the event loop.
+    events = await asyncio.to_thread(_candidate_events, supabase, company_id, since)
+    judged = await asyncio.to_thread(store.judged_event_ids, company_id, [str(e["id"]) for e in events])
     pending = [e for e in events if str(e["id"]) not in judged]
     ready: list[tuple[dict, dict]] = []
     for start in range(0, len(pending), MEMO_CHUNK):
         if len(ready) >= limit:
             break
         chunk = pending[start : start + MEMO_CHUNK]
-        memos = _memos(supabase, company_id, sorted({str(e["capture_id"]) for e in chunk}))
+        memos = await asyncio.to_thread(_memos, supabase, company_id, sorted({str(e["capture_id"]) for e in chunk}))
         for event in chunk:
             memo = memos.get(str(event["capture_id"]))
             if len(ready) < limit and ready_for_judging(event, memo, now=now):
@@ -178,7 +179,7 @@ async def refresh_outcomes(
     async def judge(event: dict, memo: dict) -> None:
         async with gate:
             verdict = await outcome_for_event(event, memo, llm=llm)
-        store.upsert_outcome(company_id, verdict)
+        await asyncio.to_thread(store.upsert_outcome, company_id, verdict)
 
     await asyncio.gather(*(judge(event, memo) for event, memo in ready))
     return len(ready)

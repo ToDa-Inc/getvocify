@@ -2,7 +2,7 @@
 what they know into the playbook, and improve it with use.
 
 Owner/admin only and dark behind PLAYBOOK_ASSISTANT_ENABLED (404 for a company without it). Until the tables of
-migration 081 exist the answer is 503 `not_activated`. Nothing here publishes: every change lands in the draft of
+migration 082 exist the answer is 503 `not_activated`. Nothing here publishes: every change lands in the draft of
 a call type (or, for a figure two documents disagree about, in the company notes) and reaches the team when the
 Head of Sales publishes.
 
@@ -20,10 +20,12 @@ Head of Sales publishes.
 from __future__ import annotations
 
 import functools
+import inspect
 import logging
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from supabase import Client
 
@@ -117,12 +119,15 @@ def _success_gate(supabase: Client, membership: Membership) -> AssistantStore:
 
 
 def _mapped(fn):
-    """The domain errors of this module as the HTTP answers the screens understand."""
+    """The domain errors of this module as the HTTP answers the screens understand. A handler that awaits nothing is a plain
+    `def` and runs in the threadpool, so its database calls never hold the event loop every request shares."""
 
     @functools.wraps(fn)
     async def wrapper(*args, **kwargs):
         try:
-            return await fn(*args, **kwargs)
+            if inspect.iscoroutinefunction(fn):
+                return await fn(*args, **kwargs)
+            return await run_in_threadpool(fn, *args, **kwargs)
         except AssistantUnavailable as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={"code": "not_activated"}) from exc
         except AssistantError as exc:
@@ -304,7 +309,7 @@ async def create_gaps_session(
 
 @router.get("/gaps/session/current")
 @_mapped
-async def current_gaps_session(
+def current_gaps_session(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
@@ -330,7 +335,7 @@ async def answer_gaps_session(
 
 @router.post("/gaps/session/{session_id}/skip")
 @_mapped
-async def skip_gaps_session(
+def skip_gaps_session(
     session_id: str,
     body: GapKeyRequest,
     supabase: Client = Depends(get_supabase),
@@ -342,7 +347,7 @@ async def skip_gaps_session(
 
 @router.post("/gaps/session/{session_id}/undo")
 @_mapped
-async def undo_gaps_session(
+def undo_gaps_session(
     session_id: str,
     body: GapKeyRequest,
     supabase: Client = Depends(get_supabase),
@@ -399,7 +404,7 @@ def _memo_transcript(supabase: Client, company_id: str, memo_id: str) -> str:
 
 @router.get("/model-calls/recent")
 @_mapped
-async def recent_calls(
+def recent_calls(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
@@ -434,7 +439,7 @@ async def propose_from_model_call(
 
 @router.post("/model-calls/apply")
 @_mapped
-async def apply_model_call(
+def apply_model_call(
     body: ApplyRequest,
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
@@ -504,7 +509,7 @@ def _trial(store: AssistantStore, membership: Membership, session_id: str) -> di
 
 @router.get("/trial/{session_id}")
 @_mapped
-async def get_trial(
+def get_trial(
     session_id: str,
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
@@ -548,7 +553,7 @@ async def decide_trial_case(
 
 @router.get("/trial/{session_id}/result")
 @_mapped
-async def trial_result(
+def trial_result(
     session_id: str,
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
@@ -559,7 +564,7 @@ async def trial_result(
 
 @router.post("/trial/{session_id}/activate")
 @_mapped
-async def activate_trial(
+def activate_trial(
     session_id: str,
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
@@ -594,7 +599,7 @@ def _queue(store: AssistantStore, supabase: Client, membership: Membership) -> d
 
 @router.get("/improve/stats")
 @_mapped
-async def improve_stats(
+def improve_stats(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
@@ -623,7 +628,7 @@ async def improve_refresh(
 
 @router.get("/improve/queue")
 @_mapped
-async def improve_queue(
+def improve_queue(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
@@ -635,7 +640,7 @@ async def improve_queue(
 
 @router.post("/improve/queue/{moment_id}/action")
 @_mapped
-async def improve_queue_action(
+def improve_queue_action(
     moment_id: str,
     body: QueueAction,
     supabase: Client = Depends(get_supabase),
@@ -654,7 +659,7 @@ async def improve_queue_action(
 
 @router.post("/improve/publish")
 @_mapped
-async def improve_publish(
+def improve_publish(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
@@ -668,7 +673,7 @@ async def improve_publish(
 
 @router.post("/improve/outcomes/{event_id}/verdict")
 @_mapped
-async def improve_outcome_verdict(
+def improve_outcome_verdict(
     event_id: str,
     body: VerdictCorrection,
     supabase: Client = Depends(get_supabase),

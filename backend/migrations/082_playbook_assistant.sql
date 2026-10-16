@@ -6,8 +6,8 @@
 --   playbook_suggestion_outcomes one verdict per live-help card: did the rep say it, did it settle the objection or doubt.
 -- Service role only (the app talks to them from the backend). The app does nothing until these tables exist.
 -- A model call's transcript is never stored: it is read, proposals are made, and only what the Head of Sales accepts is kept (in the playbook).
--- NUMBER: 081 is the next free one in this folder; agree it with whoever else is adding migrations (there are two 080_*).
--- Rollback: 081_playbook_assistant.down.sql
+-- NUMBER: 082. 081 is taken by 081_demo_profiles (and there are two 080_*): if someone else adds a 082 meanwhile, renumber this file.
+-- Rollback: 082_playbook_assistant.down.sql
 
 BEGIN;
 
