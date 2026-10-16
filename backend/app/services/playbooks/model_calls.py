@@ -152,7 +152,7 @@ async def propose(transcript: str, scope: dict, note: str, current: dict, lang: 
     return {"proposals": shape_proposals(raw, text, current), "speaker_warning": speaker_warning(text)}
 
 
-def _branch(when: str, text: str) -> str:
+def branch_text(when: str, text: str) -> str:
     when = re.sub(r"^\s*si\s+", "", when.strip(), flags=re.IGNORECASE).rstrip(" .:;,")
     text = text.strip()
     if text and text[-1].isalnum():
@@ -213,7 +213,7 @@ def _add_branch(objections: list[dict], proposal: dict) -> str | None:
         return _add_own_objection(objections, proposal, own)
     category = str(proposal.get("category") or "").lower()
     label = str(proposal.get("label") or "").strip()
-    branch = _branch(str(proposal.get("when") or ""), str(proposal.get("text") or ""))
+    branch = branch_text(str(proposal.get("when") or ""), str(proposal.get("text") or ""))
     if category == CUSTOM_CATEGORY:
         target = next(
             (o for o in objections if o.get("category") == CUSTOM_CATEGORY and str(o.get("label") or "").strip().casefold() == label.casefold()),
