@@ -148,6 +148,23 @@ def _objections_block(digest: dict) -> str:
     return _section("Objeciones que te pusieron", f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">{rows}</table>')
 
 
+def _improvement_block(snapshot: dict, report_href: str) -> str:
+    """The playbook answers that keep failing and the link to fix them (the Head of Sales' weekly report only)."""
+    block = snapshot.get("playbook_improvement")
+    items = block.get("items") if isinstance(block, dict) else None
+    if not items:
+        return ""
+    rows = "".join(
+        f'<tr><td style="font-size:14px;color:{INK};padding:7px 0;border-bottom:1px solid {LINE}">{escape(str(item.get("label") or ""))}</td>'
+        f'<td style="font-size:13px;color:{MUTED};padding:7px 0;border-bottom:1px solid {LINE};text-align:right;white-space:nowrap">'
+        f'{int(item.get("failing") or 0)} de {int(item.get("total") or 0)} sin éxito</td></tr>'
+        for item in items
+    )
+    href = report_href.split("/dashboard/")[0] + str(block.get("link") or "")
+    link = f'<p style="margin:12px 0 0"><a href="{escape(href)}" style="color:{ACCENT};font-size:14px;font-weight:600">Revisarlas en el playbook</a></p>'
+    return _section("Respuestas que conviene afinar", f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">{rows}</table>{link}')
+
+
 ROLE_ES = {"sdr": "SDR", "ae": "AE", "general": "General"}
 
 
@@ -194,6 +211,7 @@ def render(snapshot: dict, *, report_href: str, title: str) -> str:
         _team_block(digest, feedback) if team else "",
         _process_block(digest),
         _objections_block(digest),
+        _improvement_block(snapshot, report_href),
         f'<tr><td style="padding:26px 0 0"><a href="{escape(report_href)}" style="display:inline-block;background:{ACCENT};'
         f'color:#fff;text-decoration:none;border-radius:999px;padding:11px 20px;font-size:14px;font-weight:600">Ver el informe completo</a></td></tr>',
     ]

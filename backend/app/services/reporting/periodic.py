@@ -25,6 +25,7 @@ from app.services.reporting.daily_snapshot import (
 from app.services.reporting.delivery import deliver_report, persist_report_delivery
 from app.services.reporting.due_sends import MADRID, _failed_retry_due
 from app.services.reporting.preferences import TEAM_ROLES, is_opted_in, load_preference_rows
+from app.services.reporting.playbook_block import playbook_improvement_for
 from app.services.reporting.presentation import email_html_for_snapshot, email_subject
 from app.services.reporting.resend_sender import report_resend_sender
 from app.services.reporting.weekly import (
@@ -271,6 +272,7 @@ def ensure_team_weekly_report(
         generated_at=now,
         channels=channels,
         competitors=competitors,
+        playbook_improvement=playbook_improvement_for(supabase, company_id, now=now),
     )
     trend = _team_trend(supabase, company_id, role=role, now=now, timezone=timezone, load_trend=load_trend)
     if trend:

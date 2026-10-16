@@ -165,6 +165,20 @@ def _objections_block(snapshot: dict) -> str:
     return f"{objection_html}{competitors_html}"
 
 
+def _improvement_rows(snapshot: dict, origin: str) -> str:
+    block = snapshot.get("playbook_improvement")
+    items = block.get("items") if isinstance(block, dict) else None
+    if not items:
+        return ""
+    rows = "".join(
+        f"<tr><th>{escape(str(item.get('label') or ''))}</th>"
+        f"<td>{int(item.get('failing') or 0)} de {int(item.get('total') or 0)} sin éxito</td></tr>"
+        for item in items
+    )
+    href = escape(origin + str(block.get("link") or ""))
+    return f'<p>Respuestas que conviene afinar</p><table>{rows}</table><p><a href="{href}">Revisarlas en el playbook</a></p>'
+
+
 MONTHS_ES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic")
 SAMPLE_NOTE_ES = "* Menos de cinco conversaciones puntuadas: sin conclusión."
 
@@ -231,6 +245,7 @@ def email_html_for_snapshot(snapshot: dict, *, report_id: str, app_origin: str =
         f"<table>{rows}{_flow_rows(snapshot)}</table>"
         f"{_trend_block(snapshot)}"
         f"{_objections_block(snapshot)}"
+        f"{_improvement_rows(snapshot, origin)}"
         f"{coaching_block}"
         f"{examples_block}"
         f"<p><a href=\"{report_href}\">Ver informe</a></p>"

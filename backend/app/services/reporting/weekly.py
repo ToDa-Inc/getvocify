@@ -157,6 +157,7 @@ def team_snapshot(
     generated_at: datetime,
     channels: dict[str, int] | None = None,
     competitors: list[dict] | None = None,
+    playbook_improvement: dict | None = None,
 ) -> dict:
     """C18 shape from the team panel aggregate. No per-rep numbers, names or example conversations."""
     adherence = team_body.get("adherence")
@@ -194,4 +195,6 @@ def team_snapshot(
     }
     if competitors:
         snapshot["competitors"] = list(competitors)
+    if playbook_improvement:
+        snapshot["playbook_improvement"] = playbook_improvement
     return snapshot

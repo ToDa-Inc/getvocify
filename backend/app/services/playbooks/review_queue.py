@@ -190,7 +190,7 @@ async def refresh_outcomes(
 _EDITS = {"correct": "corrected", "branch": "branch", "new_objection": "own"}
 
 
-def _answer_of(repository: PlaybookRepository, company_id: str, motion: str, answer_key: str) -> Optional[dict]:
+def answer_of(repository: PlaybookRepository, company_id: str, motion: str, answer_key: str) -> Optional[dict]:
     """What the approved answer says now (its draft, else the published one) -> {category, label, guidance}; None when it is gone."""
     content, _ = draft_content(repository, company_id, motion)
     found = _find_objection(content.get("objections") or [], answer_key)
@@ -221,7 +221,7 @@ def public_queue(store: AssistantStore, repository: PlaybookRepository, company_
     shown = []
     for group in groups:
         motion = group["sales_motion_key"] or default_motion
-        shown.append({**group, "answer": _answer_of(repository, company_id, motion, group["answer_key"]), "moments": [_public_moment(m) for m in group["moments"]]})
+        shown.append({**group, "answer": answer_of(repository, company_id, motion, group["answer_key"]), "moments": [_public_moment(m) for m in group["moments"]]})
     return {"groups": shown, "publish": pending_publish(store, repository, company_id)}
 
 
