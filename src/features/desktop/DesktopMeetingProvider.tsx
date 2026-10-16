@@ -20,6 +20,7 @@ import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/
 import { api } from "@/shared/lib/api-client";
 import { liveTickets } from "./liveTickets";
 import { ROUTES } from "@/shared/lib/constants";
+import { overlayWithSpeaking } from "@/lib/typing-bubbles";
 import { SteadyTails } from "@/lib/steady-tail";
 import { openRepMic, serverEchoCancel, type EchoCancellation } from "@/lib/rep-mic";
 import {
@@ -143,6 +144,8 @@ type DesktopMeeting = {
   callType: { key: string | null; proposed: boolean };
   /** How live help should treat the call, from the platform that caught it. */
   callMode: "softphone" | "meeting";
+  /** This recording's id (its draft's), the same for everything live help logs about the call; null before one starts. */
+  callId: string | null;
   /** The rep switched live help on or off for this call only; null follows the remembered setting. */
   liveHelpOverride: boolean | null;
   start: () => Promise<void>;
@@ -282,6 +285,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   // `attempts` per channel (a switch starts them again), `total` for the whole call.
   const proposalRef = useRef({ attempts: 0, total: 0, lastConfident: false, busy: false });
   const [callMode, setCallMode] = useState<"softphone" | "meeting">("meeting");
+  const [callId, setCallId] = useState<string | null>(null);
   const [liveHelpOverride, setLiveHelpOverride] = useState<boolean | null>(null);
 
   const phaseRef = useRef<MeetingPhase>("idle");
@@ -310,6 +314,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   /** What the island shows of the words still being transcribed (see SteadyTails). */
   const steadyRef = useRef(new SteadyTails());
   const overlaySentRef = useRef("");
+  /** Sides the server says are talking (or whose chunk is being transcribed), for the island's waiting dots. */
+  const speakingRef = useRef<{ rep: boolean; prospect: boolean }>({ rep: false, prospect: false });
   const ctxRef = useRef<AudioContext | null>(null);
   const micRef = useRef<MediaStream | null>(null);
   /** The desktop app captures the mic with the call (raw, on the call audio's clock): the server takes the echo out. */
@@ -444,7 +450,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (nativeRef.current) return;
     const view = steadyRef.current.view(state, performance.now());
     const prospect = vocifyCallRef.current?.contact?.name ?? null;
-    const update = { lastLine: meetingLastLine(view), overlay: meetingOverlay(view, { prospect }) };
+    const overlay = meetingOverlay(view, { prospect });
+    const update = {
+      lastLine: meetingLastLine(view),
+      overlay: { ...overlay, turns: overlayWithSpeaking(overlay.turns, speakingRef.current, prospect?.trim() || null) },
+    };
     const sent = JSON.stringify(update);
     if (sent === overlaySentRef.current) return;
     overlaySentRef.current = sent;
@@ -506,6 +516,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     levelRef.current = { you: 0, them: 0 };
     setLevels({ you: 0, them: 0 });
     setSpeaking({ you: false, them: false });
+    speakingRef.current = { rep: false, prospect: false };
     healthRef.current = null;
     callAudioDiedRef.current = false;
     audioIssueRef.current = null;
@@ -533,6 +544,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       reconnectsRef.current = 0;
       setWarning(null);
       setSpeaking({ you: false, them: false });
+      speakingRef.current = { rep: false, prospect: false };
     };
     ws.onmessage = (event) => {
       let data: {
@@ -580,7 +592,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         if (next !== transcriptRef.current) updateTranscript(next);
       } else if (data.type === "Speaking") {
         const side = data.audio_channel === "rep" ? "you" : data.audio_channel === "prospect" ? "them" : null;
-        if (side) setSpeaking((prev) => (prev[side] === Boolean(data.active) ? prev : { ...prev, [side]: Boolean(data.active) }));
+        if (side) {
+          setSpeaking((prev) => (prev[side] === Boolean(data.active) ? prev : { ...prev, [side]: Boolean(data.active) }));
+          const channel = side === "you" ? "rep" : "prospect";
+          if (speakingRef.current[channel] !== Boolean(data.active)) {
+            speakingRef.current = { ...speakingRef.current, [channel]: Boolean(data.active) };
+            sendOverlay(transcriptRef.current);
+          }
+        }
       } else if (data.type === "ChannelReset") {
         const next = resetChannel(transcriptRef.current, data.audio_channel, data.from);
         if (next !== transcriptRef.current) updateTranscript(next);
@@ -601,7 +620,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         if (phaseRef.current === "live" && wsRef.current === ws) openSocket();
       }, 1000 * reconnectsRef.current);
     };
-  }, [updateTranscript]);
+  }, [updateTranscript, sendOverlay]);
 
   const drainSocket = useCallback(async () => {
     const ws = wsRef.current;
@@ -1195,6 +1214,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       allTypesRef.current = null;
       applyCallType(NO_CALL_TYPE);
       setCallMode(assistCallMode(callKind(draftRef.current ?? {})));
+      setCallId(draftRef.current.id);
       setLiveHelpOverride(null);
       endPostCall();
       clearNotes();
@@ -1704,6 +1724,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       contact,
       callType: shownCallType,
       callMode,
+      callId,
       liveHelpOverride,
       start: startMeeting,
       startHere,
@@ -1714,7 +1735,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

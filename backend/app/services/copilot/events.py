@@ -87,7 +87,7 @@ def clean_server_timing(timing: Any) -> Optional[dict]:
 
 def turn_row(
     *, user_id: str, company_id: Optional[str], sales_motion_key: Optional[str], latest_turn: str,
-    reading: dict, check_ms: int, timing: Any = None,
+    reading: dict, check_ms: int, timing: Any = None, capture_id: Optional[str] = None,
 ) -> Optional[dict]:
     """The row for a turn check; None when the same words were already logged with the same verdict. A check that
     found the prospect still going is logged too: how often it happens, and on which words, is what shows whether
@@ -104,7 +104,7 @@ def turn_row(
         "sales_motion_key": sales_motion_key or None, "latest_turn": text or None,
         "finished": reading.get("finished"), "objection": reading.get("objection"),
         "entry_id": reading.get("entry_id"), "check_ms": check_ms, "client": clean_timing(timing),
-        "prompt_version": PROMPT_VERSION, "build": _build(),
+        "capture_id": _clip(capture_id, 128), "prompt_version": PROMPT_VERSION, "build": _build(),
     }
 
 

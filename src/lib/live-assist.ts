@@ -11,6 +11,8 @@ export type AssistContext = {
   contactId?: string;
   /** How the call happens (a phone call or a meeting), from the platform that caught it. */
   callMode?: "softphone" | "meeting";
+  /** The recording's id, to tie what live help logs to its call. */
+  callId?: string;
   /** The call's type: help uses that playbook. */
   typeKey?: string;
   /** The objection already on screen (from the turn check): the answer is written for it. */

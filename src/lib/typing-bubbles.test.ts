@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { typingPlacement } from "./typing-bubbles";
+import { WAITING_WORDS, overlayWithSpeaking, typingPlacement } from "./typing-bubbles";
 
 describe("typingPlacement", () => {
   it("shows nothing while nobody is speaking", () => {
@@ -21,5 +21,33 @@ describe("typingPlacement", () => {
 
   it("handles both talking at once: the last turn's speaker inside, the other after it", () => {
     expect(typingPlacement([{ speaker: "rep" }], { rep: true, prospect: true })).toEqual({ insideLast: true, extra: ["prospect"] });
+  });
+});
+
+describe("overlayWithSpeaking (the island)", () => {
+  const turn = (you: boolean, text: string, pending = "") => ({ key: `${you}-${text}`, you, label: you ? null : "Ana", text, pending });
+
+  it("changes nothing while nobody is speaking", () => {
+    const turns = [turn(false, "Hola")];
+    expect(overlayWithSpeaking(turns, {}, "Ana")).toBe(turns);
+  });
+
+  it("marks the last turn as waiting for words when its speaker talks", () => {
+    const out = overlayWithSpeaking([turn(true, "Hola"), turn(false, "Dime")], { prospect: true }, "Ana");
+    expect(out.map((t) => t.pending)).toEqual(["", WAITING_WORDS]);
+  });
+
+  it("adds a waiting turn for a speaker with no turn at the end, named like the prospect, and one before anything is said", () => {
+    expect(overlayWithSpeaking([turn(true, "Hola")], { prospect: true }, "Ana")).toEqual([
+      turn(true, "Hola"),
+      { key: "speaking-prospect", you: false, label: "Ana", text: "", pending: WAITING_WORDS },
+    ]);
+    expect(overlayWithSpeaking([], { rep: true }, null)).toEqual([{ key: "speaking-rep", you: true, label: null, text: "", pending: WAITING_WORDS }]);
+  });
+
+  it("leaves words that are already settling alone, and never shows text (a no-break space trims away)", () => {
+    const turns = [turn(false, "Dime", "algo")];
+    expect(overlayWithSpeaking(turns, { prospect: true }, "Ana")).toBe(turns);
+    expect(WAITING_WORDS.trim()).toBe("");
   });
 });
