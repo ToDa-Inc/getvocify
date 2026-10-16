@@ -144,6 +144,8 @@ type DesktopMeeting = {
   callType: { key: string | null; proposed: boolean };
   /** How live help should treat the call, from the platform that caught it. */
   callMode: "softphone" | "meeting";
+  /** This recording's id (its draft's), the same for everything live help logs about the call; null before one starts. */
+  callId: string | null;
   /** The rep switched live help on or off for this call only; null follows the remembered setting. */
   liveHelpOverride: boolean | null;
   start: () => Promise<void>;
@@ -283,6 +285,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   // `attempts` per channel (a switch starts them again), `total` for the whole call.
   const proposalRef = useRef({ attempts: 0, total: 0, lastConfident: false, busy: false });
   const [callMode, setCallMode] = useState<"softphone" | "meeting">("meeting");
+  const [callId, setCallId] = useState<string | null>(null);
   const [liveHelpOverride, setLiveHelpOverride] = useState<boolean | null>(null);
 
   const phaseRef = useRef<MeetingPhase>("idle");
@@ -1211,6 +1214,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       allTypesRef.current = null;
       applyCallType(NO_CALL_TYPE);
       setCallMode(assistCallMode(callKind(draftRef.current ?? {})));
+      setCallId(draftRef.current.id);
       setLiveHelpOverride(null);
       endPostCall();
       clearNotes();
@@ -1720,6 +1724,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       contact,
       callType: shownCallType,
       callMode,
+      callId,
       liveHelpOverride,
       start: startMeeting,
       startHere,
@@ -1730,7 +1735,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

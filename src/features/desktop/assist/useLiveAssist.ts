@@ -82,6 +82,8 @@ export type LiveAssistCall = {
   contactId?: string | null;
   /** From the platform that caught the call. */
   callMode?: "softphone" | "meeting";
+  /** The recording's id: every event live help logs carries it, so it can be tied to its call. */
+  callId?: string | null;
   /** The call's type: help uses that playbook. */
   typeKey?: string | null;
   /** Their side's audio level (0–1): when it goes quiet is when they may have finished. */
@@ -117,6 +119,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
         ...found,
         ...(call.contactId && { contactId: call.contactId }),
         ...(call.callMode && { callMode: call.callMode }),
+        ...(call.callId && { callId: call.callId }),
         ...(call.typeKey && { typeKey: call.typeKey }),
       }
     : null;

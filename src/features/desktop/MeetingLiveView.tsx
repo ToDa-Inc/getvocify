@@ -47,6 +47,7 @@ export function MeetingLiveView() {
   const assist = useLiveAssist(meeting.turns, helpOn && live && !meeting.paused, {
     contactId: meeting.contact?.hubspotId,
     callMode: meeting.callMode,
+    callId: meeting.callId,
     typeKey: meeting.callType.key,
     prospectLevel: meeting.levels.them,
   });

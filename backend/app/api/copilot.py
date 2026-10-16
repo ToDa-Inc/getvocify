@@ -55,6 +55,8 @@ class SuggestRequest(BaseModel):
     call_mode: Literal["speakerphone", "softphone", "meeting"] = "speakerphone"
     speaker_role: Literal["prospect", "rep", "unknown"] = "unknown"
     capture_id: Optional[str] = Field(default=None, max_length=128)
+    # The live recording's id (its draft's), only for the event log: unlike capture_id it never loads a stored capture.
+    call_id: Optional[str] = Field(default=None, max_length=128)
     contact_id: Optional[str] = Field(default=None, max_length=128)
     request_id: Optional[str] = Field(default=None, max_length=128)
     # The call's type, decided once for the call (Vocify's guess or proposal, or the rep's pick).
@@ -73,6 +75,7 @@ class TurnRequest(BaseModel):
     transcript_window: str = Field(..., max_length=20000)
     latest_turn: str = Field(..., max_length=4000)
     sales_motion_key: Optional[str] = Field(default=None, max_length=64)
+    call_id: Optional[str] = Field(default=None, max_length=128)
     # What the client saw as the check started (which rule fired it, how long their audio was quiet, how long since
     # the words changed): only logged, after the known keys are checked. Never used to decide anything.
     timing: Optional[dict] = Field(default=None)
@@ -300,7 +303,7 @@ async def suggest_objection_handling(
         events.record(supabase, events.suggest_row(
             user_id=membership.user_id, company_id=membership.company_id, sales_motion_key=motion,
             call_mode=body.call_mode, latest_turn=body.latest_turn, objection_type=body.objection_type,
-            entry_id=body.entry_id, capture_id=body.capture_id, result=trail["result"],
+            entry_id=body.entry_id, capture_id=body.capture_id or body.call_id, result=trail["result"],
             restarted=trail["restarted"], error=trail["error"],
             playbook_version_id=grounding.playbook_version_id if grounding else None,
             # Where the time before the model went, on the server: reading what the card needs, and from where.
@@ -358,7 +361,7 @@ async def check_turn(
         events.turn_row(
             user_id=user_id, company_id=playbook_objections.company_of(user_id), sales_motion_key=motion,
             latest_turn=body.latest_turn, reading=reading, check_ms=int((time.perf_counter() - started) * 1000),
-            timing=body.timing,
+            timing=body.timing, capture_id=body.call_id,
         ),
     )
     return reading

@@ -109,6 +109,30 @@ def test_a_finished_turn_is_logged_with_what_the_check_said(monkeypatch):
     assert isinstance(row["check_ms"], int) and row["prompt_version"] == events.PROMPT_VERSION
 
 
+def test_a_turn_check_and_its_card_carry_the_recordings_id(monkeypatch):
+    _classifier(monkeypatch)
+    monkeypatch.setattr(playbook_objections, "custom_for", lambda *_a: {})
+    db = FakeDb()
+    client = _client(db)
+    client.post("/api/v1/copilot/turn", json={
+        "transcript_window": "Them: caro", "latest_turn": "caro", "sales_motion_key": "discovery", "call_id": "draft-9",
+    })
+    assert db.inserted[0]["capture_id"] == "draft-9"
+    result = {"type": "result", "model": "m", "latency_ms": 1,
+              "suggestion": {"is_objection": True, "objection_type": "price", "say_this": "Vale."}}
+    _stub_suggest(monkeypatch, [result])
+    client.post("/api/v1/copilot/suggest", json={**SUGGEST, "capture_id": None, "call_id": "draft-9"})
+    assert db.inserted[1]["capture_id"] == "draft-9"
+
+
+def test_a_stored_capture_wins_over_the_recordings_id_in_the_log(monkeypatch):
+    result = {"type": "result", "model": "m", "latency_ms": 1, "suggestion": {"is_objection": False, "say_this": ""}}
+    _stub_suggest(monkeypatch, [result])
+    db = FakeDb()
+    _client(db).post("/api/v1/copilot/suggest", json={**SUGGEST, "call_id": "draft-9"})
+    assert db.inserted[0]["capture_id"] == "cap-1"
+
+
 def test_a_check_that_found_them_still_going_is_logged_and_so_is_the_check_that_follows_it(monkeypatch):
     monkeypatch.setattr(playbook_objections, "custom_for", lambda *_a: {})
     db = FakeDb()
