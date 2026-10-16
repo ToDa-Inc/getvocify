@@ -20,7 +20,7 @@ export const MAX_STEPS = 15;
 export const MAX_LABEL = 80;
 export const MAX_CRITERION = 400;
 export const MAX_EXAMPLE = 300;
-export const MAX_GUIDANCE = 600;
+export const MAX_GUIDANCE = 1200;
 
 export type EditorStep = {
   /** Client-side key for React lists; never sent. */

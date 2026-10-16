@@ -168,3 +168,11 @@ def test_an_invalid_draft_is_422_with_a_code(client_for):
     response = client_for().put("/api/v1/playbooks/discovery/draft", json={"steps": [], "objections": []})
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "no_steps"
+
+
+def test_answer_accepts_1200_characters_and_rejects_1201():
+    ok = normalize_objections([{"category": "price", "guidance": "x" * 1200}])
+    assert len(ok[0]["guidance"]) == 1200
+    with pytest.raises(PlaybookDraftError) as caught:
+        normalize_objections([{"category": "price", "guidance": "x" * 1201}])
+    assert caught.value.code == "guidance_too_long"

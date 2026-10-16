@@ -341,6 +341,10 @@ class Settings(BaseSettings):
     # catalog, the "when it applies" rules, rule-based pinning and "change type" on a recording.
     PLAYBOOK_V2_ENABLED: bool = False
     PLAYBOOK_ROUTING_ENABLED: bool = False
+    # Playbook assistant (spec 2026-10-16): guided intake, the trial and improvements from real calls.
+    # Dark until a company is switched on; the success rate stays off until it is checked against labelled calls.
+    PLAYBOOK_ASSISTANT_ENABLED: bool = False
+    PLAYBOOK_SUCCESS_RATE_ENABLED: bool = False
     # Types by channel (spec 2026-10-07): a recording's type is one of its channel's types (call or
     # meeting), never decided by the member's sales role, and needs no playbook. Only takes effect
     # with INTELLIGENCE_CALL_READING_ENABLED, which makes the final call after the call.

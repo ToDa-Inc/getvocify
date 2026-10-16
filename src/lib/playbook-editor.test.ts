@@ -111,7 +111,8 @@ describe("playbook editor", () => {
     assert.equal(stepError({ key: "a", label: "x".repeat(81), criterion: "" }), "label_too_long");
     assert.equal(stepError({ key: "a", label: "ok", criterion: "x".repeat(401) }), "criterion_too_long");
     assert.equal(draftError([], []), "no_steps");
-    assert.equal(draftError([{ key: "a", label: "ok", criterion: "" }], [{ category: "price", guidance: "x".repeat(601) }]), "guidance_too_long");
+    assert.equal(draftError([{ key: "a", label: "ok", criterion: "" }], [{ category: "price", guidance: "x".repeat(1201) }]), "guidance_too_long");
+    assert.equal(draftError([{ key: "a", label: "ok", criterion: "" }], [{ category: "price", guidance: "x".repeat(1200) }]), null);
     assert.equal(draftError([{ key: "a", label: "ok", criterion: "" }], []), null);
   });
 

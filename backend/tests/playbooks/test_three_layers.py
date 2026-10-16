@@ -119,7 +119,7 @@ class _Fixed:
     ([{"category": "custom", "label": f"c{i}"} for i in range(MAX_CUSTOM_OBJECTIONS + 1)], "too_many_custom_objections", None),
     ([{"category": "custom", "label": "x" * 61}], "field_too_long", 0),
     ([{"category": "custom", "label": "ok", "trigger": "x" * 201}], "field_too_long", 0),
-    ([{"category": "custom", "label": "ok", "guidance": "x" * 601}], "guidance_too_long", 0),
+    ([{"category": "custom", "label": "ok", "guidance": "x" * 1201}], "guidance_too_long", 0),
     ([{"category": "price", "guidance": "a"}, {"category": "price", "guidance": "b"}], "duplicate_category", 1),
 ])
 def test_invalid_objections_are_422_with_the_contract_code(objections, code, index):
