@@ -15,3 +15,24 @@ export function typingPlacement(turns: TurnLike[], speaking: SpeakingSides): { i
     extra: (["prospect", "rep"] as const).filter((side) => speaking[side] && side !== speaker),
   };
 }
+
+/** What the island gets as a turn's "words still arriving" when its words are not there yet: it draws the dots for any
+ *  pending text, and a no-break space is invisible (and trimmed away if the turn is copied). */
+export const WAITING_WORDS = "\u00a0";
+
+type OverlayTurnLike = { key: string; you: boolean; label: string | null; text: string; pending: string };
+
+/** The island's turns with a waiting turn for each side that is speaking and has no words on screen (same rule as the dashboard's bubbles). */
+export function overlayWithSpeaking<T extends OverlayTurnLike>(turns: T[], speaking: SpeakingSides, prospectLabel: string | null): T[] {
+  const { insideLast, extra } = typingPlacement(
+    turns.map((turn) => ({ speaker: turn.you ? "rep" : "prospect", pending: turn.pending })),
+    speaking,
+  );
+  if (!insideLast && extra.length === 0) return turns;
+  const out = turns.slice();
+  if (insideLast) out[out.length - 1] = { ...out[out.length - 1], pending: WAITING_WORDS };
+  for (const side of extra) {
+    out.push({ key: `speaking-${side}`, you: side === "rep", label: side === "rep" ? null : prospectLabel, text: "", pending: WAITING_WORDS } as T);
+  }
+  return out;
+}
