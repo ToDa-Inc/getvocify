@@ -40,7 +40,7 @@ async def refresh_company(supabase, company_id: str, batches: int) -> tuple[int,
         judged += done
         if not done:
             break
-    queued = refresh_moments(store, company_id, failing_by_answer(recent_outcomes(store, company_id)))
+    queued = refresh_moments(store, company_id, failing_by_answer(recent_outcomes(store, company_id, after_fixes=True)))
     return judged, queued
 
 

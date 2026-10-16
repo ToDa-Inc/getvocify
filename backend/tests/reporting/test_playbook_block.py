@@ -97,6 +97,16 @@ def test_a_teams_own_objection_is_named_as_the_team_named_it():
     assert bare["label"] == "Cancelar el servicio".capitalize() and bare["failing"] == 3  # from the id when no playbook is at hand
 
 
+def test_an_answer_the_boss_corrected_leaves_the_block_until_it_fails_again():
+    store = InMemoryAssistantStore()
+    outcomes(store, "objection:price", 4)
+    store.add_moment(COMPANY, {
+        "source": "real", "sales_motion_key": "discovery", "entry_id": "objection:price", "client_text": "x", "outcome": {},
+        "status": "corrected", "resolved_at": (NOW - timedelta(days=1)).isoformat(),
+    })
+    assert playbook_improvement_block(store, COMPANY, now=NOW) is None
+
+
 # --- when the report gets it -------------------------------------------------------------------------------
 
 

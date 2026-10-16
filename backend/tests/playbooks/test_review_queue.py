@@ -12,6 +12,7 @@ from app.services.playbooks.review_queue import (
     coverage_stats,
     failing_by_answer,
     moments_by_answer,
+    recent_outcomes,
     refresh_moments,
     refresh_outcomes,
 )
@@ -153,3 +154,35 @@ def test_moments_are_shown_by_answer_with_the_numbers_of_that_answer():
     assert group["answer_key"] == "objection:price" and group["failing"] == 3 and len(group["moments"]) == 3
     assert group["marks"] == ["unused", "failed", "unused", "success"]
     assert group["stats"]["resolved"] == 1 and group["stats"]["rate"] is None  # one clear case: no percentage
+
+
+# --- an answer the boss corrected starts again ---------------------------------------------------------------
+
+
+def judged(store, event_id, days, **extra):
+    store.upsert_outcome(COMPANY, row(event_id, "not_used", "unknown", days=days, **extra))
+
+
+def test_cases_from_before_an_answer_was_corrected_no_longer_count_against_it():
+    store = InMemoryAssistantStore()
+    for i in range(4):
+        judged(store, f"old{i}", 10)
+    refresh_moments(store, COMPANY, failing_by_answer(recent_outcomes(store, COMPANY, now=NOW), now=NOW))
+    store.update_moment(COMPANY, store.list_moments(COMPANY)[0]["id"], status="corrected", resolved_at=day(5))
+    assert failing_by_answer(recent_outcomes(store, COMPANY, now=NOW, after_fixes=True), now=NOW) == []
+    assert len(failing_by_answer(recent_outcomes(store, COMPANY, now=NOW), now=NOW)[0]["cases"]) == 4  # the raw window is untouched
+    for i in range(3):
+        judged(store, f"new{i}", 2)
+    [group] = failing_by_answer(recent_outcomes(store, COMPANY, now=NOW, after_fixes=True), now=NOW)
+    assert group["failing"] == 3 and group["total"] == 3  # only what happened after the fix
+
+
+def test_a_fix_to_one_answer_leaves_the_other_answers_and_call_types_alone():
+    store = InMemoryAssistantStore()
+    for i in range(3):
+        judged(store, f"p{i}", 10)
+        judged(store, f"t{i}", 10, source_id="objection:timing")
+        judged(store, f"c{i}", 10, sales_motion_key="closing")
+    store.add_moment(COMPANY, {"source": "real", "sales_motion_key": "discovery", "entry_id": "objection:price", "client_text": "x", "outcome": {}, "status": "corrected", "resolved_at": day(5)})
+    left = {(g["sales_motion_key"], g["answer_key"]) for g in failing_by_answer(recent_outcomes(store, COMPANY, now=NOW, after_fixes=True), now=NOW)}
+    assert left == {("discovery", "objection:timing"), ("closing", "objection:price")}

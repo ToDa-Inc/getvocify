@@ -40,7 +40,7 @@ def playbook_improvement_block(
     """{items: [{label, failing, total}], link} for the `limit` answers that failed most, or None when none failed three times
     or more in the last month. `failing` counts the suggestions nobody said or that did not settle it, out of `total` judged.
     The same answer in two call types is told apart by the type's name."""
-    groups = failing_by_answer(recent_outcomes(store, company_id, now=now), now=now)[:limit]
+    groups = failing_by_answer(recent_outcomes(store, company_id, now=now, after_fixes=True), now=now)[:limit]
     if not groups:
         return None
     names = [_name(group, repository, company_id) for group in groups]

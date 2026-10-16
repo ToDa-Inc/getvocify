@@ -226,9 +226,36 @@ def public_queue(store: AssistantStore, repository: PlaybookRepository, company_
     return {"groups": shown, "publish": pending_publish(store, repository, company_id)}
 
 
-def recent_outcomes(store: AssistantStore, company_id: str, *, now: Optional[datetime] = None) -> list[dict]:
-    """The verdicts of the last FAIL_DAYS days, the window the queue and the numbers are read over."""
-    return store.list_outcomes(company_id, since=(_now(now) - timedelta(days=FAIL_DAYS)).isoformat())
+def answer_floors(store: AssistantStore, company_id: str) -> dict[tuple[Optional[str], str], datetime]:
+    """When each answer (per call type) was last corrected from the queue. What happened before ran against the old wording."""
+    floors: dict[tuple[Optional[str], str], datetime] = {}
+    for moment in store.list_moments(company_id, status="corrected"):
+        at = parse_ts(moment.get("resolved_at"))
+        if at is None or not moment.get("entry_id"):
+            continue
+        key = (moment.get("sales_motion_key"), str(moment["entry_id"]))
+        if key not in floors or at > floors[key]:
+            floors[key] = at
+    return floors
+
+
+def recent_outcomes(store: AssistantStore, company_id: str, *, now: Optional[datetime] = None, after_fixes: bool = False) -> list[dict]:
+    """The verdicts of the last FAIL_DAYS days, the window the queue and the numbers are read over. With `after_fixes` the
+    cards of an answer from before the Head of Sales last corrected it are left out: a fixed answer starts again, it is
+    not flagged for a month on what its old wording did. It decides what ENTERS the queue and the weekly report; the cases
+    already waiting in the queue keep showing the whole window."""
+    rows = store.list_outcomes(company_id, since=(_now(now) - timedelta(days=FAIL_DAYS)).isoformat())
+    if not after_fixes:
+        return rows
+    floors = answer_floors(store, company_id)
+    kept = []
+    for row in rows:
+        floor = floors.get((row.get("sales_motion_key"), str(row.get("source_id") or "")))
+        seen = parse_ts(row.get("observed_at"))
+        if floor is not None and seen is not None and seen <= floor:
+            continue
+        kept.append(row)
+    return kept
 
 
 def judged_stats(store: AssistantStore, company_id: str, *, now: Optional[datetime] = None) -> dict:

@@ -622,7 +622,7 @@ async def improve_refresh(
     again goes on with the next batch; a card is never judged twice."""
     store = _success_gate(supabase, membership)
     judged = await refresh_outcomes(store, supabase, membership.company_id)
-    queued = refresh_moments(store, membership.company_id, failing_by_answer(recent_outcomes(store, membership.company_id)))
+    queued = refresh_moments(store, membership.company_id, failing_by_answer(recent_outcomes(store, membership.company_id, after_fixes=True)))
     return {"judged": judged, "queued": queued}
 
 
