@@ -53,7 +53,8 @@ class Settings(BaseSettings):
     # Live calls also stream to the other provider (Speechmatics or Deepgram) in parallel; both
     # transcripts and their speed go to the logs to compare.
     LIVE_COMPARE_STT: bool = False
-    # Tries one provider (speechmatics, deepgram, mai) on every live call instead of the profile's rule.
+    # Tries one provider (speechmatics, deepgram, mai, mai_chunks) on every live call instead of the profile's rule.
+    # mai_chunks = MAI-Transcribe-2 through OpenRouter (OPENROUTER_API_KEY), a request per chunk of speech.
     LIVE_STT_PROVIDER: Optional[str] = None
     # Vercel AI Gateway: MAI-Transcribe-2-Streaming for live calls.
     AI_GATEWAY_API_KEY: Optional[str] = None
@@ -426,6 +427,8 @@ class Settings(BaseSettings):
     STT_RATE_SPEECHMATICS_BATCH_ENHANCED_USD_HR: Optional[float] = 0.40
     STT_RATE_SPEECHMATICS_BATCH_STANDARD_USD_HR: Optional[float] = 0.24
     STT_RATE_DEEPGRAM_BATCH_USD_HR: Optional[float] = None
+    # OpenRouter's list price for microsoft/mai-transcribe-2 (measured: $0.100 per hour of audio sent, a hedged chunk twice).
+    STT_RATE_MAI_CHUNKS_REALTIME_USD_HR: Optional[float] = 0.10
     # Unverified whether Speechmatics bills each channel of a multi-channel session separately.
     STT_BILL_PER_CHANNEL: bool = False
 

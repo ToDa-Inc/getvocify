@@ -178,6 +178,7 @@ export function MeetingLiveView() {
                   finalTranscript=""
                   interimTranscript=""
                   turns={meeting.turns}
+                  speaking={meeting.paused ? undefined : { rep: meeting.speaking.you, prospect: meeting.speaking.them }}
                   query={query}
                   isActive={live}
                   listeningHint="You and Them appear here as the meeting goes."

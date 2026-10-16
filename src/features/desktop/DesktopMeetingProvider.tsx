@@ -124,6 +124,8 @@ type DesktopMeeting = {
   resume: () => void;
   /** 0–1 loudness of each side, for the live bars. */
   levels: { you: number; them: number };
+  /** Each side is talking, or its words are still being transcribed (shown as the typing bubble; only some STT providers say). */
+  speaking: { you: boolean; them: boolean };
   /** Audio that should be arriving isn't (a muted mic, call audio macOS won't hand over); null while it flows. */
   audioIssue: AudioIssue;
   error: string | null;
@@ -228,6 +230,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const pausedTotalRef = useRef(0);
   const [levels, setLevels] = useState({ you: 0, them: 0 });
   const levelRef = useRef({ you: 0, them: 0 });
+  const [speaking, setSpeaking] = useState({ you: false, them: false });
   const [audioIssue, setAudioIssue] = useState<AudioIssue>(null);
   const healthRef = useRef<AudioHealth | null>(null);
   const audioIssueRef = useRef<AudioIssue>(null);
@@ -502,6 +505,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     }
     levelRef.current = { you: 0, them: 0 };
     setLevels({ you: 0, them: 0 });
+    setSpeaking({ you: false, them: false });
     healthRef.current = null;
     callAudioDiedRef.current = false;
     audioIssueRef.current = null;
@@ -528,6 +532,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       if (ticketRef.current) ws.send(liveAuthMessage(ticketRef.current));
       reconnectsRef.current = 0;
       setWarning(null);
+      setSpeaking({ you: false, them: false });
     };
     ws.onmessage = (event) => {
       let data: {
@@ -537,6 +542,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         start?: unknown;
         end?: unknown;
         from?: unknown;
+        active?: unknown;
         error?: unknown;
         channel?: { alternatives?: Array<{ transcript?: string }> };
       };
@@ -572,6 +578,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           name,
         });
         if (next !== transcriptRef.current) updateTranscript(next);
+      } else if (data.type === "Speaking") {
+        const side = data.audio_channel === "rep" ? "you" : data.audio_channel === "prospect" ? "them" : null;
+        if (side) setSpeaking((prev) => (prev[side] === Boolean(data.active) ? prev : { ...prev, [side]: Boolean(data.active) }));
       } else if (data.type === "ChannelReset") {
         const next = resetChannel(transcriptRef.current, data.audio_channel, data.from);
         if (next !== transcriptRef.current) updateTranscript(next);
@@ -1683,6 +1692,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       pause,
       resume,
       levels,
+      speaking,
       audioIssue,
       error,
       warning,
@@ -1704,7 +1714,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, liveHelpOverride, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

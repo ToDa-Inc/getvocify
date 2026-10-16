@@ -13,6 +13,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import type { MeetingDisplayTurn } from '@/lib/meeting-transcript';
 import { bubblesForTurn } from '@/lib/transcript-bubbles';
+import { typingPlacement, type SpeakingSides } from '@/lib/typing-bubbles';
 import { cn } from '@/lib/utils';
 
 /** Distance from the bottom that still counts as "reading live". */
@@ -29,6 +30,8 @@ interface LiveTranscriptProps {
   isActive: boolean;
   /** Highlights matches of this text and stops following the live edge while set */
   query?: string;
+  /** Sides talking right now (or whose words are still being transcribed): shown as typing bubbles */
+  speaking?: SpeakingSides;
   /** Live STT error, if the socket or provider failed */
   error?: string | null;
   /** Empty-state copy while listening */
@@ -41,6 +44,7 @@ export function LiveTranscript({
   finalTranscript,
   interimTranscript,
   turns,
+  speaking,
   query,
   isActive,
   error,
@@ -51,7 +55,8 @@ export function LiveTranscript({
   const followRef = useRef(true);
   const [following, setFollowing] = useState(true);
   const reduceMotion = useReducedMotion();
-  const hasContent = turns ? turns.length > 0 : Boolean(finalTranscript || interimTranscript);
+  const typing = turns && isActive && speaking ? typingPlacement(turns, speaking) : { insideLast: false, extra: [] };
+  const hasContent = turns ? turns.length > 0 || Boolean(speaking && isActive && (speaking.rep || speaking.prospect)) : Boolean(finalTranscript || interimTranscript);
 
   const jumpToLive = useCallback(() => {
     const el = scrollRef.current;
@@ -64,7 +69,7 @@ export function LiveTranscript({
   // Before paint, so new text never flashes below the fold first.
   useLayoutEffect(() => {
     if (followRef.current && !query) jumpToLive();
-  }, [finalTranscript, interimTranscript, turns, jumpToLive, query]);
+  }, [finalTranscript, interimTranscript, turns, speaking?.rep, speaking?.prospect, jumpToLive, query]);
 
   useEffect(() => {
     if (!isActive) setFollowing(true);
@@ -106,10 +111,10 @@ export function LiveTranscript({
           </div>
         ) : turns ? (
           <div className="flex flex-col gap-4">
-            {turns.map((turn) => {
+            {turns.map((turn, index) => {
               const you = turn.speaker === 'rep';
               const bubbles = bubblesForTurn(turn.text);
-              const speaking = Boolean(turn.pending);
+              const settling = Boolean(turn.pending) || (typing.insideLast && index === turns.length - 1);
               return (
                 <div
                   key={turn.key}
@@ -136,13 +141,18 @@ export function LiveTranscript({
                       </motion.span>
                     </motion.div>
                   ))}
-                  {speaking ? (
-                    // Words still settling show as "typing" so bubbles never jump with every guess.
+                  {settling ? (
+                    // Words still settling (or not there yet: this side is talking) show as "typing" so bubbles never jump.
                     <TypingBubble you={you} />
                   ) : null}
                 </div>
               );
             })}
+            {typing.extra.map((side) => (
+              <div key={`typing-${side}`} className={cn('flex max-w-[80%] flex-col', side === 'rep' ? 'self-end items-end' : 'self-start items-start')}>
+                <TypingBubble you={side === 'rep'} />
+              </div>
+            ))}
           </div>
         ) : (
           <div className="relative space-y-2 text-base md:text-lg font-normal leading-relaxed tracking-tight text-foreground">
