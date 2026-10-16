@@ -44,7 +44,7 @@ TOPICS: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
      "¿Hay permanencia? ¿Cómo se renueva o se cancela?", "Is there a commitment? How do I renew or cancel?"),
     ("decision", ("decide", "decisor", "decisores", "aprobacion", "approval", "decision"),
      "¿Quién suele decidir la compra en vuestros clientes?", "Who usually decides the purchase at your customers?"),
-    ("competition", ("competencia", "competidor", "competidores", "diferencia", "diferenciais", "competitor", "competitors", "difference"),
+    ("competition", ("competencia", "competidor", "competidores", "diferencia", "diferenciamos", "competitor", "competitors", "difference"),
      "¿En qué os diferenciáis de la competencia?", "How are you different from the competition?"),
 )
 
