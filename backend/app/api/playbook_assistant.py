@@ -7,6 +7,7 @@ a call type (or, for a figure two documents disagree about, in the company notes
 Head of Sales publishes.
 
   POST /intake                       several documents at once, put together per call type and saved once
+  POST /trial, GET /trial/{id}, POST /trial/{id}/cases/{case}/run|verdict, GET /trial/{id}/result, POST /trial/{id}/activate
   POST /gaps/session, GET /gaps/session/current, POST /gaps/session/{id}/answer|skip|undo
   GET  /model-calls/recent, POST /model-calls/propose, POST /model-calls/apply
         (a model call is never stored: it is read, proposals are made, only what is accepted is kept)
@@ -22,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from supabase import Client
 
+from app.api.playbooks import _playbooks_changed
 from app.api.playbook_intake import (
     _company_payload,
     _keep_source,
@@ -54,8 +56,11 @@ from app.services.playbooks.knowledge import StaleKnowledgeError, merge_knowledg
 from app.services.playbooks.model_calls import apply_proposals, propose
 from app.services.playbooks.questions import add_questions, extract_questions
 from app.services.playbooks.repository import PlaybookRepository, get_playbook_repository
+from app.services.playbooks import trial_session
 from app.services.playbooks.structure import detect_language, split_source
 from app.services.playbooks.structured import PlaybookDraftError
+from app.services.playbooks.trial import run_case, similar_phrase
+from app.services.playbooks.trial_session import TrialError
 from app.services.playbooks.versions import StaleDraftError
 
 logger = logging.getLogger(__name__)
@@ -64,7 +69,12 @@ FLAG = "PLAYBOOK_ASSISTANT_ENABLED"
 MAX_SOURCES = 8
 RECENT_CALLS = 30
 SUMMARY_CHARS = 140
-_NOT_FOUND = frozenset({"session_not_found", "gap_not_found", "call_not_found"})
+_NOT_FOUND = frozenset({"session_not_found", "gap_not_found", "call_not_found", "case_not_found"})
+# What a verdict or a transcript can be refused for: the person's words are kept and the screen says why.
+_REFUSED = frozenset({
+    "empty_transcript", "transcript_too_long", "guidance_too_long", "text_required", "no_answer_to_attach",
+    "too_many_custom_objections",
+})
 _LIVE = frozenset({"published", "paused", "draft"})
 
 router = APIRouter(prefix="/api/v1/playbook-assistant", tags=["playbook-assistant"])
@@ -100,8 +110,11 @@ def _mapped(fn):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": "stale_knowledge"}) from exc
         except PlaybookDraftError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": exc.code}) from exc
+        except TrialError as exc:
+            code = status.HTTP_404_NOT_FOUND if exc.code in _NOT_FOUND else status.HTTP_422_UNPROCESSABLE_ENTITY
+            raise HTTPException(status_code=code, detail={"code": exc.code}) from exc
         except ValueError as exc:
-            if str(exc) in {"empty_transcript", "transcript_too_long"}:
+            if str(exc) in _REFUSED:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": str(exc)}) from exc
             raise
 
@@ -420,3 +433,110 @@ async def apply_model_call(
         break
     content, _ = draft_content(repository, company_id, motion)
     return {"editor": {"sales_motion_key": motion, **content}, "applied": result["applied"], "skipped": result["skipped"]}
+
+
+# --- the trial ---------------------------------------------------------------------------------------------
+
+
+class TrialRequest(BaseModel):
+    motion_key: Optional[str] = None
+    lang: Optional[str] = None
+
+
+class VerdictRequest(BaseModel):
+    verdict: str
+    text: Optional[str] = Field(default=None, max_length=4000)
+    # For a branch: the situation it is for, in the customer's words.
+    when: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.post("/trial")
+@_mapped
+async def start_trial(
+    body: TrialRequest,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """The company's open trial, or a new one: 10 to 12 things a customer might say."""
+    store = _gate(supabase, membership)
+    repository = get_playbook_repository()
+    motion = (body.motion_key or "").strip() or _default_motion(repository, membership.company_id)
+    session = await trial_session.start_trial(store, repository, supabase, membership, motion_key=motion, lang=_lang(body.lang))
+    return trial_session.public_trial(session)
+
+
+def _trial(store: AssistantStore, membership: Membership, session_id: str) -> dict:
+    session = store.get_session(membership.company_id, session_id)
+    if session is None or session.get("kind") != "trial":
+        raise TrialError("session_not_found")
+    return session
+
+
+@router.get("/trial/{session_id}")
+@_mapped
+async def get_trial(
+    session_id: str,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    store = _gate(supabase, membership)
+    return trial_session.public_trial(_trial(store, membership, session_id))
+
+
+@router.post("/trial/{session_id}/cases/{case_id}/run")
+@_mapped
+async def run_trial_case(
+    session_id: str,
+    case_id: str,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """The case as live help would answer it with the draft as it is now -> {case, run}. Nothing is published."""
+    store = _gate(supabase, membership)
+    return await trial_session.run_trial_case(
+        store, get_playbook_repository(), supabase, membership, session_id=session_id, case_id=case_id, runner=run_case,
+    )
+
+
+@router.post("/trial/{session_id}/cases/{case_id}/verdict")
+@_mapped
+async def decide_trial_case(
+    session_id: str,
+    case_id: str,
+    body: VerdictRequest,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """approve | corrected | unknown | never_say | branch -> {run, similar, result, trial}. A verdict that changes the
+    answer edits the draft and runs the case again; an answer that does not fit is a 422 and nothing changes."""
+    store = _gate(supabase, membership)
+    return await trial_session.decide_case(
+        store, get_playbook_repository(), supabase, membership, session_id=session_id, case_id=case_id,
+        verdict=body.verdict, text=body.text, when=body.when, runner=run_case, similar=similar_phrase,
+    )
+
+
+@router.get("/trial/{session_id}/result")
+@_mapped
+async def trial_result(
+    session_id: str,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    store = _gate(supabase, membership)
+    return trial_session.public_trial(_trial(store, membership, session_id))["result"]
+
+
+@router.post("/trial/{session_id}/activate")
+@_mapped
+async def activate_trial(
+    session_id: str,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """Publishes the drafts the trial touched, whatever the score (below 80% the screen has warned; the Head of Sales
+    decides) -> {published, failed}. Live help reads the new answers on its next card."""
+    store = _gate(supabase, membership)
+    outcome = trial_session.finish_trial(store, get_playbook_repository(), membership, session_id=session_id)
+    _playbooks_changed(membership.company_id)
+    return outcome

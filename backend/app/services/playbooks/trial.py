@@ -179,7 +179,7 @@ def draft_snapshot(editor: dict, motion_key: str) -> dict:
 
 async def run_case(case: dict, *, snapshot: dict, knowledge: dict | None, product_context: str, lang: str) -> dict:
     """What live help would show for this customer phrase with `snapshot` as the playbook ->
-    {detected, entry_id, card: {say_this, source_id, objection_type} | None, grounded}. `detected` is what the turn check
+    {detected, entry_id, label, card: {say_this, source_id, objection_type} | None, grounded}. `detected` is what the turn check
     named ("none" when live help would stay silent, "unknown" when the check could not be reached and the card writer
     is asked directly, as the app does). Same steps as the live endpoint, which a test keeps in step with."""
     del lang  # live help writes in the language of the customer's words
@@ -190,7 +190,7 @@ async def run_case(case: dict, *, snapshot: dict, knowledge: dict | None, produc
     reading = await read_turn(text, text, custom_entries(snapshot))
     kind = reading.get("objection")
     if kind == "none":
-        return {"detected": "none", "entry_id": None, "card": None, "grounded": False}
+        return {"detected": "none", "entry_id": None, "label": None, "card": None, "grounded": False}
     objection_type = kind if kind in turn.OBJECTIONS else None
     entry = _matched_entry(grounding, reading.get("entry_id"))
     result: dict = {}
@@ -221,6 +221,7 @@ async def run_case(case: dict, *, snapshot: dict, knowledge: dict | None, produc
     return {
         "detected": kind or "unknown",
         "entry_id": (entry or {}).get("entry_id"),
+        "label": (entry or {}).get("label"),
         "card": card,
         "grounded": bool(result.get("grounded")),
     }

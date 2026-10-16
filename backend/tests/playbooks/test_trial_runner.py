@@ -52,7 +52,7 @@ def test_the_card_is_written_from_the_draft_and_the_turn_check_knows_its_own_obj
     assert isinstance(grounding, SuggestGrounding) and grounding.playbook_snapshot == SNAPSHOT and grounding.playbook_version_id == "draft-1"
     assert spy.turn_args[2] == {"objection:custom:mandame_un_email": {"label": "Mándame un email", "trigger": "Mándame un email y lo vemos"}}
     assert result == {
-        "detected": "price", "entry_id": None, "grounded": True,
+        "detected": "price", "entry_id": None, "label": None, "grounded": True,
         "card": {"say_this": "Pregunta cuánto tiempo pierden.", "source_id": "objection:price", "objection_type": "price"},
     }
 
@@ -67,13 +67,13 @@ def test_the_teams_own_objection_is_followed_through_its_entry():
     spy = Spy({"finished": True, "objection": "custom", "entry_id": EMAIL["entry_id"], "label": "Mándame un email"})
     result = run(spy, case={**CASE, "client_text": "Mándame un email y lo vemos"})
     assert spy.suggest_kwargs["objection_type"] is None and spy.suggest_kwargs["entry"] == EMAIL
-    assert result["detected"] == "custom" and result["entry_id"] == EMAIL["entry_id"]
+    assert result["detected"] == "custom" and result["entry_id"] == EMAIL["entry_id"] and result["label"] == "Mándame un email"
 
 
 def test_when_the_turn_check_sees_nothing_live_help_would_show_nothing():
     spy = Spy({"finished": True, "objection": "none"})
     result = run(spy)
-    assert result == {"detected": "none", "entry_id": None, "card": None, "grounded": False}
+    assert result == {"detected": "none", "entry_id": None, "label": None, "card": None, "grounded": False}
     assert spy.suggest_kwargs is None
 
 

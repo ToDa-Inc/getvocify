@@ -13,7 +13,7 @@ A session lives in `playbook_assistant_sessions` (kind `gaps`):
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from app.services.company import Membership
 from app.services.playbooks.api_support import StructureRequest, company_context, product_context, read_source
@@ -174,6 +174,26 @@ def save_content(repository: PlaybookRepository, company_id: str, key: str, cont
         qualification=normalize_qualification(content.get("qualification") or []),
         base_updated_at=base,
     )
+
+
+def edit_draft(repository: PlaybookRepository, company_id: str, motion: str, change: Callable[[dict], dict], *, lang: str = "es") -> dict:
+    """Changes the draft of a call type with `change(content) -> content` and saves it. A draft that moved since it was
+    read is read again once (`change` runs again on the fresh content); a second conflict propagates. Whatever `change`
+    raises (a ValueError for an answer that does not fit) leaves the draft as it was. Returns the content saved."""
+    row = repository.list_types(company_id, include_draft=True).get(motion) or {}
+    if row.get("status") in (None, "missing"):
+        repository.add_type(company_id, motion, catalog_label(motion, lang) or motion)
+    for attempt in (0, 1):
+        content, base = draft_content(repository, company_id, motion)
+        changed = change(content)
+        try:
+            save_content(repository, company_id, motion, changed, base)
+        except StaleDraftError:
+            if attempt == 1:
+                raise
+            continue
+        return changed
+    raise StaleDraftError()  # pragma: no cover
 
 
 async def _apply_to_playbook(
