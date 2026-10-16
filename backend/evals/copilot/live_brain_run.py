@@ -212,7 +212,7 @@ def play(call: dict, only_asks: list[dict]) -> dict:
         result, wall, error = post("recap", {**base, "reason": "resumen", "turns": window_of(upto), "progress": js("progressIn", state), "up_to": upto[-1]["id"]})
         recaps.append({"turn": upto[-1]["id"], "result": result, "wall_ms": wall, "error": error})
     return {"call": call, "state": state, "readings": readings, "recaps": recaps, "ctx": {"sources": sources_text(ctx), "has_playbook": bool(ctx.snapshot),
-            "version": ctx.playbook_version_id, "steps": len((ctx.snapshot or {}).get("steps") or []),
+            "version": ctx.playbook_version_id, "steps": len((ctx.snapshot or {}).get("steps") or []), "steps_list": (ctx.snapshot or {}).get("steps") or [],
             "data": len((ctx.snapshot or {}).get("qualification") or [])}}
 
 
@@ -243,6 +243,13 @@ def lines_of(played: dict) -> list[dict]:
     for rc in played["recaps"]:
         for line in (rc["result"] or {}).get("lines") or []:
             out.append({"kind": "recap", "id": rc["turn"], "text": line, "grounded": True, "upto": index[rc["turn"]]})
+    from app.services.copilot.live_points import similar
+
+    examples = [s["example"] for s in played["ctx"].get("steps_list") or [] if s.get("example")]
+    for line in out:
+        # Ahora's line is the playbook step's own sentence (the spec shows the example as the line to say): it is sourced from the
+        # playbook, not claimed by the model. Reported on its own, because an example can presume what this call has not shown.
+        line["from_example"] = line["kind"] == "ahora" and any(similar(line["text"], e, 0.6) for e in examples)
     seen, unique = set(), []
     for line in out:
         key = (line["kind"], line["id"], norm(line["text"]))
@@ -392,7 +399,7 @@ def render(summary: dict, played_calls: list[dict], *, details: bool, served: di
         "",
         "| Gate | Result | Bar |",
         "|---|---|---|",
-        f"| Invented facts | {len(inv['number_flags'])} numbers + {len(inv['judge_flags'])} judge claims in {inv['lines']} lines | 0 |",
+        f"| Invented facts | {len(inv['number_flags'])} numbers + {len(inv['judge_flags'])} judge claims in {inv['lines']} lines (+{len(inv['example_lines'])} Ahora lines that are a playbook step's own sentence, listed apart) | 0 |",
         f"| Duplicate points | {sum(len(v) for v in summary['duplicates'].values())} pairs | 0 |",
         f"| Decisions vs labels | {agree['agree']}/{agree['labelled']} agree ({agree['confirmed_agree']}/{agree['confirmed_labels']} on labels a person confirmed) | agree with Dani's labels |",
         f"| Points latency, model time, readings that wrote a point | p90 {lat['points_with_a_new_point_ms']['p90']} ms | ≤ 1100 ms |",
@@ -434,6 +441,8 @@ def render(summary: dict, played_calls: list[dict], *, details: bool, served: di
             out.append(f"- {flag['call']} · {flag['kind']} · number {flag['number']} not in the sources or the call: «{flag['line']}»")
         for flag in inv["judge_flags"]:
             out.append(f"- {flag['call']} · {flag['kind']} · {'; '.join(flag['claims'])}: «{flag['line']}»")
+        out += ["", "## Ahora lines that are a step's own example (a decision for Dani: an example can presume what the call has not shown)", ""]
+        out += [f"- {x['call']}: «{x['line']}»" for x in inv["example_lines"]]
         out += ["", "## Decisions against labels", ""]
         for r in summary["decision_rows"]:
             mark = "✓" if r["ok"] else "✗"
@@ -476,8 +485,10 @@ def main() -> int:
     for p in played:
         print(f"{p['call']['id']}: {len(p['readings'])} readings, {len(p['state']['points'])} points, "
               f"{len(p['state']['progress']['steps'])} steps, {len(p['state']['progress']['data'])} data")
-    judged: dict = {"lines": 0, "number_flags": [], "judge_flags": []}
-    work = [(p, line) for p in played for line in lines_of(p)]
+    judged: dict = {"lines": 0, "number_flags": [], "judge_flags": [], "example_lines": []}
+    every = [(p, line) for p in played for line in lines_of(p)]
+    judged["example_lines"] = [{"call": p["call"]["id"], "line": line["text"]} for p, line in every if line["from_example"]]
+    work = [(p, line) for p, line in every if not line["from_example"]]
     judged["lines"] = len(work)
     for p, line in work:
         for n in numbers_invented(line, p):

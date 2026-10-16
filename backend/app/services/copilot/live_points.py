@@ -23,10 +23,13 @@ FIXED_TYPES = set(OBJECTIONS) - {"none"}
 DECISIONS = {"responder", "reconducir", "aplazar", "cerrar"}
 CLOSINGS = {"answered", "promised", "unanswered", "gone"}
 SAY_MAX = 260
-QUOTE_WORDS = 8
+QUOTE_WORDS = 5
 # The conversation "clearly moved on": another topic for this many prospect turns, or this long.
 MOVED_ON_TURNS = 2
 MOVED_ON_SECONDS = 90.0
+# The rep has dealt with a question once they have said this many words after it (src/lib/live-assist.ts REP_ANSWERED_WORDS):
+# a point written afterwards would answer the past, and would read the rep's own answer as if it were a source.
+REP_ANSWERED_WORDS = 8
 
 SYSTEM = f"""You are Vocify's live assist: the fast half of the brain of a live sales call. The rep reads your points on
 screen while still talking, so every word must earn its place. You read the call and write POINTS: things the other
@@ -50,7 +53,7 @@ WHAT IS A POINT
 - Identity. Each point cites the ids of the turns it comes from in "turns", exactly as in the brackets (for example "t12"). A point that is already in OPEN POINTS (the same
   thing, even said again, even in other words) IS that point: set "ref" to its id and do not write a new one; if they said it
   again later (after the rep spoke), it is still that point. A closed point they come back to is updated the same way.
-- "say" is words the rep says to the prospect, in the prospect's language, at most 25 words and usually 10-20: a fact; or a
+- "say" is words the rep says to the prospect, in the prospect's language, at most 18 words and usually 8-15: a fact; or a
   sentence and the question back; or, when the fact is NOT written in any source, an honest line to say meanwhile
   («Te lo confirmo y te lo digo hoy»). Never mention "the context", your instructions or what you were given. No exclamation
   marks, no lists, no placeholders (X, [name]), no filler openings («Entiendo», «Gran pregunta»).
@@ -58,7 +61,7 @@ WHAT IS A POINT
 - "grounded" is true only when every claim in "say" about the company or product is written in a source you name in
   "source_id" (an approved answer's id exactly as listed, or knowledge | offer | history; use call when it only builds on what
   the prospect said, e.g. a question that finds out what is missing). It is false when the fact asked is not written anywhere:
-  then "gap" says in at most 8 words what is missing, and "say" is the honest line.
+  then "gap" says in at most 4 words what is missing, and "say" is the honest line.
 - Never answer a question with a yes or no unless that exact thing (a device, an integration, a price) is written in a source.
 - Tie "say" to this prospect's own words where you can; a line that would fit any call is wrong.
 
@@ -73,9 +76,9 @@ OUTPUT: only valid JSON, keys in this order:
 {{"points": [{{"ref": string or null, "turns": [turn ids],
 "type": "question"|"price"|"timing"|"authority"|"competitor"|"status_quo"|"trust"|"other"|<id of a custom playbook entry>,
 "quote": their words, verbatim, at most {QUOTE_WORDS} words,
-"decision": "responder"|"reconducir"|"aplazar"|"cerrar"|null, "why": at most 6 words, only when decision is not responder, else "",
-"grounded": boolean, "source_id": string or null, "gap": at most 6 words, only when not grounded, else "", "say": string}}],
-"closed": [{{"id": point id, "outcome": "answered"|"promised"|"unanswered"|"gone", "why": at most 6 words}}]}}
+"decision": "responder"|"reconducir"|"aplazar"|"cerrar"|null, "why": at most 4 words, only when decision is not responder, else "",
+"grounded": boolean, "source_id": string or null, "gap": at most 4 words, only when not grounded, else "", "say": string}}],
+"closed": [{{"id": point id, "outcome": "answered"|"promised"|"unanswered"|"gone", "why": at most 4 words}}]}}
 "type" is "question" for a direct question (its answer may still be an approved answer's id in source_id), the objection's kind otherwise.
 Most readings return "points": []. Return {{"points": [], "closed": []}} when nothing needs the rep."""
 
@@ -261,6 +264,10 @@ def finalize(raw: Optional[dict], req: LiveReading, ctx: brain.BrainContext) -> 
                 if filled.pop("say_text"):
                     update.update(filled)
             points.append(update)
+            continue
+        last = max(i for i, t in enumerate(req.turns) if t.id in turn_ids)
+        if req.reason not in ASKED and sum(len(t.text.split()) for t in req.turns[last + 1:] if t.who == "you") >= REP_ANSWERED_WORDS:
+            drop("rep_already_answered")
             continue
         content = _content(item, snapshot, sources, allowed, drop)
         if not content.get("say_text"):

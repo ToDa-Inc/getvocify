@@ -112,7 +112,7 @@ def test_their_words_are_a_verbatim_quote_or_the_start_of_the_turn():
         point(turns=["t3"], quote="algo que nadie dijo", kind="objection", objection_type="price", source_id="knowledge"),
     ]}, reading(), CTX)["points"]
     assert good["title"] == "¿se integra con hubspot"
-    assert bad["title"] == "Usamos Salesforce y no queremos cambiar. Mándame un"
+    assert bad["title"] == "Usamos Salesforce y no queremos"
 
 
 def test_one_point_per_thing_said_a_repeat_is_an_update_never_a_second_point():
@@ -157,6 +157,14 @@ def test_numbers_said_in_the_call_in_words_or_digits_are_not_inventions():
 def test_ahora_never_carries_a_figure_nobody_gave():
     out = progress_for({"now": {"kind": "step", "id": "problema", "say": "Con 45 comerciales, ¿cuánto tarda cada uno?"}})
     assert out["now"]["say"] == "Los equipos de campo dejan el CRM para luego." and out["guards"] == {"invented_number": 1}
+
+
+def test_a_question_the_rep_already_answered_is_not_a_new_point_unless_the_rep_asked():
+    call = turns(("you", "Hola"), ("them", "¿Cuántos sois?"), ("you", "Somos dos fundadores más un equipo externo de producto"), ("them", "Vale, bien"))
+    out = live_points.finalize({"points": [point(turns=["t1"], quote="¿Cuántos sois?", source_id="call", say="Somos dos fundadores.")]}, reading(call=call), CTX)
+    assert out["points"] == [] and out["guards"] == {"rep_already_answered": 1}
+    asked = live_points.finalize({"points": [point(turns=["t1"], quote="¿Cuántos sois?", source_id="call", say="Somos dos fundadores.")]}, reading(call=call, reason="responder"), CTX)
+    assert len(asked["points"]) == 1
 
 
 def test_a_fact_that_is_not_written_is_never_a_responder_decision():
