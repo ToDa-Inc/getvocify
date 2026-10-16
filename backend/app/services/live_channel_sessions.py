@@ -1,4 +1,5 @@
 """Live call transcription, one stream per side: Deepgram Nova-3, or Speechmatics per language.
+(LIVE_STT_PROVIDER can instead pick MAI streaming, or `mai_chunks`: MAI-2 through OpenRouter, a request per chunk of speech.)
 
 The client streams both sides as AddChannelAudio (`rep` = mic, `prospect` = the call).
 Deepgram Nova-3 `multi` transcribes Spanish and English, mixed, and settles text fastest; a
@@ -33,8 +34,10 @@ import websockets
 
 from app.config import settings
 from app.services import live_activity
+from app.services.live_chunker import Chunk, ChunkCutter
 from app.services.glossary import GlossaryService
 from app.services.live_report import LiveReport
+from app.services.openrouter_stt import OpenRouterTranscriber, TranscriptionError
 from app.services.session_entities import EntityTerm, normalize_stt_languages
 from app.services.transcript_sanitize import sanitize_transcript
 from app.services.stream_clock import StreamClock
@@ -98,6 +101,8 @@ RECOVER_BACKOFF_S = (0.3, 1.0, 2.0, 4.0, 8.0)
 # Replay starts this long before the side's last settled words: their end is only approximate, and the client drops
 # and re-takes the side's text from the replay's start, so an overlap costs nothing and loses nothing.
 RECOVER_OVERLAP_S = 3.0
+# MAI through OpenRouter: this many chunks in a row that no request could transcribe, and the side's stream is reopened.
+MAX_CHUNK_FAILURES = 3
 
 
 def session_language(code: str, profile: list[str]) -> tuple[str, Optional[str]]:
@@ -723,7 +728,144 @@ class MaiStream(LiveStream):
         return settled.strip()
 
 
-STREAMS: dict[str, type[LiveStream]] = {"speechmatics": SpeechmaticsStream, "deepgram": DeepgramStream, "mai": MaiStream}
+class MaiChunkStream(LiveStream):
+    """MAI-Transcribe-2 through OpenRouter, a request per chunk of speech instead of a streaming socket.
+
+    The text of a sentence is final 0.75 s after it ends (the streaming session settles it 2 s after), at a fifth of the
+    price, but nothing shows while someone is still talking: the client is told with `activity` events that a side is
+    speaking, and its chunk is being transcribed, so it can show it. Finals come back in order, whichever request answers
+    first. Chunking, hedging and the numbers behind them: live_chunker, openrouter_stt."""
+
+    provider = "mai_chunks"
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # ISO code when the profile has one language, else MAI detects it per chunk. Set by ChannelSessions.
+        self.hint: Optional[str] = None
+        self.transcriber: Optional[OpenRouterTranscriber] = None
+        self.cutter = ChunkCutter(offset_s=self.offset_s)
+        self.sent_s = 0.0
+        self.pending = 0
+        self.active = False
+        self.failures = 0
+        self._seq = 0
+        self._next = 0
+        self._done: dict[int, Optional[dict[str, Any]]] = {}
+        self._jobs: set[asyncio.Task] = set()
+        self._drain_lock = asyncio.Lock()
+
+    def billed_seconds(self) -> float:
+        # Audio sent in requests, a hedged chunk twice.
+        return self.sent_s
+
+    async def _run(self, api_key: str) -> None:
+        try:
+            self.transcriber = OpenRouterTranscriber(api_key, language=self.hint)
+            self.started_at = time.monotonic()
+            self.ready.set()
+            asyncio.create_task(self.transcriber.warm_up())
+            while True:
+                item = await self.queue.get()
+                if item is None:
+                    await self._close_chunk("end")
+                    break
+                if item == "force":
+                    await self._close_chunk("force")
+                    continue
+                self.cutter.offset_s = self.offset_s
+                chunks, _ = self.cutter.feed(item)
+                for chunk in chunks:
+                    self._submit(chunk)
+                await self._set_active()
+            if self._jobs:
+                await asyncio.wait(self._jobs, timeout=FINISH_WAIT_S - 0.5)
+            await self._set_active(False)
+            await self.on_event(self, {"kind": "done"})
+        except Exception as e:
+            logger.error("%s %s stream failed: %s", self.provider, self.label, e)
+            await self.on_event(self, {"kind": "error", "reason": str(e)})
+        finally:
+            for job in self._jobs:
+                job.cancel()
+            if self.transcriber:
+                await self.transcriber.aclose()
+            if self.ended_at is None:
+                self.ended_at = time.monotonic()
+            self.ready.set()
+            self.finished.set()
+
+    async def _close_chunk(self, trigger: str) -> None:
+        self.cutter.offset_s = self.offset_s
+        chunk, _ = self.cutter.flush(trigger)
+        if chunk:
+            self._submit(chunk)
+        await self._set_active()
+
+    def _submit(self, chunk: Chunk) -> None:
+        seq = self._seq
+        self._seq += 1
+        self.pending += 1
+        job = asyncio.create_task(self._transcribe(seq, chunk, time.monotonic()))
+        self._jobs.add(job)
+        job.add_done_callback(self._jobs.discard)
+
+    async def _transcribe(self, seq: int, chunk: Chunk, closed_at: float) -> None:
+        event: Optional[dict[str, Any]] = None
+        failed = False
+        try:
+            result = await self.transcriber.transcribe(chunk.pcm)  # type: ignore[union-attr]
+            self.sent_s += chunk.seconds * result.requests
+            self.failures = 0
+            if result.text:
+                waited = time.monotonic() - closed_at + (self.cutter.pause_s if chunk.trigger == "pause" else 0.0)
+                event = {
+                    "kind": "final",
+                    "transcript": result.text,
+                    "words": [],
+                    "start": chunk.start_s,
+                    "end": chunk.end_s,
+                    "timed": False,
+                    "settle_s": waited,
+                }
+                if result.hedged:
+                    logger.info("%s %s: a slow chunk request was answered by its second (%.1fs)", self.provider, self.label, result.latency_s)
+        except TranscriptionError as e:
+            self.sent_s += chunk.seconds
+            self.failures += 1
+            failed = self.failures >= MAX_CHUNK_FAILURES
+            logger.warning("%s %s: %.1fs of speech lost, no request answered: %s", self.provider, self.label, chunk.seconds, e)
+        except asyncio.CancelledError:
+            raise
+        self.pending -= 1
+        self._done[seq] = event
+        await self._drain()
+        await self._set_active()
+        if failed:
+            await self.on_event(self, {"kind": "error", "reason": f"{MAX_CHUNK_FAILURES} chunks in a row could not be transcribed"})
+
+    async def _drain(self) -> None:
+        """Finals leave in the order their chunks were spoken, however the requests finished."""
+        async with self._drain_lock:
+            while self._next in self._done:
+                event = self._done.pop(self._next)
+                self._next += 1
+                if event:
+                    await self.on_event(self, event)
+
+    async def _set_active(self, active: Optional[bool] = None) -> None:
+        """`activity`: someone is speaking on this side, or what they said is still being transcribed."""
+        now = self.cutter.announced or self.pending > 0 if active is None else active
+        if now != self.active:
+            self.active = now
+            await self.on_event(self, {"kind": "activity", "active": now})
+
+
+STREAMS: dict[str, type[LiveStream]] = {
+    "speechmatics": SpeechmaticsStream,
+    "deepgram": DeepgramStream,
+    "mai": MaiStream,
+    "mai_chunks": MaiChunkStream,
+}
 # How long a provider's session may last before a side moves to a fresh one.
 SESSION_LIMITS_S = {"mai": MAI_SESSION_S}
 
@@ -767,6 +909,7 @@ class ChannelSessions:
             or os.environ.get("SPEECHNATICS_API_KEY"),
             "deepgram": settings.DEEPGRAM_API_KEY,
             "mai": settings.AI_GATEWAY_API_KEY,
+            "mai_chunks": settings.OPENROUTER_API_KEY,
         }
         rule = live_provider(self.profile)
         # LIVE_STT_PROVIDER tries a provider on every call; the profile's rule is the comparison.
@@ -850,8 +993,14 @@ class ChannelSessions:
             old.end()
             logger.info("Live channels: %s moved to a fresh %s session at %.0fs", label, self.provider, fresh.offset_s)
 
+    def _language_hint(self) -> Optional[str]:
+        """A profile with one language tells the transcriber which; with several, it detects per chunk."""
+        return self.profile[0] if len(self.profile) == 1 else None
+
     def _open(self, label: str, language: str, domain: Optional[str], *, offset_s: float) -> LiveStream:
         stream = STREAMS[self.provider](label, language, domain, vocab=self.vocab, offset_s=offset_s, on_event=self._on_stream)
+        if isinstance(stream, MaiChunkStream):
+            stream.hint = self._language_hint()
         stream.start(self.keys[self.provider] or "")
         self.streams.append(stream)
         return stream
@@ -947,6 +1096,8 @@ class ChannelSessions:
                 record_stt_usage(stream.provider, "realtime", seconds, channels=1, tier=tier)
             if isinstance(stream, MaiStream):
                 logger.info("Live channels: %s sent %.0fs of %.0fs to MAI", stream.label, stream.fed_s, stream.heard_s)
+            if isinstance(stream, MaiChunkStream):
+                logger.info("Live channels: %s sent %.0fs of audio in requests for %.0fs heard (OpenRouter MAI chunks)", stream.label, stream.sent_s, stream.fed_s)
         self.report.log(self.user_id, {label: side.language for label, side in self.sides.items()})
 
     async def _send(self, payload: dict[str, Any]) -> None:
@@ -1008,6 +1159,8 @@ class ChannelSessions:
                 )
             if final and transcript.strip() and "start" in payload:
                 self._after_final(stream.label, payload["start"], payload["end"])
+        elif kind == "activity":
+            await self._send({"type": "Speaking", "audio_channel": stream.label, "active": bool(event.get("active"))})
         elif kind == "utterance_end":
             await self._send(
                 {

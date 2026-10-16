@@ -13,6 +13,7 @@ _STT_RATES = {
     ("speechmatics", "batch", "enhanced"): "STT_RATE_SPEECHMATICS_BATCH_ENHANCED_USD_HR",
     ("speechmatics", "batch", "standard"): "STT_RATE_SPEECHMATICS_BATCH_STANDARD_USD_HR",
     ("deepgram", "batch", ""): "STT_RATE_DEEPGRAM_BATCH_USD_HR",
+    ("mai_chunks", "realtime", ""): "STT_RATE_MAI_CHUNKS_REALTIME_USD_HR",
 }
 
 

@@ -561,3 +561,197 @@ def test_a_quiet_room_keeps_the_base_speech_level():
     before = stream.fed_s
     stream.feed(_noise(150))  # quiet speech on a quiet mic still counts
     assert stream.fed_s > before
+
+
+# --- MAI through OpenRouter, a request per chunk of speech ---
+
+
+def _tone(seconds, level=3000):
+    from array import array
+
+    return array("h", [level if i % 2 else -level for i in range(int(seconds * 16000))]).tobytes()
+
+
+def _quiet(seconds):
+    return bytes(int(seconds * 16000) * 2)
+
+
+def _feed_all(stream, *parts):
+    for part in parts:
+        for i in range(0, len(part), 3200):
+            stream.feed(part[i : i + 3200])
+
+
+class _Scripted:
+    """Stands in for OpenRouterTranscriber: answers chunk n with scripts[n] = (delay, text or an error)."""
+
+    scripts: list = []
+    calls = 0
+    languages: list = []
+
+    def __init__(self, api_key, *, language=None, **kwargs):
+        _Scripted.languages.append(language)
+
+    async def warm_up(self):
+        pass
+
+    async def aclose(self):
+        pass
+
+    async def transcribe(self, pcm):
+        import asyncio
+
+        from app.services.openrouter_stt import Transcription, TranscriptionError
+
+        n = _Scripted.calls
+        _Scripted.calls += 1
+        delay, answer = _Scripted.scripts[n]
+        await asyncio.sleep(delay)
+        if isinstance(answer, Exception):
+            raise answer
+        return Transcription(text=answer, requests=1, hedged=False, winner="first", latency_s=delay, cost_usd=None)
+
+
+def _chunk_stream(monkeypatch, scripts, hint="es"):
+    from app.services import live_channel_sessions as live
+
+    monkeypatch.setattr(live, "OpenRouterTranscriber", _Scripted)
+    _Scripted.scripts, _Scripted.calls, _Scripted.languages = scripts, 0, []
+    events = []
+
+    async def on_event(_stream, event):
+        events.append(event)
+
+    stream = live.MaiChunkStream("prospect", "es", None, vocab=[], offset_s=0.0, on_event=on_event)
+    stream.hint = hint
+    return live, stream, events
+
+
+def test_mai_chunks_come_back_as_finals_in_the_order_they_were_spoken_with_the_speaking_signal_around_them(monkeypatch):
+    import asyncio
+
+    # The first chunk's request is slower than the second's: its text must still come first.
+    live, stream, events = _chunk_stream(monkeypatch, [(0.4, "Hola, buenas."), (0.0, "¿Qué tal?")])
+
+    async def scenario():
+        stream.start("key")
+        _feed_all(stream, _quiet(1.0), _tone(1.0), _quiet(0.5), _tone(1.0), _quiet(0.6))
+        stream.end()
+        await asyncio.wait_for(stream.finished.wait(), 3.0)
+
+    asyncio.run(scenario())
+    finals = [e for e in events if e["kind"] == "final"]
+    assert [e["transcript"] for e in finals] == ["Hola, buenas.", "¿Qué tal?"]
+    assert abs(finals[0]["start"] - 1.0) < 0.05 and abs(finals[0]["end"] - 2.0) < 0.05 and finals[0]["timed"] is False
+    assert finals[1]["start"] > finals[0]["end"]
+    kinds = [(e["kind"], e.get("active")) for e in events if e["kind"] in ("activity", "done")]
+    # speaking from the first speech until the last chunk's text is back, and no gaps in between longer than the pause
+    assert kinds[0] == ("activity", True) and kinds[-2:] == [("activity", False), ("done", None)]
+    # 0.4 + 1.0 + 0.3 for the first chunk; the second only had the 0.2 s of quiet left after the first closed before it
+    assert abs(stream.billed_seconds() - ((0.4 + 1.0 + 0.3) + (0.2 + 1.0 + 0.3))) < 0.1
+    assert _Scripted.languages == ["es"]
+
+
+def test_mai_chunks_in_a_profile_with_several_languages_are_sent_without_a_language(monkeypatch):
+    import asyncio
+
+    live, stream, events = _chunk_stream(monkeypatch, [(0.0, "Bon dia")], hint=None)
+
+    async def scenario():
+        stream.start("key")
+        _feed_all(stream, _quiet(0.5), _tone(1.0), _quiet(0.5))
+        stream.end()
+        await asyncio.wait_for(stream.finished.wait(), 3.0)
+
+    asyncio.run(scenario())
+    assert _Scripted.languages == [None]
+
+
+def test_mai_chunks_that_keep_failing_make_the_side_reopen_but_one_failure_only_loses_that_chunk(monkeypatch):
+    import asyncio
+
+    from app.services.openrouter_stt import TranscriptionError
+
+    bad = TranscriptionError("down")
+    live, stream, events = _chunk_stream(monkeypatch, [(0, bad), (0, "Sí"), (0, bad), (0, bad), (0, bad)])
+
+    async def scenario():
+        stream.start("key")
+        for _ in range(5):
+            _feed_all(stream, _quiet(0.6), _tone(0.8), _quiet(0.5))
+        stream.end()
+        await asyncio.wait_for(stream.finished.wait(), 3.0)
+
+    asyncio.run(scenario())
+    assert [e["transcript"] for e in events if e["kind"] == "final"] == ["Sí"]
+    errors = [e for e in events if e["kind"] == "error"]
+    assert len(errors) == 1 and "3 chunks in a row" in errors[0]["reason"]
+
+
+def test_a_forced_end_of_utterance_closes_the_chunk_being_spoken(monkeypatch):
+    import asyncio
+
+    live, stream, events = _chunk_stream(monkeypatch, [(0, "Mándame un mail")])
+
+    async def scenario():
+        stream.start("key")
+        _feed_all(stream, _quiet(0.5), _tone(1.0))
+        stream.force_end()
+        await asyncio.sleep(0.2)
+        got = [e["transcript"] for e in events if e["kind"] == "final"]
+        stream.end()
+        await asyncio.wait_for(stream.finished.wait(), 3.0)
+        return got
+
+    assert asyncio.run(scenario()) == ["Mándame un mail"]
+
+
+def test_the_client_is_told_when_a_side_is_speaking_and_when_its_words_are_in(monkeypatch):
+    import asyncio
+
+    live, sessions, client = _sessions(monkeypatch)
+
+    async def scenario():
+        stream = sessions._open("prospect", "es", None, offset_s=0.0)
+        sessions.active["prospect"] = stream
+        await sessions._on_stream(stream, {"kind": "activity", "active": True})
+        await sessions._on_stream(stream, {"kind": "activity", "active": False})
+
+    asyncio.run(scenario())
+    assert client.sent == [
+        {"type": "Speaking", "audio_channel": "prospect", "active": True},
+        {"type": "Speaking", "audio_channel": "prospect", "active": False},
+    ]
+
+
+def test_mai_chunks_run_when_forced_and_openrouter_has_a_key_and_the_language_hint_follows_the_profile(monkeypatch):
+    import asyncio
+
+    from app.services import live_channel_sessions as live
+
+    class Quiet(live.MaiChunkStream):
+        def start(self, api_key):
+            self.started_with = api_key
+
+    monkeypatch.setitem(live.STREAMS, "mai_chunks", Quiet)
+    monkeypatch.setattr(live.settings, "LIVE_STT_PROVIDER", "mai_chunks")
+    monkeypatch.setattr(live.settings, "OPENROUTER_API_KEY", "or-key")
+    monkeypatch.setattr(live.settings, "DEEPGRAM_API_KEY", "dg")
+
+    def make(profile):
+        return live.ChannelSessions(_FakeClient(), labels=["rep"], language="multi", profile_languages=profile, glossary=[], detect=False)
+
+    async def scenario():
+        one, several = make(["es"]), make(["es", "en"])
+        return (
+            one.provider,
+            one._open("rep", "es", None, offset_s=0.0),
+            several._open("rep", "es", None, offset_s=0.0),
+        )
+
+    provider, one, several = asyncio.run(scenario())
+    assert provider == "mai_chunks"
+    assert one.hint == "es" and several.hint is None and one.started_with == "or-key"
+    # No OpenRouter key: the profile's own rule is used, as for the other forced providers.
+    monkeypatch.setattr(live.settings, "OPENROUTER_API_KEY", None)
+    assert make(["es"]).provider == "deepgram"
