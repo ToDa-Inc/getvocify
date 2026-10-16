@@ -60,13 +60,14 @@ async def sheet(email: str, days: int, limit: int, out: str) -> None:
     sb, company_id = build(email)
     from app.services.playbooks.gaps import recent_suggest_events
     from app.services.playbooks.outcomes import outcome_for_event, ready_for_judging
+    from app.services.playbooks.review_queue import memos_for_captures
 
     events = [e for e in recent_suggest_events(sb, company_id, days=days, limit=1000) if e.get("is_objection") and e.get("capture_id")]
     rows: list[dict] = []
     for event in events:
         if len(rows) >= limit:
             break
-        memo = (sb.table("memos").select("id,transcript,extraction").eq("id", event["capture_id"]).limit(1).execute().data or [None])[0]
+        memo = memos_for_captures(sb, company_id, [str(event["capture_id"])]).get(str(event["capture_id"]))
         if not ready_for_judging(event, memo):
             continue
         verdict = await outcome_for_event(event, memo)

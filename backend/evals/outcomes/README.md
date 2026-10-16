@@ -13,3 +13,11 @@ post-call reading. This folder checks that the verdicts can be trusted before th
 
 Until it says `SIGUE`, `PLAYBOOK_SUCCESS_RATE_ENABLED` stays off: the improvements screen still shows coverage and the
 cases that need an answer, but no success rate.
+
+## A card only has a call if the log says which
+
+A live-help card is tied to its call through `live_assist_events.capture_id`. Until 2026-10-16 (commit `a0ce79dd`, "events carry
+the recording's id") that column was empty in every event (0 of 2,804): nothing before that can be judged, and the sheet will be
+empty until the desktop app that sends `call_id` is released and reps have used live help with it. Both ids are tried when
+matching a card to a call: the memo's own id and the `client_capture_id` the app gave the recording. Coverage does not depend on this.
+

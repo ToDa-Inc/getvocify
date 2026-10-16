@@ -27,6 +27,11 @@ def day(n):
     return (NOW - timedelta(days=n)).isoformat()
 
 
+def mid(i):
+    """A memo's id as the database has it: a UUID."""
+    return f"00000000-0000-4000-8000-{i:012d}"
+
+
 def row(event_id, used, resolved, *, source="objection:price", days=3, **extra):
     return {
         "event_id": event_id, "used": used, "resolved": resolved, "source_id": source, "observed_at": day(days),
@@ -94,11 +99,11 @@ def make_db(count=3, *, young=0, no_reading=0):
         has_reading = not (i >= count + young)
         events.append({
             "id": f"e{i}", "company_id": COMPANY, "kind": "suggest", "is_objection": True, "created_at": (NOW - timedelta(hours=hours)).isoformat(),
-            "capture_id": f"m{i}", "latest_turn": f"Es muy caro para nosotros caso {i}", "objection_type": "price", "source_id": "objection:price",
+            "capture_id": mid(i), "latest_turn": f"Es muy caro para nosotros caso {i}", "objection_type": "price", "source_id": "objection:price",
             "say_this": "Pregunta cuánto pierden.", "sales_motion_key": "discovery",
         })
         extraction = {"intelligence": {"objections": [{"kind": "objection", "category": "price", "quote": f"Es muy caro para nosotros caso {i}", "response": "¿Cuánto pierden hoy?", "resolution": "resolved"}]}} if has_reading else None
-        memos.append({"id": f"m{i}", "company_id": COMPANY, "transcript": "x", "extraction": extraction})
+        memos.append({"id": mid(i), "company_id": COMPANY, "transcript": "x", "extraction": extraction})
     return FakeDB({"live_assist_events": events, "memos": memos})
 
 
@@ -119,6 +124,34 @@ def test_a_batch_is_bounded_and_the_next_one_goes_on_where_it_stopped():
     assert refresh(db, store, limit=2) == 2
     assert refresh(db, store, limit=2) == 1
     assert len(store.list_outcomes(COMPANY, since=day(30))) == 5
+
+
+class StrictIds(FakeDB):
+    """Postgres refuses a value that is not a UUID for a uuid column: an error, not an empty answer."""
+
+    def table(self, name):
+        query = super().table(name)
+        asked = query.in_
+
+        def in_(column, values):
+            if name == "memos" and column == "id" and any(not str(v).count("-") == 4 for v in values):
+                raise RuntimeError("invalid input syntax for type uuid")
+            return asked(column, values)
+
+        query.in_ = in_
+        return query
+
+
+def test_a_card_is_tied_to_its_call_by_the_memo_id_or_by_the_id_the_app_gave_the_recording():
+    db, store = make_db(3), InMemoryAssistantStore()
+    for index in range(2):  # the app names the recording itself: the card carries that id, not the memo's
+        db.tables["live_assist_events"][index]["capture_id"] = f"draft-{index}"
+        db.tables["memos"][index]["client_capture_id"] = f"draft-{index}"
+    other = db.tables["memos"][2]
+    db.tables["memos"].append({**other, "id": mid(99), "company_id": "co-2", "client_capture_id": "draft-0"})  # another company's call
+    db = StrictIds(dict(db.tables))
+    assert refresh(db, store) == 3  # two by the recording's id, one by the memo's own id, and no error from asking uuids about drafts
+    assert sorted(r["event_id"] for r in store.list_outcomes(COMPANY, since=day(30))) == ["e0", "e1", "e2"]
 
 
 def test_a_failing_model_still_stores_unknown_verdicts_instead_of_losing_the_batch():

@@ -11,6 +11,9 @@
 --   4. PARTE C: PLAYBOOK_SUCCESS_RATE_ENABLED (success rate y cola de mejoras) SOLO tras la comprobación de viabilidad:
 --      backend/evals/outcomes/README.md (hoja de 20 sugerencias etiquetadas a mano: sigue si ≥80% de acuerdo y ≤30% «no se sabe»).
 --      Sin este flag el asistente funciona entero; «Mejoras con el uso» solo muestra la cobertura.
+--      OJO: una sugerencia solo se puede ligar a su llamada si el evento lleva `capture_id`. Hasta el commit a0ce79dd de Dani
+--      (16 oct) ninguno de los 2.804 eventos lo tenía: la hoja saldrá vacía hasta que salga la app de escritorio que envía
+--      `call_id` y haya llamadas nuevas con ayuda en directo.
 --
 -- NÚMERO: esta migración es la 082 (la 081 ya es 081_demo_profiles). Si alguien añade otra 082, renumerar ESTE fichero.
 -- Hay que acordarlo con Dani: sus migraciones y las de coaching comparten la carpeta.

@@ -358,5 +358,9 @@ Pendiente de Toni / el fundador (ver `docs/superpowers/plans/2026-10-16-activaci
 2. Encender `PLAYBOOK_ASSISTANT_ENABLED` para una empresa de prueba y probarlo de punta a punta.
 3. La hoja de viabilidad del success rate (`backend/evals/outcomes/README.md`) con llamadas reales: no se ha
    generado (necesita datos de producción y 20 etiquetas a mano). Hasta que dé «SIGUE», el flag se queda apagado.
+   Además, una sugerencia solo se liga a su llamada si el evento de ayuda en directo trae `capture_id`: hasta el commit
+   `a0ce79dd` de Dani (16 oct) ninguno de los 2.804 eventos lo traía, así que no hay nada que juzgar de antes de esa fecha
+   y la hoja saldrá vacía hasta que salga la app de escritorio que envía `call_id`. Se acepta el id de la memo y el
+   `client_capture_id` que la app dio a la grabación. La cobertura no depende de esto y ya funciona.
 4. Las pantallas se vieron en la página de previsualización de desarrollo (claro, oscuro y móvil), no contra la
    página real del Playbook ni con Reticle (sin sesión de prueba).

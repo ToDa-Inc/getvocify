@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -143,13 +144,36 @@ def _candidate_events(supabase: Any, company_id: str, since: str) -> list[dict]:
     return [e for e in (getattr(result, "data", None) or []) if e.get("capture_id")]
 
 
-def _memos(supabase: Any, company_id: str, ids: list[str]) -> dict[str, dict]:
+def _is_uuid(value: str) -> bool:
     try:
-        result = supabase.table("memos").select("id,transcript,extraction").eq("company_id", company_id).in_("id", ids).execute()
-    except Exception as exc:
-        logger.warning("calls not read for outcomes: %s", type(exc).__name__)
-        return {}
-    return {str(m["id"]): m for m in getattr(result, "data", None) or []}
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
+def memos_for_captures(supabase: Any, company_id: str, ids: list[str]) -> dict[str, dict]:
+    """The company's calls (`id, client_capture_id, transcript, extraction`) that the given capture ids point at, keyed by
+    the id they were found with. A live-help card carries either the memo's own id (a stored capture) or the id the app
+    gave the recording while it was made (`client_capture_id`): both are tried, and the memo's `id` column is only asked
+    about values that are UUIDs (the other would be an error, not a miss)."""
+    found: dict[str, dict] = {}
+    for column, wanted in (("id", [i for i in ids if _is_uuid(i)]), ("client_capture_id", list(ids))):
+        if not wanted:
+            continue
+        try:
+            result = (
+                supabase.table("memos").select("id,client_capture_id,transcript,extraction")
+                .eq("company_id", company_id).in_(column, wanted).execute()
+            )
+        except Exception as exc:
+            logger.warning("calls not read for outcomes: %s", type(exc).__name__)
+            continue
+        for memo in getattr(result, "data", None) or []:
+            for key in (memo.get("id"), memo.get("client_capture_id")):
+                if key:
+                    found.setdefault(str(key), memo)
+    return found
 
 
 async def refresh_outcomes(
@@ -169,7 +193,7 @@ async def refresh_outcomes(
         if len(ready) >= limit:
             break
         chunk = pending[start : start + MEMO_CHUNK]
-        memos = await asyncio.to_thread(_memos, supabase, company_id, sorted({str(e["capture_id"]) for e in chunk}))
+        memos = await asyncio.to_thread(memos_for_captures, supabase, company_id, sorted({str(e["capture_id"]) for e in chunk}))
         for event in chunk:
             memo = memos.get(str(event["capture_id"]))
             if len(ready) < limit and ready_for_judging(event, memo, now=now):

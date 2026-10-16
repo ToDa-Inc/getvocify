@@ -27,6 +27,11 @@ def success_on(monkeypatch):
     feature_flags.clear_cache()
 
 
+def mid(i):
+    """A memo's id as the database has it: a UUID."""
+    return f"00000000-0000-4000-8000-{i:012d}"
+
+
 def hours_ago(hours):
     return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
@@ -37,11 +42,11 @@ def calls_db(count=3, *, answered=True):
     for i in range(count):
         events.append({
             "id": f"e{i}", "company_id": "co-1", "kind": "suggest", "is_objection": True, "created_at": hours_ago(30 + i),
-            "capture_id": f"m{i}", "latest_turn": f"Es muy caro para nosotros caso {i}", "objection_type": "price",
+            "capture_id": mid(i), "latest_turn": f"Es muy caro para nosotros caso {i}", "objection_type": "price",
             "source_id": "objection:price" if answered else None, "say_this": "Pregunta cuánto pierden.", "sales_motion_key": "discovery",
         })
         memos.append({
-            "id": f"m{i}", "company_id": "co-1", "transcript": "x", "extraction": {"intelligence": {"objections": [
+            "id": mid(i), "company_id": "co-1", "transcript": "x", "extraction": {"intelligence": {"objections": [
                 {"kind": "objection", "category": "price", "quote": f"Es muy caro para nosotros caso {i}", "response": "Depende.", "resolution": "open"},
             ]}},
         })
