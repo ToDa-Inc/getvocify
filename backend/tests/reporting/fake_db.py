@@ -85,6 +85,10 @@ class _Query:
         self.mode, self.payload = "update", payload
         return self
 
+    def delete(self):
+        self.mode = "delete"
+        return self
+
     def execute(self):
         self.db.calls.append((self.table, self.mode))
         if self.table in self.db.fail_tables:
@@ -106,6 +110,10 @@ class _Query:
             rows.append(payload)
             return SimpleNamespace(data=[dict(payload)])
         kept = [row for row in rows if all(check(row) for check in self.filters)]
+        if self.mode == "delete":
+            gone = [id(row) for row in kept]
+            rows[:] = [row for row in rows if id(row) not in gone]
+            return SimpleNamespace(data=[dict(row) for row in kept])
         if self.mode == "update":
             for row in kept:
                 row.update(self.payload)
