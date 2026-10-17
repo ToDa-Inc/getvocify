@@ -65,7 +65,7 @@ _INTERNAL_DESCRIPTION = "Internal: no customer or prospect takes part (team meet
 
 
 def reading_playbooks(
-    company_id: Optional[str], *, kind: Optional[str] = None, supabase: Any = None,
+    company_id: Optional[str], *, kind: Optional[str] = None, supabase: Any = None, user_id: Optional[str] = None,
 ) -> Optional[dict[str, str]]:
     """{key: what it is} for the call reading: the company's published types plus internal.
     None when the company has none published (then the reading names no playbook).
@@ -80,7 +80,7 @@ def reading_playbooks(
         if channel_types.enabled(supabase, str(company_id)):
             try:
                 types = channel_types._types(str(company_id))
-                keys = channel_types.candidates(types, kind)
+                keys = channel_types.candidate_keys(supabase, str(company_id), types, kind, user_id=user_id)
                 if not keys:
                     return None
                 return {**channel_types.describe(supabase, str(company_id), types, keys), INTERNAL_KEY: _INTERNAL_DESCRIPTION}
@@ -170,7 +170,8 @@ def _apply_by_channel(supabase: Any, memo: dict, key: str) -> None:
     current = memo.get("sales_motion_key")
     if key == current or not channel_types.may_move(meta, key):
         return
-    if key != INTERNAL_KEY and key not in channel_types.candidates(channel_types._types(company_id), interaction_kind_of(memo)):
+    allowed = channel_types.candidate_keys(supabase, company_id, channel_types._types(company_id), interaction_kind_of(memo), user_id=memo.get("user_id"))
+    if key != INTERNAL_KEY and key not in allowed:
         return
     extra = {"changed_from": current} if current else {}
     update = channel_types.pin_fields(supabase, company_id, key, READING_SOURCE, meta, **extra)

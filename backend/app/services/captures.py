@@ -193,6 +193,7 @@ def playbook_fields_for_capture(
     interaction_kind: Optional[str] = None,
     hubspot_contact_id: Optional[str] = None,
     hubspot_deal_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Pin the published playbook snapshot on a new memo row, same as desktop capture reserve.
 
@@ -215,6 +216,7 @@ def playbook_fields_for_capture(
             # nothing, and the call reading decides. Never the role, never "the one published playbook".
             key, source = channel_types.resolve_at_capture(
                 supabase, company_id, kind=interaction_kind, contact_id=hubspot_contact_id, deal_id=hubspot_deal_id,
+                user_id=user_id,
             )
             return channel_types.pin_fields(supabase, company_id, key, source) if key and source else {}
     if not motion and not pinned_id and interaction_kind:
@@ -319,6 +321,7 @@ def pin_playbook_on_row(supabase: Client, row: dict[str, Any]) -> dict[str, Any]
             interaction_kind=interaction_kind_of(row),
             hubspot_contact_id=row.get("hubspot_contact_id"),
             hubspot_deal_id=row.get("hubspot_deal_id") or row.get("matched_deal_id"),
+            user_id=str(user_id),
         )
     except Exception:
         logger.warning("playbook pin failed for a new memo", exc_info=True)
@@ -439,6 +442,7 @@ def reserve_capture(
         sales_role=sales_role,
         interaction_kind=kind,
         hubspot_contact_id=hubspot_contact_id,
+        user_id=user_id,
     )
     payload = {
         "user_id": user_id,

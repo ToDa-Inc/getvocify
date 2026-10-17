@@ -74,3 +74,19 @@ def hand_over_invite_types(supabase: Any, company_id: str, invitation_id: str, u
         carry_invite_types(get_sales_process_store(supabase), company_id, invitation_id, user_id)
     except Exception as exc:
         logging.getLogger(__name__).warning("invite types not handed over: %s", type(exc).__name__)
+
+
+def assigned_for(supabase: Any, company_id: str, user_id: Optional[str]) -> Optional[list[str]]:
+    """The types a person runs, or None (= all): no person, the editable process off, nothing assigned or tables not there.
+    Never raises: a failed read is "all", the way everything worked before."""
+    if not user_id:
+        return None
+    try:
+        from app.services.feature_flags import is_enabled
+        from app.services.sales_process.store import get_sales_process_store
+
+        if not is_enabled(supabase, company_id, "SALES_PROCESS_ENABLED"):
+            return None
+        return get_sales_process_store(supabase).get_member_types(company_id, user_id=str(user_id))
+    except Exception:
+        return None

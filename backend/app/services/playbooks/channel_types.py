@@ -40,11 +40,25 @@ CRM_SOURCE = "crm_rule"
 LIVE_SOURCE = "live"
 
 
-def enabled(supabase: Any, company_id: Optional[str]) -> bool:
-    """On only together with the call reading: without it nothing after the call decides the type."""
+PROCESS_FLAG = "SALES_PROCESS_ENABLED"
+
+
+def process_mode(supabase: Any, company_id: Optional[str]) -> bool:
+    """The company runs its own editable sales process (spec 2026-10-17): its types are not bound to a channel and each
+    member runs the ones they were assigned."""
     from app.services.feature_flags import is_enabled
 
-    return bool(company_id) and is_enabled(supabase, company_id, FLAG) and is_enabled(supabase, company_id, CALL_READING_FLAG)
+    return bool(company_id) and is_enabled(supabase, company_id, PROCESS_FLAG)
+
+
+def enabled(supabase: Any, company_id: Optional[str]) -> bool:
+    """On only together with the call reading: without it nothing after the call decides the type. The editable sales
+    process rides on the same machinery (a recording's type is decided once, by the call reading)."""
+    from app.services.feature_flags import is_enabled
+
+    if not company_id or not is_enabled(supabase, company_id, CALL_READING_FLAG):
+        return False
+    return is_enabled(supabase, company_id, FLAG) or is_enabled(supabase, company_id, PROCESS_FLAG)
 
 
 def type_channels(key: str, applies_to: Any) -> set[str]:
@@ -68,6 +82,21 @@ def candidates(types: dict[str, dict], kind: Optional[str]) -> list[str]:
         and kind in type_channels(key, row.get("applies_to"))
     ]
     return sorted(keys, key=catalog_order)
+
+
+def candidate_keys(supabase: Any, company_id: str, types: dict[str, dict], kind: Optional[str], *, user_id: Optional[str] = None) -> list[str]:
+    """`candidates`, or with the editable process: every detectable type of a call or meeting whatever its channel, limited to
+    what the person runs. If they run only types that cannot be detected right now, all of them: better a type than none."""
+    if not process_mode(supabase, company_id):
+        return candidates(types, kind)
+    if kind not in CHANNELS:
+        return []
+    keys = sorted((k for k, row in types.items() if k != INTERNAL_KEY and row.get("status") in _DETECTABLE), key=catalog_order)
+    from app.services.sales_process.members import assigned_for
+
+    assigned = assigned_for(supabase, company_id, user_id)
+    mine = [k for k in keys if assigned and k in assigned]
+    return mine or keys
 
 
 def _has_crm_condition(applies_to: dict) -> bool:
@@ -129,12 +158,13 @@ def resolve_at_capture(
     contact_id: Optional[str] = None,
     deal_id: Optional[str] = None,
     exclude_memo_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """(key, "single" | "crm_rule") to start a recording with, or (None, None) to leave it to the
     call reading. Never raises: a failed read is "nothing decided"."""
     try:
         types = _types(str(company_id))
-        keys = candidates(types, kind)
+        keys = candidate_keys(supabase, str(company_id), types, kind, user_id=user_id)
         if not keys:
             return None, None
         if len(keys) == 1:
@@ -212,7 +242,7 @@ def recheck_crm(supabase: Any, memo: dict) -> dict:
             return memo
         kind = interaction_kind_of(memo)
         types = _types(company_id)
-        rules = crm_rules(types, candidates(types, kind))
+        rules = crm_rules(types, candidate_keys(supabase, company_id, types, kind, user_id=memo.get("user_id")))
         if not rules:
             return memo
         context = build_context(

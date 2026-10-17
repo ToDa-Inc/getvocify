@@ -333,7 +333,7 @@ async def _read_call_first(
             transcript, LLMClient(), model=settings.INTELLIGENCE_MODEL,
             captured_at=str(call_date or memo.get("created_at") or ""),
             # The same read names the playbook the call was, from the company's own types.
-            playbooks=reading_playbooks(memo.get("company_id"), kind=interaction_kind_of(memo), supabase=supabase),
+            playbooks=reading_playbooks(memo.get("company_id"), kind=interaction_kind_of(memo), supabase=supabase, user_id=memo.get("user_id")),
             **context,
         )
         if reading is not None and speakers_verified:

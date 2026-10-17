@@ -309,6 +309,14 @@ def _playbooks_payload(supabase: Client, membership: Membership, repository: Pla
         key: {**detail, **{name: types[key][name] for name in _COUNT_FIELDS}}
         for key, detail in build_details(motions, stored).items()
     }
+    if not manager and channel_types.process_mode(supabase, membership.company_id):
+        # The company's own process: a member sees the types they were assigned (nothing assigned = all).
+        from app.services.sales_process.members import assigned_for
+
+        mine = assigned_for(supabase, membership.company_id, membership.user_id)
+        if mine:
+            motions = {key: state for key, state in motions.items() if key in mine}
+            details = {key: details[key] for key in motions}
     if is_enabled(supabase, membership.company_id, channel_types.FLAG):
         # Types by channel: every member sees every type (no role), each with its channels and sentence,
         # and Settings says whether detection runs (it needs the call reading too).
