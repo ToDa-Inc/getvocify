@@ -77,3 +77,11 @@ def test_before_the_tables_exist_the_store_says_so_and_nothing_else():
         sql.list_process(CO)
     with pytest.raises(SalesProcessUnavailable):
         sql.get_member_types(CO, user_id="u1")
+
+
+def test_the_members_and_invitations_of_a_company_can_be_listed_together(store):
+    store.set_member_types(CO, ["cold"], user_id="u1")
+    store.set_member_types(CO, None, user_id="u2")
+    store.set_member_types(CO, ["demo"], invitation_id="i1")
+    store.set_member_types(OTHER, ["cold"], user_id="u9")
+    assert store.list_member_types(CO) == {"members": {"u1": ["cold"], "u2": None}, "invitations": {"i1": ["demo"]}}

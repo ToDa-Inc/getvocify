@@ -36,6 +36,13 @@ def _clean(types: Optional[list[str]]) -> Optional[list[str]]:
     return kept or None
 
 
+def _listed(rows: list[dict]) -> dict:
+    return {
+        "members": {str(r["user_id"]): (list(r["types"]) if r.get("types") else None) for r in rows if r.get("user_id")},
+        "invitations": {str(r["invitation_id"]): (list(r["types"]) if r.get("types") else None) for r in rows if r.get("invitation_id")},
+    }
+
+
 def _who(user_id: Optional[str], invitation_id: Optional[str]) -> tuple[str, str]:
     if bool(user_id) == bool(invitation_id):
         raise ValueError("a member row needs a user or an invitation")
@@ -55,6 +62,9 @@ class SalesProcessStore(Protocol):
         self, company_id: str, types: Optional[list[str]], *, user_id: Optional[str] = None, invitation_id: Optional[str] = None,
     ) -> None:
         """None or an empty list = every type. ValueError unless exactly one of user_id / invitation_id is given."""
+
+    def list_member_types(self, company_id: str) -> dict:
+        """{members: {user_id: types | None}, invitations: {invitation_id: types | None}} of everything stored."""
 
     def drop_type(self, company_id: str, key: str) -> None:
         """Takes the type out of the process and out of every member's and invitation's list (an empty list becomes None)."""
@@ -87,6 +97,9 @@ class InMemorySalesProcessStore:
             row = {"id": str(uuid.uuid4()), "company_id": company_id, "user_id": None, "invitation_id": None, column: value}
             self.members.append(row)
         row["types"] = _clean(types)
+
+    def list_member_types(self, company_id):
+        return _listed([m for m in self.members if m["company_id"] == company_id])
 
     def drop_type(self, company_id, key):
         self.process = [r for r in self.process if not (r["company_id"] == company_id and r["sales_motion_key"] == key)]
@@ -135,6 +148,9 @@ class SqlSalesProcessStore:
             self._run(lambda db: db.table(MEMBERS).insert({"company_id": company_id, column: value, "types": kept}))
         else:
             self._run(lambda db: db.table(MEMBERS).update({"types": kept}).eq("company_id", company_id).eq(column, value))
+
+    def list_member_types(self, company_id):
+        return _listed(self._run(lambda db: db.table(MEMBERS).select("*").eq("company_id", company_id)))
 
     def drop_type(self, company_id, key):
         self._run(lambda db: db.table(PROCESS).delete().eq("company_id", company_id).eq("sales_motion_key", key))

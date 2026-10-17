@@ -29,6 +29,7 @@ class _Query:
         self._limit: int | None = None
         self._range: tuple[int, int] | None = None
         self._order: tuple[str, bool] | None = None
+        self._single = False
 
     def select(self, *_args, **_kwargs):
         return self
@@ -89,6 +90,10 @@ class _Query:
         self.mode = "delete"
         return self
 
+    def single(self):
+        self._single = True
+        return self
+
     def execute(self):
         self.db.calls.append((self.table, self.mode))
         if self.table in self.db.fail_tables:
@@ -125,6 +130,8 @@ class _Query:
             kept = kept[self._range[0] : self._range[1] + 1]
         if self._limit is not None:
             kept = kept[: self._limit]
+        if self._single:
+            return SimpleNamespace(data=dict(kept[0]) if kept else None)
         return SimpleNamespace(data=[dict(row) for row in kept])
 
 

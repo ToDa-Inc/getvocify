@@ -12,6 +12,7 @@ from supabase import Client
 from app.deps import get_supabase, get_supabase_auth, get_user_id
 from app.services.billing.entitlement import workspace_entitlements
 from app.services.company import CompanyService, INVITE_ROLES
+from app.services.sales_process.members import before_invite, hand_over_invite_types, keep_invite_types
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/company", tags=["company"])
@@ -74,6 +75,8 @@ class InviteRequest(BaseModel):
     role: str = Field(default="member")
     send_email: bool = True
     sales_role: Optional[str] = None
+    # With the editable sales process: the interaction types the new member will run (None = not said, [] = all).
+    interaction_types: Optional[list[str]] = None
 
 
 class InviteResponse(BaseModel):
@@ -229,6 +232,9 @@ async def create_invite(
     svc = CompanyService(supabase)
     membership = svc.require_manage_role(user_id)
     sales_role = body.sales_role if svc.sales_roles_enabled(membership.company_id) else None
+    kept_types, derived_role = before_invite(supabase, membership.company_id, body.interaction_types)
+    if derived_role is not None and svc.sales_roles_enabled(membership.company_id):
+        sales_role = derived_role
     invite, invite_url, email_sent, crm_owner_match = await svc.create_invite(
         company_id=membership.company_id,
         email=body.email,
@@ -237,6 +243,7 @@ async def create_invite(
         send_email=body.send_email,
         sales_role=sales_role,
     )
+    keep_invite_types(supabase, membership.company_id, str(invite["id"]), kept_types)
     return InviteResponse(
         id=str(invite["id"]),
         email=str(invite["email"]),
@@ -377,12 +384,14 @@ async def accept_invite(
     from app.services.admin_session import mint_session_for_email
 
     svc = CompanyService(supabase)
-    user_id, _company_id, email = svc.accept_invite(
+    invited = svc.get_invite_by_token(body.token)
+    user_id, company_id, email = svc.accept_invite(
         raw_token=body.token,
         password=body.password,
         full_name=body.full_name,
         auth_client=auth_client,
     )
+    hand_over_invite_types(supabase, company_id, str(invited["id"]), user_id)
     minted = mint_session_for_email(email)
     profile_result = (
         supabase.table("user_profiles").select("*").eq("id", user_id).limit(1).execute()

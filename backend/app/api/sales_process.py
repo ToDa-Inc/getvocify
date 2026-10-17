@@ -13,30 +13,27 @@ from __future__ import annotations
 
 import functools
 import logging
-from typing import Literal, Optional
+
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from supabase import Client
 
 from app.api.playbooks import _playbooks_changed
 from app.deps import get_membership, get_supabase
-from app.services.company import Membership
+from app.services.company import CompanyService, Membership
 from app.services.feature_flags import is_enabled
 from app.services.playbooks.api_support import require_manager
-from app.services.playbooks.catalog import catalog_label, catalog_order, catalog_types
 from app.services.playbooks.repository import PlaybookRepository, get_playbook_repository
-from app.services.playbooks.versions import LifecycleError
-from app.services.sales_process.logic import slug_key, stage_for
+from app.services.sales_process.members import set_member_types
+from app.services.sales_process.process import MAX_NAME, MAX_TYPES, ProcessRequest, ProcessType, apply_process, process_view  # noqa: F401 (re-exported)
 from app.services.sales_process.store import SalesProcessStore, SalesProcessUnavailable, get_sales_process_store
 
 logger = logging.getLogger(__name__)
 
 FLAG = "SALES_PROCESS_ENABLED"
-MAX_TYPES = 20
-MAX_NAME = 60
-
 router = APIRouter(prefix="/api/v1/sales-process", tags=["sales-process"])
 
 
@@ -60,80 +57,6 @@ def _mapped(fn):
     return wrapper
 
 
-class ProcessType(BaseModel):
-    key: Optional[str] = Field(default=None, max_length=80)
-    label: str = Field(max_length=MAX_NAME)
-    stage: Literal["first_contact", "deal"]
-    recognize: Optional[str] = Field(default=None, max_length=300)
-
-
-class ProcessRequest(BaseModel):
-    types: list[ProcessType] = Field(min_length=1, max_length=MAX_TYPES)
-
-
-def _present_types(repository: PlaybookRepository, placed: set[str], company_id: str) -> dict[str, dict]:
-    """The company's types that exist: it has a version of them, a name of its own for them, or it placed them in its process
-    (a type created empty is still a type; a catalog type nobody created is not)."""
-    return {
-        key: row
-        for key, row in repository.list_types(company_id).items()
-        if row.get("status") != "missing" or row.get("label") or key in placed
-    }
-
-
-def process_view(repository: PlaybookRepository, store: SalesProcessStore, company_id: str) -> list[dict]:
-    """The company's types in process order. A type the company never placed (an older one) follows the placed ones, in the
-    order the catalog gives them, with the stage its role implies."""
-    rows = store.list_process(company_id)
-    placed = {r["key"] for r in rows}
-    present = _present_types(repository, placed, company_id)
-    ordered = [r["key"] for r in rows if r["key"] in present] + sorted((key for key in present if key not in placed), key=catalog_order)
-    return [
-        {
-            "key": key,
-            "label": present[key].get("label") or catalog_label(key, "es") or key,
-            "stage": stage_for(key, rows),
-            "recognize": present[key].get("recognize"),
-            "position": index + 1,
-            "step_count": present[key].get("step_count", 0),
-            "status": present[key].get("status"),
-        }
-        for index, key in enumerate(ordered)
-    ]
-
-
-def apply_process(repository: PlaybookRepository, store: SalesProcessStore, company_id: str, wanted: list[ProcessType]) -> None:
-    """Makes the company's types exactly `wanted`, in that order. New names get a fresh key (never a catalog key, which
-    would bring that catalog type's behaviour with it); a type that is not in the list is archived and leaves every
-    member's list. Raises ValueError("duplicate_name") when two names are the same."""
-    names = [t.label.strip().casefold() for t in wanted]
-    if "" in names or len(set(names)) != len(names):
-        raise ValueError("duplicate_name" if "" not in names else "empty_name")
-    present = _present_types(repository, {r["key"] for r in store.list_process(company_id)}, company_id)
-    taken = set(present) | {t["key"] for t in catalog_types()}
-    rows: list[dict] = []
-    for position, item in enumerate(wanted, start=1):
-        label = item.label.strip()
-        key = item.key if item.key in present else None
-        recognize = (item.recognize or "").strip() or None
-        if key is None:
-            key = slug_key(label, taken)
-            taken.add(key)
-            repository.add_type(company_id, key, label, label=label, recognize=recognize)
-        else:
-            repository.set_meta(company_id, key, label=label, recognize=recognize)
-        rows.append({"key": key, "position": position, "stage": item.stage})
-    kept = {r["key"] for r in rows}
-    for key in present:
-        if key not in kept:
-            try:
-                repository.set_state(company_id, key, "archive")
-            except LifecycleError:
-                logger.info("type %s could not be archived", key)
-            store.drop_type(company_id, key)
-    store.replace_process(company_id, rows)
-
-
 @router.get("")
 @_mapped
 def get_process(supabase: Client = Depends(get_supabase), membership: Membership = Depends(get_membership)):
@@ -153,3 +76,25 @@ def put_process(body: ProcessRequest, supabase: Client = Depends(get_supabase), 
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": str(exc)}) from exc
     _playbooks_changed(membership.company_id)
     return {"types": process_view(repository, store, membership.company_id)}
+
+
+class MemberTypes(BaseModel):
+    types: Optional[list[str]] = None
+
+
+@router.get("/members")
+@_mapped
+def get_member_types(supabase: Client = Depends(get_supabase), membership: Membership = Depends(get_membership)):
+    """What each member and each pending invitation runs: {members: {user_id: types | null}, invitations: {...}}. null = all."""
+    return _gate(supabase, membership).list_member_types(membership.company_id)
+
+
+@router.put("/members/{member_id}")
+@_mapped
+def put_member_types(
+    member_id: str, body: MemberTypes, supabase: Client = Depends(get_supabase), membership: Membership = Depends(get_membership),
+):
+    """Sets the types a member runs (`member_id` is the member row, as in the team page) -> {types, sales_role}. The role the
+    rest of the product reads is written from them."""
+    store = _gate(supabase, membership)
+    return set_member_types(store, get_playbook_repository(), CompanyService(supabase), membership, membership.company_id, member_id, body.types)
