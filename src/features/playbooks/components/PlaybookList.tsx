@@ -8,7 +8,6 @@ import { AddTypeMenu } from "@/features/playbooks/components/AddTypeMenu";
 import { GapAssistant } from "@/features/playbooks/components/GapAssistant";
 import { ImproveHub } from "@/features/playbooks/components/ImproveHub";
 import { ImproveScreen } from "@/features/playbooks/components/ImproveQueue";
-import { ModelCallImport } from "@/features/playbooks/components/ModelCallImport";
 import { TrialRunner } from "@/features/playbooks/components/TrialRunner";
 import { UnderstoodSummary } from "@/features/playbooks/components/UnderstoodSummary";
 import { RuleChange } from "@/features/playbooks/components/RuleChange";
@@ -48,7 +47,6 @@ export function PlaybookList() {
   const [picked, setPicked] = useState<string | null>(null);
   const [browse, setBrowse] = useState(false);
   const [deleteKey, setDeleteKey] = useState<string | null>(null);
-  const [modelOpen, setModelOpen] = useState(false);
   // Types by channel: the rail shows one channel at a time; until one is chosen, the one that has types.
   const [channelPick, setChannelPick] = useState<LiveChannel | null>(null);
   /** Opens a type, switching the rail to a channel it belongs to. */
@@ -109,9 +107,7 @@ export function PlaybookList() {
   // First time: the intake box is the whole section. One paste fills everything.
   if (canEdit && empty && !browse) {
     return (
-      <div className={cn(card, "px-5 md:px-7")}>
-        <IntakePanel intake={intake} alone name={process.name} onTemplate={() => setBrowse(true)} assistant={assistantOn} onModelCall={() => setModelOpen(true)} />
-      </div>
+      <IntakePanel intake={intake} alone name={process.name} onTemplate={() => setBrowse(true)} assistant={assistantOn} />
     );
   }
 
@@ -145,7 +141,7 @@ export function PlaybookList() {
 
   const detail = () => {
     if (canEdit && intake.open) {
-      return <IntakePanel intake={intake} alone={false} name={process.name} onTemplate={() => setBrowse(true)} assistant={assistantOn} onModelCall={() => setModelOpen(true)} />;
+      return <IntakePanel intake={intake} alone={false} name={process.name} onTemplate={() => setBrowse(true)} assistant={assistantOn} />;
     }
     if (selected === COMPANY_ROW && picked !== COMPANY_ROW && !shown.length) {
       return (
@@ -305,20 +301,8 @@ export function PlaybookList() {
   );
 
   if (!assistantOn) return playbook;
-  // The call type a model call is for: the one open, else the first that has something.
-  const modelKey = selected !== COMPANY_ROW && selected ? selected : (shown[0]?.key ?? "discovery");
   return (
     <div className="space-y-4">
-      <ModelCallImport
-        open={modelOpen}
-        onOpenChange={setModelOpen}
-        motionKey={modelKey}
-        typeName={process.name(modelKey)}
-        onApplied={() => {
-          void process.refresh();
-          process.reloadDocuments();
-        }}
-      />
       <ImproveHub view={view} views={IMPROVE_VIEWS} onView={(next) => (next ? setView(next) : closeView())} />
       {view === "assistant" ? (
         <GapAssistant

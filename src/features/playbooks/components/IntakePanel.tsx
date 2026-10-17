@@ -17,16 +17,14 @@ export function IntakePanel({
   name,
   onTemplate,
   assistant = false,
-  onModelCall,
 }: {
   intake: Intake;
   /** Nothing created yet: the box is the whole section (no cancel, template link below). */
   alone: boolean;
   name: (key: string) => string;
   onTemplate: () => void;
-  /** The playbook assistant is on: several files at once, the sales script first, and a way to upload a model call. */
+  /** The playbook assistant is on: several files at once and the sales script first. */
   assistant?: boolean;
-  onModelCall?: () => void;
 }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
@@ -39,7 +37,7 @@ export function IntakePanel({
       </div>
       <PlaybookStart
         submit={intake.submit}
-        minHeight="min-h-[200px]"
+        minHeight="min-h-[320px]"
         placeholder={copy.intakePlaceholder}
         readingLabel={copy.intakeReading}
         onTemplate={alone ? onTemplate : undefined}
@@ -47,15 +45,7 @@ export function IntakePanel({
         multiple={assistant}
         submitMany={assistant ? intake.submitMany : undefined}
         manyReadingLabel={c.reading}
-        manyHint={assistant ? c.filesLimit : undefined}
       />
-      {assistant && onModelCall ? (
-        <div>
-          <Button type="button" variant="quiet" size="text" onClick={onModelCall}>
-            {c.modelCallLink}
-          </Button>
-        </div>
-      ) : null}
       {intake.failedFiles.length ? (
         <ul className="space-y-1" role="alert">
           {intake.failedFiles.map((file) => (
