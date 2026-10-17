@@ -6,8 +6,11 @@ import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { authKeys } from "@/features/auth/api";
 import { companyApi, companyKeys } from "@/features/company/api";
+import { salesProcessApi } from "@/features/sales-process/api";
+import { TypesChip } from "@/features/sales-process/TypesChip";
 import type { SalesRole } from "@/features/company/types";
 import { useLanguage } from "@/lib/i18n";
+import { typesSummary } from "@/lib/sales-process";
 import { commercialRoleLabel } from "@/lib/role-labels";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
@@ -100,6 +103,12 @@ const TeamPage = () => {
 
   const canManage = user?.company?.role === "owner" || user?.company?.role === "admin";
   const salesRolesEnabled = Boolean(user?.company?.features?.includes("SALES_ROLES_ENABLED"));
+  // The company's own process: each member runs the interaction types they are assigned, instead of a SDR / AE role.
+  const processOn = Boolean(user?.company?.features?.includes("SALES_PROCESS_ENABLED")) && canManage;
+  const [inviteTypes, setInviteTypes] = useState<string[] | null>(null);
+  const processTypes = useQuery({ queryKey: ["sales-process"], queryFn: () => salesProcessApi.get(), enabled: processOn, retry: false });
+  const memberTypes = useQuery({ queryKey: ["sales-process", "members"], queryFn: () => salesProcessApi.members(), enabled: processOn, retry: false });
+  const typeOptions = (processTypes.data?.types ?? []).map((item) => ({ key: item.key, label: item.label }));
   const roleNames: Record<SalesRole, string> = {
     sdr: p.teamMemberTypeSdr,
     ae: p.teamMemberTypeAe,
@@ -130,10 +139,12 @@ const TeamPage = () => {
   };
 
   const inviteMutation = useMutation({
-    mutationFn: () => companyApi.invite(inviteEmail.trim(), "member", salesRolesEnabled ? inviteSalesRole : undefined),
+    mutationFn: () =>
+      companyApi.invite(inviteEmail.trim(), "member", salesRolesEnabled && !processOn ? inviteSalesRole : undefined, processOn ? (inviteTypes ?? []) : undefined),
     onSuccess: (res) => {
       setInviteEmail("");
       setInviteSalesRole("sdr");
+      setInviteTypes(null);
       setInviteUrl(res.emailSent ? null : (res.inviteUrl ?? null));
       setCrmOwnerMatch(res.crmOwnerMatch);
       refreshWorkspace();
@@ -178,6 +189,15 @@ const TeamPage = () => {
         salesRole: vars.salesRole === "general" ? null : vars.salesRole,
       }),
     onSuccess: refreshWorkspace,
+    onError: (error) => toast.error(apiErrorMessage(error, copy.updateFailed)),
+  });
+
+  const typesMutation = useMutation({
+    mutationFn: (vars: { memberId: string; types: string[] | null }) => salesProcessApi.setMember(vars.memberId, vars.types),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["sales-process", "members"] });
+      refreshWorkspace();
+    },
     onError: (error) => toast.error(apiErrorMessage(error, copy.updateFailed)),
   });
 
@@ -237,7 +257,9 @@ const TeamPage = () => {
             onChange={(event) => setInviteEmail(event.target.value)}
             className="h-9 min-w-[12rem] flex-1 rounded-full px-4"
           />
-          {salesRolesEnabled ? (
+          {processOn ? (
+            <TypesChip value={inviteTypes} types={typeOptions} label={p.pb2.process.teamTypes} disabled={seatsFull} onChange={setInviteTypes} />
+          ) : salesRolesEnabled ? (
             <RoleChip value={inviteSalesRole} label={p.inviteSalesRoleLabel} options={roleNames} help={roleHelp} disabled={seatsFull} onChange={setInviteSalesRole} />
           ) : null}
           <Button type="submit" size="sm" className="rounded-full px-5" disabled={inviteMutation.isPending || seatsFull}>
@@ -303,7 +325,15 @@ const TeamPage = () => {
                 <span className="truncate text-sm text-foreground sm:w-48 sm:shrink-0">{name}</span>
                 <span className="truncate text-xs text-muted-foreground">{member.email}</span>
               </div>
-              {editable ? (
+              {processOn && member.role === "member" ? (
+                <TypesChip
+                  value={memberTypes.data?.members[member.userId] ?? null}
+                  types={typeOptions}
+                  label={p.pb2.process.teamTypes}
+                  disabled={typesMutation.isPending && typesMutation.variables?.memberId === member.id}
+                  onChange={(types) => typesMutation.mutate({ memberId: member.id, types })}
+                />
+              ) : editable ? (
                 <RoleChip
                   value={member.salesRole ?? "general"}
                   label={copy.changeType}
@@ -339,7 +369,11 @@ const TeamPage = () => {
                 {copy.pending.replace("{date}", dateFormat.format(new Date(invite.expiresAt)))}
               </span>
             </div>
-            {salesRolesEnabled && invite.salesRole ? (
+            {processOn ? (
+              <span className={cn(CHIP, "bg-secondary/60 text-muted-foreground")}>
+                {typesSummary(memberTypes.data?.invitations[invite.id] ?? null, typeOptions, p.pb2.process.teamAll, p.pb2.process.teamMany)}
+              </span>
+            ) : salesRolesEnabled && invite.salesRole ? (
               <span className={cn(CHIP, "bg-secondary/60 text-muted-foreground")}>{roleNames[invite.salesRole]}</span>
             ) : null}
             {canManage ? (

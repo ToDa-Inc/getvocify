@@ -98,12 +98,15 @@ export const companyApi = {
     email: string,
     role: 'admin' | 'member' = 'member',
     salesRole?: SalesRole,
+    interactionTypes?: string[],
   ): Promise<{ emailSent: boolean; inviteUrl?: string; crmOwnerMatch: boolean | null }> => {
     const raw = await api.post<Record<string, unknown>>('/company/invites', {
       email,
       role,
       send_email: true,
       sales_role: salesRole,
+      // With the editable sales process: what the new member will run ([] = all).
+      ...(interactionTypes ? { interaction_types: interactionTypes } : {}),
     });
     return {
       emailSent: Boolean(raw.email_sent),

@@ -3,6 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import { DashboardThemeProvider } from "@/components/ThemeProvider";
 import type { GapSession, ImproveQueue, ImproveStats, ModelProposal, QueueGroup, QueueMoment, SuccessStats } from "@/features/playbooks/assistantApi";
 import { GapAssistantView } from "@/features/playbooks/components/GapAssistant";
+import { SalesProcessEditorView } from "@/features/sales-process/SalesProcessEditor";
+import type { DraftType } from "@/lib/sales-process";
 import { ImproveHubView } from "@/features/playbooks/components/ImproveHub";
 import { ImproveScreenView, type Writing } from "@/features/playbooks/components/ImproveQueue";
 import type { ImproveProblem, Publication } from "@/features/playbooks/hooks/useImprove";
@@ -226,7 +228,25 @@ function Improve({ stats, queue, status = "ready", openKey = null, writing = nul
 }
 const WITH_QUEUE: ImproveQueue = { groups: GROUPS, publish: [] };
 
+const PROCESS: DraftType[] = [
+  { key: "cold", label: "Llamada en frío", stage: "first_contact", recognize: "Primera llamada a alguien que no nos conoce" },
+  { key: "disc", label: "Discovery", stage: "first_contact" },
+  { key: "demo", label: "Demo", stage: "deal" },
+];
+
+function ProcessEditor({ first = false, start = PROCESS, status = "ready", saving = false, problem = null }: {
+  first?: boolean; start?: DraftType[]; status?: "loading" | "ready" | "error" | "not_activated"; saving?: boolean; problem?: string | null;
+}) {
+  const [list, setList] = useState<DraftType[]>(start);
+  return <SalesProcessEditorView status={status} first={first} list={list} saving={saving} problem={problem} onChange={setList} onSave={noop} onCancel={noop} onRetry={noop} />;
+}
+
 const SCENARIOS: { id: string; label: string; render: () => ReactNode }[] = [
+  { id: "process-first", label: "Proceso, primera vez", render: () => <ProcessEditor first start={[]} /> },
+  { id: "process-edit", label: "Proceso, editar", render: () => <ProcessEditor /> },
+  { id: "process-saving", label: "Proceso, guardando", render: () => <ProcessEditor saving /> },
+  { id: "process-error", label: "Proceso, nombre repetido", render: () => <ProcessEditor problem="duplicate_name" start={[...PROCESS, { label: "Demo", stage: "deal" }]} /> },
+  { id: "process-loading", label: "Proceso, cargando", render: () => <ProcessEditor status="loading" /> },
   { id: "hub-fresh", label: "Portada, primera vez", render: () => <Hub line="Vocify te hace unas preguntas para completar el playbook. Son unos 10 minutos." primary="Responder lo que falta" /> },
   { id: "hub-open", label: "Portada, preguntas pendientes", render: () => <Hub line="Tienes 6 preguntas por responder." primary="Continuar" /> },
   { id: "hub-queue", label: "Portada, respuestas por mirar", render: () => <Hub view={null} views={["assistant", "trial", "improve"]} line="3 respuestas necesitan que las mires." primary="Ver las mejoras" /> },

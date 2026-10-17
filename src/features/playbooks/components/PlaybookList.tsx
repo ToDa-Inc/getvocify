@@ -8,6 +8,10 @@ import { AddTypeMenu } from "@/features/playbooks/components/AddTypeMenu";
 import { GapAssistant } from "@/features/playbooks/components/GapAssistant";
 import { ImproveHub } from "@/features/playbooks/components/ImproveHub";
 import { ImproveScreen } from "@/features/playbooks/components/ImproveQueue";
+import { salesProcessApi } from "@/features/sales-process/api";
+import { PROCESS_QUERY } from "@/features/sales-process/useSalesProcess";
+import { SalesProcessEditor } from "@/features/sales-process/SalesProcessEditor";
+import { useQuery } from "@tanstack/react-query";
 import { TrialRunner } from "@/features/playbooks/components/TrialRunner";
 import { UnderstoodSummary } from "@/features/playbooks/components/UnderstoodSummary";
 import { RuleChange } from "@/features/playbooks/components/RuleChange";
@@ -69,6 +73,18 @@ export function PlaybookList() {
   const assistantOn = canEdit && (user?.company?.features ?? []).includes("PLAYBOOK_ASSISTANT_ENABLED");
   const asked = viewFromParams(params);
   const view = assistantOn && asked && IMPROVE_VIEWS.includes(asked) ? asked : null;
+  // The company's own sales process: its types in order, with no Llamadas / Reuniones split (spec 2026-10-17).
+  const processOn = canEdit && (user?.company?.features ?? []).includes("SALES_PROCESS_ENABLED");
+  const processQuery = useQuery({ queryKey: PROCESS_QUERY, queryFn: salesProcessApi.get, enabled: processOn, retry: false, staleTime: 30_000 });
+  const processTypes = processQuery.data?.types ?? null;
+  const editingProcess = processOn && params.get("view") === "process";
+  const setEditingProcess = (on: boolean) =>
+    setParams((previous) => {
+      const search = new URLSearchParams(previous);
+      if (on) search.set("view", "process");
+      else search.delete("view");
+      return search;
+    });
   const setView = (next: ImproveView | null) =>
     setParams((previous) => {
       const search = new URLSearchParams(previous);
@@ -104,6 +120,22 @@ export function PlaybookList() {
     );
   }
 
+  // With the editable process: a company that has not defined it is asked first, "which interaction types do you have?",
+  // and can always come back to change it.
+  if (processOn && (editingProcess || (processTypes !== null && processTypes.length === 0))) {
+    return (
+      <SalesProcessEditor
+        first={processTypes?.length === 0}
+        onSaved={() => {
+          setEditingProcess(false);
+          void process.refresh();
+          if (assistantOn) setView("assistant");
+        }}
+        onCancel={() => setEditingProcess(false)}
+      />
+    );
+  }
+
   // First time: the intake box is the whole section. One paste fills everything.
   if (canEdit && empty && !browse) {
     return (
@@ -111,7 +143,10 @@ export function PlaybookList() {
     );
   }
 
-  const items: NavItem[] = process.rows.map((row) => ({
+  // The company's own order, when it has defined its process; otherwise the order the list always had.
+  const placed = new Map((processTypes ?? []).map((entry) => [entry.key, entry.position]));
+  const orderedRows = processOn && processTypes?.length ? process.rows.filter((row) => placed.has(row.key)).sort((a, b) => (placed.get(a.key) ?? 999) - (placed.get(b.key) ?? 999)) : process.rows;
+  const items: NavItem[] = orderedRows.map((row) => ({
     key: row.key,
     label: process.name(row.key),
     state: publishState(row.status, process.details[row.key]),
@@ -123,14 +158,15 @@ export function PlaybookList() {
     meeting: items.filter((entry) => railChannels(process.list.data, entry.key).includes("meeting")).length,
   };
   const channel: LiveChannel = channelPick ?? (counts.call || !counts.meeting ? "call" : "meeting");
-  const shown = items.filter((entry) => railChannels(process.list.data, entry.key).includes(channel));
-  const nav: NavChannel = { value: channel, counts, onChange: (next) => { setChannelPick(next); setPicked(null); intake.close(); } };
+  // With the editable process there are no channels: one list of the company's types, in its order.
+  const shown = processOn ? items : items.filter((entry) => railChannels(process.list.data, entry.key).includes(channel));
+  const nav: NavChannel | null = processOn ? null : { value: channel, counts, onChange: (next) => { setChannelPick(next); setPicked(null); intake.close(); } };
   const fallbackKey = shown.find((item) => item.state !== "empty")?.key ?? shown[0]?.key ?? COMPANY_ROW;
   const selected = picked === COMPANY_ROW || shown.some((item) => item.key === picked) ? (picked as string) : fallbackKey;
   const row = process.rows.find((item) => item.key === selected);
   const item = items.find((entry) => entry.key === selected);
   // Deleting from a channel on screen: a type that also serves the other channel only leaves this one.
-  const leaves = (key: string) => railChannels(process.list.data, key).length > 1;
+  const leaves = (key: string) => !processOn && railChannels(process.list.data, key).length > 1;
   const channelName = copy.ruleChannels[channel];
 
   const onTypeAdded = (key: string, label: string, channels: LiveChannel[]) => {
@@ -250,6 +286,14 @@ export function PlaybookList() {
         </p>
       ) : null}
 
+      {processOn ? (
+        <div className="flex justify-end">
+          <Button type="button" variant="quiet" size="text" onClick={() => setEditingProcess(true)}>
+            {copy.process.editLink}
+          </Button>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-4 md:flex-row md:gap-6">
         <ProcessNav
           items={shown}
@@ -264,7 +308,7 @@ export function PlaybookList() {
           onImport={() => intake.setOpen(true)}
           addable={addableTypes(process.types, process.motions)}
           stages={process.stages}
-          showAddType
+          showAddType={!processOn}
           channel={nav}
           byChannel={process.byChannel}
           onTypeAdded={onTypeAdded}
