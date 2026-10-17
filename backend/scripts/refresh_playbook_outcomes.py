@@ -7,7 +7,7 @@ Usage (from backend/):
 
 Reads the live-help log and the finished calls, calls the per-call model (settings.INTELLIGENCE_MODEL) for the cards it
 has to judge and writes ONLY the assistant's own tables (playbook_suggestion_outcomes, playbook_review_moments). Never the
-CRM. A card already judged is skipped, so running it again only continues. Needs migration 082 applied.
+CRM. A card already judged is skipped, so running it again only continues. Needs migration 083 applied.
 """
 
 from __future__ import annotations

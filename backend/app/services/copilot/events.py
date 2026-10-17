@@ -26,7 +26,7 @@ PURGE_EVERY_S = 3600.0
 PROMPT_VERSION = "copilot_suggest_v4"
 
 _paused_until = 0.0
-# The live call assistant's rows (migration 082) pause on their own: until it is applied their insert fails, and that
+# The live call assistant's rows (migration 083) pause on their own: until it is applied their insert fails, and that
 # must not silence the turn checks and cards.
 _brain_paused_until = 0.0
 BRAIN_KINDS = ("points", "progress", "recap")
@@ -161,7 +161,7 @@ def record(supabase: Any, row: Optional[dict]) -> None:
             supabase.table(TABLE).insert({k: v for k, v in row.items() if v is not None}).execute()
         except Exception as exc:
             _brain_paused_until = now + PAUSE_AFTER_FAILURE_S
-            logger.warning("live brain event log unavailable (is migration 082 applied?): %s", str(exc)[:160])
+            logger.warning("live brain event log unavailable (is migration 083 applied?): %s", str(exc)[:160])
         return
     if now < _paused_until:
         return

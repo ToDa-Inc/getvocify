@@ -324,8 +324,8 @@ No quedan preguntas abiertas. El tope por respuesta se decidió en 1.200 caracte
 > 8. Nuestro success rate depende de saber quién habla en la transcripción guardada. Si cambias esa asignación,
 >    avísanos.
 > 9. Archivos: nosotros en `services/playbooks/`, `api/playbook_*` y `features/playbooks/`; tú en
->    `services/coaching/`. Migraciones: ya hay dos `080_*` y una `081_demo_profiles`; la nuestra es la `082`
->    (`082_playbook_assistant`). Si añades otra `082`, renumera la tuya o la nuestra: solo hay que decirlo.
+>    `services/coaching/`. Migraciones: ya hay dos `080_*` y una `081_demo_profiles`; la nuestra es la `083`
+>    (`083_playbook_assistant`). Si añades otra `083`, renumera la tuya o la nuestra: solo hay que decirlo.
 > 10. El informe semanal del Head of Sales gana un bloque opcional `playbook_improvement` (solo con los dos flags
 >     y solo si hay respuestas que fallan): `team_snapshot(..., playbook_improvement=None)` y una sección en los dos
 >     renderers del email. No cambia su contrato. La página del informe en la app aún no lo pinta.
@@ -346,7 +346,7 @@ Hecho, en `main`, con tests (backend `tests/playbooks` y `tests/reporting`, fron
 
 Decisiones de implementación que se apartan del texto de arriba:
 
-- Migración `082` (no `081`): la `081` pasó a ser `081_demo_profiles`.
+- Migración `083` (no `081`): la 081 es `081_demo_profiles` y la 082 `082_live_assist_events_brain`.
 - Una respuesta pertenece a un tipo de llamada: «Precio» de Descubrimiento y de Cierre se cuentan aparte.
 - La barra de publicación nombra los tipos con cambios pendientes en lugar de «Publicar mejoras (3)».
 - Sin el flag del success rate «Mejoras con el uso» muestra solo la cobertura; la cola, el botón Actualizar y la
@@ -354,7 +354,7 @@ Decisiones de implementación que se apartan del texto de arriba:
 
 Pendiente de Toni / el fundador (ver `docs/superpowers/plans/2026-10-16-activacion-playbook-asistente.sql`):
 
-1. Ejecutar el SQL de las 3 tablas (082) y acordar el número con Dani.
+1. Ejecutar el SQL de las 3 tablas (083) y acordar el número con Dani.
 2. Encender `PLAYBOOK_ASSISTANT_ENABLED` para una empresa de prueba y probarlo de punta a punta.
 3. La hoja de viabilidad del success rate (`backend/evals/outcomes/README.md`) con llamadas reales: no se ha
    generado (necesita datos de producción y 20 etiquetas a mano). Hasta que dé «SIGUE», el flag se queda apagado.

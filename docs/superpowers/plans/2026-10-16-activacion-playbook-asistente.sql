@@ -4,7 +4,7 @@
 -- llamada modelo, «La prueba» y «Mejoras con el uso»). No toca el live coach, ni coaching, ni el CRM.
 --
 -- ORDEN
---   1. PARTE A: las 3 tablas (migración 082). Idempotente (IF NOT EXISTS): se puede volver a ejecutar.
+--   1. PARTE A: las 3 tablas (migración 083). Idempotente (IF NOT EXISTS): se puede volver a ejecutar.
 --      Hasta que existan, la API responde 503 `not_activated` y la pantalla dice «se está activando». Nada falla.
 --   2. Comprobar con la consulta de verificación (devuelve las 3 tablas).
 --   3. PARTE B: encender PLAYBOOK_ASSISTANT_ENABLED para UNA empresa de prueba. Sin este flag nadie ve nada (404).
@@ -15,13 +15,13 @@
 --      (16 oct) ninguno de los 2.804 eventos lo tenía: la hoja saldrá vacía hasta que salga la app de escritorio que envía
 --      `call_id` y haya llamadas nuevas con ayuda en directo.
 --
--- NÚMERO: esta migración es la 082 (la 081 ya es 081_demo_profiles). Si alguien añade otra 082, renumerar ESTE fichero.
+-- NÚMERO: esta migración es la 083 (081 es demo_profiles y 082 live_assist_events_brain). Si alguien añade otra 083, renumerar ESTE fichero.
 -- Hay que acordarlo con Dani: sus migraciones y las de coaching comparten la carpeta.
 --
 -- Después de la PARTE C, los veredictos se calculan por lotes (nunca al terminar una llamada): el botón «Actualizar» de la
 -- pantalla Mejoras, o  cd backend && .venv/bin/python scripts/refresh_playbook_outcomes.py --company <id> --batches 5
 
--- ===================== PARTE A · tablas (backend/migrations/082_playbook_assistant.sql) =====================
+-- ===================== PARTE A · tablas (backend/migrations/083_playbook_assistant.sql) =====================
 
 -- Playbook assistant (docs/superpowers/specs/2026-10-16-playbook-volcado-y-perfeccionamiento-design.md).
 -- Three small tables for the Head of Sales' side of the playbook:
@@ -31,8 +31,8 @@
 --   playbook_suggestion_outcomes one verdict per live-help card: did the rep say it, did it settle the objection or doubt.
 -- Service role only (the app talks to them from the backend). The app does nothing until these tables exist.
 -- A model call's transcript is never stored: it is read, proposals are made, and only what the Head of Sales accepts is kept (in the playbook).
--- NUMBER: 082. 081 is taken by 081_demo_profiles (and there are two 080_*): if someone else adds a 082 meanwhile, renumber this file.
--- Rollback: 082_playbook_assistant.down.sql
+-- NUMBER: 083. 081 is 081_demo_profiles and 082 is 082_live_assist_events_brain: if someone else adds a 083 meanwhile, renumber this file.
+-- Rollback: 083_playbook_assistant.down.sql
 
 BEGIN;
 
@@ -137,4 +137,4 @@ COMMIT;
 -- ===================== Marcha atrás =====================
 -- Apagar: PLAYBOOK_ASSISTANT_ENABLED = false (y PLAYBOOK_SUCCESS_RATE_ENABLED = false) devuelve el Playbook a como estaba.
 -- Lo que el asistente guardó en borradores o publicó sigue en el playbook, como cualquier edición.
--- Quitar las tablas (pierde sesiones, cola y veredictos): backend/migrations/082_playbook_assistant.down.sql
+-- Quitar las tablas (pierde sesiones, cola y veredictos): backend/migrations/083_playbook_assistant.down.sql

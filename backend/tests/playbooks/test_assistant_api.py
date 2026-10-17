@@ -1,5 +1,5 @@
 """The playbook assistant API (/api/v1/playbook-assistant): owner/admin only, dark behind PLAYBOOK_ASSISTANT_ENABLED,
-and a calm 503 `not_activated` until the migration 082 tables exist."""
+and a calm 503 `not_activated` until the migration 083 tables exist."""
 
 from __future__ import annotations
 

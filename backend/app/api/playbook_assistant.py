@@ -2,7 +2,7 @@
 what they know into the playbook, and improve it with use.
 
 Owner/admin only and dark behind PLAYBOOK_ASSISTANT_ENABLED (404 for a company without it). Until the tables of
-migration 082 exist the answer is 503 `not_activated`. Nothing here publishes: every change lands in the draft of
+migration 083 exist the answer is 503 `not_activated`. Nothing here publishes: every change lands in the draft of
 a call type (or, for a figure two documents disagree about, in the company notes) and reaches the team when the
 Head of Sales publishes.
 
