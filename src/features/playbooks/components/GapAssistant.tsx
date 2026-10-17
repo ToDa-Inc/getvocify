@@ -58,7 +58,9 @@ export function GapAssistantView(props: GapAssistantViewProps) {
   const parts = current ? splitQuestion(current.question, current.example) : null;
   const kindText = !current
     ? ""
-    : current.kind === "topic"
+    : current.kind === "process"
+      ? c.gapProcess
+      : current.kind === "topic"
       ? c.gapTopic
       : current.kind === "conflict"
         ? c.gapConflict

@@ -10,7 +10,7 @@ const BASE = "/playbook-assistant";
 /** One question the assistant asks. `example` is the customer's own words when real calls raised it. */
 export type GapView = {
   key: string;
-  kind: "topic" | "real" | "conflict";
+  kind: "topic" | "real" | "conflict" | "process";
   question: string;
   seen: number;
   example: string | null;

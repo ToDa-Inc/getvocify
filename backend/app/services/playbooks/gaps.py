@@ -67,6 +67,13 @@ _CONFLICT_REQUEST = (
 )
 
 
+_STEPS_REQUEST = (
+    'The call type "{label}" has no steps yet. From the manager\'s answer below, write its steps in order: each with a short '
+    "name and what the salesperson must do or say, in the manager's own words, adding nothing the manager did not say. "
+    "Do not touch the objections."
+)
+
+
 @dataclass(frozen=True)
 class Gap:
     """One thing to ask. `question` is what the Head of Sales reads (in the company language); `request` is the
@@ -129,6 +136,23 @@ def _topic_gaps(entries: list[dict], lang: str) -> list[Gap]:
     return out
 
 
+def _process_gaps(process_types: list[dict], lang: str) -> list[Gap]:
+    """What happens in each interaction type the company defined and has written nothing for. One question per type, in the
+    order of its process: the company's own answer is the playbook, the questions only draw it out."""
+    out = []
+    for item in process_types:
+        if int(item.get("step_count") or 0) > 0:
+            continue
+        label = str(item.get("label") or item.get("key"))
+        question = (
+            f"What steps do you follow in “{label}”? Tell me from start to finish, as you would explain it to someone new."
+            if lang == "en"
+            else f"¿Qué pasos seguís en «{label}»? Cuéntamelo de principio a fin, como se lo explicarías a alguien nuevo."
+        )
+        out.append(Gap(f"process:{item['key']}", "process", question, _STEPS_REQUEST.format(label=label), 0, None, str(item["key"])))
+    return out
+
+
 def _real_gaps(events: list[dict], lang: str) -> list[Gap]:
     groups: dict[str, list[dict]] = {}
     for item in events:
@@ -172,14 +196,14 @@ def detect_conflicts(existing: dict, found: dict, lang: str) -> list[Gap]:
 
 def build_gaps(
     *, entries: list[dict], knowledge: dict, events: list[dict], lang: str, limit: int = MAX_GAPS,
-    conflicts: Optional[list[Gap]] = None,
+    conflicts: Optional[list[Gap]] = None, process_types: Optional[list[dict]] = None,
 ) -> list[Gap]:
-    """Up to `limit` gaps, most useful first: real questions (most repeated first), then the given conflicts, then
-    the typical topics nobody covered. `knowledge` is accepted for callers that have it; topics only look at the
+    """Up to `limit` gaps, most useful first: what happens in each of the company's own types that has nothing written, then
+    real questions (most repeated first), then the given conflicts, then the typical topics nobody covered. `knowledge` is accepted for callers that have it; topics only look at the
     team's own questions because only those reach a live card."""
     del knowledge
     lang = _lang(lang)
-    gaps = _real_gaps(events, lang) + list(conflicts or []) + _topic_gaps(entries, lang)
+    gaps = _process_gaps(process_types or [], lang) + _real_gaps(events, lang) + list(conflicts or []) + _topic_gaps(entries, lang)
     return gaps[:limit]
 
 

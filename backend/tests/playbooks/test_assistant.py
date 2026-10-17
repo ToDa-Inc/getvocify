@@ -205,3 +205,48 @@ def test_unknown_sessions_and_gaps_are_refused(world):
     with pytest.raises(AssistantError) as caught:
         skip_gap(world[1], MEMBER, session_id=session["id"], gap_key="nope")
     assert caught.value.code == "gap_not_found"
+
+
+# --- the company's own types: what happens in each one ------------------------------------------------------------
+
+PROCESS = [
+    {"key": "llamada_en_frio", "label": "Llamada en frío", "stage": "first_contact", "step_count": 0},
+    {"key": "demo", "label": "Demo", "stage": "deal", "step_count": 0},
+    {"key": "cierre", "label": "Cierre", "stage": "deal", "step_count": 4},
+]
+STEPS_ADDED = {
+    "summary": "Añadidos los pasos de «Llamada en frío».",
+    "steps": [{"step_id": "apertura", "label": "Apertura", "criterion": "Se presenta y pide un minuto."}],
+}
+
+
+def test_a_type_with_nothing_written_is_asked_about_first_and_one_with_steps_is_not(world):
+    view = public_session(start(world, process_types=PROCESS))
+    keys = [view["current"]["key"]]
+    assert view["current"]["kind"] == "process" and view["current"]["motion_key"] == "llamada_en_frio"
+    assert "Llamada en frío" in view["current"]["question"] and view["total"] >= 3
+    again = start(world, process_types=PROCESS)  # the open session is reused
+    assert public_session(again)["current"]["key"] == keys[0]
+
+
+def test_every_gap_of_the_process_names_its_type_and_the_steps_of_a_finished_one_are_not_asked_again(world):
+    repo, store, db = world
+    from app.services.playbooks.gaps import build_gaps
+
+    gaps = build_gaps(entries=[], knowledge={}, events=[], lang="es", process_types=PROCESS)
+    process = [g for g in gaps if g.kind == "process"]
+    assert [g.motion_key for g in process] == ["llamada_en_frio", "demo"]
+    assert all(g.key.startswith("process:") and g.motion_key in g.request or g.key for g in process)
+    english = build_gaps(entries=[], knowledge={}, events=[], lang="en", process_types=PROCESS)
+    assert "What steps do you follow in “Llamada en frío”?" in english[0].question
+
+
+def test_answering_about_a_type_that_only_exists_by_name_writes_its_steps_into_that_type(world):
+    repo, store, db = world
+    repo.add_type(COMPANY, "llamada_en_frio", "Llamada en frío", label="Llamada en frío")  # created empty, no version
+    set_playbook_structure_llm(FakeLLM(STEPS_ADDED))
+    session = start(world, process_types=PROCESS)
+    key = public_session(session)["current"]["key"]
+    done = answer(world, session, key, StructureRequest(kind="text", payload="Abro pidiendo permiso y luego pregunto por el dolor."))
+    assert done["editor"]["sales_motion_key"] == "llamada_en_frio" and [s["step_id"] for s in done["editor"]["steps"]] == ["apertura"]
+    assert [s["step_id"] for s in repo.editor_snapshot(COMPANY, "discovery", include_draft=True)["version"]["steps"]] == ["apertura"]  # the other type untouched

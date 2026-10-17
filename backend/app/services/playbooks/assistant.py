@@ -115,6 +115,22 @@ def _own_entries(repository: PlaybookRepository, company_id: str) -> list[dict]:
     return entries
 
 
+def _process_types(supabase: Any, repository: PlaybookRepository, company_id: str) -> list[dict]:
+    """The company's own types with how many steps each has, when it runs the editable sales process. [] otherwise or when
+    anything fails: the questions then are the ones that never depended on it."""
+    try:
+        from app.services.feature_flags import is_enabled
+        from app.services.sales_process.process import process_view
+        from app.services.sales_process.store import get_sales_process_store
+
+        if not is_enabled(supabase, company_id, "SALES_PROCESS_ENABLED"):
+            return []
+        return process_view(repository, get_sales_process_store(supabase), company_id)
+    except Exception:
+        logger.info("process types not available for the guided questions", exc_info=True)
+        return []
+
+
 async def start_gaps_session(
     store: AssistantStore,
     repository: PlaybookRepository,
@@ -125,6 +141,7 @@ async def start_gaps_session(
     lang: str,
     events: Optional[list[dict]] = None,
     conflicts: Optional[list[Gap]] = None,
+    process_types: Optional[list[dict]] = None,
     limit: int = MAX_GAPS,
 ) -> dict:
     """The company's open session, or a new one with up to `limit` gaps. A session with nothing left to ask is
@@ -141,6 +158,7 @@ async def start_gaps_session(
         lang=lang,
         limit=limit,
         conflicts=conflicts,
+        process_types=process_types if process_types is not None else _process_types(supabase, repository, company_id),
     )
     state = {
         "gaps": [g.as_dict() for g in gaps], "answered": {}, "skipped": [], "pending": {}, "undo": {},
@@ -154,7 +172,9 @@ async def start_gaps_session(
 
 
 def _motion_for(repository: PlaybookRepository, company_id: str, gap: Gap, state: dict) -> str:
-    if gap.motion_key and (repository.list_types(company_id, include_draft=True).get(gap.motion_key) or {}).get("status") in _LIVE_STATUSES:
+    row = repository.list_types(company_id, include_draft=True).get(gap.motion_key) if gap.motion_key else None
+    # A type the company named but has written nothing in yet has no version: its name is what shows it exists.
+    if row and (row.get("status") in _LIVE_STATUSES or row.get("label")):
         return gap.motion_key
     return state["motion_key"]
 
