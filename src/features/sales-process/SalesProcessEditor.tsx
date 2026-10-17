@@ -38,23 +38,26 @@ function StageToggle({ value, onChange, disabled }: { value: Stage; onChange: (s
     { value: "deal", label: c.stageDeal },
   ];
   return (
-    <div role="radiogroup" aria-label={c.stageLabel} className="flex flex-wrap gap-1.5">
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={value === option.value}
-          disabled={disabled}
-          onClick={() => onChange(option.value)}
-          className={cn(
-            "rounded-full border px-3 py-1 text-xs transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            value === option.value ? "border-beige/40 bg-beige/10 text-foreground" : "border-border text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
+    <div className="space-y-1.5">
+      <p className={THEME_TOKENS.typography.fieldLabel}>{c.stageLabel}</p>
+      <div role="radiogroup" aria-label={c.stageLabel} className="flex flex-wrap gap-2">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={value === option.value}
+            disabled={disabled}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "rounded-full border px-3.5 py-1.5 text-[13px] transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              value === option.value ? "border-beige/40 bg-beige/10 text-foreground" : "border-border text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -76,16 +79,16 @@ export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
   let body;
   if (status === "loading") {
     body = (
-      <div className={cn(card, "space-y-3 p-6")} role="status" aria-busy="true">
-        <Skeleton className="h-10 w-full motion-reduce:animate-none" />
-        <Skeleton className="h-10 w-full motion-reduce:animate-none" />
+      <div className={cn(card, "space-y-4 p-6")} role="status" aria-busy="true">
+        <Skeleton className="h-11 w-full motion-reduce:animate-none" />
+        <Skeleton className="h-11 w-full motion-reduce:animate-none" />
       </div>
     );
   } else if (status === "not_activated") {
-    body = <p className={cn(card, "p-5", THEME_TOKENS.typography.body)}>{c.errors.not_activated}</p>;
+    body = <p className={cn(card, "p-6", THEME_TOKENS.typography.body)}>{c.errors.not_activated}</p>;
   } else if (status === "error") {
     body = (
-      <div className={cn(card, "flex flex-wrap items-center gap-3 p-5")} role="alert">
+      <div className={cn(card, "flex flex-wrap items-center gap-4 p-6")} role="alert">
         <p className={THEME_TOKENS.typography.body}>{t.product.pb2.improve.loadFailed}</p>
         <Button type="button" variant="outline" size="sm" onClick={onRetry}>
           {t.product.pb2.improve.retry}
@@ -94,32 +97,61 @@ export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
     );
   } else {
     body = (
-      <div className="space-y-4">
+      <div className="space-y-6">
         {!list.length ? (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={cn("space-y-3 border border-dashed border-border p-5", THEME_TOKENS.radius.card)}>
+            <p className="text-sm text-foreground">{c.suggest}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              {suggestion.map((item, index) => (
+                <span key={item.label} className="flex items-center gap-2 text-[13px] text-muted-foreground">
+                  {index ? <span aria-hidden>→</span> : null}
+                  <span className="rounded-full bg-secondary px-3 py-1 text-foreground/80">{item.label}</span>
+                </span>
+              ))}
+            </div>
             <Button type="button" variant="outline" size="sm" onClick={() => onChange(suggestion)}>
-              {c.suggest}
+              {c.suggestUse}
             </Button>
-            <span className="text-xs text-muted-foreground">{suggestion.map((item) => item.label).join(" → ")}</span>
           </div>
         ) : null}
-        <ol className="space-y-3">
+        <ol className="space-y-4">
           {list.map((item, index) => (
-            <li key={item.key ?? `new-${index}`} className={cn(card, "space-y-3 p-4", THEME_TOKENS.motion.fadeIn)}>
-              <div className="flex items-center gap-3">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-secondary text-xs tabular-nums text-muted-foreground" aria-hidden>
+            <li key={item.key ?? `new-${index}`} className={cn(card, "p-5", THEME_TOKENS.motion.fadeIn)}>
+              <div className="flex items-start gap-4">
+                <span className="mt-2.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary text-xs tabular-nums text-muted-foreground" aria-hidden>
                   {index + 1}
                 </span>
-                <input
-                  value={item.label}
-                  maxLength={60}
-                  disabled={saving}
-                  placeholder={c.namePlaceholder}
-                  aria-label={c.namePlaceholder}
-                  className={field}
-                  onChange={(event) => update(index, { label: event.target.value })}
-                />
-                <div className="flex shrink-0 items-center">
+                <div className="min-w-0 flex-1 space-y-4">
+                  <input
+                    value={item.label}
+                    maxLength={60}
+                    disabled={saving}
+                    placeholder={c.namePlaceholder}
+                    aria-label={c.namePlaceholder}
+                    className={cn(field, "h-11 text-base")}
+                    onChange={(event) => update(index, { label: event.target.value })}
+                  />
+                  <StageToggle value={item.stage} disabled={saving} onChange={(stage) => update(index, { stage })} />
+                  {open.has(index) || item.recognize ? (
+                    <div className="space-y-1.5">
+                      <p className={THEME_TOKENS.typography.fieldLabel}>{c.recognizeAdd}</p>
+                      <input
+                        value={item.recognize ?? ""}
+                        maxLength={300}
+                        disabled={saving}
+                        placeholder={c.recognizePlaceholder}
+                        aria-label={c.recognizeAdd}
+                        className={field}
+                        onChange={(event) => update(index, { recognize: event.target.value })}
+                      />
+                    </div>
+                  ) : (
+                    <Button type="button" variant="quiet" size="text" className="-ml-1 text-[13px]" onClick={() => setOpen(new Set(open).add(index))}>
+                      {c.recognizeAdd}
+                    </Button>
+                  )}
+                </div>
+                <div className="-mr-1.5 flex shrink-0 items-center">
                   <Button type="button" variant="quiet" size="icon" aria-label={c.moveUp} disabled={saving || index === 0} onClick={() => onChange(moveItem(list, index, -1))}>
                     <ArrowUp aria-hidden strokeWidth={1.5} />
                   </Button>
@@ -131,33 +163,17 @@ export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
                   </Button>
                 </div>
               </div>
-              <div className="space-y-2 pl-10">
-                <StageToggle value={item.stage} disabled={saving} onChange={(stage) => update(index, { stage })} />
-                {open.has(index) || item.recognize ? (
-                  <input
-                    value={item.recognize ?? ""}
-                    maxLength={300}
-                    disabled={saving}
-                    placeholder={c.recognizePlaceholder}
-                    aria-label={c.recognizeAdd}
-                    className={field}
-                    onChange={(event) => update(index, { recognize: event.target.value })}
-                  />
-                ) : (
-                  <Button type="button" variant="quiet" size="text" className="text-xs" onClick={() => setOpen(new Set(open).add(index))}>
-                    {c.recognizeAdd}
-                  </Button>
-                )}
-              </div>
             </li>
           ))}
         </ol>
-        <Button type="button" variant="outline" size="sm" disabled={saving || list.length >= 20} onClick={() => onChange([...list, { label: "", stage: list.length ? "deal" : "first_contact" }])}>
-          <Plus aria-hidden strokeWidth={1.5} />
-          {c.add}
-        </Button>
-        <div className="flex flex-wrap items-center gap-3 pt-1">
-          <Button type="button" disabled={!ok || saving} onClick={onSave}>
+        <div>
+          <Button type="button" variant="outline" disabled={saving || list.length >= 20} onClick={() => onChange([...list, { label: "", stage: list.length ? "deal" : "first_contact" }])}>
+            <Plus aria-hidden strokeWidth={1.5} />
+            {c.add}
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-4 border-t border-border/50 pt-6">
+          <Button type="button" size="lg" disabled={!ok || saving} onClick={onSave}>
             {saving ? <VocifySpinner size={12} tone="onFill" /> : null}
             {saving ? c.saving : first ? c.saveFirst : c.save}
           </Button>
@@ -166,7 +182,7 @@ export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
               {t.product.cancelAction}
             </Button>
           ) : null}
-          {!ok && list.length === 0 ? <span className="text-xs text-muted-foreground">{c.emptyHint}</span> : null}
+          {!ok && list.length === 0 ? <span className="text-[13px] text-muted-foreground">{c.emptyHint}</span> : null}
         </div>
         {problem ? (
           <p className="text-sm text-destructive" role="alert">
@@ -178,10 +194,10 @@ export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-5">
-      <header className="space-y-1">
+    <div className="w-full max-w-3xl space-y-8 py-2">
+      <header className="space-y-2">
         <h2 className={THEME_TOKENS.typography.panelTitle}>{first ? c.firstTitle : c.editTitle}</h2>
-        <p className="max-w-lg text-[13px] leading-snug text-muted-foreground">{first ? c.firstLead : c.editLead}</p>
+        <p className="max-w-xl text-[15px] leading-relaxed text-muted-foreground">{first ? c.firstLead : c.editLead}</p>
       </header>
       {body}
     </div>

@@ -127,9 +127,9 @@ export function PlaybookList() {
       <SalesProcessEditor
         first={processTypes?.length === 0}
         onSaved={() => {
+          // Stay on the playbook: the interactions just defined are right there, each one ready to be filled.
           setEditingProcess(false);
           void process.refresh();
-          if (assistantOn) setView("assistant");
         }}
         onCancel={() => setEditingProcess(false)}
       />
@@ -137,7 +137,7 @@ export function PlaybookList() {
   }
 
   // First time: the intake box is the whole section. One paste fills everything.
-  if (canEdit && empty && !browse) {
+  if (canEdit && empty && !browse && !processOn) {
     return (
       <IntakePanel intake={intake} alone name={process.name} onTemplate={() => setBrowse(true)} assistant={assistantOn} />
     );
@@ -286,8 +286,27 @@ export function PlaybookList() {
         </p>
       ) : null}
 
-      {processOn ? (
-        <div className="flex justify-end">
+      {processOn && !intake.open && items.every((entry) => entry.state === "empty") ? (
+        // Nothing written yet: the choice is right here, above the interactions, so it never reads as another screen.
+        <div className={cn("flex flex-wrap items-center justify-between gap-x-6 gap-y-3 bg-secondary/40 px-5 py-4", THEME_TOKENS.radius.card, THEME_TOKENS.motion.fadeIn)}>
+          <div className="min-w-0 max-w-2xl space-y-1">
+            <p className={THEME_TOKENS.typography.groupTitle}>{copy.process.fullTitle}</p>
+            <p className="text-[13px] leading-relaxed text-muted-foreground">{copy.process.fullLead}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <Button type="button" size="sm" onClick={() => intake.setOpen(true)}>
+              {copy.process.fullAction}
+            </Button>
+            <Button type="button" variant="quiet" size="text" onClick={() => setEditingProcess(true)}>
+              {copy.process.editLink}
+            </Button>
+          </div>
+        </div>
+      ) : processOn ? (
+        <div className="flex justify-end gap-4">
+          <Button type="button" variant="quiet" size="text" onClick={() => intake.setOpen(true)}>
+            {copy.process.fullAction}
+          </Button>
           <Button type="button" variant="quiet" size="text" onClick={() => setEditingProcess(true)}>
             {copy.process.editLink}
           </Button>
