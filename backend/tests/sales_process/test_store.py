@@ -27,8 +27,20 @@ def test_a_company_with_no_process_has_an_empty_one(store):
 def test_the_process_comes_back_in_order_and_replacing_it_drops_what_is_no_longer_there(store):
     store.replace_process(CO, [STEPS[2], STEPS[0], STEPS[1]])
     assert [r["key"] for r in store.list_process(CO)] == ["cold", "discovery", "demo"]
-    store.replace_process(CO, [{"key": "demo", "position": 1, "stage": "deal"}])
-    assert store.list_process(CO) == [{"key": "demo", "position": 1, "stage": "deal"}]
+    assert [r["goal"] for r in store.list_process(CO)] == [None, None, None]  # a row saved without a goal has none
+    store.replace_process(CO, [{"key": "demo", "position": 1, "stage": "deal", "goal": "Cerrar la venta"}])
+    assert store.list_process(CO) == [{"key": "demo", "position": 1, "stage": "deal", "goal": "Cerrar la venta"}]
+
+
+def test_the_goal_of_a_type_and_the_calls_outside_the_funnel_are_kept(store):
+    store.replace_process(CO, [
+        {"key": "cold", "position": 1, "stage": "first_contact", "goal": "Crear interés y acordar una reunión"},
+        {"key": "sac", "position": 2, "stage": "other", "goal": None},
+    ])
+    assert store.list_process(CO) == [
+        {"key": "cold", "position": 1, "stage": "first_contact", "goal": "Crear interés y acordar una reunión"},
+        {"key": "sac", "position": 2, "stage": "other", "goal": None},
+    ]
 
 
 def test_a_company_never_sees_another_companys_process_or_members(store):

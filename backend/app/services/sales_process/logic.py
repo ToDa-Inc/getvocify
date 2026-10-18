@@ -1,7 +1,8 @@
 """Pure rules of the editable sales process: what a type is for, what role a person's types imply, and keys for new types.
 
-A company's own types carry a `stage`: `first_contact` (it aims at getting a meeting: what a SDR does) or `deal` (it moves a
-sale forward or closes it: what an AE does). The rest of the product still talks in `sales_role`, so a person's role is derived
+A company's own types carry a `stage`: `first_contact` (it aims at getting a meeting: what a SDR does), `deal` (it moves a
+sale forward or closes it: what an AE does) or `other` (a call outside the sales funnel, such as customer service: it is
+never scored in coaching and says nothing about a person's role). The rest of the product still talks in `sales_role`, so a person's role is derived
 from the stages of the types they run, and every reader keeps working unchanged.
 """
 
@@ -12,7 +13,7 @@ from typing import Callable, Iterable, Optional
 from app.services.playbooks.catalog import catalog_role
 from app.services.playbooks.structured import slug
 
-STAGES = ("first_contact", "deal")
+STAGES = ("first_contact", "deal", "other")
 
 
 def stage_for(key: str, rows: Iterable[dict]) -> str:
@@ -25,7 +26,7 @@ def stage_for(key: str, rows: Iterable[dict]) -> str:
 
 def role_from_types(types: Optional[list[str]], stage_of: Callable[[str], str]) -> str:
     """sdr when the person only runs first-contact types, ae when only deal types, general otherwise (or when they run all)."""
-    stages = {stage_of(key) for key in types or []}
+    stages = {stage_of(key) for key in types or []} - {"other"}
     if stages == {"first_contact"}:
         return "sdr"
     if stages == {"deal"}:

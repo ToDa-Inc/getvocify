@@ -4,7 +4,7 @@ One contract, two implementations (the pattern of the playbook assistant's store
 `SqlSalesProcessStore` over the Supabase table API for production. Until the migration is applied the SQL store raises
 `SalesProcessUnavailable` (`not_activated`); any other database error is not hidden. Company-scoped plain dicts.
 
-  process row  {company_id, sales_motion_key, position, stage}        one per type of the company's process
+  process row  {company_id, sales_motion_key, position, stage, goal}  one per type of the company's process
   member row   {id, company_id, user_id | invitation_id, types}        `types` None = every type of the process
 """
 
@@ -36,6 +36,14 @@ def _clean(types: Optional[list[str]]) -> Optional[list[str]]:
     return kept or None
 
 
+def _public_row(row: dict) -> dict:
+    return {"key": row["sales_motion_key"], "position": row["position"], "stage": row["stage"], "goal": row.get("goal") or None}
+
+
+def _stored_row(company_id: str, row: dict) -> dict:
+    return {"company_id": company_id, "sales_motion_key": row["key"], "position": row["position"], "stage": row["stage"], "goal": row.get("goal") or None}
+
+
 def _listed(rows: list[dict]) -> dict:
     return {
         "members": {str(r["user_id"]): (list(r["types"]) if r.get("types") else None) for r in rows if r.get("user_id")},
@@ -51,10 +59,10 @@ def _who(user_id: Optional[str], invitation_id: Optional[str]) -> tuple[str, str
 
 class SalesProcessStore(Protocol):
     def list_process(self, company_id: str) -> list[dict]:
-        """[{key, position, stage}] in process order."""
+        """[{key, position, stage, goal}] in process order (`goal` None when none was given)."""
 
     def replace_process(self, company_id: str, rows: list[dict]) -> None:
-        """The process becomes exactly `rows` ([{key, position, stage}])."""
+        """The process becomes exactly `rows` ([{key, position, stage, goal?}])."""
 
     def get_member_types(self, company_id: str, *, user_id: Optional[str] = None, invitation_id: Optional[str] = None) -> Optional[list[str]]: ...
 
@@ -77,11 +85,11 @@ class InMemorySalesProcessStore:
 
     def list_process(self, company_id):
         rows = [r for r in self.process if r["company_id"] == company_id]
-        return [{"key": r["sales_motion_key"], "position": r["position"], "stage": r["stage"]} for r in sorted(rows, key=lambda r: r["position"])]
+        return [_public_row(r) for r in sorted(rows, key=lambda r: r["position"])]
 
     def replace_process(self, company_id, rows):
         self.process = [r for r in self.process if r["company_id"] != company_id]
-        self.process += [{"company_id": company_id, "sales_motion_key": r["key"], "position": r["position"], "stage": r["stage"]} for r in rows]
+        self.process += [_stored_row(company_id, r) for r in rows]
 
     def _member(self, company_id, column, value):
         return next((m for m in self.members if m["company_id"] == company_id and m.get(column) == value), None)
@@ -125,12 +133,12 @@ class SqlSalesProcessStore:
 
     def list_process(self, company_id):
         rows = self._run(lambda db: db.table(PROCESS).select("*").eq("company_id", company_id))
-        return [{"key": r["sales_motion_key"], "position": r["position"], "stage": r["stage"]} for r in sorted(rows, key=lambda r: r["position"])]
+        return [_public_row(r) for r in sorted(rows, key=lambda r: r["position"])]
 
     def replace_process(self, company_id, rows):
         self._run(lambda db: db.table(PROCESS).delete().eq("company_id", company_id))
         for r in rows:
-            made = {"company_id": company_id, "sales_motion_key": r["key"], "position": r["position"], "stage": r["stage"]}
+            made = _stored_row(company_id, r)
             self._run(lambda db, made=made: db.table(PROCESS).insert(made))
 
     def _member(self, company_id, column, value):

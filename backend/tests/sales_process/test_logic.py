@@ -50,3 +50,13 @@ def test_a_name_becomes_a_key_that_is_free():
     assert slug_key("Llamada en frío", set()) == "llamada_en_frio"
     assert slug_key("Llamada en frío", {"llamada_en_frio"}) == "llamada_en_frio_2"
     assert slug_key("¿¿??", set()) == "tipo"
+
+
+def test_calls_outside_the_funnel_say_nothing_about_a_persons_role():
+    def stage_of(key):
+        return {"cold": "first_contact", "demo": "deal", "sac": "other"}[key]
+
+    assert role_from_types(["sac"], stage_of) == "general"
+    assert role_from_types(["cold", "sac"], stage_of) == "sdr"
+    assert role_from_types(["demo", "sac"], stage_of) == "ae"
+    assert role_from_types(["cold", "demo", "sac"], stage_of) == "general"

@@ -22,7 +22,10 @@ MAX_NAME = 60
 class ProcessType(BaseModel):
     key: Optional[str] = Field(default=None, max_length=80)
     label: str = Field(max_length=MAX_NAME)
-    stage: Literal["first_contact", "deal"]
+    stage: Literal["first_contact", "deal", "other"]
+    # What the call must achieve ("create interest and agree a meeting") and what kind of call it is ("a first phone contact").
+    # Both are required for a type of the sales funnel; a call outside it needs neither. The description is `recognize`.
+    goal: Optional[str] = Field(default=None, max_length=160)
     recognize: Optional[str] = Field(default=None, max_length=300)
 
 
@@ -53,6 +56,7 @@ def process_view(repository: PlaybookRepository, store: SalesProcessStore, compa
             "label": present[key].get("label") or catalog_label(key, "es") or key,
             "stage": stage_for(key, rows),
             "recognize": present[key].get("recognize"),
+            "goal": next((r.get("goal") for r in rows if r["key"] == key), None),
             "position": index + 1,
             "step_count": present[key].get("step_count", 0),
             "status": present[key].get("status"),
@@ -64,10 +68,16 @@ def process_view(repository: PlaybookRepository, store: SalesProcessStore, compa
 def apply_process(repository: PlaybookRepository, store: SalesProcessStore, company_id: str, wanted: list[ProcessType]) -> None:
     """Makes the company's types exactly `wanted`, in that order. New names get a fresh key (never a catalog key, which
     would bring that catalog type's behaviour with it); a type that is not in the list is archived and leaves every
-    member's list. Raises ValueError("duplicate_name") when two names are the same."""
+    member's list. Raises ValueError (`duplicate_name`, `empty_name`, `goal_required`, `description_required`) before changing anything."""
     names = [t.label.strip().casefold() for t in wanted]
     if "" in names or len(set(names)) != len(names):
         raise ValueError("duplicate_name" if "" not in names else "empty_name")
+    for item in wanted:
+        if item.stage != "other":
+            if not (item.goal or "").strip():
+                raise ValueError("goal_required")
+            if not (item.recognize or "").strip():
+                raise ValueError("description_required")
     present = _present_types(repository, {r["key"] for r in store.list_process(company_id)}, company_id)
     taken = set(present) | {t["key"] for t in catalog_types()}
     rows: list[dict] = []
@@ -81,7 +91,7 @@ def apply_process(repository: PlaybookRepository, store: SalesProcessStore, comp
             repository.add_type(company_id, key, label, label=label, recognize=recognize)
         else:
             repository.set_meta(company_id, key, label=label, recognize=recognize)
-        rows.append({"key": key, "position": position, "stage": item.stage})
+        rows.append({"key": key, "position": position, "stage": item.stage, "goal": (item.goal or "").strip() or None})
     kept = {r["key"] for r in rows}
     for key in present:
         if key not in kept:

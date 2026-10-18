@@ -56,7 +56,9 @@ def put(client, *types):
 
 
 def t(label, stage="first_contact", **extra):
-    return {"label": label, **({"stage": stage}), **extra}
+    """A type of the funnel as the screen sends it: with the objective and the description every one of them needs."""
+    funnel = {"goal": f"Objetivo de {label}", "recognize": f"Cómo es {label}"} if stage != "other" else {}
+    return {"label": label, "stage": stage, **funnel, **extra}
 
 
 def test_only_an_owner_or_admin_may_and_only_with_the_flag(monkeypatch):
@@ -88,12 +90,12 @@ def test_a_company_that_never_defined_a_process_sees_the_types_it_already_has():
 
 def test_defining_the_process_creates_the_types_in_order_with_what_each_is_for():
     client = make_client()
-    done = put(client, t("Llamada en frío", recognize="Primer contacto en frío."), t("Discovery"), t("Demo", "deal"))
+    done = put(client, t("Llamada en frío", recognize="Primer contacto en frío.", goal="Crear interés y acordar una reunión"), t("Discovery"), t("Demo", "deal"))
     assert done.status_code == 200
     types = done.json()["types"]
     assert [x["label"] for x in types] == ["Llamada en frío", "Discovery", "Demo"]
     assert [x["stage"] for x in types] == ["first_contact", "first_contact", "deal"]
-    assert types[0]["recognize"] == "Primer contacto en frío."
+    assert types[0]["recognize"] == "Primer contacto en frío." and types[0]["goal"] == "Crear interés y acordar una reunión"
     assert client.get(BASE).json()["types"] == types
     kept = client.repo.list_types("co-1")
     assert all(kept[x["key"]]["label"] == x["label"] for x in types)
@@ -110,7 +112,7 @@ def test_renaming_and_reordering_keeps_the_keys_and_what_was_built():
     first = put(client, t("Llamada en frío"), t("Demo", "deal")).json()["types"]
     cold, demo = first[0]["key"], first[1]["key"]
     client.repo.save_draft("co-1", cold, [STEP], [])
-    again = put(client, {"key": demo, "label": "Demo y propuesta", "stage": "deal"}, {"key": cold, "label": "Prospección", "stage": "first_contact"}).json()["types"]
+    again = put(client, t("Demo y propuesta", "deal", key=demo), t("Prospección", key=cold)).json()["types"]
     assert [x["key"] for x in again] == [demo, cold] and [x["label"] for x in again] == ["Demo y propuesta", "Prospección"]
     assert again[1]["step_count"] == 1
 
@@ -124,10 +126,31 @@ def test_removing_a_type_archives_it_and_takes_it_out_of_every_members_list():
     store = get_sales_process_store(None)
     store.set_member_types("co-1", [cold, demo], user_id="u2")
     store.set_member_types("co-1", [demo], user_id="u3")
-    after = put(client, {"key": cold, "label": "Llamada en frío", "stage": "first_contact"}).json()["types"]
+    after = put(client, t("Llamada en frío", key=cold)).json()["types"]
     assert [x["key"] for x in after] == [cold]
     assert demo not in client.repo.list_types("co-1")  # archived: it no longer lists
     assert store.get_member_types("co-1", user_id="u2") == [cold] and store.get_member_types("co-1", user_id="u3") is None
+
+
+def test_a_type_of_the_funnel_needs_an_objective_and_a_description_and_one_outside_it_does_not():
+    client = make_client()
+    no_goal = put(client, {"label": "Llamada en frío", "stage": "first_contact", "recognize": "Primer contacto"})
+    assert no_goal.status_code == 422 and no_goal.json()["detail"] == {"code": "goal_required"}
+    no_description = put(client, {"label": "Demo", "stage": "deal", "goal": "Cerrar"})
+    assert no_description.status_code == 422 and no_description.json()["detail"] == {"code": "description_required"}
+    assert put(client, {"label": "  ", "stage": "deal", "goal": "x", "recognize": "y"}).status_code == 422
+    done = put(client, t("Demo", "deal"), {"label": "SAC", "stage": "other"})
+    assert done.status_code == 200 and [x["stage"] for x in done.json()["types"]] == ["deal", "other"]
+    assert done.json()["types"][1]["goal"] is None
+
+
+def test_calls_outside_the_funnel_do_not_touch_the_funnel_when_it_changes():
+    client = make_client()
+    first = put(client, t("Llamada en frío"), {"label": "SAC", "stage": "other"}).json()["types"]
+    sac = first[1]["key"]
+    client.repo.save_draft("co-1", sac, [STEP], [])
+    again = put(client, {"key": sac, "label": "SAC", "stage": "other"}, t("Demo", "deal")).json()["types"]
+    assert [x["label"] for x in again] == ["SAC", "Demo"] and again[0]["step_count"] == 1
 
 
 def test_a_process_needs_names_that_are_there_and_different():
@@ -135,5 +158,5 @@ def test_a_process_needs_names_that_are_there_and_different():
     assert put(client).status_code == 422
     assert put(client, t("  ")).status_code == 422
     assert put(client, t("Demo"), t("demo")).json()["detail"] == {"code": "duplicate_name"}
-    assert put(client, {"label": "Demo", "stage": "other"}).status_code == 422
+    assert put(client, {"label": "Demo", "stage": "bogus"}).status_code == 422
     assert put(client, *[t(f"Tipo {i}") for i in range(21)]).status_code == 422

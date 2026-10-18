@@ -69,7 +69,10 @@ def test_only_a_manager_and_only_for_a_member_of_the_company():
 
 def test_an_invitation_keeps_what_the_new_member_will_run_and_hands_it_over_when_accepted():
     store, repository = InMemorySalesProcessStore(), InMemoryPlaybookRepository()
-    apply_process(repository, store, CO, [ProcessType(label="Llamada en frío", stage="first_contact"), ProcessType(label="Demo", stage="deal")])
+    apply_process(repository, store, CO, [
+        ProcessType(label="Llamada en frío", stage="first_contact", goal="Conseguir una reunión", recognize="Primer contacto"),
+        ProcessType(label="Demo", stage="deal", goal="Cerrar", recognize="Con el decisor"),
+    ])
     cold = store.list_process(CO)[0]["key"]
     types, role = derive_for_invite(store, repository, CO, [cold, "ghost"])
     assert (types, role) == ([cold], "sdr")
