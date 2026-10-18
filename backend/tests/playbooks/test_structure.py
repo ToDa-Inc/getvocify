@@ -568,3 +568,14 @@ def test_a_member_cannot_structure(client_for, monkeypatch):
     response = client_for(role="member").post(URL, json={"kind": "text", "payload": SCRIPT})
     assert response.status_code == 403
     assert saved == []
+
+
+def test_a_type_of_the_companys_own_is_described_to_the_model_by_its_name_goal_and_description():
+    """A custom type ("Cold call" of the company) used to reach the model as its bare key and "goal not defined", so a real
+    cold call script read as no process at all."""
+    llm = FakeLLM({"steps": [{"label": "Apertura", "criterion": "Se presenta y pide un minuto."}], "objections": []})
+    info = {"label": "Cold call", "goal": "Crear interés y acordar una reunión", "description": "Primer contacto, por teléfono"}
+    asyncio.run(structure_source("Hola, soy Ana de Vocify. ¿Tienes un minuto? Te llamo porque...", "cold_call", "es", llm=llm, type_info=info))
+    user = llm.calls[0]["messages"][-1]["content"]
+    assert "Cold call" in user and "Crear interés y acordar una reunión" in user and "Primer contacto, por teléfono" in user
+    assert "not defined for this call type" not in user

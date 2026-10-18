@@ -215,6 +215,7 @@ def _company_payload(row: Optional[dict], merged: Optional[dict], filled: list) 
 async def structure_playbook_source(
     sales_motion_key: str,
     body: StructureRequest,
+    supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
     """Turns pasted text, a PDF or an audio recording into steps and objection answers for
@@ -226,8 +227,23 @@ async def structure_playbook_source(
     text = await read_source(body)
     lang = detect_language(text)
     source = _keep_source(repository, membership, sales_motion_key, body, text, lang)
-    result = await structure_source(text, sales_motion_key, lang)
+    result = await structure_source(text, sales_motion_key, lang, type_info=_own_type_info(supabase, repository, membership.company_id, sales_motion_key))
     return {"sales_motion_key": sales_motion_key, **result, "source": source}
+
+
+def _own_type_info(supabase: Client, repository, company_id: str, key: str) -> Optional[dict]:
+    """The company's own name, goal and description of a type of its sales process, for the model that reads its source.
+    None when the company does not use the editable process, or anything fails (the catalog's description is used)."""
+    try:
+        if not is_enabled(supabase, company_id, "SALES_PROCESS_ENABLED"):
+            return None
+        from app.services.sales_process.process import process_view
+        from app.services.sales_process.store import get_sales_process_store
+
+        found = next((t for t in process_view(repository, get_sales_process_store(supabase), company_id) if t["key"] == key), None)
+        return {"label": found["label"], "goal": found.get("goal"), "description": found.get("recognize")} if found else None
+    except Exception:
+        return None
 
 
 class FillRequest(StructureRequest):

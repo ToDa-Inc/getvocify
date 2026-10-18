@@ -35,7 +35,7 @@ import time
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from app.services.playbooks.catalog import QUALIFICATION_TEMPLATE_KEYS, catalog_label, qualification_criteria
 from app.services.playbooks.knowledge import normalize_knowledge
@@ -190,14 +190,21 @@ def _templates_block(lang: str) -> str:
     return "Qualification templates (use one ONLY when the source names that framework):\n" + "\n".join(lines)
 
 
-def _messages(source: str, motion_key: str, lang: str) -> list[dict]:
+def _messages(source: str, motion_key: str, lang: str, type_info: Optional[dict] = None) -> list[dict]:
+    """`type_info` ({label, goal, description}) describes a type of the company's own sales process, which the catalog does
+    not know: without it the model only sees the bare key and "goal not defined"."""
     body = source[:MAX_SOURCE_CHARS]
+    info = type_info or {}
+    label = str(info.get("label") or "").strip() or call_type_label(motion_key, lang)
+    goal = str(info.get("goal") or "").strip() or goal_label(motion_key, lang)
+    description = str(info.get("description") or "").strip()
     user = (
-        f"Call type: {call_type_label(motion_key, lang)} (key: {motion_key})\n"
-        f"Goal: {goal_label(motion_key, lang)}\n"
-        f"Company language: {'English' if lang == 'en' else 'Spanish'}\n\n"
-        f"{_templates_block(lang)}\n\n"
-        f'Source:\n"""\n{body}\n"""'
+        f"Call type: {label} (key: {motion_key})\n"
+        f"Goal: {goal}\n"
+        + (f"What this call is: {description}\n" if description else "")
+        + f"Company language: {'English' if lang == 'en' else 'Spanish'}\n\n"
+        + f"{_templates_block(lang)}\n\n"
+        + f'Source:\n"""\n{body}\n"""'
     )
     return [{"role": "system", "content": _system_prompt()}, {"role": "user", "content": user}]
 
@@ -459,7 +466,7 @@ async def _ask_with_retry(
     return shaped
 
 
-async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = None) -> dict:
+async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = None, type_info: Optional[dict] = None) -> dict:
     """{steps, objections, qualification, reason, fallback} for one source. `reason`: None, "no_process"
     (the source has no process), "too_short" (too little to be one; the steps are what it
     supports) or "grouped" (more than MAX_AI_STEPS stages were kept as MAX_AI_STEPS).
@@ -475,7 +482,7 @@ async def structure_source(text: str, motion_key: str, lang: str, *, llm: Any = 
     try:
         shaped = await _ask_with_retry(
             _client(llm),
-            _messages(source, motion_key, lang),
+            _messages(source, motion_key, lang, type_info),
             lambda raw: _shape(raw, folded_source),
             lambda s: _generic_indexes(s["steps"]),
             lambda s: _retry_note(s["steps"], _generic_indexes(s["steps"])),

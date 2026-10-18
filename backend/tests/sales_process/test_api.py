@@ -160,3 +160,15 @@ def test_a_process_needs_names_that_are_there_and_different():
     assert put(client, t("Demo"), t("demo")).json()["detail"] == {"code": "duplicate_name"}
     assert put(client, {"label": "Demo", "stage": "bogus"}).status_code == 422
     assert put(client, *[t(f"Tipo {i}") for i in range(21)]).status_code == 422
+
+
+def test_reading_a_document_for_one_interaction_tells_the_model_what_that_interaction_is():
+    from app.api.playbook_intake import _own_type_info
+    from app.services.sales_process.store import get_sales_process_store
+
+    client = make_client()
+    [cold] = put(client, t("Cold call", goal="Crear interés y acordar una reunión", recognize="Primer contacto, por teléfono")).json()["types"]
+    info = _own_type_info(FakeDB(), client.repo, "co-1", cold["key"])
+    assert info == {"label": "Cold call", "goal": "Crear interés y acordar una reunión", "description": "Primer contacto, por teléfono"}
+    assert _own_type_info(FakeDB(), client.repo, "co-1", "nope") is None
+    assert get_sales_process_store(None) is not None
