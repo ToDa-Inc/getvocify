@@ -3,11 +3,23 @@
 from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from app.config import settings
+
 from app.services import captures
 from app.services import memo_extraction_hooks as hooks
 from app.services.playbooks import channel_types as ct
 from app.services.playbooks import routing
 from app.services.playbooks import type_classifier as tc
+
+
+@pytest.fixture(autouse=True)
+def _channel_mode(monkeypatch):
+    """These are the types-by-channel rules: a company switched off the editable sales process (on for everyone since
+    18 Oct 2026, where a type is not bound to a channel) still runs them."""
+    monkeypatch.setattr(settings, "SALES_PROCESS_ENABLED", False)
+
 
 CALL = {"role": "any", "channels": ["call"], "contact": "any", "deal_stages": []}
 MEETING = {"role": "any", "channels": ["meeting"], "contact": "any", "deal_stages": []}

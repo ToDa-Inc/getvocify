@@ -2,7 +2,19 @@
 
 from unittest.mock import patch
 
+import pytest
+
+from app.config import settings
+
 from app.services.playbooks import channel_types as ct
+
+
+@pytest.fixture(autouse=True)
+def _channel_mode(monkeypatch):
+    """These are the types-by-channel rules: a company switched off the editable sales process (on for everyone since
+    18 Oct 2026, where a type is not bound to a channel) still runs them."""
+    monkeypatch.setattr(settings, "SALES_PROCESS_ENABLED", False)
+
 
 CALL_ONLY = {"role": "any", "channels": ["call"], "contact": "any", "deal_stages": []}
 MEETING_ONLY = {"role": "any", "channels": ["meeting"], "contact": "any", "deal_stages": []}

@@ -345,8 +345,9 @@ class Settings(BaseSettings):
     # Dark until a company is switched on; the success rate stays off until it is checked against labelled calls.
     PLAYBOOK_ASSISTANT_ENABLED: bool = False
     PLAYBOOK_SUCCESS_RATE_ENABLED: bool = False
-    # The company's own, editable sales process and the interaction types each member runs (spec 2026-10-17).
-    SALES_PROCESS_ENABLED: bool = False
+    # The company's own, editable sales process and the interaction types each member runs (spec 2026-10-17). On for every
+    # company since 18 Oct 2026; a company is switched off with a row in company_feature_flags.
+    SALES_PROCESS_ENABLED: bool = True
     # Types by channel (spec 2026-10-07): a recording's type is one of its channel's types (call or
     # meeting), never decided by the member's sales role, and needs no playbook. Only takes effect
     # with INTELLIGENCE_CALL_READING_ENABLED, which makes the final call after the call.

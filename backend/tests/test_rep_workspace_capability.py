@@ -179,7 +179,7 @@ def test_flag_off_leaves_the_rest_of_the_summary_as_it_was():
         "brief_v2_enabled": False,
         "sales_role": None,
         "visibility": None,
-        "features": ["LIVE_BRAIN_ENABLED"],  # on for everyone by default; the other flags are off
+        "features": ["SALES_PROCESS_ENABLED", "LIVE_BRAIN_ENABLED"],  # on for everyone by default; the other flags are off
     }
     assert _company(store) == {
         "id": COMPANY,
