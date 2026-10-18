@@ -3,6 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import { DashboardThemeProvider } from "@/components/ThemeProvider";
 import type { GapSession, ImproveQueue, ImproveStats, ModelProposal, QueueGroup, QueueMoment, SuccessStats } from "@/features/playbooks/assistantApi";
 import { GapAssistantView } from "@/features/playbooks/components/GapAssistant";
+import { PlaybookHomeView } from "@/features/playbooks/components/home/PlaybookHome";
+import type { HomeType } from "@/features/playbooks/components/home/FunnelBlock";
 import { SalesProcessEditorView } from "@/features/sales-process/SalesProcessEditor";
 import type { DraftType } from "@/lib/sales-process";
 import { ImproveHubView } from "@/features/playbooks/components/ImproveHub";
@@ -241,7 +243,24 @@ function ProcessEditor({ first = false, start = PROCESS, status = "ready", savin
   return <SalesProcessEditorView status={status} first={first} list={list} saving={saving} problem={problem} onChange={setList} onSave={noop} onCancel={noop} onRetry={noop} />;
 }
 
+const HOME_TYPES: HomeType[] = [
+  { key: "cold", label: "Cold call", goal: "Crear interés y acordar una reunión", description: "Primer contacto con el cliente, por teléfono", stage: "first_contact", state: "live" },
+  { key: "disc", label: "Discovery", goal: "Diagnosticar el problema, la urgencia y la decisión", description: null, stage: "first_contact", state: "changes" },
+  { key: "demo", label: "Demo", goal: "Conectar la solución con el dolor validado", description: null, stage: "deal", state: "empty" },
+  { key: "close", label: "Cierre", goal: "Acordar condiciones y fecha", description: null, stage: "deal", state: "empty" },
+  { key: "sac", label: "SAC", goal: null, description: "Servicio de atención al cliente", stage: "other", state: "empty" },
+];
+const HOME_AREAS = [
+  { id: "company" as const, filled: true }, { id: "product" as const, filled: true }, { id: "offer" as const, filled: true },
+  { id: "competition" as const, filled: false }, { id: "icp" as const, filled: true }, { id: "cases" as const, filled: false },
+];
+function Home({ types = HOME_TYPES, areas = HOME_AREAS }: { types?: HomeType[]; areas?: typeof HOME_AREAS }) {
+  return <PlaybookHomeView types={types} areas={areas} canEdit onCreateFunnel={noop} onOpenType={noop} onCreateCompany={noop} onOpenCompany={noop} onCreateOther={noop} />;
+}
+
 const SCENARIOS: { id: string; label: string; render: () => ReactNode }[] = [
+  { id: "home-empty", label: "Inicio, primera vez", render: () => <Home types={[]} areas={HOME_AREAS.map((a) => ({ ...a, filled: false }))} /> },
+  { id: "home-filled", label: "Inicio, con todo", render: () => <Home /> },
   { id: "process-first", label: "Proceso, primera vez", render: () => <ProcessEditor first start={[]} /> },
   { id: "process-edit", label: "Proceso, editar", render: () => <ProcessEditor /> },
   { id: "process-saving", label: "Proceso, guardando", render: () => <ProcessEditor saving /> },
