@@ -111,3 +111,17 @@ describe("System tab", () => {
     }
   });
 });
+
+describe("product and offer", () => {
+  const ids = (features: string[]) => visibleSettingsTabs(true, features).map((tab) => tab.id);
+
+  it("stays in Settings for a company that does not use the editable sales process", () => {
+    assert.ok(ids([]).includes("offer"));
+  });
+
+  it("moves to Vuestra empresa, in Playbook, once the company uses the editable sales process", () => {
+    assert.ok(!ids(["SALES_PROCESS_ENABLED"]).includes("offer"));
+    assert.ok(ids(["SALES_PROCESS_ENABLED"]).includes("team"));
+  });
+});
+

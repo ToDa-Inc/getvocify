@@ -34,6 +34,8 @@ export interface SettingsTab {
   managerOnly: boolean;
   /** Only while this company feature flag is on (e.g. the Recall meeting bot). */
   flag?: string;
+  /** Hidden once this company feature flag is on (the section moved elsewhere). */
+  hiddenByFlag?: string;
   /** Only inside the desktop app (its permissions, audio check and shortcut have nothing to set on the web). */
   desktopOnly?: boolean;
 }
@@ -56,7 +58,7 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: "system", to: "/dashboard/settings/system", labelKey: "settingsNavSystem", group: "personal", managerOnly: false, desktopOnly: true },
   { id: "usage", to: "/dashboard/settings/usage", labelKey: "settingsNavUsage", group: "personal", managerOnly: false },
   { id: "crm", to: "/dashboard/settings/crm", labelKey: "settingsNavCrm", group: "workspace", managerOnly: true },
-  { id: "offer", to: "/dashboard/settings/offer", labelKey: "settingsNavOffer", group: "workspace", managerOnly: true },
+  { id: "offer", to: "/dashboard/settings/offer", labelKey: "settingsNavOffer", group: "workspace", managerOnly: true, hiddenByFlag: "SALES_PROCESS_ENABLED" },
   { id: "team", to: "/dashboard/settings/team", labelKey: "settingsNavTeam", group: "workspace", managerOnly: true },
   { id: "billing", to: "/dashboard/settings/billing", labelKey: "settingsNavBilling", group: "workspace", managerOnly: true },
   // Owner/admin of a company with DEMO_BUYER_ENABLED: the AI buyer for sales demos.
@@ -72,6 +74,7 @@ export function visibleSettingsTabs(
     (tab) =>
       (isManager || !tab.managerOnly) &&
       (!tab.flag || features.includes(tab.flag)) &&
+      (!tab.hiddenByFlag || !features.includes(tab.hiddenByFlag)) &&
       (!tab.desktopOnly || host.desktop === true),
   );
 }
