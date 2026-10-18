@@ -393,10 +393,13 @@ export function PlaybookList() {
     </>
   );
   const body = processOn ? homeScreen : playbook;
+  // With the editable process, "Mejora tu playbook" only makes sense once something is written: not on the first, empty page.
+  // Inside one of its views it stays, so there is always a way back.
+  const showHub = !processOn || view !== null || items.some((item) => item.state !== "empty");
   if (!assistantOn) return body;
   return (
     <div className="space-y-4">
-      <ImproveHub view={view} views={IMPROVE_VIEWS} onView={(next) => (next ? setView(next) : closeView())} />
+      {showHub ? <ImproveHub view={view} views={IMPROVE_VIEWS} onView={(next) => (next ? setView(next) : closeView())} /> : null}
       {view === "assistant" ? (
         <GapAssistant
           motionKey={selected === COMPANY_ROW ? null : selected}
