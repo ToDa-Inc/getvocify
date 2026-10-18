@@ -54,6 +54,19 @@ END $$;
 
 COMMIT;
 
+-- ===================== PARTE A2 · objetivo de cada interacción y llamadas fuera del funnel (migración 085) =====================
+-- Necesaria para la pantalla nueva de Playbook (funnel de ventas y vuestra empresa). Ejecútala justo después de la PARTE A.
+
+BEGIN;
+
+ALTER TABLE company_sales_process ADD COLUMN IF NOT EXISTS goal TEXT;
+
+ALTER TABLE company_sales_process DROP CONSTRAINT IF EXISTS company_sales_process_stage_check;
+ALTER TABLE company_sales_process
+  ADD CONSTRAINT company_sales_process_stage_check CHECK (stage IN ('first_contact', 'deal', 'other'));
+
+COMMIT;
+
 -- ===================== PARTE B · comprobación (debe devolver 2 filas) =====================
 -- SELECT table_name FROM information_schema.tables
 --  WHERE table_schema = 'public' AND table_name IN ('company_sales_process', 'member_interaction_types');

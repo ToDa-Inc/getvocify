@@ -72,3 +72,22 @@ agrupados en Llamadas y Reuniones, y a cada miembro se le da un rol SDR / AE / G
   no existen.
 - Migración idempotente (`IF NOT EXISTS`, columnas que admiten vacío) y SQL de activación para el fundador.
 - Borrar un tipo asignado a un miembro: se quita de su lista; si queda vacía vuelve a `NULL` (todos).
+
+## 7. Pantalla de Playbook (18 oct 2026)
+
+Con `SALES_PROCESS_ENABLED` la página Playbook es una sola pantalla sobre el fondo de la app, con tres bloques; sin el flag
+es la de siempre. Plan: `docs/superpowers/plans/2026-10-18-playbook-funnel-y-empresa.md`.
+
+- **Funnel de ventas** (izquierda): las interacciones de la empresa dibujadas de más ancha a más estrecha; bajo cada una, su
+  objetivo; un clic abre su panel de siempre (pasos, objeciones, publicar) en una ventana lateral. Vacío: croquis con «Crear +».
+- **Vuestra empresa** (derecha): empresa, producto, oferta, competencia, ICP y casos, cada una con su estado; un clic abre la
+  ventana de la empresa. El texto de «Producto y oferta», que vivía en Ajustes, está arriba en esa ventana (mismo dato,
+  `companies.product_context`); la entrada de Ajustes desaparece y su URL lleva a Playbook.
+- **Otro tipo de llamadas** (abajo): llamadas fuera del funnel (soporte, una llamada técnica) con `stage = other`: no puntúan en
+  coaching, no exigen objetivo ni descripción y pueden tener pasos o solo información.
+- **Crear** abre una ventana: nombre, objetivo y descripción de la llamada (imprescindibles en las del funnel; la descripción es la
+  frase `recognize` que lee Vocify para reconocer el tipo), fase y orden. La primera vez ofrece tres caminos: un PDF completo,
+  un documento por interacción, o responder preguntas y crearlo con Vocify.
+- Migración 085: `company_sales_process.goal` y `stage` admite `other`.
+- Pendiente: avisar al jefe cuando una pregunta técnica se repite sin respuesta (hoy lo cubre el asistente de «Lo que falta»).
+
