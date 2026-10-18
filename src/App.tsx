@@ -139,6 +139,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 // Development only: every state of the playbook assistant screens with made-up data (no login). The condition is a
 // build-time constant, so the page is not part of the production bundle.
 const PlaybookAssistantPreview = import.meta.env.DEV ? lazy(() => import("./pages/dev/PlaybookAssistantPreview")) : null;
+const PlaybookWindowsPreview = import.meta.env.DEV ? lazy(() => import("./pages/dev/PlaybookWindowsPreview")) : null;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -163,6 +164,9 @@ const App = () => (
             <Route path="/" element={<Index />} />
             {PlaybookAssistantPreview ? (
               <Route path="/__preview/playbook-assistant" element={<Suspense fallback={null}><PlaybookAssistantPreview /></Suspense>} />
+            ) : null}
+            {PlaybookWindowsPreview ? (
+              <Route path="/__preview/playbook-windows" element={<Suspense fallback={null}><PlaybookWindowsPreview /></Suspense>} />
             ) : null}
             <Route path="/en" element={<Index />} />
             <Route path="/mcp" element={<McpPage />} />

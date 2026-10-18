@@ -55,7 +55,7 @@ export function useSalesProcess({ onSaved, scope = "funnel" }: { onSaved?: (type
     }
   }, [all, client, onSaved]);
 
-  return { status, saved, list, all, setList, saving, problem, removing, save, reload: () => void query.refetch() };
+  return { status, saved, list, all, setList, saving, problem, removing, save, reload: () => void query.refetch(), reset: () => { setDraft(null); setProblem(null); } };
 }
 
 export type SalesProcessController = ReturnType<typeof useSalesProcess>;

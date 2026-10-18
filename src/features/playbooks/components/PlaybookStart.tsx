@@ -31,6 +31,7 @@ export function PlaybookStart({
   submitMany,
   manyReadingLabel,
   manyHint,
+  submitLabel,
 }: {
   /** Throws on failure; an ApiError's detail.code becomes the message. */
   submit: (source: SourceInput) => Promise<void>;
@@ -43,6 +44,8 @@ export function PlaybookStart({
   manyReadingLabel?: string;
   /** A line under the box: what to give first ("Empieza por vuestro guion de ventas"). */
   manyHint?: string;
+  /** The button's word when the box is not creating a playbook from scratch ("Guardar", "Leer"). */
+  submitLabel?: string;
   onTemplate?: () => void;
   onCancel?: () => void;
   minHeight?: string;
@@ -213,7 +216,7 @@ export function PlaybookStart({
           </Button>
         ) : null}
         <Button type="button" size="sm" disabled={!ready || busy} onClick={() => void create()}>
-          {copy.startCreate}
+          {submitLabel ?? copy.startCreate}
         </Button>
       </div>
 

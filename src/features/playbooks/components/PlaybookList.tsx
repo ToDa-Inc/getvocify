@@ -10,11 +10,11 @@ import { ImproveHub } from "@/features/playbooks/components/ImproveHub";
 import { ImproveScreen } from "@/features/playbooks/components/ImproveQueue";
 import { salesProcessApi } from "@/features/sales-process/api";
 import { PROCESS_QUERY } from "@/features/sales-process/useSalesProcess";
-import { CompanySheet } from "@/features/playbooks/components/home/CompanySheet";
+import { CompanyWindow } from "@/features/playbooks/components/home/CompanyWindow";
+import { FunnelWindow } from "@/features/playbooks/components/home/FunnelWindow";
 import type { HomeType } from "@/features/playbooks/components/home/FunnelBlock";
 import { PlaybookHomeView } from "@/features/playbooks/components/home/PlaybookHome";
-import { ProcessDialog } from "@/features/playbooks/components/home/ProcessDialog";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { playbooksApi } from "@/features/playbooks/api";
 import { TrialRunner } from "@/features/playbooks/components/TrialRunner";
@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
-import { companyAreaStates, splitFunnel, type CompanyOpens } from "@/lib/playbook-home";
+import { companyAreaStates } from "@/lib/playbook-home";
 import { addableTypes, publishState, publishSwitch, ruleNeeded, usedForLine } from "@/lib/playbook-doc";
 import { viewFromParams, type ImproveView } from "@/lib/playbook-assistant";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -86,7 +86,7 @@ export function PlaybookList() {
   // The Playbook as one screen (sales funnel, company, other calls): everything is created and edited in windows over it.
   const [dialog, setDialog] = useState<"funnel" | "other" | null>(null);
   const [typeSheet, setTypeSheet] = useState<string | null>(null);
-  const [companyOpen, setCompanyOpen] = useState<CompanyOpens | null>(null);
+  const [companyOpen, setCompanyOpen] = useState(false);
   const queryClient = useQueryClient();
   const companyQuery = useQuery({ queryKey: ["playbook-company"], queryFn: playbooksApi.company, enabled: processOn, retry: false, staleTime: 30_000 });
   const setView = (next: ImproveView | null) =>
@@ -336,7 +336,6 @@ export function PlaybookList() {
     stage: entry.stage,
     state: items.find((item) => item.key === entry.key)?.state ?? "empty",
   }));
-  const { funnel: funnelTypes, other: otherTypes } = splitFunnel(homeTypes);
   const homeScreen = (
     <>
       <PlaybookHomeView
@@ -348,47 +347,30 @@ export function PlaybookList() {
           open(key);
           setTypeSheet(key);
         }}
-        onCreateCompany={() => setCompanyOpen("notes")}
-        onOpenCompany={setCompanyOpen}
+        onCreateCompany={() => setCompanyOpen(true)}
+        onOpenCompany={() => setCompanyOpen(true)}
         onCreateOther={() => setDialog("other")}
       />
-      <ProcessDialog
+      <FunnelWindow
         open={dialog !== null}
         onOpenChange={(next) => !next && setDialog(null)}
         kind={dialog ?? "funnel"}
-        first={(dialog === "other" ? otherTypes : funnelTypes).length === 0}
+        types={homeTypes}
         intake={intake}
         assistantOn={assistantOn}
-        firstEmptyKey={funnelTypes.find((entry) => entry.state === "empty")?.key ?? null}
-        name={process.name}
         onChanged={() => {
           void queryClient.invalidateQueries({ queryKey: PROCESS_QUERY });
           void process.refresh();
         }}
-        onOpenType={(key) => {
-          open(key);
-          setTypeSheet(key);
-        }}
       />
-      <Sheet open={typeSheet !== null} onOpenChange={(next) => !next && setTypeSheet(null)}>
-        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-3xl">
-          <SheetTitle className="sr-only">{typeSheet ? process.name(typeSheet) : ""}</SheetTitle>
-          <SheetDescription className="sr-only">{copy.sectionTitle}</SheetDescription>
-          <div className="pt-6">{typeSheet ? detail() : null}</div>
-        </SheetContent>
-      </Sheet>
-      <CompanySheet
-        open={companyOpen !== null}
-        onOpenChange={(next) => {
-          if (!next) {
-            setCompanyOpen(null);
-            void queryClient.invalidateQueries({ queryKey: ["playbook-company"] });
-          }
-        }}
-        opens={companyOpen ?? "notes"}
-        canEdit={canEdit}
-        onSaved={() => void process.companySaved()}
-      />
+      <Dialog open={typeSheet !== null} onOpenChange={(next) => !next && setTypeSheet(null)}>
+        <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto rounded-2xl border-border/70 bg-background p-6 shadow-xl sm:rounded-2xl md:p-8">
+          <DialogTitle className="sr-only">{typeSheet ? process.name(typeSheet) : ""}</DialogTitle>
+          <DialogDescription className="sr-only">{copy.sectionTitle}</DialogDescription>
+          {typeSheet ? detail() : null}
+        </DialogContent>
+      </Dialog>
+      <CompanyWindow open={companyOpen} onOpenChange={setCompanyOpen} canEdit={canEdit} />
       {confirmDelete}
     </>
   );

@@ -3,11 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import { DashboardThemeProvider } from "@/components/ThemeProvider";
 import type { GapSession, ImproveQueue, ImproveStats, ModelProposal, QueueGroup, QueueMoment, SuccessStats } from "@/features/playbooks/assistantApi";
 import { GapAssistantView } from "@/features/playbooks/components/GapAssistant";
-import { PathChoice } from "@/features/playbooks/components/home/PathChoice";
 import { PlaybookHomeView } from "@/features/playbooks/components/home/PlaybookHome";
 import type { HomeType } from "@/features/playbooks/components/home/FunnelBlock";
-import { SalesProcessEditorView } from "@/features/sales-process/SalesProcessEditor";
-import type { DraftType } from "@/lib/sales-process";
 import { ImproveHubView } from "@/features/playbooks/components/ImproveHub";
 import { ImproveScreenView, type Writing } from "@/features/playbooks/components/ImproveQueue";
 import type { ImproveProblem, Publication } from "@/features/playbooks/hooks/useImprove";
@@ -231,19 +228,6 @@ function Improve({ stats, queue, status = "ready", openKey = null, writing = nul
 }
 const WITH_QUEUE: ImproveQueue = { groups: GROUPS, publish: [] };
 
-const PROCESS: DraftType[] = [
-  { key: "cold", label: "Llamada en frío", stage: "first_contact", recognize: "Primera llamada a alguien que no nos conoce" },
-  { key: "disc", label: "Discovery", stage: "first_contact" },
-  { key: "demo", label: "Demo", stage: "deal" },
-];
-
-function ProcessEditor({ first = false, start = PROCESS, status = "ready", saving = false, problem = null }: {
-  first?: boolean; start?: DraftType[]; status?: "loading" | "ready" | "error" | "not_activated"; saving?: boolean; problem?: string | null;
-}) {
-  const [list, setList] = useState<DraftType[]>(start);
-  return <SalesProcessEditorView status={status} first={first} list={list} saving={saving} problem={problem} onChange={setList} onSave={noop} onCancel={noop} onRetry={noop} />;
-}
-
 const HOME_TYPES: HomeType[] = [
   { key: "cold", label: "Cold call", goal: "Crear interés y acordar una reunión", description: "Primer contacto con el cliente, por teléfono", stage: "first_contact", state: "live" },
   { key: "disc", label: "Discovery", goal: "Diagnosticar el problema, la urgencia y la decisión", description: null, stage: "first_contact", state: "changes" },
@@ -259,39 +243,9 @@ function Home({ types = HOME_TYPES, areas = HOME_AREAS }: { types?: HomeType[]; 
   return <PlaybookHomeView types={types} areas={areas} canEdit onCreateFunnel={noop} onOpenType={noop} onCreateCompany={noop} onOpenCompany={noop} onCreateOther={noop} />;
 }
 
-/** What a window looks like around its content, to judge it without opening one. */
-function WindowFrame({ title, lead, children }: { title: string; lead?: string; children: ReactNode }) {
-  return (
-    <div className="mx-auto max-w-2xl space-y-6 rounded-2xl border border-border/70 bg-background p-8">
-      <div className="space-y-2">
-        <h2 className="text-[22px] font-semibold tracking-[-0.015em] text-foreground">{title}</h2>
-        {lead ? <p className="text-[15px] leading-relaxed text-muted-foreground">{lead}</p> : null}
-      </div>
-      {children}
-    </div>
-  );
-}
-function FunnelWindow({ list, kind = "funnel", first = false }: { list: DraftType[]; kind?: "funnel" | "other"; first?: boolean }) {
-  const [items, setItems] = useState<DraftType[]>(list);
-  return (
-    <WindowFrame title={kind === "funnel" ? "Tu funnel de ventas" : "Otro tipo de llamada"} lead={kind === "funnel" ? "Añade las interacciones que lleváis a cabo, en orden, y di qué hay que conseguir en cada una." : "Una llamada fuera del funnel de ventas. No cuenta en coaching: puedes darle pasos o solo información."}>
-      <SalesProcessEditorView bare kind={kind} status="ready" first={first} list={items} saving={false} problem={null} onChange={setItems} onSave={noop} onCancel={noop} onRetry={noop} />
-    </WindowFrame>
-  );
-}
-
 const SCENARIOS: { id: string; label: string; render: () => ReactNode }[] = [
-  { id: "dialog-define", label: "Ventana, definir el funnel", render: () => <FunnelWindow list={[{ label: "Cold call", stage: "first_contact", goal: "Crear interés y acordar una reunión", recognize: "Primer contacto con el cliente, por teléfono" }, { label: "Discovery", stage: "first_contact" }]} /> },
-  { id: "dialog-first", label: "Ventana, funnel vacío", render: () => <FunnelWindow first list={[]} /> },
-  { id: "dialog-other", label: "Ventana, otra llamada", render: () => <FunnelWindow kind="other" list={[{ label: "Llamada técnica", stage: "other", recognize: "Preguntas técnicas de clientes" }]} /> },
-  { id: "dialog-path", label: "Ventana, tres caminos", render: () => <WindowFrame title="¿Cómo quieres darnos el contenido?" lead="Elige por dónde empezar. Puedes cambiar de camino cuando quieras."><PathChoice askAvailable onChoose={noop} onLater={noop} /></WindowFrame> },
   { id: "home-empty", label: "Inicio, primera vez", render: () => <Home types={[]} areas={HOME_AREAS.map((a) => ({ ...a, filled: false }))} /> },
   { id: "home-filled", label: "Inicio, con todo", render: () => <Home /> },
-  { id: "process-first", label: "Proceso, primera vez", render: () => <ProcessEditor first start={[]} /> },
-  { id: "process-edit", label: "Proceso, editar", render: () => <ProcessEditor /> },
-  { id: "process-saving", label: "Proceso, guardando", render: () => <ProcessEditor saving /> },
-  { id: "process-error", label: "Proceso, nombre repetido", render: () => <ProcessEditor problem="duplicate_name" start={[...PROCESS, { label: "Demo", stage: "deal" }]} /> },
-  { id: "process-loading", label: "Proceso, cargando", render: () => <ProcessEditor status="loading" /> },
   { id: "hub-fresh", label: "Portada, primera vez", render: () => <Hub line="Vocify te hace unas preguntas para completar el playbook. Son unos 10 minutos." primary="Responder lo que falta" /> },
   { id: "hub-open", label: "Portada, preguntas pendientes", render: () => <Hub line="Tienes 6 preguntas por responder." primary="Continuar" /> },
   { id: "hub-queue", label: "Portada, respuestas por mirar", render: () => <Hub view={null} views={["assistant", "trial", "improve"]} line="3 respuestas necesitan que las mires." primary="Ver las mejoras" /> },

@@ -37,11 +37,11 @@ describe("playbook home helpers", () => {
     assert.equal(COMPANY_AREAS.find((area) => area.id === "cases")?.opens, "proofs");
   });
 
-  it("says which areas of the company already have something: the knowledge by tab, and the offer text apart", () => {
+  it("says which areas of the company already have something, as the company window shows them", () => {
     const none = companyAreaStates(null, "");
     assert.deepEqual(none.map((a) => a.filled), [false, false, false, false, false, false]);
     const some = companyAreaStates({ icp: "Tiendas de barrio", proofs: [{ customer: "Acme" }], notes: "" } as never, "  Vendemos un CRM  ");
     const by = Object.fromEntries(some.map((a) => [a.id, a.filled]));
-    assert.deepEqual(by, { company: false, product: false, offer: true, competition: false, icp: true, cases: true });
+    assert.deepEqual(by, { company: false, product: true, offer: false, competition: false, icp: true, cases: true });
   });
 });
