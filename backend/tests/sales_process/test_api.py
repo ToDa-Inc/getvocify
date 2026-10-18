@@ -132,12 +132,12 @@ def test_removing_a_type_archives_it_and_takes_it_out_of_every_members_list():
     assert store.get_member_types("co-1", user_id="u2") == [cold] and store.get_member_types("co-1", user_id="u3") is None
 
 
-def test_a_type_of_the_funnel_needs_an_objective_and_a_description_and_one_outside_it_does_not():
+def test_a_type_of_the_funnel_needs_an_objective_and_one_outside_it_does_not():
     client = make_client()
     no_goal = put(client, {"label": "Llamada en frío", "stage": "first_contact", "recognize": "Primer contacto"})
     assert no_goal.status_code == 422 and no_goal.json()["detail"] == {"code": "goal_required"}
-    no_description = put(client, {"label": "Demo", "stage": "deal", "goal": "Cerrar"})
-    assert no_description.status_code == 422 and no_description.json()["detail"] == {"code": "description_required"}
+    # No description is asked any more: a name and a goal are enough.
+    assert put(client, {"label": "Demo", "stage": "deal", "goal": "Cerrar"}).status_code == 200
     assert put(client, {"label": "  ", "stage": "deal", "goal": "x", "recognize": "y"}).status_code == 422
     done = put(client, t("Demo", "deal"), {"label": "SAC", "stage": "other"})
     assert done.status_code == 200 and [x["stage"] for x in done.json()["types"]] == ["deal", "other"]

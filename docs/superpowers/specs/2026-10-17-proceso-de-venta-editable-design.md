@@ -85,8 +85,8 @@ es la de siempre. Plan: `docs/superpowers/plans/2026-10-18-playbook-funnel-y-emp
   `companies.product_context`); la entrada de Ajustes desaparece y su URL lleva a Playbook.
 - **Otro tipo de llamadas** (abajo): llamadas fuera del funnel (soporte, una llamada técnica) con `stage = other`: no puntúan en
   coaching, no exigen objetivo ni descripción y pueden tener pasos o solo información.
-- **Crear** abre una ventana: nombre, objetivo y descripción de la llamada (imprescindibles en las del funnel; la descripción es la
-  frase `recognize` que lee Vocify para reconocer el tipo), fase y orden. La primera vez ofrece tres caminos: un PDF completo,
+- **Crear** abre una ventana: nombre y objetivo de la llamada (el objetivo, imprescindible en las del funnel). La descripción ya no
+  se pide (18 oct): Vocify reconoce el tipo por su nombre y objetivo; una `recognize` ya escrita se conserva. La fase sale del orden. La primera vez ofrece tres caminos: un PDF completo,
   un documento por interacción, o responder preguntas y crearlo con Vocify.
 - Migración 085: `company_sales_process.goal` y `stage` admite `other`.
 - Pendiente: avisar al jefe cuando una pregunta técnica se repite sin respuesta (hoy lo cubre el asistente de «Lo que falta»).

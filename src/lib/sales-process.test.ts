@@ -34,9 +34,9 @@ describe("sales process helpers", () => {
     });
   });
 
-  it("needs an objective and a description for every interaction of the funnel, but not for the other calls", () => {
+  it("needs an objective for every interaction of the funnel, but not for the other calls, and never a description", () => {
     assert.equal(canSave([t("Demo", { goal: "" })]), false);
-    assert.equal(canSave([t("Demo", { recognize: "  " })]), false);
+    assert.equal(canSave([t("Demo", { recognize: "  " })]), true);
     assert.equal(canSave([t("Demo"), { label: "SAC", stage: "other" }]), true);
   });
 

@@ -22,7 +22,7 @@ const plain = "block w-full bg-transparent text-foreground placeholder:text-mute
 
 /**
  * Create or edit the sales funnel (or the calls outside it) in one window, screen after screen:
- *   1. the interactions, in order: name, goal and description (a call outside the funnel only needs a name);
+ *   1. the interactions, in order: name and goal (a call outside the funnel only needs a name);
  *   2. their content: one document for all of them, or a document or a pasted text for each; or Vocify asks and builds it;
  *   3. done.
  * The stage of each interaction (first contact or deal) follows from its place, so it is never asked.
@@ -79,8 +79,7 @@ export function FunnelWindow({
   const example = () => {
     const names = c.exampleNames.split("|");
     const goals = c.exampleGoals.split("|");
-    const descs = c.exampleDescs.split("|");
-    setRows(names.map((label, i) => ({ label, goal: goals[i], recognize: descs[i], stage: "deal" })));
+    setRows(names.map((label, i) => ({ label, goal: goals[i], stage: "deal" })));
   };
   const valid = rows.length > 0 && canSave(rows);
   const next = async () => {
@@ -182,15 +181,6 @@ export function FunnelWindow({
                       className={cn(plain, "text-[14px] text-foreground/80")}
                     />
                   ) : null}
-                  <input
-                    value={row.recognize ?? ""}
-                    maxLength={300}
-                    disabled={process.saving}
-                    onChange={(event) => update(index, { recognize: event.target.value })}
-                    placeholder={funnel ? c.descPh : c.otherDescPh}
-                    aria-label={funnel ? c.descPh : c.otherDescPh}
-                    className={cn(plain, "text-[14px] text-foreground/80")}
-                  />
                 </div>
                 {rows.length > 1 ? (
                   <button

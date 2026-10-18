@@ -15,10 +15,10 @@ export function moveItem<T>(list: T[], index: number, delta: -1 | 1): T[] {
   return next;
 }
 
-/** A process needs at least one type, each with a name and no two with the same one; every interaction of the funnel also needs its objective and its description. */
+/** A process needs at least one type, each with a name and no two with the same one; every interaction of the funnel also needs its objective. */
 export function canSave(list: DraftType[]): boolean {
   const names = list.map((item) => item.label.trim().toLowerCase());
-  const complete = list.every((item) => item.stage === "other" || (Boolean(item.goal?.trim()) && Boolean(item.recognize?.trim())));
+  const complete = list.every((item) => item.stage === "other" || Boolean(item.goal?.trim()));
   return names.length > 0 && names.every(Boolean) && new Set(names).size === names.length && complete;
 }
 

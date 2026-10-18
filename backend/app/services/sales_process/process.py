@@ -24,7 +24,8 @@ class ProcessType(BaseModel):
     label: str = Field(max_length=MAX_NAME)
     stage: Literal["first_contact", "deal", "other"]
     # What the call must achieve ("create interest and agree a meeting") and what kind of call it is ("a first phone contact").
-    # Both are required for a type of the sales funnel; a call outside it needs neither. The description is `recognize`.
+    # The goal is required for a type of the sales funnel; a call outside it needs none. `recognize` is no longer asked for
+    # (Vocify recognizes the call by its name and goal) but one already written is kept and still read.
     goal: Optional[str] = Field(default=None, max_length=160)
     recognize: Optional[str] = Field(default=None, max_length=300)
 
@@ -68,7 +69,7 @@ def process_view(repository: PlaybookRepository, store: SalesProcessStore, compa
 def apply_process(repository: PlaybookRepository, store: SalesProcessStore, company_id: str, wanted: list[ProcessType]) -> None:
     """Makes the company's types exactly `wanted`, in that order. New names get a fresh key (never a catalog key, which
     would bring that catalog type's behaviour with it); a type that is not in the list is archived and leaves every
-    member's list. Raises ValueError (`duplicate_name`, `empty_name`, `goal_required`, `description_required`) before changing anything."""
+    member's list. Raises ValueError (`duplicate_name`, `empty_name`, `goal_required`) before changing anything."""
     names = [t.label.strip().casefold() for t in wanted]
     if "" in names or len(set(names)) != len(names):
         raise ValueError("duplicate_name" if "" not in names else "empty_name")
@@ -76,8 +77,6 @@ def apply_process(repository: PlaybookRepository, store: SalesProcessStore, comp
         if item.stage != "other":
             if not (item.goal or "").strip():
                 raise ValueError("goal_required")
-            if not (item.recognize or "").strip():
-                raise ValueError("description_required")
     present = _present_types(repository, {r["key"] for r in store.list_process(company_id)}, company_id)
     taken = set(present) | {t["key"] for t in catalog_types()}
     rows: list[dict] = []
