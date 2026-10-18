@@ -64,3 +64,22 @@ export function withFunnelStages(list: DraftType[]): DraftType[] {
   let seen = 0;
   return list.map((item) => (item.stage === "other" ? item : { ...item, stage: seen++ === 0 ? "first_contact" : "deal" }));
 }
+
+/** Where Vocify writes a document given for one area: a text field or a whole list of the notes. The product is not in the
+ * notes (it is the product text, kept as written), so it has none. */
+export function areaFillScope(id: AreaId): { texts: string[] } | { list: string } | null {
+  switch (id) {
+    case "company":
+      return { texts: ["notes"] };
+    case "offer":
+      return { texts: ["pricing"] };
+    case "icp":
+      return { texts: ["icp"] };
+    case "competition":
+      return { list: "competitors" };
+    case "cases":
+      return { list: "proofs" };
+    default:
+      return null;
+  }
+}

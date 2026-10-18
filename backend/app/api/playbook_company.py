@@ -62,6 +62,14 @@ async def put_company_knowledge(
     return _company_response(row)
 
 
+@router.post("/company/read")
+async def read_company_source(body: StructureRequest, membership: Membership = Depends(get_membership)):
+    """Owner/admin. The text of a pasted text, a PDF or an audio note, as it is: the "Producto" area of the company
+    window puts a document there to correct before saving (the product text is not one the model fills)."""
+    _require_editor(membership)
+    return {"text": (await read_source(body)).strip()}
+
+
 class CompanyFillRequest(StructureRequest):
     base_updated_at: Optional[str] = None
     # A "Completar" on one item or some fields: only that part may change (see fill.restrict_company).

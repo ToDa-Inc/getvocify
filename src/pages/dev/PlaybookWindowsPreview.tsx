@@ -31,6 +31,20 @@ function install() {
       }
       return json(view());
     }
+    if (url.includes("/playbooks/company/read")) return json({ text: body.kind === "text" ? String(body.payload).trim() : "Texto leído del documento." });
+    if (url.includes("/auth/me") && method === "PATCH") return json({ id: "preview", email: "preview@vocify.test", product_context: body.product_context ?? null });
+    if (url.includes("/playbooks/company/fill") && body?.scope) {
+      // One area: what was pasted goes into that area; a very short text gives nothing.
+      const text = String(body.payload ?? "").trim();
+      if (text.length < 10) return json({ knowledge: db.knowledge, updated_at: db.updated, sections: [], filled: [], summary: "" });
+      const scope = body.scope as { texts?: string[]; list?: string };
+      const key = scope.texts?.[0] ?? scope.list ?? "notes";
+      const [name, ...rest] = text.split(/[:—-]/);
+      const value = scope.list === "competitors" ? [{ name: name.trim(), how_to_talk: rest.join(" ").trim() || text }] : scope.list === "proofs" ? [{ customer: name.trim(), change: rest.join(" ").trim() || text }] : text;
+      db.knowledge = { ...db.knowledge, [key]: value };
+      db.updated = new Date().toISOString();
+      return json({ knowledge: db.knowledge, updated_at: db.updated, sections: [], filled: [key], summary: "" });
+    }
     if (url.includes("/playbooks/company/fill")) {
       db.knowledge = { notes: "Vocify es una plataforma de IA para equipos de ventas.", pricing: "Desde 49 € al mes por usuario.", icp: "Equipos de 5 a 50 comerciales.", competitors: [{ name: "Gong", how_to_talk: "más caro y sin ayuda en directo" }] };
       db.updated = new Date().toISOString();

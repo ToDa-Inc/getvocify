@@ -132,6 +132,8 @@ export const playbooksApi = {
       { ...source, base_updated_at: baseUpdatedAt, ...(scope ? { scope } : {}) },
       { timeoutMs: 120_000 },
     ),
+  // The text of a pasted text, PDF or audio note as it is (the company window's "Producto" area).
+  readCompany: (source: FillSource) => api.post<{ text: string }>("/playbooks/company/read", source, { timeoutMs: 120_000 }),
   // Plan §16: switch a playbook off and on, delete it, and undo the delete.
   pause: (key: string) => api.post<PlaybookList>(`${path(key)}/pause`),
   resume: (key: string) => api.post<PlaybookList>(`${path(key)}/resume`),

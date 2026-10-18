@@ -225,3 +225,28 @@ def test_fill_with_a_scope_tells_the_model_and_applies_only_that_item():
     }
     assert "Change ONLY: objection timing" in llm.calls[0]["messages"][1]["content"]
 
+
+
+def test_a_whole_list_scope_keeps_every_item_of_that_list_and_nothing_else():
+    ops = {"set": {
+        "icp": "Otro ICP.",
+        "competitors": [{"name": "Gong", "how_to_talk": "Piden análisis."}, {"name": "Chorus", "how_to_talk": "Más caro."}],
+    }, "remove": {"competitors": ["Gong"]}}
+    kept, filled = apply_company_changes(EXISTING, restrict_company(ops, {"list": "competitors"}), "Gong Chorus")
+    assert {c["name"] for c in kept["competitors"]} >= {"Gong", "Chorus"}
+    assert filled == ["competitors"] and kept["icp"] == "Startups B2B con SDRs."
+
+
+def test_a_company_fill_for_one_area_tells_the_model_where_to_write():
+    llm = FakeLLM({"summary": "x", "set": {"pricing": "9 € por empleado y mes.", "icp": "Pymes."}})
+    set_playbook_structure_llm(llm)
+    client = _client()
+    response = client.post(f"{BASE}/company/fill", json={"kind": "text", "payload": "9 € por empleado", "scope": {"texts": ["pricing"]}})
+    assert response.status_code == 200 and response.json()["filled"] == ["pricing"]
+    assert "Write it ONLY into: pricing" in llm.calls[0]["messages"][1]["content"]
+
+
+def test_company_read_returns_the_text_of_a_source_and_is_for_editors_only():
+    response = _client().post(f"{BASE}/company/read", json={"kind": "text", "payload": "  Vendemos nóminas a pymes.  "})
+    assert response.status_code == 200 and response.json() == {"text": "Vendemos nóminas a pymes."}
+    assert _client(role="member").post(f"{BASE}/company/read", json={"kind": "text", "payload": "x"}).status_code == 403

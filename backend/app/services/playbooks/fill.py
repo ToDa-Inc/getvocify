@@ -334,7 +334,8 @@ def restrict_company(ops: Any, scope: Optional[dict]) -> Any:
     if key in LIST_FIELDS:
         identity = LIST_FIELDS[key][1]
         name = str(scope.get("name") or "").strip().casefold()
-        kept[key] = [item for item in _list(patch.get(key)) if str(item.get(identity) or "").strip().casefold() == name]
+        # No name: the whole list is the area being filled ("Competencia", "Casos"), so every item it wrote is kept.
+        kept[key] = [item for item in _list(patch.get(key)) if not name or str(item.get(identity) or "").strip().casefold() == name]
     return {**ops, "set": kept, "remove": {}}
 
 
@@ -397,6 +398,16 @@ def apply_company_changes(existing: Any, ops: Any, source: str) -> tuple[dict, l
     return normalize_knowledge(data), changed
 
 
+def _company_scope_line(scope: Optional[dict]) -> str:
+    """With a scope the request is meant for one area of the notes: say which, so the model writes it there."""
+    if not scope:
+        return ""
+    fields = [key for key in scope.get("texts") or [] if key in TEXT_FIELDS]
+    if scope.get("list") in LIST_FIELDS:
+        fields.append(str(scope["list"]))
+    return f"\n\nWrite it ONLY into: {', '.join(fields)}. Leave everything else exactly as it is." if fields else ""
+
+
 def _knowledge_text(data: dict) -> str:
     return json.dumps(data, ensure_ascii=False)
 
@@ -411,7 +422,7 @@ async def fill_company(request: str, existing: Any, product_context: str = "", s
         f"Company language: {'English' if lang == 'en' else 'Spanish'}\n\n"
         f"Product description:\n{product_context.strip() or '(none)'}\n\n"
         f"Current notes:\n{_knowledge_text(current)}\n\n"
-        f'Request:\n"""\n{request}\n"""'
+        f'Request:\n"""\n{request}\n"""{_company_scope_line(scope)}'
     )
     answer = await _call([{"role": "system", "content": _prompt(COMPANY_PROMPT_VERSION)}, {"role": "user", "content": user}], request)
     knowledge, filled = apply_company_changes(

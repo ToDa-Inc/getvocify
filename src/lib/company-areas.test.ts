@@ -1,6 +1,6 @@
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import assert from "node:assert/strict";
-import { areasFromKnowledge, knowledgeFromAreas, withFunnelStages } from "./company-areas.ts";
+import { areaFillScope, areasFromKnowledge, knowledgeFromAreas, withFunnelStages } from "./company-areas.ts";
 
 describe("company areas", () => {
   it("shows what Vocify knows as six plain texts, lists as one line each", () => {
@@ -49,4 +49,13 @@ describe("company areas", () => {
     ]);
     assert.deepEqual(list.map((item) => item.stage), ["first_contact", "deal", "deal"]);
   });
+});
+
+test("each area but the product is filled by Vocify into its own part of the notes", () => {
+  assert.deepEqual(areaFillScope("company"), { texts: ["notes"] });
+  assert.deepEqual(areaFillScope("offer"), { texts: ["pricing"] });
+  assert.deepEqual(areaFillScope("icp"), { texts: ["icp"] });
+  assert.deepEqual(areaFillScope("competition"), { list: "competitors" });
+  assert.deepEqual(areaFillScope("cases"), { list: "proofs" });
+  assert.equal(areaFillScope("product"), null);
 });
