@@ -1,8 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { canSave, moveItem, removedWithContent, suggestedProcess, toRequest, typesSummary, type DraftType } from "./sales-process.ts";
+import { canSave, mergeScope, moveItem, removedWithContent, suggestedProcess, toRequest, typesSummary, type DraftType } from "./sales-process.ts";
 
-const t = (label: string, over: Partial<DraftType> = {}): DraftType => ({ label, stage: "first_contact", ...over });
+const t = (label: string, over: Partial<DraftType> = {}): DraftType => ({ label, stage: "first_contact", goal: `Objetivo de ${label}`, recognize: `Cómo es ${label}`, ...over });
 
 describe("sales process helpers", () => {
   it("moves a type up or down and stays put at the ends", () => {
@@ -21,14 +21,31 @@ describe("sales process helpers", () => {
     assert.equal(canSave([t("Demo"), t("Cierre")]), true);
   });
 
-  it("sends trimmed names, keeps the keys of the types that exist and drops empty descriptions", () => {
-    const body = toRequest([t(" Llamada en frío ", { key: "cold", recognize: " " }), t("Demo", { stage: "deal", recognize: "Con el decisor" })]);
+  it("sends trimmed names, keeps the keys of the types that exist and drops empty goals and descriptions", () => {
+    const body = toRequest([
+      t(" Llamada en frío ", { key: "cold", goal: " Reunión ", recognize: " Primer contacto " }),
+      { label: "SAC", stage: "other", goal: " ", recognize: "" },
+    ]);
     assert.deepEqual(body, {
       types: [
-        { key: "cold", label: "Llamada en frío", stage: "first_contact" },
-        { label: "Demo", stage: "deal", recognize: "Con el decisor" },
+        { key: "cold", label: "Llamada en frío", stage: "first_contact", goal: "Reunión", recognize: "Primer contacto" },
+        { label: "SAC", stage: "other" },
       ],
     });
+  });
+
+  it("needs an objective and a description for every interaction of the funnel, but not for the other calls", () => {
+    assert.equal(canSave([t("Demo", { goal: "" })]), false);
+    assert.equal(canSave([t("Demo", { recognize: "  " })]), false);
+    assert.equal(canSave([t("Demo"), { label: "SAC", stage: "other" }]), true);
+  });
+
+  it("edits one scope and leaves the other where it is: the funnel first, the other calls after", () => {
+    const all = [t("A"), t("B", { stage: "deal" }), { label: "SAC", stage: "other" as const }];
+    const edited = mergeScope(all, "funnel", [t("B", { stage: "deal" }), t("A")]);
+    assert.deepEqual(edited.map((x) => x.label), ["B", "A", "SAC"]);
+    const other = mergeScope(all, "other", [{ label: "Técnica", stage: "other" }, { label: "SAC", stage: "other" }]);
+    assert.deepEqual(other.map((x) => x.label), ["A", "B", "Técnica", "SAC"]);
   });
 
   it("names the types that would be removed and already have something written", () => {

@@ -20,6 +20,10 @@ export type SalesProcessEditorViewProps = {
   status: "loading" | "ready" | "error" | "not_activated";
   /** First time: nothing defined yet. The title asks the question and the button says "Continuar". */
   first: boolean;
+  /** The sales funnel (objective and description required) or the calls outside it (neither needed). */
+  kind?: "funnel" | "other";
+  /** Without its own heading: the window around it already has one. */
+  bare?: boolean;
   list: DraftType[];
   saving: boolean;
   /** The code of the last failure, for the screen to word. */
@@ -68,10 +72,10 @@ function StageToggle({ value, onChange, disabled }: { value: Stage; onChange: (s
  * sends the whole list. A company with nothing defined is asked the one question and can start from a suggestion.
  */
 export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
-  const { status, first, list, saving, problem, onChange, onSave, onCancel, onRetry } = props;
+  const { status, first, list, saving, problem, onChange, onSave, onCancel, onRetry, kind = "funnel", bare = false } = props;
+  const funnel = kind === "funnel";
   const { t } = useLanguage();
   const c = t.product.pb2.process;
-  const [open, setOpen] = useState<Set<number>>(new Set());
   const update = (index: number, patch: Partial<DraftType>) => onChange(list.map((item, at) => (at === index ? { ...item, ...patch } : item)));
   const suggestion = suggestedProcess(c.suggestNames.split("|"));
   const ok = canSave(list);
@@ -98,7 +102,7 @@ export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
   } else {
     body = (
       <div className="space-y-6">
-        {!list.length ? (
+        {!list.length && funnel ? (
           <div className={cn("space-y-3 border border-dashed border-border p-5", THEME_TOKENS.radius.card)}>
             <p className="text-sm text-foreground">{c.suggest}</p>
             <div className="flex flex-wrap items-center gap-2">
@@ -114,9 +118,9 @@ export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
             </Button>
           </div>
         ) : null}
-        <ol className="space-y-4">
+        <ol className={bare ? "space-y-6" : "space-y-4"}>
           {list.map((item, index) => (
-            <li key={item.key ?? `new-${index}`} className={cn(card, "p-5", THEME_TOKENS.motion.fadeIn)}>
+            <li key={item.key ?? `new-${index}`} className={cn(bare ? "border-b border-border/50 pb-6" : cn(card, "p-5"), THEME_TOKENS.motion.fadeIn)}>
               <div className="flex items-start gap-4">
                 <span className="mt-2.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary text-xs tabular-nums text-muted-foreground" aria-hidden>
                   {index + 1}
@@ -126,30 +130,38 @@ export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
                     value={item.label}
                     maxLength={60}
                     disabled={saving}
-                    placeholder={c.namePlaceholder}
-                    aria-label={c.namePlaceholder}
+                    placeholder={funnel ? c.namePlaceholder : c.otherName}
+                    aria-label={funnel ? c.namePlaceholder : c.otherName}
                     className={cn(field, "h-11 text-base")}
                     onChange={(event) => update(index, { label: event.target.value })}
                   />
-                  <StageToggle value={item.stage} disabled={saving} onChange={(stage) => update(index, { stage })} />
-                  {open.has(index) || item.recognize ? (
+                  {funnel ? (
                     <div className="space-y-1.5">
-                      <p className={THEME_TOKENS.typography.fieldLabel}>{c.recognizeAdd}</p>
+                      <p className={THEME_TOKENS.typography.fieldLabel}>{c.goalLabel}</p>
                       <input
-                        value={item.recognize ?? ""}
-                        maxLength={300}
+                        value={item.goal ?? ""}
+                        maxLength={160}
                         disabled={saving}
-                        placeholder={c.recognizePlaceholder}
-                        aria-label={c.recognizeAdd}
+                        placeholder={c.goalPlaceholder}
+                        aria-label={c.goalLabel}
                         className={field}
-                        onChange={(event) => update(index, { recognize: event.target.value })}
+                        onChange={(event) => update(index, { goal: event.target.value })}
                       />
                     </div>
-                  ) : (
-                    <Button type="button" variant="quiet" size="text" className="-ml-1 text-[13px]" onClick={() => setOpen(new Set(open).add(index))}>
-                      {c.recognizeAdd}
-                    </Button>
-                  )}
+                  ) : null}
+                  <div className="space-y-1.5">
+                    <p className={THEME_TOKENS.typography.fieldLabel}>{c.descLabel}</p>
+                    <input
+                      value={item.recognize ?? ""}
+                      maxLength={300}
+                      disabled={saving}
+                      placeholder={funnel ? c.descPlaceholder : c.otherDescPlaceholder}
+                      aria-label={c.descLabel}
+                      className={field}
+                      onChange={(event) => update(index, { recognize: event.target.value })}
+                    />
+                  </div>
+                  {funnel ? <StageToggle value={item.stage} disabled={saving} onChange={(stage) => update(index, { stage })} /> : null}
                 </div>
                 <div className="-mr-1.5 flex shrink-0 items-center">
                   <Button type="button" variant="quiet" size="icon" aria-label={c.moveUp} disabled={saving || index === 0} onClick={() => onChange(moveItem(list, index, -1))}>
@@ -167,7 +179,7 @@ export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
           ))}
         </ol>
         <div>
-          <Button type="button" variant="outline" disabled={saving || list.length >= 20} onClick={() => onChange([...list, { label: "", stage: list.length ? "deal" : "first_contact" }])}>
+          <Button type="button" variant="outline" disabled={saving || list.length >= 20} onClick={() => onChange([...list, { label: "", stage: funnel ? (list.length ? "deal" : "first_contact") : "other" }])}>
             <Plus aria-hidden strokeWidth={1.5} />
             {c.add}
           </Button>
@@ -182,7 +194,7 @@ export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
               {t.product.cancelAction}
             </Button>
           ) : null}
-          {!ok && list.length === 0 ? <span className="text-[13px] text-muted-foreground">{c.emptyHint}</span> : null}
+          {!ok ? <span className="text-[13px] text-muted-foreground">{list.length === 0 ? c.emptyHint : c.needBoth}</span> : null}
         </div>
         {problem ? (
           <p className="text-sm text-destructive" role="alert">
@@ -194,27 +206,31 @@ export function SalesProcessEditorView(props: SalesProcessEditorViewProps) {
   }
 
   return (
-    <div className="w-full max-w-3xl space-y-8 py-2">
-      <header className="space-y-2">
-        <h2 className={THEME_TOKENS.typography.panelTitle}>{first ? c.firstTitle : c.editTitle}</h2>
-        <p className="max-w-xl text-[15px] leading-relaxed text-muted-foreground">{first ? c.firstLead : c.editLead}</p>
-      </header>
+    <div className={cn("w-full space-y-8", bare ? "" : "max-w-3xl py-2")}>
+      {bare ? null : (
+        <header className="space-y-2">
+          <h2 className={THEME_TOKENS.typography.panelTitle}>{first ? c.firstTitle : c.editTitle}</h2>
+          <p className="max-w-xl text-[15px] leading-relaxed text-muted-foreground">{first ? c.firstLead : c.editLead}</p>
+        </header>
+      )}
       {body}
     </div>
   );
 }
 
 /** The editor wired to the API. Removing a type that already has steps written asks first. */
-export function SalesProcessEditor({ first, onSaved, onCancel }: { first: boolean; onSaved: () => void; onCancel?: () => void }) {
+export function SalesProcessEditor({ first, onSaved, onCancel, kind = "funnel", bare = false }: { first: boolean; onSaved: () => void; onCancel?: () => void; kind?: "funnel" | "other"; bare?: boolean }) {
   const { t } = useLanguage();
   const c = t.product.pb2.process;
-  const process = useSalesProcess({ onSaved: () => onSaved() });
+  const process = useSalesProcess({ onSaved: () => onSaved(), scope: kind });
   const [confirm, setConfirm] = useState(false);
   return (
     <>
       <SalesProcessEditorView
         status={process.status}
         first={first}
+        kind={kind}
+        bare={bare}
         list={process.list}
         saving={process.saving}
         problem={process.problem}

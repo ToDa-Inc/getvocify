@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { DashboardThemeProvider } from "@/components/ThemeProvider";
 import type { GapSession, ImproveQueue, ImproveStats, ModelProposal, QueueGroup, QueueMoment, SuccessStats } from "@/features/playbooks/assistantApi";
 import { GapAssistantView } from "@/features/playbooks/components/GapAssistant";
+import { PathChoice } from "@/features/playbooks/components/home/PathChoice";
 import { PlaybookHomeView } from "@/features/playbooks/components/home/PlaybookHome";
 import type { HomeType } from "@/features/playbooks/components/home/FunnelBlock";
 import { SalesProcessEditorView } from "@/features/sales-process/SalesProcessEditor";
@@ -258,7 +259,32 @@ function Home({ types = HOME_TYPES, areas = HOME_AREAS }: { types?: HomeType[]; 
   return <PlaybookHomeView types={types} areas={areas} canEdit onCreateFunnel={noop} onOpenType={noop} onCreateCompany={noop} onOpenCompany={noop} onCreateOther={noop} />;
 }
 
+/** What a window looks like around its content, to judge it without opening one. */
+function WindowFrame({ title, lead, children }: { title: string; lead?: string; children: ReactNode }) {
+  return (
+    <div className="mx-auto max-w-2xl space-y-6 rounded-2xl border border-border/70 bg-background p-8">
+      <div className="space-y-2">
+        <h2 className="text-[22px] font-semibold tracking-[-0.015em] text-foreground">{title}</h2>
+        {lead ? <p className="text-[15px] leading-relaxed text-muted-foreground">{lead}</p> : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+function FunnelWindow({ list, kind = "funnel", first = false }: { list: DraftType[]; kind?: "funnel" | "other"; first?: boolean }) {
+  const [items, setItems] = useState<DraftType[]>(list);
+  return (
+    <WindowFrame title={kind === "funnel" ? "Tu funnel de ventas" : "Otro tipo de llamada"} lead={kind === "funnel" ? "Añade las interacciones que lleváis a cabo, en orden, y di qué hay que conseguir en cada una." : "Una llamada fuera del funnel de ventas. No cuenta en coaching: puedes darle pasos o solo información."}>
+      <SalesProcessEditorView bare kind={kind} status="ready" first={first} list={items} saving={false} problem={null} onChange={setItems} onSave={noop} onCancel={noop} onRetry={noop} />
+    </WindowFrame>
+  );
+}
+
 const SCENARIOS: { id: string; label: string; render: () => ReactNode }[] = [
+  { id: "dialog-define", label: "Ventana, definir el funnel", render: () => <FunnelWindow list={[{ label: "Cold call", stage: "first_contact", goal: "Crear interés y acordar una reunión", recognize: "Primer contacto con el cliente, por teléfono" }, { label: "Discovery", stage: "first_contact" }]} /> },
+  { id: "dialog-first", label: "Ventana, funnel vacío", render: () => <FunnelWindow first list={[]} /> },
+  { id: "dialog-other", label: "Ventana, otra llamada", render: () => <FunnelWindow kind="other" list={[{ label: "Llamada técnica", stage: "other", recognize: "Preguntas técnicas de clientes" }]} /> },
+  { id: "dialog-path", label: "Ventana, tres caminos", render: () => <WindowFrame title="¿Cómo quieres darnos el contenido?" lead="Elige por dónde empezar. Puedes cambiar de camino cuando quieras."><PathChoice askAvailable onChoose={noop} onLater={noop} /></WindowFrame> },
   { id: "home-empty", label: "Inicio, primera vez", render: () => <Home types={[]} areas={HOME_AREAS.map((a) => ({ ...a, filled: false }))} /> },
   { id: "home-filled", label: "Inicio, con todo", render: () => <Home /> },
   { id: "process-first", label: "Proceso, primera vez", render: () => <ProcessEditor first start={[]} /> },
