@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { COMPANY_AREAS, funnelWidths, homeProgress, splitFunnel } from "./playbook-home.ts";
+import { COMPANY_AREAS, companyAreaStates, funnelWidths, homeProgress, splitFunnel } from "./playbook-home.ts";
 
 describe("playbook home helpers", () => {
   it("draws the funnel from wide to narrow and never narrower than the minimum", () => {
@@ -35,5 +35,13 @@ describe("playbook home helpers", () => {
     assert.equal(COMPANY_AREAS.find((area) => area.id === "offer")?.opens, "offer");
     assert.equal(COMPANY_AREAS.find((area) => area.id === "icp")?.opens, "customer");
     assert.equal(COMPANY_AREAS.find((area) => area.id === "cases")?.opens, "proofs");
+  });
+
+  it("says which areas of the company already have something: the knowledge by tab, and the offer text apart", () => {
+    const none = companyAreaStates(null, "");
+    assert.deepEqual(none.map((a) => a.filled), [false, false, false, false, false, false]);
+    const some = companyAreaStates({ icp: "Tiendas de barrio", proofs: [{ customer: "Acme" }], notes: "" } as never, "  Vendemos un CRM  ");
+    const by = Object.fromEntries(some.map((a) => [a.id, a.filled]));
+    assert.deepEqual(by, { company: false, product: false, offer: true, competition: false, icp: true, cases: true });
   });
 });

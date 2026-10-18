@@ -1,6 +1,6 @@
 /** Pure helpers of the Playbook home (sales funnel, company, other calls): shapes and counts, no React, no I/O. */
 
-import type { CompanyTab } from "./playbook-knowledge.ts";
+import { tabFilled, type CompanyTab, type Knowledge } from "./playbook-knowledge.ts";
 
 const NARROWEST = 0.46;
 
@@ -34,3 +34,11 @@ export const COMPANY_AREAS: readonly { id: CompanyAreaId; opens: CompanyOpens }[
   { id: "icp", opens: "customer" },
   { id: "cases", opens: "proofs" },
 ];
+
+/** Whether each area of the company has something written: its tab of the company knowledge, and the offer text for "Oferta". */
+export function companyAreaStates(knowledge: Knowledge | null | undefined, offerText: string | null | undefined): { id: CompanyAreaId; filled: boolean }[] {
+  return COMPANY_AREAS.map((area) => ({
+    id: area.id,
+    filled: area.opens === "offer" ? Boolean(offerText?.trim()) : tabFilled(knowledge, area.opens),
+  }));
+}

@@ -63,14 +63,14 @@ const MAX_SUGGESTED = 5;
  * ("Completar", or anything said to "Dile a Vocify"). Changes save themselves and apply at once
  * (nothing here is a rubric).
  */
-export function CompanyKnowledge({ canEdit, onSaved }: { canEdit: boolean; onSaved?: () => void }) {
+export function CompanyKnowledge({ canEdit, onSaved, initialTab }: { canEdit: boolean; onSaved?: () => void; initialTab?: CompanyTab }) {
   const { t } = useLanguage();
   const copy = t.product.pb2;
   const [load, setLoad] = useState<"loading" | "error" | "ready">("loading");
   const [knowledge, setKnowledge] = useState<Knowledge>({});
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [tab, setTab] = useState<CompanyTab>("customer");
+  const [tab, setTab] = useState<CompanyTab>(initialTab ?? "customer");
   // The item that was just added, to focus its name.
   const [focus, setFocus] = useState<string | null>(null);
   const [filling, setFilling] = useState<string | null>(null);

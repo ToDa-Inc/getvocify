@@ -10,8 +10,13 @@ import { ImproveHub } from "@/features/playbooks/components/ImproveHub";
 import { ImproveScreen } from "@/features/playbooks/components/ImproveQueue";
 import { salesProcessApi } from "@/features/sales-process/api";
 import { PROCESS_QUERY } from "@/features/sales-process/useSalesProcess";
-import { SalesProcessEditor } from "@/features/sales-process/SalesProcessEditor";
-import { useQuery } from "@tanstack/react-query";
+import { CompanySheet } from "@/features/playbooks/components/home/CompanySheet";
+import type { HomeType } from "@/features/playbooks/components/home/FunnelBlock";
+import { PlaybookHomeView } from "@/features/playbooks/components/home/PlaybookHome";
+import { ProcessDialog } from "@/features/playbooks/components/home/ProcessDialog";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { playbooksApi } from "@/features/playbooks/api";
 import { TrialRunner } from "@/features/playbooks/components/TrialRunner";
 import { UnderstoodSummary } from "@/features/playbooks/components/UnderstoodSummary";
 import { RuleChange } from "@/features/playbooks/components/RuleChange";
@@ -24,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useLanguage } from "@/lib/i18n";
+import { companyAreaStates, splitFunnel, type CompanyOpens } from "@/lib/playbook-home";
 import { addableTypes, publishState, publishSwitch, ruleNeeded, usedForLine } from "@/lib/playbook-doc";
 import { viewFromParams, type ImproveView } from "@/lib/playbook-assistant";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -77,14 +83,12 @@ export function PlaybookList() {
   const processOn = canEdit && (user?.company?.features ?? []).includes("SALES_PROCESS_ENABLED");
   const processQuery = useQuery({ queryKey: PROCESS_QUERY, queryFn: salesProcessApi.get, enabled: processOn, retry: false, staleTime: 30_000 });
   const processTypes = processQuery.data?.types ?? null;
-  const editingProcess = processOn && params.get("view") === "process";
-  const setEditingProcess = (on: boolean) =>
-    setParams((previous) => {
-      const search = new URLSearchParams(previous);
-      if (on) search.set("view", "process");
-      else search.delete("view");
-      return search;
-    });
+  // The Playbook as one screen (sales funnel, company, other calls): everything is created and edited in windows over it.
+  const [dialog, setDialog] = useState<"funnel" | "other" | null>(null);
+  const [typeSheet, setTypeSheet] = useState<string | null>(null);
+  const [companyOpen, setCompanyOpen] = useState<CompanyOpens | null>(null);
+  const queryClient = useQueryClient();
+  const companyQuery = useQuery({ queryKey: ["playbook-company"], queryFn: playbooksApi.company, enabled: processOn, retry: false, staleTime: 30_000 });
   const setView = (next: ImproveView | null) =>
     setParams((previous) => {
       const search = new URLSearchParams(previous);
@@ -109,7 +113,7 @@ export function PlaybookList() {
       </div>
     );
   }
-  if (list.isLoading) {
+  if (list.isLoading || (processOn && processQuery.isLoading)) {
     return (
       <div className={cn(card, "p-6")}>
         <p className="inline-flex items-center gap-2 text-sm text-muted-foreground" role="status">
@@ -117,22 +121,6 @@ export function PlaybookList() {
           {t.product.playbookEditorLoading}
         </p>
       </div>
-    );
-  }
-
-  // With the editable process: a company that has not defined it is asked first, "which interaction types do you have?",
-  // and can always come back to change it.
-  if (processOn && (editingProcess || (processTypes !== null && processTypes.length === 0))) {
-    return (
-      <SalesProcessEditor
-        first={processTypes?.length === 0}
-        onSaved={() => {
-          // Stay on the playbook: the interactions just defined are right there, each one ready to be filled.
-          setEditingProcess(false);
-          void process.refresh();
-        }}
-        onCancel={() => setEditingProcess(false)}
-      />
     );
   }
 
@@ -255,6 +243,34 @@ export function PlaybookList() {
     );
   };
 
+  const confirmDelete = (
+    <ConfirmAction
+      open={deleteKey !== null}
+      onOpenChange={(next) => {
+        if (!next) setDeleteKey(null);
+      }}
+      title={(deleteKey && leaves(deleteKey) ? copy.leaveChannelTitle.replace("{channel}", channelName) : copy.deleteTitle).replace(
+        "{name}",
+        deleteKey ? process.name(deleteKey) : "",
+      )}
+      description={
+        deleteKey && leaves(deleteKey)
+          ? copy.leaveChannelConfirm.replace("{other}", copy.ruleChannels[otherChannel(channel)])
+          : copy.deleteConfirm
+      }
+      confirmLabel={deleteKey && leaves(deleteKey) ? copy.leaveChannelAction : copy.deleteAction}
+      cancelLabel={t.product.cancelAction}
+      tone="danger"
+      pending={deleteKey !== null && process.busyKey === deleteKey}
+      onConfirm={() => {
+        const key = deleteKey;
+        if (!key) return;
+        const done = leaves(key) ? process.leaveChannel(key, channel) : process.remove(key);
+        void done.then(() => setDeleteKey(null));
+      }}
+    />
+  );
+
   const understood = assistantOn && intake.understood ? intake.understood : null;
   const playbook = (
     <div className={cn(card, "space-y-4 p-4 md:p-6")}>
@@ -286,33 +302,6 @@ export function PlaybookList() {
         </p>
       ) : null}
 
-      {processOn && !intake.open && items.every((entry) => entry.state === "empty") ? (
-        // Nothing written yet: the choice is right here, above the interactions, so it never reads as another screen.
-        <div className={cn("flex flex-wrap items-center justify-between gap-x-6 gap-y-3 bg-secondary/40 px-5 py-4", THEME_TOKENS.radius.card, THEME_TOKENS.motion.fadeIn)}>
-          <div className="min-w-0 max-w-2xl space-y-1">
-            <p className={THEME_TOKENS.typography.groupTitle}>{copy.process.fullTitle}</p>
-            <p className="text-[13px] leading-relaxed text-muted-foreground">{copy.process.fullLead}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <Button type="button" size="sm" onClick={() => intake.setOpen(true)}>
-              {copy.process.fullAction}
-            </Button>
-            <Button type="button" variant="quiet" size="text" onClick={() => setEditingProcess(true)}>
-              {copy.process.editLink}
-            </Button>
-          </div>
-        </div>
-      ) : processOn ? (
-        <div className="flex justify-end gap-4">
-          <Button type="button" variant="quiet" size="text" onClick={() => intake.setOpen(true)}>
-            {copy.process.fullAction}
-          </Button>
-          <Button type="button" variant="quiet" size="text" onClick={() => setEditingProcess(true)}>
-            {copy.process.editLink}
-          </Button>
-        </div>
-      ) : null}
-
       <div className="flex flex-col gap-4 md:flex-row md:gap-6">
         <ProcessNav
           items={shown}
@@ -335,35 +324,76 @@ export function PlaybookList() {
         <div className="min-w-0 flex-1">{detail()}</div>
       </div>
 
-      <ConfirmAction
-        open={deleteKey !== null}
-        onOpenChange={(next) => {
-          if (!next) setDeleteKey(null);
-        }}
-        title={(deleteKey && leaves(deleteKey) ? copy.leaveChannelTitle.replace("{channel}", channelName) : copy.deleteTitle).replace(
-          "{name}",
-          deleteKey ? process.name(deleteKey) : "",
-        )}
-        description={
-          deleteKey && leaves(deleteKey)
-            ? copy.leaveChannelConfirm.replace("{other}", copy.ruleChannels[otherChannel(channel)])
-            : copy.deleteConfirm
-        }
-        confirmLabel={deleteKey && leaves(deleteKey) ? copy.leaveChannelAction : copy.deleteAction}
-        cancelLabel={t.product.cancelAction}
-        tone="danger"
-        pending={deleteKey !== null && process.busyKey === deleteKey}
-        onConfirm={() => {
-          const key = deleteKey;
-          if (!key) return;
-          const done = leaves(key) ? process.leaveChannel(key, channel) : process.remove(key);
-          void done.then(() => setDeleteKey(null));
-        }}
-      />
+      {confirmDelete}
     </div>
   );
 
-  if (!assistantOn) return playbook;
+  const homeTypes: HomeType[] = (processTypes ?? []).map((entry) => ({
+    key: entry.key,
+    label: entry.label,
+    goal: entry.goal ?? null,
+    description: entry.recognize ?? null,
+    stage: entry.stage,
+    state: items.find((item) => item.key === entry.key)?.state ?? "empty",
+  }));
+  const { funnel: funnelTypes, other: otherTypes } = splitFunnel(homeTypes);
+  const homeScreen = (
+    <>
+      <PlaybookHomeView
+        types={homeTypes}
+        areas={companyAreaStates(companyQuery.data?.knowledge, user?.productContext)}
+        canEdit={canEdit}
+        onCreateFunnel={() => setDialog("funnel")}
+        onOpenType={(key) => {
+          open(key);
+          setTypeSheet(key);
+        }}
+        onCreateCompany={() => setCompanyOpen("notes")}
+        onOpenCompany={setCompanyOpen}
+        onCreateOther={() => setDialog("other")}
+      />
+      <ProcessDialog
+        open={dialog !== null}
+        onOpenChange={(next) => !next && setDialog(null)}
+        kind={dialog ?? "funnel"}
+        first={(dialog === "other" ? otherTypes : funnelTypes).length === 0}
+        intake={intake}
+        assistantOn={assistantOn}
+        firstEmptyKey={funnelTypes.find((entry) => entry.state === "empty")?.key ?? null}
+        name={process.name}
+        onChanged={() => {
+          void queryClient.invalidateQueries({ queryKey: PROCESS_QUERY });
+          void process.refresh();
+        }}
+        onOpenType={(key) => {
+          open(key);
+          setTypeSheet(key);
+        }}
+      />
+      <Sheet open={typeSheet !== null} onOpenChange={(next) => !next && setTypeSheet(null)}>
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-3xl">
+          <SheetTitle className="sr-only">{typeSheet ? process.name(typeSheet) : ""}</SheetTitle>
+          <SheetDescription className="sr-only">{copy.sectionTitle}</SheetDescription>
+          <div className="pt-6">{typeSheet ? detail() : null}</div>
+        </SheetContent>
+      </Sheet>
+      <CompanySheet
+        open={companyOpen !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setCompanyOpen(null);
+            void queryClient.invalidateQueries({ queryKey: ["playbook-company"] });
+          }
+        }}
+        opens={companyOpen ?? "notes"}
+        canEdit={canEdit}
+        onSaved={() => void process.companySaved()}
+      />
+      {confirmDelete}
+    </>
+  );
+  const body = processOn ? homeScreen : playbook;
+  if (!assistantOn) return body;
   return (
     <div className="space-y-4">
       <ImproveHub view={view} views={IMPROVE_VIEWS} onView={(next) => (next ? setView(next) : closeView())} />
@@ -379,7 +409,7 @@ export function PlaybookList() {
       ) : view === "improve" ? (
         <ImproveScreen typeName={(key) => (key ? process.name(key) : "")} onChanged={() => void process.refresh()} />
       ) : (
-        playbook
+        body
       )}
     </div>
   );
