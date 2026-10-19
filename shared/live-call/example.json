@@ -22,13 +22,38 @@
   "progress_result": {
     "type": "result", "producer": "progress", "state_version": 3, "cursor": "t7:58", "playbook": {"key": "discovery", "name": "Llamada en frío"},
     "has_playbook": true,
-    "steps": [{"id": "apertura_con_marco", "status": "done", "by": "brain", "quote": "soy Toni, fundador de Vocify", "turn_ids": ["t1"]}],
+    "steps": [
+      {"id": "apertura_con_marco", "status": "done", "by": "brain", "quote": "soy Toni, fundador de Vocify", "turn_ids": ["t1"]},
+      {"id": "cualificar_el_encaje", "status": "pending", "by": "brain", "quote": null, "turn_ids": ["t7"], "need": 3, "parts": [
+        {"id": "crm_que_usan", "label": "CRM", "done": true, "quote": "usamos Salesforce"},
+        {"id": "visitas_al_dia", "label": "Visitas al día", "done": false, "quote": null},
+        {"id": "quien_decide", "label": "Quién decide", "done": false, "quote": null}
+      ]}
+    ],
     "data": [{"id": "crm_que_usan", "value": "Salesforce", "quote": "usamos Salesforce", "turn_ids": ["t7"], "reread": false}],
     "goal": null,
     "now": {"kind": "step", "id": "plantear_el_problema", "say": "Lo que vemos en los equipos de campo es que el CRM se deja para luego."},
     "missing": ["plantear_el_problema", "volumen_de_interacciones"],
     "aids": {"steps": {"apertura_con_marco": {"concept": "Preséntate y di que será breve", "live": true}}, "data": {"crm_que_usan": {"question": "¿Qué CRM usáis?"}}},
     "guards": {}, "model": "direct:deepseek-ai/DeepSeek-V4.1-Flash", "latency_ms": 1800
+  },
+  "deepen_point": {
+    "id": "pt-7d7d7d7d", "is_update": false, "kind": "deepen", "tag_key": "deepen", "tag": null,
+    "title": "perdemos muchísimo tiempo con el CRM", "turn_ids": ["t8"], "said_at": 64, "repeated": false, "outcome": "open",
+    "decision": null, "decision_note": null, "answer": "¿Cuántas horas a la semana se os van en meterlo en el CRM?",
+    "fallback": null, "gap": null, "source": {"id": "plantear_el_problema", "label": "Plantear el problema"}
+  },
+  "rewrite_result": {
+    "type": "result", "producer": "points", "reason": "rewrite", "state_version": 4, "points": [], "closed": [],
+    "rewrite": {"point_id": "pt-1a2b3c4d", "version": 1, "answer": "Lo que habláis en la llamada queda en HubSpot sin que nadie lo escriba."}
+  },
+  "step_question_result": {
+    "type": "result", "producer": "points", "reason": "ask_step", "state_version": 4, "points": [], "closed": [],
+    "step_question": {"kind": "step", "id": "cualificar_el_encaje", "question": "¿Cuántas visitas hace cada comercial al día?"}
+  },
+  "responder_nothing_result": {
+    "type": "result", "producer": "points", "reason": "responder", "state_version": 4, "points": [], "closed": [], "nothing": true,
+    "next": {"kind": "data", "id": "volumen_de_interacciones", "label": "Visitas al día", "question": "¿Cuántas visitas hacéis al día?"}
   },
   "recap_result": {
     "type": "result", "producer": "recap", "state_version": 3, "up_to": "t7",

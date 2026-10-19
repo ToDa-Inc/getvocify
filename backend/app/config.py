@@ -358,6 +358,9 @@ class Settings(BaseSettings):
     # can still be switched off with a company_feature_flags row, and LIVE_BRAIN_ENABLED=false in the environment switches it off
     # for all. Today's live help (/copilot/turn + /copilot/suggest) stays as the fallback.
     LIVE_BRAIN_ENABLED: bool = True
+    # The live call assistant's "Qué decir" view (build contract 2026-10-20): the dashboard tells the island to draw it and the
+    # brain may suggest questions to go deeper. Off everywhere; switched on per company to test.
+    LIVE_SAY_VIEW_ENABLED: bool = False
     # Playbooks v2, per company. QUALIFICATION: C04 v7 reads "what has to come out of the call"
     # criteria and the company's own objections, and the score is built from three blocks
     # (steps, qualification, objections) instead of steps alone.

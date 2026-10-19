@@ -4,11 +4,20 @@
 //
 // No `@/` imports: this file runs under node --test.
 import type { MeetingDisplayTurn } from "./meeting-transcript.ts";
+import { islandBrief } from "./desktop-call.ts";
 import { emptyLiveState, pointsIn, progressIn } from "../../shared/live-call/state.js";
 
-/** Why a reading happens: the checkpoint, or the rep asking (the wire's `reason`). */
-export type LiveReason = "turn_end" | "long_turn" | "rep_turn" | "responder" | "preguntar" | "resumen";
-export const ASKED_REASONS: readonly LiveReason[] = ["responder", "preguntar", "resumen"];
+/**
+ * Why a reading happens: the checkpoint, or the rep asking (the wire's `reason`). "rewrite": another version of a point on
+ * screen; "ask_step": a question for one pending step or data item (build contract 2026-10-20, §2).
+ */
+export type LiveReason = "turn_end" | "long_turn" | "rep_turn" | "responder" | "preguntar" | "resumen" | "rewrite" | "ask_step";
+export const ASKED_REASONS: readonly LiveReason[] = ["responder", "preguntar", "resumen", "rewrite", "ask_step"];
+
+/** What a rewrite or a step question is about (the wire's `target`). */
+export type ReadingTarget =
+  | { point_id: string; version: number }
+  | { kind: "step" | "data"; id: string };
 
 /** The turns the backend takes (live_models.MAX_TURNS); a longer call keeps its opening and its latest stretch. */
 export const MAX_TURNS = 400;
@@ -89,7 +98,7 @@ export function focusFor(reason: LiveReason, turns: WireTurn[], mark: ReadMark):
     if (turns.every((turn) => turn.t === 0)) return turns[Math.max(0, turns.length - 8)].id;
     return (turns.find((turn) => turn.t >= last - RESPOND_WINDOW_S) ?? turns[0]).id;
   }
-  if (reason === "resumen" || reason === "preguntar") return null;
+  if (reason === "resumen" || reason === "preguntar" || reason === "rewrite" || reason === "ask_step") return null;
   if (!mark) return null;
   const at = turns.findIndex((turn) => turn.id === mark.turnKey);
   return at < 0 ? null : turns[Math.max(0, at - 1)].id;
@@ -115,10 +124,15 @@ export function buildReading(input: {
   /** Which producer's cursor goes with it: a reading whose words were all read already is skipped (asked ones never are). */
   producer: "points" | "progress" | "recap";
   typeChanged?: boolean;
+  target?: ReadingTarget | null;
+  /** The "Qué decir" view is on (flag LIVE_SAY_VIEW_ENABLED): the brain may suggest questions to go deeper. */
+  sayView?: boolean;
+  /** Responder about one tapped bubble: the window starts (and the turns end) at that turn. */
+  focusTurn?: string | null;
 }): Record<string, unknown> {
   const { call, state, reason } = input;
   const points = pointsIn(state).slice(-24).map((point) => ({ ...point, say: point.say ? point.say.slice(0, 400) : null }));
-  const focus = focusFor(reason, input.turns, input.mark ?? null);
+  const focus = input.focusTurn ?? focusFor(reason, input.turns, input.mark ?? null);
   const cursor = state.cursors[input.producer === "points" ? "points" : "progress"];
   return {
     call_id: call.callId,
@@ -136,7 +150,15 @@ export function buildReading(input: {
     progress: progressIn(state),
     ...(input.typeChanged ? { type_changed: true } : {}),
     ...(input.producer === "recap" && input.turns.length ? { up_to: input.turns[input.turns.length - 1].id } : {}),
+    ...(input.target ? { target: input.target } : {}),
+    say_view: Boolean(input.sayView),
   };
+}
+
+/** The call up to and including one turn (Responder about a tapped bubble reads that sentence); null when it is not there. */
+export function turnsUpTo(turns: WireTurn[], turnId: string): WireTurn[] | null {
+  const at = turns.findIndex((turn) => turn.id === turnId);
+  return at < 0 ? null : turns.slice(0, at + 1);
 }
 
 // ---------- the points stream ----------
@@ -188,7 +210,18 @@ export function streamedPoints(text: string): StreamedPoint[] {
 
 // ---------- the playbook's words for the ids ----------
 
-export type PlaybookStep = { id: string; label: string; criterion: string; example: string | null; concept: string | null; live: boolean };
+export type StepPart = { id: string; label: string };
+export type PlaybookStep = {
+  id: string;
+  label: string;
+  criterion: string;
+  example: string | null;
+  concept: string | null;
+  live: boolean;
+  /** Only for a step whose criterion lists parts: the parts, and how many of them make it done. */
+  parts?: StepPart[];
+  need?: number;
+};
 export type PlaybookDatum = { id: string; label: string; good: string | null; question: string | null };
 export type PlaybookView = {
   key: string | null;
@@ -206,16 +239,25 @@ type AidsLike = {
   steps?: Record<string, { concept?: string | null; live?: boolean }>;
   data?: Record<string, { question?: string | null }>;
 } | null;
+type PartListsLike = Record<string, { parts: StepPart[]; need: number }> | null | undefined;
 
-/** The playbook of the call's type as the views draw it: the editor's steps and criteria, with the producer's aids. */
+/**
+ * The playbook of the call's type as the views draw it: the editor's steps and criteria, with the producer's aids and the
+ * parts it listed for steps whose criterion lists them.
+ */
 export function playbookView(input: {
   key: string | null;
   name: string | null;
   hasPlaybook: boolean;
   editor: EditorLike;
   aids: AidsLike;
+  partLists?: PartListsLike;
 }): PlaybookView {
   const { editor, aids } = input;
+  const partsOf = (id: string) => {
+    const list = input.partLists?.[id];
+    return list?.parts.length ? { parts: list.parts.map(({ id: part, label }) => ({ id: part, label })), need: list.need } : {};
+  };
   return {
     key: input.key,
     name: input.name,
@@ -227,6 +269,7 @@ export function playbookView(input: {
       example: step.example?.trim() || null,
       concept: aids?.steps?.[step.step_id]?.concept ?? null,
       live: aids?.steps?.[step.step_id]?.live !== false,
+      ...partsOf(step.step_id),
     })),
     data: (editor?.qualification ?? []).map((item) => ({
       id: item.criterion_id,
@@ -360,6 +403,8 @@ export type PointsView = {
   /** Open points, oldest first. The newest OPEN_IN_FULL show in full, the rest as one line. */
   open: Point[];
   full: Set<string>;
+  /** Open points that wait for an answer: a question to go deeper ("deepen") is available, never a task, so not counted. */
+  waiting: Point[];
   /** Everything else, oldest first: the "Antes" list. */
   before: Point[];
   unanswered: number;
@@ -371,6 +416,7 @@ export function pointsView(points: Point[], expanded: ReadonlySet<string> = new 
   return {
     open,
     full: new Set([...newest, ...open.filter((point) => expanded.has(point.id)).map((point) => point.id)]),
+    waiting: open.filter((point) => point.kind !== "deepen"),
     before: points.filter((point) => point.outcome !== "open"),
     unanswered: points.filter((point) => point.outcome === "unanswered").length,
   };
@@ -384,12 +430,60 @@ export function pointSays(point: Pick<Point, "answer" | "fallback">): string {
 // ---------- what travels to the island ----------
 
 export type LiveDraft = StreamedPoint;
+/** Responder with nothing to answer: the missing item that matters most for the call's goal, and its question. */
+export type NextAsk = { kind: "step" | "data"; id: string; label: string; question: string };
 export type LiveBrainAsks = {
-  responder: null | { seq: number; status: "reading" | "found" | "nothing"; point_id: string | null };
+  responder: null | { seq: number; status: "reading" | "found" | "nothing"; point_id: string | null; next: NextAsk | null };
   recap: null | { seq: number; status: "reading" | "ready"; up_to_t: number | null; lines: string[]; unknown: string[] };
+  /** A question for one pending item (Pasos tap). */
+  step: null | { seq: number; kind: "step" | "data"; id: string; status: "reading" | "ready"; question: string | null };
+  /** Another version of a point on screen; "none": the brain had no other honest angle. */
+  rewrite: null | { seq: number; point_id: string; status: "reading" | "ready" | "none" };
 };
 
-/** The whole payload of shell.setState({ liveBrain }) (see the contract note live-state-shell-contract.md). */
+/** The responder result's `next`, when it is whole. */
+export function nextAsk(raw: unknown): NextAsk | null {
+  if (!raw || typeof raw !== "object") return null;
+  const next = raw as Record<string, unknown>;
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
+  const kind = next.kind === "step" || next.kind === "data" ? next.kind : null;
+  const id = text(next.id);
+  const label = text(next.label);
+  const question = text(next.question);
+  return kind && id && label && question ? { kind, id, label, question } : null;
+}
+
+// ---------- the contact: who they are before this call ----------
+
+/** Who the contact is before this call, for the island's contact button (null: no button). */
+export type LiveContact = { name: string; company: string | null; first: boolean; lines: string[] };
+
+const CONTACT_KINDS = ["emails", "notes", "calls", "meetings", "tasks"];
+
+type ActivityLike = Parameters<typeof islandBrief>[0] & {
+  interactions?: unknown[] | null;
+  sources?: { hubspot?: Record<string, string> | null; vocify?: string | null } | null;
+};
+
+/**
+ * The contact's brief from GET /contacts/{id}/recent-activity, only with what it says: its summary's lines (the contact's,
+ * then those about others at its company) and the company's name. `first` only when every source was read and there is no
+ * earlier interaction with them; while the activity loads, or when it could not be read, there are no lines and `first`
+ * is false. No name: no contact.
+ */
+export function contactBrief(name: string | null | undefined, activity: ActivityLike | null | undefined): LiveContact | null {
+  const shown = name?.trim();
+  if (!shown) return null;
+  const brief = islandBrief(activity);
+  const lines = brief?.state === "ready" ? [...brief.lines, ...(brief.company?.lines ?? [])].map((line) => line.text) : [];
+  // "First contact" is said only when the contact's own activity was read whole: each HubSpot kind and Vocify's calls.
+  const sources = activity?.sources;
+  const allRead = sources?.vocify === "read" && CONTACT_KINDS.every((kind) => sources?.hubspot?.[kind] === "read");
+  const first = Boolean(activity) && allRead && !(activity?.interactions ?? []).length && !lines.length;
+  return { name: shown, company: activity?.company?.name?.trim() || null, first, lines };
+}
+
+/** The whole payload of shell.setState({ liveBrain }) (build contract 2026-10-20-live-say-view-build-contract.md, §4). */
 export function liveBrainPayload(input: {
   on: boolean;
   callId: string;
@@ -400,8 +494,12 @@ export function liveBrainPayload(input: {
   drafts: LiveDraft[];
   asks: LiveBrainAsks;
   typeChanged: boolean;
+  /** "say": the island draws the "Qué decir" view (flag LIVE_SAY_VIEW_ENABLED); "tabs": today's tabs. */
+  view: "say" | "tabs";
+  contact: LiveContact | null;
 }) {
   return {
+    view: input.view,
     on: input.on,
     call_id: input.callId,
     state: input.state,
@@ -411,6 +509,7 @@ export function liveBrainPayload(input: {
     drafts: input.drafts,
     asks: input.asks,
     type_changed: input.typeChanged,
+    contact: input.contact,
   };
 }
 

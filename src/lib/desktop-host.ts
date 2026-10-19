@@ -9,7 +9,10 @@ export type DesktopCalling = { onPhone: boolean; phoneApp: string | null };
 
 /** The island's own settings on this computer (the tray's "Hide island" is the same switch). */
 export type IslandAppearance = "auto" | "light" | "dark";
-export type IslandState = { appearance: IslandAppearance; visible: boolean };
+/** Where the island sits: the notch at the top, or a strip at the side of the screen. */
+export type IslandPlacement = "notch" | "side";
+/** `placement` is missing in builds without the side strip. */
+export type IslandState = { appearance: IslandAppearance; visible: boolean; placement?: IslandPlacement };
 
 export type VocifyDesktopBridge = {
   platform: "darwin" | "win32";
@@ -60,7 +63,10 @@ export type VocifyDesktopBridge = {
     onCallChannel?(cb: (payload: { kind: "call" | "meeting" }) => void): () => void;
     /** A choice made in the island's post-call card: { type, ...details }. */
     onPostCallAction?(cb: (action: { type: string; [key: string]: unknown }) => void): () => void;
-    /** What the rep did in the island's live call assistant (flag LIVE_BRAIN_ENABLED): responder, preguntar, resumen, tick, untick, dismiss. */
+    /**
+     * What the rep did in the island's live call assistant (flag LIVE_BRAIN_ENABLED): responder, preguntar, resumen, tick,
+     * untick, dismiss; with the "Qué decir" view also rewrite, ask_step, responder_turn and event (build contract 2026-10-20, §5).
+     */
     onLiveAction?(cb: (action: { type: string; [key: string]: unknown }) => void): () => void;
   };
   saas: {
@@ -127,6 +133,8 @@ export type VocifyDesktopBridge = {
     get(): Promise<IslandState>;
     setAppearance(appearance: IslandAppearance): Promise<IslandState>;
     setVisible(visible: boolean): Promise<IslandState>;
+    /** Missing in builds without the side strip. */
+    setPlacement?(placement: IslandPlacement): Promise<IslandState>;
   };
   /** The global record shortcut. Missing in older builds. */
   shortcut?: {

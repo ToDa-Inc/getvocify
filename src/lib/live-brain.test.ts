@@ -5,6 +5,9 @@ import { readFileSync } from "node:fs";
 import {
   buildReading,
   clearProgressCursor,
+  contactBrief,
+  nextAsk,
+  turnsUpTo,
   focusFor,
   liveBrainPayload,
   resetForType,
@@ -22,8 +25,8 @@ import {
   REP_GAP_MS,
   REP_WORDS,
 } from "./live-brain.ts";
-import type { MeetingDisplayTurn } from "./meeting-transcript.ts";
-import { applyPoints, applyProgress, dismissPoint, emptyLiveState, tick, untick } from "../../shared/live-call/state.js";
+import { meetingDisplayTurns, meetingOverlay, type MeetingDisplayTurn } from "./meeting-transcript.ts";
+import { applyPoints, applyProgress, applyRewrite, dismissPoint, emptyLiveState, tick, untick } from "../../shared/live-call/state.js";
 
 const example = JSON.parse(readFileSync(new URL("../../shared/live-call/example.json", import.meta.url), "utf8"));
 
@@ -151,6 +154,27 @@ describe("a reading's request", () => {
     assert.equal(request.up_to, "u2");
   });
 
+  it("a rewrite and a step question carry their target, are asked (no cursor) and have no window of their own", () => {
+    const state = applyPoints(emptyLiveState("c1"), example.points_result);
+    const rewrite = buildReading({ call, turns, state, reason: "rewrite", producer: "points", target: { point_id: "pt-1a2b3c4d", version: 1 }, sayView: true }) as any;
+    assert.deepEqual(rewrite.target, { point_id: "pt-1a2b3c4d", version: 1 });
+    assert.equal(rewrite.say_view, true);
+    assert.equal("cursor" in rewrite, false);
+    assert.equal("focus_from" in rewrite, false);
+    const step = buildReading({ call, turns, state, reason: "ask_step", producer: "points", target: { kind: "step", id: "cualificar_el_encaje" } }) as any;
+    assert.deepEqual([step.reason, step.target, step.say_view], ["ask_step", { kind: "step", id: "cualificar_el_encaje" }, false]);
+  });
+
+  it("Responder about a tapped bubble reads the call up to that bubble, from it", () => {
+    const three = toWireTurns([turn("u1", "rep", "hola", 1), turn("u2", "prospect", "mándame un email", 3), turn("u3", "rep", "vale", 5)]);
+    const upTo = turnsUpTo(three, "u2")!;
+    assert.deepEqual(upTo.map((t) => t.id), ["u1", "u2"]);
+    assert.equal(turnsUpTo(three, "nope"), null);
+    const request = buildReading({ call, turns: upTo, state: emptyLiveState("c1"), reason: "responder", producer: "points", focusTurn: "u2" }) as any;
+    assert.equal(request.focus_from, "u2");
+    assert.equal(request.turns.at(-1).id, "u2");
+  });
+
   it("leaves out what is not known", () => {
     const request = buildReading({ call: { callId: "c2", callMode: "softphone" }, turns, state: emptyLiveState("c2"), reason: "turn_end", producer: "points" }) as any;
     for (const key of ["sales_motion_key", "type_label", "contact_id", "focus_from", "cursor", "up_to"]) assert.equal(key in request, false, key);
@@ -210,6 +234,13 @@ describe("the points the views draw", () => {
     assert.equal(view.open.length, 0);
     assert.equal(view.before.length, 3);
     assert.equal(view.unanswered, 1);
+  });
+
+  it("a question to go deeper is open but does not wait for an answer", () => {
+    const state = applyPoints(applyPoints(emptyLiveState("c1"), example.points_result), { ...example.points_result, points: [example.deepen_point] });
+    const view = pointsView(state.points);
+    assert.equal(view.open.length, 3);
+    assert.deepEqual(view.waiting.map((p: any) => p.id), ["pt-1a2b3c4d", "pt-9f8e7d6c"]);
   });
 
   it("says the answer, else the honest line", () => {
@@ -314,12 +345,103 @@ describe("what travels to the island", () => {
     const state = applyProgress(applyPoints(emptyLiveState("c1"), example.points_result), example.progress_result);
     const payload = liveBrainPayload({
       on: true, callId: "c1", state, playbook, reading: { points: true, progress: false, recap: false }, offlineSince: null,
-      drafts: [{ title: "¿se integra?", say: "Sí", grounded: true }], asks: { responder: { seq: 1, status: "found", point_id: "pt-1a2b3c4d" }, recap: null }, typeChanged: false,
+      drafts: [{ title: "¿se integra?", say: "Sí", grounded: true }],
+      asks: { responder: { seq: 1, status: "found", point_id: "pt-1a2b3c4d", next: null }, recap: null, step: null, rewrite: null },
+      typeChanged: false, view: "tabs", contact: null,
     });
     const wire = JSON.parse(JSON.stringify(payload));
     assert.deepEqual(wire, payload);
+    assert.equal(wire.view, "tabs");
     assert.equal(wire.state.points.length, 2);
     assert.equal(wire.playbook.steps[0].concept, "Preséntate y di que será breve");
     assert.equal(wire.playbook.steps.find((s: any) => s.id === "explicar_vocify").live, false);
+    assert.equal(wire.contact, null);
+  });
+
+  it("the Qué decir view: versions, turn ids, parts heard, the parts each step lists, the asks and the contact (contract §4)", () => {
+    let state = applyProgress(applyPoints(emptyLiveState("c1"), example.points_result), example.progress_result);
+    state = applyPoints(state, { ...example.points_result, points: [example.deepen_point] });
+    state = applyRewrite(state, example.rewrite_result.rewrite);
+    const withParts = playbookView({
+      key: "discovery", name: "Llamada en frío", hasPlaybook: true,
+      editor: { steps: [...editor.steps, { step_id: "cualificar_el_encaje", label: "Cualificar el encaje", criterion: "Al menos tres de estos datos: CRM, visitas, quién decide" }] },
+      aids: null, partLists: state.progress.part_lists,
+    });
+    const asks = {
+      responder: { seq: 4, status: "nothing" as const, point_id: null, next: nextAsk(example.responder_nothing_result.next) },
+      recap: null,
+      step: { seq: 2, kind: "step" as const, id: "cualificar_el_encaje", status: "ready" as const, question: example.step_question_result.step_question.question },
+      rewrite: { seq: 3, point_id: "pt-1a2b3c4d", status: "ready" as const },
+    };
+    const contact = { name: "Marta Ruiz", company: "Distribuciones Norte", first: false, lines: ["Pidió precios en septiembre."] };
+    const wire = JSON.parse(JSON.stringify(liveBrainPayload({
+      on: true, callId: "c1", state, playbook: withParts, reading: { points: false, progress: false, recap: false }, offlineSince: null,
+      drafts: [], asks, typeChanged: false, view: "say", contact,
+    })));
+    assert.equal(wire.view, "say");
+    const [first, , deepen] = wire.state.points;
+    assert.deepEqual(first.versions, [example.points_result.points[0].answer, example.rewrite_result.rewrite.answer]);
+    assert.deepEqual([deepen.kind, deepen.turn_ids, deepen.versions.length], ["deepen", ["t8"], 1]);
+    assert.deepEqual(wire.state.progress.parts.cualificar_el_encaje, { crm_que_usan: { quote: "usamos Salesforce" } });
+    const step = wire.playbook.steps.find((s: any) => s.id === "cualificar_el_encaje");
+    assert.deepEqual([step.parts.map((p: any) => p.id), step.need], [["crm_que_usan", "visitas_al_dia", "quien_decide"], 3]);
+    assert.equal("parts" in wire.playbook.steps[0], false); // only steps whose criterion lists parts
+    assert.deepEqual(wire.asks.responder.next, example.responder_nothing_result.next);
+    assert.deepEqual(wire.asks.step.question, "¿Cuántas visitas hace cada comercial al día?");
+    assert.deepEqual(wire.contact, contact);
+  });
+
+  it("the brain's turn ids are the island overlay's bubble ids (the same transcript rows)", () => {
+    const transcript = {
+      segments: [
+        { speaker: "rep" as const, text: "Hola, soy Toni.", start: 0, end: 1 },
+        { speaker: "prospect" as const, text: "¿Se integra con HubSpot?", start: 2, end: 3 },
+        { speaker: "rep" as const, text: "Sí.", start: 4, end: 5 },
+      ],
+      interims: { prospect: "y el precio" },
+    };
+    const brain = toWireTurns(meetingDisplayTurns(transcript as any)).map((t) => t.id);
+    const overlay = meetingOverlay(transcript as any).turns.map((t) => t.key);
+    assert.deepEqual(brain, overlay);
+    assert.equal(brain.length, 4);
+  });
+});
+
+describe("the contact's brief", () => {
+  const read = { emails: "read", notes: "read", calls: "read", meetings: "read", tasks: "read", company: "read" };
+  const activity = (patch: Record<string, unknown> = {}) => ({
+    company: { name: "Distribuciones Norte" },
+    interactions: [{ id: "hubspot:call:1", type: "call", occurred_at: "2026-09-02T10:00:00Z", text: "x" }],
+    company_interactions: [],
+    summary: { lines: [{ text: "Pidió precios en septiembre.", type: "call", occurred_at: "2026-09-02T10:00:00Z" }], company_lines: [] },
+    sources: { hubspot: read, vocify: "read" },
+    ...patch,
+  });
+
+  it("says only what the activity says: the summary's lines and the company's name", () => {
+    assert.deepEqual(contactBrief(" Marta Ruiz ", activity()), { name: "Marta Ruiz", company: "Distribuciones Norte", first: false, lines: ["Pidió precios en septiembre."] });
+  });
+
+  it("first contact only when every source was read and nothing happened before", () => {
+    const none = { interactions: [], summary: null };
+    assert.equal(contactBrief("Marta", activity(none))!.first, true);
+    assert.equal(contactBrief("Marta", activity({ ...none, sources: { hubspot: { ...read, emails: "failed" }, vocify: "read" } }))!.first, false);
+    assert.equal(contactBrief("Marta", activity({ ...none, sources: { hubspot: read, vocify: "failed" } }))!.first, false);
+    assert.equal(contactBrief("Marta", activity({ ...none, sources: undefined }))!.first, false);
+  });
+
+  it("while it loads or when it failed: the name alone", () => {
+    assert.deepEqual(contactBrief("Marta", null), { name: "Marta", company: null, first: false, lines: [] });
+  });
+
+  it("no name, no contact", () => {
+    assert.equal(contactBrief(null, activity()), null);
+    assert.equal(contactBrief("  ", activity()), null);
+  });
+
+  it("the responder's next question only when it is whole", () => {
+    assert.deepEqual(nextAsk(example.responder_nothing_result.next), example.responder_nothing_result.next);
+    assert.equal(nextAsk({ kind: "data", id: "x", label: "X", question: " " }), null);
+    assert.equal(nextAsk(null), null);
   });
 });
