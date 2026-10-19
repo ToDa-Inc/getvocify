@@ -205,11 +205,13 @@ question on its own, **"what do I say now?"**, and everything else is there only
   de 5"); any other step, what it asks for. Instant and read from the playbook: nothing is generated on hover (the pointer
   crosses rows by accident during a call). With nothing hovered the line says "Toca un paso pendiente y te preparo una
   pregunta con lo que ha dicho". The steps scroll above it, so the line is in view at any height.
-- **Tapping a pending item asks for help with it**: the list closes and Qué decir shows "Puedes preguntar · {item}",
-  first "Preparando una pregunta con lo que ha dicho" (about 1 s, the measured p90 of the brain's answers), then the
-  question writes in. The question is **generated from the call** (the last minutes, what is already known, what that
-  item still needs), so it uses the prospect's own words; in the prototype it is written by hand. The playbook is not only
-  something to check against: it is a natural way to ask for help, with no setup. An answer waiting still comes first.
+- **Tapping a pending item asks for help with it, right there**: the list stays open and the question appears under the
+  tapped item, first "Preparando una pregunta con lo que ha dicho" (about 1 s, the measured p90 of the brain's answers),
+  then it writes in. Nothing closes and nothing moves elsewhere: the answer is where the rep looked (closing the list and
+  showing it in Qué decir was tried and confused). Tapping the item again closes it, another item moves it there, and
+  closing Pasos clears it. The question is **generated from the call** (the last minutes, what is already known, what
+  that item still needs), so it uses the prospect's own words; in the prototype it is written by hand. The playbook is not
+  only something to check against: it is a natural way to ask for help, with no setup.
 - A step whose criterion lists parts shows them as chips struck as they are said (Cualificar el encaje: "bastan 3 de 5
   datos"). In the prototype the parts are written by hand from the criterion; the brain must produce them.
 
@@ -218,8 +220,14 @@ question on its own, **"what do I say now?"**, and everything else is there only
 - **Controls row** (the island's own controls, icons with short tooltips): pause, Stop, the call type, then Siguiente
   llamada, Copiar, the live-help switch, Abrir Vocify. No "⋯" menu.
 - **Bar**: Responder · Resumen · Pasos · then, at the right, the contact's name.
-- **Call type** (open): show the channel as an icon and only the type ("📞 Llamada en frío"); open → Llamada | Reunión as
-  two buttons and the types of the one picked below. Proposed, not prototyped (it is the real `TypeControl`).
+- **Call type**: the tag reads "Llamada · Llamada en frío". Tapped, it opens the island's own type menu: Llamada | Reunión
+  first (switching keeps the menu open), then **only the types of that channel**, as the dashboard offers them (each type
+  belongs to the channels its rule names; `channel_types.candidates`). Switching the channel drops a type of the other
+  one: the tag says "Reunión · Tipo" until one is picked. With the catalog's default rules a call lists Llamada en frío,
+  Lead inbound, Discovery, Propuesta y negociación, and a meeting lists Discovery, Demo y cierre, Propuesta y negociación;
+  a company's own rules change these lists. Picking a type switches the live help to its playbook (in the prototype only
+  Llamada en frío and Demo y cierre have one; other picks change the tag only). A Vocify call has a fixed channel, so its
+  menu shows the types only. Proposed: the channel as an icon instead of the word.
 
 ### Where it lives: the notch island or the side
 
