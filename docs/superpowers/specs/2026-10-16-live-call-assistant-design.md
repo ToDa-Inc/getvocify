@@ -239,14 +239,20 @@ Both, the rep's choice in Settings.
   screen); the same tap closes it and the panel shrinks back into the strip. Opening: the panel grows (340 ms, the island's
   curve), then its content fades in; closing: the content goes first. Drag the strip up or down (4 px separates a drag
   from a tap); it can only sit where the open panel fits whole, so opening never moves it; it is put back on a resize.
+  **Look**: dark glass (a vertical gradient, a soft highlight at the top, a deep shadow) with a thin **metal rim**: a
+  metallic conic gradient whose angle turns slowly (16 s a turn, at half strength), so light travels around the edge
+  without pulling the eye; brighter on hover, still and brighter while open. CSS only (an animated `@property` angle): a
+  WebGL "liquid metal" shader was considered and left out, because it would keep the GPU busy for the whole call in an
+  always-on-top window. Reduce motion: still.
 
 ### When the island is closed
 
 No macOS notification, no opening by itself: closing it means "not now", and that is respected. The closed notch and the
 side strip show one signal (no AI icon) with one meaning only: **there is something new in Qué decir that you have not
 seen**. It is drawn twice at once: a solid beige **dot** where the sparkle was (7 px, one pulse when it appears) and a beige
-**line around the whole closed island** (the island's own rim recipe, 1.5 px; it glows once on arrival, then stays as a
-calm line; on the notch it fades out under the top screen edge). No animation with reduce motion; no kinds, no
+**line around the whole closed island** (the island's own rim recipe, 1.5 px, in **warm metal**: the strip's metal
+gradient in beige tones, flowing at 7 s a turn; it glows once on arrival; on the notch it fades out under the top screen
+edge; its darkest tone stays a clear beige so it does not vanish on the black notch). No animation with reduce motion; no kinds, no
 "preparing" state. "Seen" means the item was live while the island (or the side panel) was open, so opening it clears the
 dot and closing it again does not bring it back for the same item; the next new item lights it again. An item that ends
 before the rep looks (answered, gone stale) takes the dot with it: nothing is waiting any more.
