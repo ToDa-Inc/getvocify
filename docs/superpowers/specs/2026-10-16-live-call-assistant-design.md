@@ -239,10 +239,11 @@ Both, the rep's choice in Settings.
   screen); the same tap closes it and the panel shrinks back into the strip. Opening: the panel grows (340 ms, the island's
   curve), then its content fades in; closing: the content goes first. Drag the strip up or down (4 px separates a drag
   from a tap); it can only sit where the open panel fits whole, so opening never moves it; it is put back on a resize.
-  **Look**: dark glass (a vertical gradient, a soft highlight at the top, a deep shadow) with a **metal rim** one whole
-  pixel wide, the same on the left and the right (a vertical brushed gradient; a gradient turning around the centre was
-  tried and rejected: one long side always looked thicker, and its light raced round the ends and crawled down the sides,
-  which read as stutter). Two soft highlights travel along the edge itself at a **constant speed** (a CSS motion path,
+  **Look**: dark glass (a vertical gradient, a soft highlight at the top, a deep shadow) with a **metal rim**: a real
+  CSS border of 1 px, lighter at the top, one colour for both sides. It must be a border: the browser snaps a border to
+  whole screen pixels, so both sides are equal at any zoom or screen scale; a ring cut with a mask (and a gradient turning
+  around the centre before it) came out thicker on one side on a fractional scale, and the turning light raced round the
+  ends and crawled down the sides, which read as stutter. Two soft highlights travel along the edge itself at a **constant speed** (a CSS motion path,
   `offset-path: inset(0 round r)`, 12 s a lap), on opposite sides; brighter on hover; they stop while open. CSS only: a
   WebGL "liquid metal" shader was considered and left out, because it would keep the GPU busy for the whole call in an
   always-on-top window. Reduce motion: the highlights stand still.
@@ -252,7 +253,7 @@ Both, the rep's choice in Settings.
 No macOS notification, no opening by itself: closing it means "not now", and that is respected. The closed notch and the
 side strip show one signal (no AI icon) with one meaning only: **there is something new in Qué decir that you have not
 seen**. It is drawn twice at once: a solid beige **dot** where the sparkle was (7 px, one pulse when it appears) and a beige
-**line around the whole closed island** (the island's own rim recipe, 1.5 px, in **warm metal**: an even beige base and the
+**line around the whole closed island** (a real 1.5 px border in **warm metal**, snapped like the strip's: an even beige base and the
 strip's travelling light in a warm white, a little faster: 6 s a lap on the strip, 14 s on the much longer notch so both
 read at the same pace; it glows once on arrival; on the notch it fades out under the top screen edge). No animation with reduce motion; no kinds, no
 "preparing" state. "Seen" means the item was live while the island (or the side panel) was open, so opening it clears the
