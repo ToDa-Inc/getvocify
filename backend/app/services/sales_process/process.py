@@ -83,15 +83,18 @@ def process_view(repository: PlaybookRepository, store: SalesProcessStore, compa
     ]
 
 
-def apply_process(repository: PlaybookRepository, store: SalesProcessStore, company_id: str, wanted: list[ProcessType]) -> None:
+def apply_process(
+    repository: PlaybookRepository, store: SalesProcessStore, company_id: str, wanted: list[ProcessType], scope: Optional[str] = None,
+) -> None:
     """Makes the company's types exactly `wanted`, in that order. New names get a fresh key (never a catalog key, which
     would bring that catalog type's behaviour with it); a type that is not in the list is archived and leaves every
-    member's list. Raises ValueError (`duplicate_name`, `empty_name`, `goal_required`) before changing anything."""
+    member's list. Raises ValueError (`duplicate_name`, `empty_name`, `goal_required`) before changing anything. With
+    `scope` "other" the funnel is kept as it is saved, so a funnel saved before a goal was asked for does not block it."""
     names = [t.label.strip().casefold() for t in wanted]
     if "" in names or len(set(names)) != len(names):
         raise ValueError("duplicate_name" if "" not in names else "empty_name")
     for item in wanted:
-        if item.stage != "other":
+        if item.stage != "other" and scope != "other":
             if not (item.goal or "").strip():
                 raise ValueError("goal_required")
     present = _present_types(repository, {r["key"] for r in store.list_process(company_id)}, company_id)

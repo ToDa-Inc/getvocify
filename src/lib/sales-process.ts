@@ -22,6 +22,25 @@ export function canSave(list: DraftType[]): boolean {
   return names.length > 0 && names.every(Boolean) && new Set(names).size === names.length && complete;
 }
 
+export type RowProblem = "empty_name" | "duplicate_name" | "goal_required";
+
+/** What stops one row of a window from being saved, or null. Names are compared across the whole process (`all`): a call
+ * outside the funnel cannot take the name of an interaction of it. */
+export function rowProblem(row: DraftType, all: DraftType[]): RowProblem | null {
+  const name = row.label.trim().toLowerCase();
+  if (!name) return "empty_name";
+  if (all.filter((item) => item.label.trim().toLowerCase() === name).length > 1) return "duplicate_name";
+  if (row.stage !== "other" && !row.goal?.trim()) return "goal_required";
+  return null;
+}
+
+/** A window saves only its own part, so only that part is checked: the other part travels as it is saved, even when it is
+ * incomplete (a funnel saved before a goal was asked for must not block saving the calls outside it). */
+export function scopeProblem(part: DraftType[], all: DraftType[]): RowProblem | null {
+  if (!part.length) return "empty_name";
+  return part.map((row) => rowProblem(row, all)).find(Boolean) ?? null;
+}
+
 export type Scope = "funnel" | "other";
 const inScope = (item: { stage: Stage }, scope: Scope) => (scope === "other") === (item.stage === "other");
 

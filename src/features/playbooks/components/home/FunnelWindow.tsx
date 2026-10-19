@@ -13,7 +13,7 @@ import { saveTypeContent } from "@/features/playbooks/typeContent";
 import { useSalesProcess } from "@/features/sales-process/useSalesProcess";
 import { withFunnelStages } from "@/lib/company-areas";
 import { useLanguage } from "@/lib/i18n";
-import { canSave, type DraftType } from "@/lib/sales-process";
+import { rowProblem, scopeProblem, type DraftType } from "@/lib/sales-process";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +52,9 @@ export function FunnelWindow({
   const [step, setStep] = useState<Step>("define");
   const [confirm, setConfirm] = useState(false);
   const [writing, setWriting] = useState<string | "whole" | null>(null);
+  // After a "Siguiente" that could not go on, each row says what it is missing, as it is typed.
+  const [tried, setTried] = useState(false);
+  const listRef = useRef<HTMLOListElement>(null);
   const seeded = useRef(false);
 
   // Every opening starts from what is saved, on the first screen.
@@ -61,6 +64,7 @@ export function FunnelWindow({
     seeded.current = false;
     setStep("define");
     setWriting(null);
+    setTried(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -81,7 +85,16 @@ export function FunnelWindow({
     const goals = c.exampleGoals.split("|");
     setRows(names.map((label, i) => ({ label, goal: goals[i], stage: "deal" })));
   };
-  const valid = rows.length > 0 && canSave(rows);
+  const issue = (row: DraftType) => (tried ? rowProblem(row, process.all) : null);
+  const tryNext = () => {
+    if (scopeProblem(rows, process.all)) {
+      setTried(true);
+      requestAnimationFrame(() => listRef.current?.querySelector<HTMLInputElement>('[aria-invalid="true"]')?.focus());
+      return;
+    }
+    if (process.removing.length) setConfirm(true);
+    else void next();
+  };
   const next = async () => {
     if (await process.save()) {
       onChanged();
@@ -102,7 +115,7 @@ export function FunnelWindow({
     step === "define" ? (
       <>
         <StepLine steps={[c.stepInteractions, c.stepContent]} at={0} />
-        <Button type="button" disabled={!valid || process.saving} onClick={() => (process.removing.length ? setConfirm(true) : void next())}>
+        <Button type="button" disabled={process.saving || process.status !== "ready"} onClick={tryNext}>
           {process.saving ? <VocifySpinner size={12} tone="onFill" /> : null}
           {c.next}
         </Button>
@@ -153,8 +166,10 @@ export function FunnelWindow({
               {c.example}
             </button>
           ) : null}
-          <ol className="space-y-5">
-            {rows.map((row, index) => (
+          <ol ref={listRef} className="space-y-5">
+            {rows.map((row, index) => {
+              const problem = issue(row);
+              return (
               <li key={row.key ?? `new-${index}`} className="grid grid-cols-[1.75rem_1fr_auto] items-start gap-x-3 border-b border-border/50 pb-5">
                 <span className="mt-1 flex h-6 w-6 items-center justify-center rounded-full bg-secondary text-xs tabular-nums text-muted-foreground" aria-hidden>
                   {index + 1}
@@ -168,6 +183,7 @@ export function FunnelWindow({
                     onChange={(event) => update(index, { label: event.target.value })}
                     placeholder={funnel ? c.namePh : c.otherNamePh}
                     aria-label={funnel ? c.namePh : c.otherNamePh}
+                    aria-invalid={problem === "empty_name" || problem === "duplicate_name"}
                     className={cn(plain, "text-[17px] font-medium")}
                   />
                   {funnel ? (
@@ -178,8 +194,14 @@ export function FunnelWindow({
                       onChange={(event) => update(index, { goal: event.target.value })}
                       placeholder={c.goalPh}
                       aria-label={c.goalPh}
+                      aria-invalid={problem === "goal_required"}
                       className={cn(plain, "text-[14px] text-foreground/80")}
                     />
+                  ) : null}
+                  {problem ? (
+                    <p className="text-[13px] text-destructive" role="alert">
+                      {problem === "goal_required" ? c.rowNeedsGoal : problem === "duplicate_name" ? c.rowNameTaken : c.rowNeedsName}
+                    </p>
                   ) : null}
                 </div>
                 {rows.length > 1 ? (
@@ -196,7 +218,8 @@ export function FunnelWindow({
                   <span />
                 )}
               </li>
-            ))}
+              );
+            })}
           </ol>
           <Button type="button" variant="quiet" size="text" disabled={process.saving || rows.length >= 20} onClick={() => setRows([...rows, blank()])}>
             <Plus aria-hidden strokeWidth={1.5} />
