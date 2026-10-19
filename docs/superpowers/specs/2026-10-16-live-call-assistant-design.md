@@ -165,8 +165,14 @@ question on its own, **"what do I say now?"**, and everything else is there only
 
 ### Responder
 
-- Reads the last minute and answers what needs it; a point already shown is brought back into view and pulses; one that
-  had closed comes back (the rep wins).
+- Reads the last minute and answers what needs it; a point that has only just appeared is brought into view and pulses;
+  one that had closed comes back (the rep wins).
+- **Pressed on a card already on screen** (pointed at by an earlier press, or there for more than 5 s since it was said):
+  that version did not help, so the card is **written again in place** from another angle of the same playbook entry
+  (price: anchor on the hours lost before the figure; integration: ask what must not be touched; an unknown: a question
+  back about what they need, never a fact). It reads "Otra forma…" with typing dots, then writes in; the kind line says
+  "Respuesta · otra forma". Pressed again: the next version, cycling back to the first. Never a new card, so the list
+  never fills with near-copies. Something new said since then is answered as usual instead.
 - **Nothing to answer** → the next best question: the first thing the playbook says to find out that is still unknown
   ("Nada que responder · te falta saber: N.º de comerciales" + its question).
 - **Tapping a prospect bubble in the transcript** = Responder about that sentence only ("Leyendo esa frase"), for when the
@@ -194,10 +200,16 @@ question on its own, **"what do I say now?"**, and everything else is there only
   tap (final). Done steps are struck through with a line drawn left to right and the circle fills with a small pop.
 - The bar's "Pasos" (no count: a live "2/6" reads as a score of the rep) pulses once when a step is done while the list is
   closed.
-- **Tapping a pending item asks for help with it**: the list closes and Qué decir shows "Puedes preguntar · {item}" with a
-  question for it (a step with parts asks for its first missing part; a piece of data, its own question). The playbook is
-  not only something to check against: it is a natural way to ask for help, with no setup. An answer waiting still comes
-  first.
+- **Hovering a pending item says what it still needs**, on one fixed line at the foot of the list (so hovering never
+  moves anything): a step with parts lists the ones not heard yet ("Aún no sabes: visitas al día, quién decide · bastan 3
+  de 5"); any other step, what it asks for. Instant and read from the playbook: nothing is generated on hover (the pointer
+  crosses rows by accident during a call). With nothing hovered the line says "Toca un paso pendiente y te preparo una
+  pregunta con lo que ha dicho". The steps scroll above it, so the line is in view at any height.
+- **Tapping a pending item asks for help with it**: the list closes and Qué decir shows "Puedes preguntar · {item}",
+  first "Preparando una pregunta con lo que ha dicho" (about 1 s, the measured p90 of the brain's answers), then the
+  question writes in. The question is **generated from the call** (the last minutes, what is already known, what that
+  item still needs), so it uses the prospect's own words; in the prototype it is written by hand. The playbook is not only
+  something to check against: it is a natural way to ask for help, with no setup. An answer waiting still comes first.
 - A step whose criterion lists parts shows them as chips struck as they are said (Cualificar el encaje: "bastan 3 de 5
   datos"). In the prototype the parts are written by hand from the criterion; the brain must produce them.
 
