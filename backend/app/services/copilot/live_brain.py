@@ -272,7 +272,7 @@ def last_prospect_turn_index(turns: list[LiveTurn], ids: list[str]) -> int:
 
 
 def token_budget(kind: str) -> int:
-    return {"points": 700, "progress": 1400, "recap": 500, "aids": 1800}[kind]
+    return {"points": 700, "progress": 1400, "recap": 500, "aids": 2400, "rewrite": 160, "ask_step": 120}[kind]
 
 
 async def stream_json(system: str, user: str, *, kind: str) -> AsyncIterator[dict[str, Any]]:

@@ -8,7 +8,8 @@ done only with a verbatim quote, so the memo's checklist and coaching can start 
 The recap is computed on request, from the call alone, and stored nowhere.
 
 Also here: the per-version aids (a few words per step, a question per data point, which steps are about delivery and stay
-for coaching), generated once per published playbook version.
+for coaching, and the parts of a step whose criterion lists them), generated once per published playbook version. A step
+with parts is done when `need` of its parts were heard, each with the prospect's words as evidence.
 """
 
 from __future__ import annotations
@@ -57,9 +58,13 @@ RULES FOR PROGRESS
   from the call, or ask a plain question.
 - "missing" lists up to {MISSING_MAX} ids of pending items, most important first (the first is "now").
 - If the playbook has no steps, only data and the goal are tracked: "steps" is [].
+- PARTS OF STEPS: a step listed there is done by its parts, never list it in "steps". A part is found only when the OTHER SIDE
+  said it (a "Them:" line): cite the turns and copy their words verbatim in "quote". List only parts that are new (not in CALL
+  STATE). "parts" is [] when there are none.
 
 OUTPUT: only valid JSON, keys in this order:
 {{"steps": [{{"id": step id, "turns": [turn ids], "quote": verbatim}}],
+"parts": [{{"step": step id, "id": part id, "turns": [turn ids], "quote": verbatim}}],
 "data": [{{"id": criterion id, "turns": [turn ids], "value": string, "quote": verbatim}}],
 "goal": {{"reached": boolean, "turns": [turn ids], "value": string, "quote": verbatim}} or null,
 "now": {{"kind": "step"|"data"|"goal", "id": string, "moved_on": boolean, "say": string}} or null,
@@ -81,10 +86,33 @@ OUTPUT: only valid JSON: {{"lines": [string]}}"""
 AIDS_SYSTEM = """You prepare a company's live-call playbook for the rep's screen. For each STEP write "concept": what it asks of the
 rep in at most 7 words, imperative, in the playbook's language (e.g. «Di por qué le llamas a él»), and "live": true when the step
 is something to DO or ASK in the call, false when it is about HOW the rep talks (length, tone, delivery, e.g. «explain X in 30
-seconds»): those stay for coaching after the call. For each DATA item write "question": the question a rep asks to find it out,
-built from its good answer, in at most 20 words; null when it has no good answer. Use only the playbook's own words.
+seconds»): those stay for coaching after the call. When a step's criterion LISTS several pieces to find out or cover and says how
+many are enough («al menos tres de estos datos: A, B, C, D y E»), also write "parts": each piece in the criterion's order, with
+"id" (short snake_case, from its words) and "label" (the piece in 1 to 4 of the criterion's own words), and "need": how many are
+enough (all of them when it does not say). A step whose criterion lists nothing has no "parts" and no "need". For each DATA item
+write "question": the question a rep asks to find it out, built from its good answer, in at most 20 words; null when it has no
+good answer. Use only the playbook's own words.
 
-OUTPUT: only valid JSON: {"steps": {step id: {"concept": string, "live": boolean}}, "data": {criterion id: {"question": string or null}}}"""
+OUTPUT: only valid JSON: {"steps": {step id: {"concept": string, "live": boolean, "parts"?: [{"id": string, "label": string}],
+"need"?: integer}}, "data": {criterion id: {"question": string or null}}}"""
+
+PARTS_MIN, PARTS_MAX = 2, 12
+
+
+def step_parts(aids: Optional[dict]) -> dict[str, dict]:
+    """step id -> {"parts": [{id, label}], "need"}: the steps whose criterion lists parts."""
+    return {
+        sid: {"parts": a["parts"], "need": a["need"]}
+        for sid, a in ((aids or {}).get("steps") or {}).items() if a.get("parts")
+    }
+
+
+def parts_block(snapshot: dict, aids: Optional[dict]) -> str:
+    rows = [
+        f'- {sid}: ' + ", ".join(f'{p["id"]} ({p["label"]})' for p in info["parts"]) + f' · done when {info["need"]} are found'
+        for sid, info in step_parts(aids).items() if sid in {s.get("step_id") for s in snapshot.get("steps") or []}
+    ]
+    return "PARTS OF STEPS (step id: part id (label), ...)\n" + "\n".join(rows) if rows else ""
 
 
 def _state_block(req: LiveReading, snapshot: dict) -> str:
@@ -97,9 +125,11 @@ def _state_block(req: LiveReading, snapshot: dict) -> str:
     if progress is None:
         return "CALL STATE: nothing found yet.\nPREVIOUS NOW: none"
     prev = progress.now
+    heard = "; ".join(f"{sid}: {', '.join(ids)}" for sid, ids in progress.parts.items() if ids)
     return (
         "CALL STATE\n"
         f"- Steps done: {names(progress.done_steps)}\n- Data found: {names(progress.known_data)}\n"
+        f"- Parts found: {heard or 'none'}\n"
         f"- Goal reached: {'yes' if progress.goal_reached else 'no'}\n"
         f"- Ticked or unticked by the rep (theirs, never list): {names(progress.rep_ticked + progress.rep_unticked)}\n"
         f"PREVIOUS NOW: {f'{prev.kind} {prev.id}' if prev else 'none'}"
@@ -122,9 +152,11 @@ def build_progress_prompt(req: LiveReading, ctx: brain.BrainContext, aids: Optio
     )
     changed = "THE TYPE CHANGED IN THIS CALL: read everything again under this playbook.\n\n" if req.type_changed else ""
     asked = "THE REP ASKED WHAT TO DO NEXT: make sure \"now\" is current.\n\n" if req.reason == "preguntar" else ""
+    parts = parts_block(snapshot, aids)
     return (
         f"CALL MODE: {req.call_mode}\nPREFERRED LANGUAGE HINT: {req.language}\n\n{context}\n\n"
         f"{brain.playbook_header(snapshot, req.sales_motion_key, req.type_label)}\n{brain.steps_block(snapshot)}\n\n"
+        f"{parts + chr(10) + chr(10) if parts else ''}"
         f"{brain.qualification_block(snapshot)}\n\n{ctx.today}\n\n"
         f"CALL (turn ids in brackets):\n{brain.transcript_block(req.turns)}\n\n"
         f"{_state_block(req, snapshot)}\n\n{changed}{asked}{brain.window_line(req.focus_from)}\n\nJSON only."
@@ -148,6 +180,7 @@ def finalize_progress(raw: Optional[dict], req: LiveReading, ctx: brain.BrainCon
     known = set(progress.known_data) if progress else set()
     rep = set((progress.rep_ticked + progress.rep_unticked) if progress else [])
     steps_all, data_all = _step_ids(snapshot, aids), _data_ids(snapshot)
+    with_parts = {sid: info for sid, info in step_parts(aids).items() if sid in steps_all}
     guards: dict[str, int] = {}
 
     def drop(reason: str) -> None:
@@ -158,6 +191,9 @@ def finalize_progress(raw: Optional[dict], req: LiveReading, ctx: brain.BrainCon
         sid = str((item or {}).get("id") or "") if isinstance(item, dict) else ""
         if sid not in steps_all or sid in done or sid in rep or any(s["id"] == sid for s in steps):
             continue
+        if sid in with_parts:
+            drop("step_with_parts_is_done_by_its_parts")
+            continue
         turn_ids = brain.real_turn_ids(item.get("turns"), by_id, who="you")
         if not brain.is_quote_of(item.get("quote"), turn_ids, by_id):
             turn_ids = brain.locate_quote(item.get("quote"), req.turns, "you")[-2:]
@@ -165,6 +201,8 @@ def finalize_progress(raw: Optional[dict], req: LiveReading, ctx: brain.BrainCon
             drop("step_without_evidence")
             continue
         steps.append({"id": sid, "status": "done", "by": "brain", "quote": brain._clip(item["quote"], QUOTE_MAX), "turn_ids": turn_ids})
+
+    steps += _parts_steps(raw, req, with_parts, done | rep, by_id, drop)
 
     data: list[dict] = []
     for item in (raw or {}).get("data") or []:
@@ -196,7 +234,7 @@ def finalize_progress(raw: Optional[dict], req: LiveReading, ctx: brain.BrainCon
         else:
             drop("goal_without_evidence")
 
-    done_now = done | {s["id"] for s in steps} | rep
+    done_now = done | {s["id"] for s in steps if s["status"] == "done"} | rep
     known_now = known | {d["id"] for d in data} | rep
     goal_now = bool(goal) or bool(progress and progress.goal_reached) or "goal" in rep
     has_goal = brain.goal_for(req.sales_motion_key) is not None
@@ -245,6 +283,43 @@ def finalize_progress(raw: Optional[dict], req: LiveReading, ctx: brain.BrainCon
     }
 
 
+def _parts_steps(raw: Optional[dict], req: LiveReading, with_parts: dict[str, dict], closed: set[str], by_id: dict, drop) -> list[dict]:
+    """The steps with parts that changed in this reading: each part heard with the prospect's words as evidence, and the step
+    done when `need` of them are. A step whose parts are not enough yet comes back as status "open" (only its parts merge)."""
+    progress = req.progress
+    found: dict[str, dict[str, dict]] = {}
+    for item in (raw or {}).get("parts") or []:
+        if not isinstance(item, dict):
+            continue
+        sid, pid = str(item.get("step") or ""), str(item.get("id") or "")
+        info = with_parts.get(sid)
+        heard = set((progress.parts.get(sid) if progress else None) or [])
+        if info is None or sid in closed or pid not in {p["id"] for p in info["parts"]} or pid in heard or pid in found.get(sid, {}):
+            continue
+        turn_ids = brain.real_turn_ids(item.get("turns"), by_id, who="them")
+        if not brain.is_quote_of(item.get("quote"), turn_ids, by_id):
+            turn_ids = brain.locate_quote(item.get("quote"), req.turns, "them")[-2:]
+        if not turn_ids:
+            drop("part_without_evidence")
+            continue
+        found.setdefault(sid, {})[pid] = {"quote": brain._clip(item["quote"], QUOTE_MAX), "turn_ids": turn_ids}
+    out: list[dict] = []
+    for sid, new in found.items():
+        info = with_parts[sid]
+        heard = set((progress.parts.get(sid) if progress else None) or [])
+        parts = [
+            {"id": p["id"], "label": p["label"], "done": p["id"] in heard or p["id"] in new, "quote": (new.get(p["id"]) or {}).get("quote")}
+            for p in info["parts"]
+        ]
+        entry: dict[str, Any] = {"id": sid, "status": "open", "parts": parts, "need": info["need"]}
+        if sum(p["done"] for p in parts) >= info["need"]:
+            last = list(new.values())[-1]
+            entry.update(status="done", by="brain", quote=last["quote"],
+                         turn_ids=list(dict.fromkeys(t for n in new.values() for t in n["turn_ids"])))
+        out.append(entry)
+    return out
+
+
 # ---------- per-version aids ----------
 
 _aids: dict[str, dict] = {}
@@ -264,17 +339,50 @@ def aids_key(snapshot: dict) -> str:
 def _clean_aids(raw: Optional[dict], snapshot: dict) -> Optional[dict]:
     if not isinstance(raw, dict):
         return None
-    steps = {
-        sid: {"concept": brain._clip(a.get("concept"), 60) or sid, "live": a.get("live") is not False}
-        for sid, a in (raw.get("steps") or {}).items()
-        if isinstance(a, dict) and sid in {s.get("step_id") for s in snapshot.get("steps") or []}
-    }
+    criteria = {s.get("step_id"): s.get("criterion") for s in snapshot.get("steps") or [] if isinstance(s, dict)}
+    steps = {}
+    for sid, a in (raw.get("steps") or {}).items():
+        if not isinstance(a, dict) or sid not in criteria:
+            continue
+        steps[sid] = {"concept": brain._clip(a.get("concept"), 60) or sid, "live": a.get("live") is not False}
+        parts = _clean_parts(a.get("parts"), criteria[sid])
+        if parts:
+            need = a.get("need")
+            need = need if isinstance(need, int) and not isinstance(need, bool) and 1 <= need <= len(parts) else len(parts)
+            steps[sid].update(parts=parts, need=need)
     data = {
         cid: {"question": brain._clip(a.get("question"), 160) or None}
         for cid, a in (raw.get("data") or {}).items()
         if isinstance(a, dict) and cid in set(_data_ids(snapshot))
     }
     return {"steps": steps, "data": data}
+
+
+def _clean_parts(raw: Any, criterion: Any) -> Optional[list[dict]]:
+    """A step's parts, only when each one is in the criterion's own words (a part the criterion does not list is invented)."""
+    if not isinstance(raw, list):
+        return None
+    words = set(brain.normalize(criterion).split())
+    parts: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        label = brain._clip(item.get("label"), 60)
+        mine = [w for w in brain.normalize(label).split() if len(w) > 2]
+        if not label or not mine or not any(w in words for w in mine):
+            continue
+        # The id comes from the label (the model's own ids come back with their accents dropped mid-word: "n_mero").
+        base = "_".join(brain.normalize(label).split()[:5])[:40].strip("_") or "part"
+        pid, n = base, 2
+        while any(p["id"] == pid for p in parts):
+            pid, n = f"{base}_{n}", n + 1
+        parts.append({"id": pid, "label": label})
+    return parts[:PARTS_MAX] if len(parts) >= PARTS_MIN else None
+
+
+def cached_aids(snapshot: Optional[dict]) -> Optional[dict]:
+    """The aids of this version if they were generated already; never starts a generation (for the fast readings)."""
+    return _aids.get(aids_key(snapshot)) if snapshot else None
 
 
 def _aids_prompt(snapshot: dict) -> str:

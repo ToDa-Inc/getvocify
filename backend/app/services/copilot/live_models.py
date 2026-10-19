@@ -11,13 +11,15 @@ from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-Kind = Literal["question", "objection"]
+# "deepen": an opportunity to go deeper on something important they said (say view only).
+Kind = Literal["question", "objection", "deepen"]
 Decision = Literal["responder", "reconducir", "aplazar", "cerrar"]
 # How a point ends. "open" is not an end; "dismissed" is the rep's X and only the client writes it.
 Outcome = Literal["open", "answered", "promised", "unanswered", "gone", "dismissed"]
 # Why a reading happens: the checkpoint, or the rep asking.
-Reason = Literal["turn_end", "long_turn", "rep_turn", "responder", "preguntar", "resumen"]
-ASKED = frozenset({"responder", "preguntar", "resumen"})
+# "rewrite": the same point from another angle of its source; "ask_step": a question for one pending step or data item.
+Reason = Literal["turn_end", "long_turn", "rep_turn", "responder", "preguntar", "resumen", "rewrite", "ask_step"]
+ASKED = frozenset({"responder", "preguntar", "resumen", "rewrite", "ask_step"})
 
 MAX_TURNS = 400
 MAX_POINTS = 24
@@ -44,6 +46,10 @@ class PointIn(BaseModel):
     outcome: Outcome = "open"
     # What the rep was shown for it (the answer, or the honest line), so a new one is not the same line again.
     say: Optional[str] = Field(default=None, max_length=400)
+    # Its source's id when it was answered from one (none: the point is not in the company's knowledge).
+    source_id: Optional[str] = Field(default=None, max_length=200)
+    # Every version the rep has seen, the first one first: a rewrite is never one of them again.
+    versions: list[Annotated[str, Field(max_length=400)]] = Field(default_factory=list, max_length=8)
 
 
 class NowIn(BaseModel):
@@ -63,6 +69,18 @@ class ProgressIn(BaseModel):
     rep_unticked: list[Annotated[str, Field(max_length=200)]] = Field(default_factory=list, max_length=60)
     now: Optional[NowIn] = None
     missing: list[Annotated[str, Field(max_length=200)]] = Field(default_factory=list, max_length=8)
+    # The parts of a step already heard (step id -> part ids): a step with parts is done when `need` of them are.
+    parts: dict[Annotated[str, Field(max_length=200)], list[Annotated[str, Field(max_length=80)]]] = Field(default_factory=dict, max_length=40)
+
+
+class Target(BaseModel):
+    """What an asked reading is about. rewrite: `point_id` and `version` (how many versions the rep has seen, 1 = only the
+    first). ask_step: `kind` and `id` of a pending step or data item."""
+
+    point_id: Optional[str] = Field(default=None, max_length=64)
+    kind: Optional[Literal["step", "data"]] = None
+    id: Optional[str] = Field(default=None, max_length=200)
+    version: int = Field(default=1, ge=1, le=50)
 
 
 class LiveReading(BaseModel):
@@ -92,3 +110,6 @@ class LiveReading(BaseModel):
     type_changed: bool = False
     # The recap reads up to this turn (the moment of the tap); the end of `turns` when absent.
     up_to: Optional[str] = Field(default=None, max_length=40)
+    target: Optional[Target] = None
+    # The island draws the "Qué decir" view (LIVE_SAY_VIEW_ENABLED): enables the "go deeper" trigger.
+    say_view: bool = False

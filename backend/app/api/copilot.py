@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, replace
 from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
@@ -445,6 +445,12 @@ def _brain_log(
         "closed": len(result.get("closed") or []) if kind == "points" else None,
         # What it could not answer from the playbook or the knowledge, in the prospect's words: the list to fill.
         "unanswered": events.unanswered_points(result.get("points")) if kind == "points" else None,
+        "deepen": len([p for p in result.get("points") or [] if p.get("kind") == "deepen" and not p.get("is_update")]) if kind == "points" else None,
+        "say_view": body.say_view or None,
+        "target": body.target.model_dump(exclude_none=True) if body.target else None,
+        "next": result.get("next", {}).get("id") if kind == "points" and result.get("next") else None,
+        "rewrite": (result.get("rewrite") is not None) if body.reason == "rewrite" and result else None,
+        "step_question": (result.get("step_question") is not None) if body.reason == "ask_step" and result else None,
         "steps": len(result.get("steps") or []) if kind == "progress" else None,
         "data": len(result.get("data") or []) if kind == "progress" else None,
         "type_changed": body.type_changed or None,
@@ -560,3 +566,46 @@ async def propose_call_type(
 @router.get("/health")
 async def copilot_health():
     return {"ok": True, "feature": "objection-copilot"}
+
+
+class UiEvent(BaseModel):
+    kind: str = Field(..., max_length=40)
+    at: Optional[float | str] = None
+    point_id: Optional[str] = Field(default=None, max_length=64)
+    step_kind: Optional[str] = Field(default=None, max_length=10)
+    step_id: Optional[str] = Field(default=None, max_length=200)
+    detail: Optional[dict] = None
+
+
+class LiveEvents(BaseModel):
+    call_id: str = Field(..., max_length=128)
+    call_mode: Optional[Literal["speakerphone", "softphone", "meeting"]] = None
+    sales_motion_key: Optional[str] = Field(default=None, max_length=64)
+    events: list[UiEvent] = Field(default_factory=list, max_length=50)
+
+
+def _ui_log(supabase: Client, membership: Membership, body: LiveEvents) -> None:
+    """After the response: the flag is checked here, so logging never holds the island up. Never raises."""
+    try:
+        if not is_enabled(supabase, membership.company_id, LIVE_BRAIN_FLAG):
+            return
+        events.record_ui(supabase, events.ui_rows(
+            user_id=membership.user_id, company_id=membership.company_id, call_id=body.call_id, call_mode=body.call_mode,
+            sales_motion_key=(body.sales_motion_key or "").strip() or None, events=[e.model_dump() for e in body.events],
+        ))
+    except Exception:
+        logger.warning("live assist UI events: not logged", exc_info=True)
+
+
+@router.post("/live/events", status_code=204)
+async def live_ui_events(
+    body: LiveEvents,
+    background: BackgroundTasks,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+):
+    """What the rep did with the live view (shown, dismissed, rewrite, ticks...): at most 50 per request, written to
+    live_assist_events as kind "ui" after the response. 204 at once: it never blocks the call."""
+    if body.events:
+        background.add_task(_ui_log, supabase, membership, body)
+    return Response(status_code=204)

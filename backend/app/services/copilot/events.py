@@ -30,6 +30,13 @@ _paused_until = 0.0
 # must not silence the turn checks and cards.
 _brain_paused_until = 0.0
 BRAIN_KINDS = ("points", "progress", "recap")
+# The "Qué decir" view's UI events (migration 086) pause on their own too.
+_ui_paused_until = 0.0
+UI_EVENTS = frozenset({
+    "shown", "dismissed", "reopened", "rewrite", "ask_step", "tick", "untick", "responder", "bubble",
+    "open_recap", "open_steps", "open_brief", "marker_shown", "marker_seen",
+})
+UI_DETAIL_KEYS = 12
 _last_purge = float("-inf")  # never purged yet (monotonic time may be small right after a boot)
 # Until then rows go without the client's timing: its column (migration 080) was not there.
 _no_client_until = 0.0
@@ -171,6 +178,56 @@ def brain_row(
         "playbook_version_id": (result or {}).get("playbook_version_id"), "capture_id": _clip(call_id, 128),
         "prompt_version": detail.pop("prompt_version", None), "build": _build(), "detail": detail or None,
     }
+
+
+def _ui_value(value: Any) -> Any:
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float)):
+        return value if abs(value) <= 1e13 else None
+    if isinstance(value, str):
+        return _clip(value)
+    return None
+
+
+def ui_rows(
+    *, user_id: str, company_id: Optional[str], call_id: str, call_mode: Optional[str], sales_motion_key: Optional[str], events: list[dict],
+) -> list[dict]:
+    """One row per UI event the island or the live view sent: kind 'ui', the event and its fields in `detail`. Unknown events
+    are left out (one wrong event does not lose the batch); detail keeps only short scalar values (words clipped to 300)."""
+    rows = []
+    for event in events:
+        name = event.get("kind")
+        if name not in UI_EVENTS:
+            continue
+        detail: dict[str, Any] = {"event": name}
+        for key in ("at", "point_id", "step_kind", "step_id"):
+            if event.get(key) is not None:
+                detail[key] = _ui_value(event[key])
+        extra = event.get("detail") if isinstance(event.get("detail"), dict) else {}
+        for key, value in list(extra.items())[:UI_DETAIL_KEYS]:
+            if isinstance(key, str) and len(key) <= 40 and key not in detail and _ui_value(value) is not None:
+                detail[key] = _ui_value(value)
+        rows.append({
+            "kind": "ui", "user_id": user_id, "company_id": company_id, "call_mode": call_mode,
+            "sales_motion_key": sales_motion_key or None, "capture_id": _clip(call_id, 128), "build": _build(), "detail": detail,
+        })
+    return rows
+
+
+def record_ui(supabase: Any, rows: list[dict]) -> None:
+    """Writes a batch of UI events in one insert. Blocking (a background task). Never raises."""
+    global _ui_paused_until
+    if not rows or not settings.COPILOT_LOG_EVENTS:
+        return
+    now = time.monotonic()
+    if now < _ui_paused_until:
+        return
+    try:
+        supabase.table(TABLE).insert([{k: v for k, v in row.items() if v is not None} for row in rows]).execute()
+    except Exception as exc:
+        _ui_paused_until = now + PAUSE_AFTER_FAILURE_S
+        logger.warning("live assist UI event log unavailable (is migration 086 applied?): %s", str(exc)[:160])
 
 
 def record(supabase: Any, row: Optional[dict]) -> None:
