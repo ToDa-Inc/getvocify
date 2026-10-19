@@ -1,16 +1,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { COMPANY_AREAS, companyAreaStates, funnelWidths, homeProgress, splitFunnel } from "./playbook-home.ts";
+import { COMPANY_AREAS, afterColon, companyAreaStates, homeProgress, nextStep, splitFunnel } from "./playbook-home.ts";
 
 describe("playbook home helpers", () => {
-  it("draws the funnel from wide to narrow and never narrower than the minimum", () => {
-    assert.deepEqual(funnelWidths(1), [1]);
-    assert.deepEqual(funnelWidths(0), []);
-    const widths = funnelWidths(4);
-    assert.equal(widths[0], 1);
-    assert.ok(Math.abs(widths[3] - 0.46) < 1e-9);
-    assert.ok(widths.every((width, index) => index === 0 || width < widths[index - 1]));
-    assert.ok(funnelWidths(12).every((width) => width >= 0.46));
+  it("names the step each one leads to, and none after the last", () => {
+    const steps = [{ label: "Cold call" }, { label: " Discovery " }, { label: "" }];
+    assert.equal(nextStep(steps, 0), "Discovery");
+    assert.equal(nextStep(steps, 1), "");
+    assert.equal(nextStep(steps, 2), null);
+  });
+
+  it("puts a goal after a colon in lower case, but leaves an acronym as written", () => {
+    assert.equal(afterColon(" Crear interés y acordar una reunión"), "crear interés y acordar una reunión");
+    assert.equal(afterColon("ICP validado"), "ICP validado");
+    assert.equal(afterColon("A"), "A");
   });
 
   it("keeps the calls outside the funnel apart and the order of each list", () => {

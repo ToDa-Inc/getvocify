@@ -1,15 +1,18 @@
-/** Pure helpers of the Playbook home (sales funnel, company, other calls): shapes and counts, no React, no I/O. */
+/** Pure helpers of the Playbook home (sales process, company, other calls): shapes and counts, no React, no I/O. */
 
 import type { CompanyTab, Knowledge } from "./playbook-knowledge.ts";
 import { areasFromKnowledge } from "./company-areas.ts";
 
-const NARROWEST = 0.46;
+/** The name of the step after `index`, or null for the last one (whose goal is to close). An unnamed next step is "". */
+export function nextStep(steps: { label: string }[], index: number): string | null {
+  return index < steps.length - 1 ? steps[index + 1].label.trim() : null;
+}
 
-/** The width of each step of the funnel as a share of the widest: 1 for the first, narrowing evenly to the minimum for the last. */
-export function funnelWidths(count: number, min = NARROWEST): number[] {
-  if (count <= 0) return [];
-  if (count === 1) return [1];
-  return Array.from({ length: count }, (_, index) => Math.max(min, 1 - (index / (count - 1)) * (1 - min)));
+/** A goal written as a sentence ("Crear interés…"), to follow a colon: the first letter in lower case, unless the first
+ * word is an acronym ("ICP", "NDA"). */
+export function afterColon(text: string): string {
+  const value = text.trim();
+  return value.length > 1 && value[1] === value[1].toLowerCase() ? value[0].toLowerCase() + value.slice(1) : value;
 }
 
 /** The interactions of the sales funnel and, apart, the calls outside it, each list in the order it came. */
