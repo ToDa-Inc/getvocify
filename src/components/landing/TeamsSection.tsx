@@ -26,7 +26,7 @@ const TeamsSection = () => {
     <section className="relative bg-white py-28 md:py-36">
       <div className="container mx-auto px-6">
         <motion.div {...blurReveal()} className="mx-auto mb-16 max-w-3xl text-center">
-          <span className="section-label mb-6">04 — {t.teams.label}</span>
+          <span className="section-label mb-6">{t.teams.label}</span>
           <h2 className="h-display mb-6 text-balance text-4xl text-foreground md:text-6xl">
             {t.teams.title1} <span className="accent-serif">{t.teams.title2}</span>
           </h2>

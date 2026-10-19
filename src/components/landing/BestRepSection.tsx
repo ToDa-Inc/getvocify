@@ -41,7 +41,7 @@ const BestRepSection = () => {
     <section className="relative bg-ink py-24 text-cream md:py-32">
       <div className="container mx-auto px-6">
         <div ref={ref} className="mx-auto max-w-5xl text-center">
-          <span className="section-label mb-8 text-cream/60">01 — {t.bestRep.label}</span>
+          <span className="section-label mb-8 text-cream/60">{t.bestRep.label}</span>
           <h2 className="h-display text-balance text-4xl text-cream md:text-6xl">
             {words.map(({ w, accent: isAccent }, i) => (
               <Word

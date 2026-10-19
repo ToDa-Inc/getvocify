@@ -36,7 +36,7 @@ const CoachingSection = () => {
       <div className="container relative z-10 mx-auto px-6">
         <div className="grid items-center gap-14 lg:grid-cols-[0.9fr_1.1fr] lg:gap-20">
           <motion.div {...blurReveal()}>
-            <span className="section-label mb-6">02 — {c.label}</span>
+            <span className="section-label mb-6">{c.label}</span>
             <h2 className="h-display mb-6 text-balance text-4xl text-foreground md:text-6xl">
               {c.title1} <span className="accent-serif">{c.title2}</span>
             </h2>

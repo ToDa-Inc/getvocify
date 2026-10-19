@@ -22,7 +22,7 @@ const CaptureSection = () => {
     <section id="capture" className="relative scroll-mt-24 overflow-hidden bg-ink py-28 text-cream md:py-36">
       <div className="container relative z-10 mx-auto px-6">
         <motion.div {...blurReveal()} className="mx-auto mb-16 max-w-3xl text-center">
-          <span className="section-label mb-6 text-cream/60">03 — {c.label}</span>
+          <span className="section-label mb-6 text-cream/60">{c.label}</span>
           <h2 className="h-display mb-6 text-balance text-4xl md:text-6xl">
             {c.title1} <span className="accent-serif text-cream/80">{c.title2}</span>
           </h2>
