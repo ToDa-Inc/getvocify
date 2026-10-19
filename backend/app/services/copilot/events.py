@@ -133,6 +133,31 @@ def suggest_row(
     }
 
 
+UNANSWERED_MAX = 3
+UNANSWERED_SAID_MAX = 120
+
+
+def unanswered_points(points: Optional[list]) -> Optional[list[dict]]:
+    """The new points of a reading that neither the playbook nor the company's knowledge could answer: the prospect's
+    words (clipped, like every word of theirs that is logged) and, in a few words, what was missing. It is the list a
+    company fills so that live help says true things more often. Updates are left out (the point was logged when it was
+    new), and so is anything the brain did answer from a source."""
+    out: list[dict] = []
+    for point in points or []:
+        if not isinstance(point, dict) or point.get("is_update") or point.get("answer") is not None:
+            continue
+        said = _clip(point.get("title"), UNANSWERED_SAID_MAX)
+        if not said:
+            continue
+        out.append({
+            "said": said, "missing": _clip(point.get("gap"), 80), "kind": point.get("kind"),
+            "tag": point.get("tag_key") or None,
+        })
+        if len(out) >= UNANSWERED_MAX:
+            break
+    return [{k: v for k, v in item.items() if v is not None} for item in out] or None
+
+
 def brain_row(
     *, kind: str, user_id: str, company_id: Optional[str], call_mode: str, sales_motion_key: Optional[str],
     call_id: Optional[str], latest_turn: str, result: Optional[dict], error: Optional[str], detail: dict,

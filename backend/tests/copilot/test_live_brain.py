@@ -567,3 +567,27 @@ def test_the_brains_log_pauses_on_its_own_when_migration_082_is_missing(monkeypa
     monkeypatch.setattr(events, "_paused_until", 0.0)
     events.record(Failing(), {"kind": "points", "user_id": "u"})
     assert events._brain_paused_until > 0 and events._paused_until == 0.0  # the turn checks and cards still log
+
+
+
+def test_unanswered_points_lists_what_had_no_source_in_their_words():
+    from app.services.copilot import events
+    points = [
+        {"is_update": False, "answer": "Sí, con HubSpot.", "title": "¿os integráis con HubSpot?", "kind": "question", "tag_key": "question"},
+        {"is_update": False, "answer": None, "gap": "dónde se guardan datos", "title": "¿dónde guardáis los datos?", "kind": "question", "tag_key": "question"},
+        {"is_update": True, "answer": None, "gap": "x", "title": "lo repite", "kind": "question"},
+        {"is_update": False, "answer": None, "gap": None, "title": "  ", "kind": "objection"},
+        {"is_update": False, "answer": None, "gap": "precio de planes", "title": "¿qué dos planes tenéis? " * 20, "kind": "question", "tag_key": "question"},
+    ]
+    rows = events.unanswered_points(points)
+    assert [r["said"][:26] for r in rows] == ["¿dónde guardáis los datos?", "¿qué dos planes tenéis? ¿q"]
+    assert rows[0] == {"said": "¿dónde guardáis los datos?", "missing": "dónde se guardan datos", "kind": "question", "tag": "question"}
+    assert len(rows[1]["said"]) <= events.UNANSWERED_SAID_MAX
+
+
+def test_unanswered_points_is_none_when_everything_was_answered_and_caps_the_list():
+    from app.services.copilot import events
+    assert events.unanswered_points([{"is_update": False, "answer": "ok", "title": "a"}]) is None
+    assert events.unanswered_points(None) is None
+    many = [{"is_update": False, "answer": None, "title": f"pregunta {i}", "kind": "question"} for i in range(6)]
+    assert len(events.unanswered_points(many)) == events.UNANSWERED_MAX

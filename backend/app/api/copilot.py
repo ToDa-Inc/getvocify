@@ -443,6 +443,8 @@ def _brain_log(
         "points": len([p for p in result.get("points") or [] if not p.get("is_update")]) if kind == "points" else None,
         "updates": len([p for p in result.get("points") or [] if p.get("is_update")]) if kind == "points" else None,
         "closed": len(result.get("closed") or []) if kind == "points" else None,
+        # What it could not answer from the playbook or the knowledge, in the prospect's words: the list to fill.
+        "unanswered": events.unanswered_points(result.get("points")) if kind == "points" else None,
         "steps": len(result.get("steps") or []) if kind == "progress" else None,
         "data": len(result.get("data") or []) if kind == "progress" else None,
         "type_changed": body.type_changed or None,
