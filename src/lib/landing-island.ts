@@ -12,6 +12,7 @@ export interface IslandCopy {
   steps: [IslandStep, IslandStep, IslandStep];
   before: { contact: string; record: string; brief: { kind: 'task' | 'meeting' | 'chat'; text: string; when: string }[] };
   during: {
+    repName: string;
     callType: string;
     stop: string;
     liveHelp: string;
@@ -52,6 +53,7 @@ export const islandCopy: Record<Language, IslandCopy> = {
       ],
     },
     during: {
+      repName: 'Tú',
       callType: 'Descubrimiento',
       stop: 'Parar',
       liveHelp: 'Ayuda en vivo',
@@ -106,6 +108,7 @@ export const islandCopy: Record<Language, IslandCopy> = {
       ],
     },
     during: {
+      repName: 'You',
       callType: 'Discovery call',
       stop: 'Stop',
       liveHelp: 'Live help',

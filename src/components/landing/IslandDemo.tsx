@@ -17,6 +17,7 @@ import {
   Pause,
   PhoneOff,
   Sparkles,
+  User,
   Video,
   X,
 } from "lucide-react";
@@ -119,8 +120,10 @@ const BeforeBody = ({ c, tick }: { c: IslandCopy["before"]; tick: number }) => (
   </>
 );
 
+const visibleTurns = (tick: number) => (tick <= 3 ? tick : tick <= 5 ? 3 : tick - 2);
+
 const DuringBody = ({ c, tick }: { c: IslandCopy["during"]; tick: number }) => {
-  const visible = tick <= 3 ? tick : tick <= 5 ? 3 : tick - 2;
+  const visible = visibleTurns(tick);
   return (
     <>
       <div className="id-controls">
@@ -283,7 +286,9 @@ const IslandDemo = () => {
   const { step, tick, local } = state;
   const elapsed = START_ELAPSED + Math.round(local * 38);
   const size = SIZES[step];
-  const lastTurnThem = step === 1 && !copy.during.turns[Math.max(0, (tick <= 3 ? tick : tick <= 5 ? 3 : tick - 2) - 1)]?.you;
+  const lastTurn = step === 1 ? copy.during.turns[visibleTurns(tick) - 1] : undefined;
+  const lastTurnThem = step === 1 && !!lastTurn && !lastTurn.you;
+  const lastTurnYou = step === 1 && !!lastTurn && lastTurn.you;
 
   const goTo = (i: number) => {
     const el = track.current;
@@ -339,6 +344,18 @@ const IslandDemo = () => {
                       <i />
                       Marta Ruiz
                     </span>
+                  )}
+                  <span className="id-rep" data-speaking={lastTurnYou} data-phase={["waiting", "live", "ended"][step]}>
+                    <User size={24} strokeWidth={1.5} />
+                    <span className="id-rep-name">
+                      <i />
+                      {copy.during.repName}
+                    </span>
+                  </span>
+                  {step === 1 && lastTurn && (
+                    <div className="id-caption" key={visibleTurns(tick)}>
+                      {lastTurn.text}
+                    </div>
                   )}
                   {step === 0 && (
                     <div className="id-overlay">
