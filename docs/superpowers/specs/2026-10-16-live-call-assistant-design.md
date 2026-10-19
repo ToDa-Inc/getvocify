@@ -187,6 +187,10 @@ question on its own, **"what do I say now?"**, and everything else is there only
 - The playbook's steps in its order, each ticking itself with evidence (the prospect's words beside it) or by the rep's
   tap (final). Done steps are struck through with a line drawn left to right and the circle fills with a small pop.
 - The bar's "Pasos n/m" pulses once when a step is done while the list is closed.
+- **Tapping a pending item asks for help with it**: the list closes and Qué decir shows "Puedes preguntar · {item}" with a
+  question for it (a step with parts asks for its first missing part; a piece of data, its own question). The playbook is
+  not only something to check against: it is a natural way to ask for help, with no setup. An answer waiting still comes
+  first.
 - A step whose criterion lists parts shows them as chips struck as they are said (Cualificar el encaje: "bastan 3 de 5
   datos"). In the prototype the parts are written by hand from the criterion; the brain must produce them.
 
