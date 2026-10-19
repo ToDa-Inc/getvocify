@@ -27,7 +27,10 @@ function install() {
     await new Promise((r) => setTimeout(r, 350));
     if (url.includes("/sales-process") && !url.includes("/members")) {
       if (method === "PUT") {
-        db.types = (body.types as Row[]).map((t) => ({ ...t, key: t.key ?? slug(t.label), goal: t.goal ?? null, recognize: t.recognize ?? null, position: 0, step_count: 0, status: "missing" }));
+        // As the server: only the part the window edits needs a goal on each funnel interaction.
+        const edited = (body.types as Row[]).filter((t) => (t.stage === "other") === (body.scope === "other"));
+        if (body.scope !== "other" && edited.some((t) => t.stage !== "other" && !t.goal)) return json({ detail: { code: "goal_required" } }, 422);
+        db.types =(body.types as Row[]).map((t) => ({ ...t, key: t.key ?? slug(t.label), goal: t.goal ?? null, recognize: t.recognize ?? null, position: 0, step_count: 0, status: "missing" }));
       }
       return json(view());
     }
@@ -83,6 +86,10 @@ export default function PlaybookWindowsPreview() {
   const [open, setOpen] = useState<"funnel" | "other" | "company" | null>(null);
   const [version, setVersion] = useState(0);
   useEffect(() => {
+    // ?legacy: a company whose funnel was saved before a goal was asked for.
+    if (new URLSearchParams(window.location.search).has("legacy") && !db.types.length) {
+      db.types = ["Cold call", "Discovery", "Demo"].map((label, i) => ({ key: slug(label), label, stage: i ? "deal" : "first_contact", goal: null, recognize: null, position: i + 1, step_count: 0, status: "missing" }));
+    }
     const undo = install();
     setReady(true);
     return undo;

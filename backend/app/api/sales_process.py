@@ -72,7 +72,7 @@ def put_process(body: ProcessRequest, supabase: Client = Depends(get_supabase), 
     repository = get_playbook_repository()
     try:
         wanted = within_scope(process_view(repository, store, membership.company_id), body.scope, body.types)
-        apply_process(repository, store, membership.company_id, wanted)
+        apply_process(repository, store, membership.company_id, wanted, body.scope)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": str(exc)}) from exc
     _playbooks_changed(membership.company_id)

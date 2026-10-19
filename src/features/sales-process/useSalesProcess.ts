@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorCode } from "@/features/playbooks/api";
 import { isNotActivated, salesProcessApi, type ProcessType } from "@/features/sales-process/api";
-import { canSave, draftOf, mergeScope, removedWithContent, requestFor, scoped, type DraftType, type Scope } from "@/lib/sales-process";
+import { draftOf, mergeScope, removedWithContent, requestFor, scopeProblem, scoped, type DraftType, type Scope } from "@/lib/sales-process";
 
 export const PROCESS_QUERY = ["sales-process"] as const;
 export type ProcessStatus = "loading" | "ready" | "error" | "not_activated";
@@ -34,7 +34,13 @@ export function useSalesProcess({ onSaved, scope = "funnel" }: { onSaved?: (type
   const removing = saved ? removedWithContent(saved.filter((item) => (item.stage === "other") === (scope === "other")), list) : [];
 
   const save = useCallback(async (): Promise<boolean> => {
-    if (!saved || !canSave(list) || !canSave(mergeScope(draftOf(saved), scope, list))) return false;
+    if (!saved) return false;
+    // Never fail without saying why: the screen words the code.
+    const blocked = scopeProblem(list, mergeScope(draftOf(saved), scope, list));
+    if (blocked) {
+      setProblem(blocked);
+      return false;
+    }
     setSaving(true);
     setProblem(null);
     try {

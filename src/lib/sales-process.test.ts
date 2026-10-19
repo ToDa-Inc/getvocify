@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { canSave, mergeScope, moveItem, removedWithContent, requestFor, suggestedProcess, toRequest, typesSummary, type DraftType, type SavedType } from "./sales-process.ts";
+import { canSave, mergeScope, rowProblem, scopeProblem, moveItem, removedWithContent, requestFor, suggestedProcess, toRequest, typesSummary, type DraftType, type SavedType } from "./sales-process.ts";
 
 const t = (label: string, over: Partial<DraftType> = {}): DraftType => ({ label, stage: "first_contact", goal: `Objetivo de ${label}`, recognize: `Cómo es ${label}`, ...over });
 
@@ -38,6 +38,19 @@ describe("sales process helpers", () => {
     assert.equal(canSave([t("Demo", { goal: "" })]), false);
     assert.equal(canSave([t("Demo", { recognize: "  " })]), true);
     assert.equal(canSave([t("Demo"), { label: "SAC", stage: "other" }]), true);
+  });
+
+  it("says what each row is missing and checks only the part the window saves", () => {
+    const legacy = t("Cold call", { goal: undefined });
+    const sac: DraftType = { label: "SAC", stage: "other" };
+    assert.equal(rowProblem(t("  "), [t("  ")]), "empty_name");
+    assert.equal(rowProblem(t("Demo", { goal: " " }), []), "goal_required");
+    assert.equal(rowProblem(sac, [t("sac"), sac]), "duplicate_name");
+    assert.equal(rowProblem(sac, [legacy, sac]), null);
+    // A funnel saved without goals does not stop the calls outside it, but the funnel window asks for them.
+    assert.equal(scopeProblem([sac], [legacy, sac]), null);
+    assert.equal(scopeProblem([legacy], [legacy, sac]), "goal_required");
+    assert.equal(scopeProblem([], []), "empty_name");
   });
 
   it("edits one scope and leaves the other where it is: the funnel first, the other calls after", () => {

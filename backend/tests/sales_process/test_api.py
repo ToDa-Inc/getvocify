@@ -190,3 +190,16 @@ def test_saving_the_funnel_never_archives_the_calls_outside_it():
     put(client, t("Llamada en frío"), t("SAC", "other"))
     done = client.put(BASE, json={"scope": "funnel", "types": [t("Discovery")]})
     assert [x["label"] for x in done.json()["types"]] == ["Discovery", "SAC"]
+
+
+def test_a_funnel_saved_before_goals_were_asked_does_not_block_the_calls_outside_it():
+    """A type the company had before the process (never placed, so no goal) is part of the funnel: the window of the other
+    calls must still save, and the funnel stays as it was."""
+    client = make_client()
+    client.repo.add_type("co-1", "llamada_antigua", "Llamada antigua", label="Llamada antigua")
+    done = client.put(BASE, json={"scope": "other", "types": [{"label": "SAC", "stage": "other"}]})
+    assert done.status_code == 200
+    assert [(x["label"], x["stage"], x["goal"]) for x in done.json()["types"]] == [("Llamada antigua", "first_contact", None), ("SAC", "other", None)]
+    # Saving the funnel itself still asks for the goal of each interaction.
+    funnel = client.put(BASE, json={"scope": "funnel", "types": [{"key": "llamada_antigua", "label": "Llamada antigua", "stage": "first_contact"}]})
+    assert funnel.status_code == 422 and funnel.json()["detail"] == {"code": "goal_required"}
