@@ -20,7 +20,7 @@ const FAQSection = () => {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <span className="section-label mb-6">05 — {t.faq.label}</span>
+            <span className="section-label mb-6">06 — {t.faq.label}</span>
             <h2 className="h-display mb-6 text-4xl text-foreground md:text-6xl">
               {t.faq.title1} <span className="accent-serif">{t.faq.title2}</span>
             </h2>

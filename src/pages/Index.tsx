@@ -6,6 +6,7 @@ import BestRepSection from "@/components/landing/BestRepSection";
 import { DemoVideoProvider } from "@/contexts/DemoVideoContext";
 import CoachingSection from "@/components/landing/CoachingSection";
 import CaptureSection from "@/components/landing/CaptureSection";
+import PricingSection from "@/components/landing/PricingSection";
 import TeamsSection from "@/components/landing/TeamsSection";
 import FAQSection from "@/components/landing/FAQSection";
 import FinalCTA from "@/components/landing/FinalCTA";
@@ -35,6 +36,7 @@ const Index = () => {
         <CoachingSection />
         <CaptureSection />
         <TeamsSection />
+        <PricingSection />
         <FAQSection />
         <FinalCTA />
       </main>
