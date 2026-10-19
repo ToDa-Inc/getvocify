@@ -129,8 +129,18 @@ question on its own, **"what do I say now?"**, and everything else is there only
   One question per topic: three minutes on the same problem never gives five variations of it.
 - **What Vocify knows, what it suggests and what the rep does are kept apart**: a suggestion the rep follows in their own
   words counts as followed (logged, to learn which suggestions help).
-- **A card is two things**: the prospect's words (small) and what to say (the one thing to read). No decision headline on
-  screen (Responde / Reconduce / Aplaza / Cierra were tried: jargon). The brain's decision still shapes the line.
+- **A card is two lines, always in the same order**: first the kind of help (or how it ended) and the prospect's words
+  (small); then what to say (the one thing to read). One fixed map, so the rep learns it once:
+
+  | Kind (first line) | When | Look | Ends as |
+  |---|---|---|---|
+  | ↩ **Respuesta** | They asked or objected and the playbook or the knowledge has the answer | Full card | ✓ Respondido |
+  | ⓘ **No está en tu conocimiento** | They asked something Vocify cannot answer; the line is an honest one to say meanwhile | Full card, amber | ✓ Apuntado para el seguimiento (if the rep promised) |
+  | ? **Puedes preguntar** | An opportunity to go deeper | Outlined card, lighter, no ✓ | ✓ Preguntado |
+  | ? **Te falta saber** | Responder with nothing to answer | Outlined card | Closed by the rep |
+
+  The brain's decision (Responder / Reconducir / Aplazar / Cerrar) shapes the line but is not shown (it was tried as a
+  headline: jargon).
 - **When a point is dealt with** (the brain sees the rep answered it, or the rep taps the ✓ that appears on hover): a light
   sweeps across the card, "✓ Respondido" pops in ("✓ Preguntado" for an opportunity the rep took, "Apuntado para el
   seguimiento" when the rep promised to confirm it), and the card fades where it is. The ✓ is never claimed without
