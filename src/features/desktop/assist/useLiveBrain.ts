@@ -265,7 +265,16 @@ export function useLiveBrain(
     const controller = new AbortController();
     controllersRef.current.progress = controller;
     const changed = Boolean(spec.typeChanged) || typeChangedRef.current;
-    const body = buildReading({ call: readingCall(), turns: wire, state: stateRef.current, reason, mark: spec.mark, producer: "progress", typeChanged: changed });
+    const body = buildReading({
+      call: readingCall(),
+      turns: wire,
+      state: stateRef.current,
+      reason,
+      mark: spec.mark,
+      producer: "progress",
+      typeChanged: changed,
+      sayView: sayViewRef.current,
+    });
     setReading((r) => ({ ...r, progress: true }));
     try {
       const result = await readSlow<Record<string, unknown>>("progress", body, controller.signal);
@@ -549,7 +558,7 @@ export function useLiveBrain(
     setAsks((a) => ({ ...a, recap: { seq, status: "reading", up_to_t: upTo?.t ?? null, lines: [], unknown: [] } }));
     setReading((r) => ({ ...r, recap: true }));
     try {
-      const body = buildReading({ call: readingCall(), turns: wire, state: stateRef.current, reason: "resumen", producer: "recap" });
+      const body = buildReading({ call: readingCall(), turns: wire, state: stateRef.current, reason: "resumen", producer: "recap", sayView: sayViewRef.current });
       const result = await readSlow<{ lines?: string[]; unknown?: string[] }>("recap", body, controller.signal);
       succeeded();
       setAsks((a) => ({ ...a, recap: { seq, status: "ready", up_to_t: upTo?.t ?? null, lines: result.lines ?? [], unknown: result.unknown ?? [] } }));

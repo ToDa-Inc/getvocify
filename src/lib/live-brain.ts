@@ -131,7 +131,9 @@ export function buildReading(input: {
   focusTurn?: string | null;
 }): Record<string, unknown> {
   const { call, state, reason } = input;
-  const points = pointsIn(state).slice(-24).map((point) => ({ ...point, say: point.say ? point.say.slice(0, 400) : null }));
+  const points = pointsIn(state)
+    .slice(-24)
+    .map((point) => ({ ...point, say: point.say ? point.say.slice(0, 400) : null, versions: point.versions.slice(0, 8).map((v: string) => v.slice(0, 400)) }));
   const focus = input.focusTurn ?? focusFor(reason, input.turns, input.mark ?? null);
   const cursor = state.cursors[input.producer === "points" ? "points" : "progress"];
   return {

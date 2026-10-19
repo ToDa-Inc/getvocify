@@ -60,10 +60,13 @@ describe("points", () => {
     assert.equal(openPoints(state).length, 0);
   });
 
-  it("pointsIn sends the open points and the last closed ones, with what was shown", () => {
-    const state = applyPoints(emptyLiveState(), pointsResult([point(), point({ id: "pt-2", outcome: "answered" })]));
+  it("pointsIn sends the open points and the last closed ones, with what was shown and where it came from", () => {
+    let state = applyPoints(emptyLiveState(), pointsResult([point(), point({ id: "pt-2", outcome: "answered", source: null })]));
+    state = applyRewrite(state, { point_id: "pt-1", version: 2, answer: "Treinta euros al mes por persona." });
     assert.deepEqual(pointsIn(state).map((p) => p.id), ["pt-2", "pt-1"]);
     assert.equal(pointsIn(state)[1].say, "Son 30 € al mes.");
+    assert.deepEqual(pointsIn(state)[1].versions, ["Son 30 € al mes.", "Treinta euros al mes por persona."]);
+    assert.deepEqual(pointsIn(state).map((p) => p.source_id), [null, "knowledge"]);
   });
 });
 
@@ -139,7 +142,7 @@ describe("progress", () => {
     assert.ok(!applyProgress(state, example.progress_result).progress.steps.apertura_con_marco);
   });
 
-  it("a step with parts: parts heard accumulate, the step is done once enough are heard", () => {
+  it("a step with parts: parts heard accumulate, the step is done when the producer says so", () => {
     let state = applyProgress(emptyLiveState(), example.progress_result);
     assert.ok(!state.progress.steps.cualificar_el_encaje);
     assert.deepEqual(state.progress.parts.cualificar_el_encaje, { crm_que_usan: { quote: "usamos Salesforce" } });
@@ -151,13 +154,14 @@ describe("progress", () => {
     state = applyProgress(state, { ...example.progress_result, state_version: 4, steps: [heard(["visitas_al_dia"])] });
     assert.ok(!state.progress.steps.cualificar_el_encaje);
     assert.deepEqual(Object.keys(state.progress.parts.cualificar_el_encaje), ["crm_que_usan", "visitas_al_dia"]);
-    state = applyProgress(state, { ...example.progress_result, state_version: 5, steps: [heard(["quien_decide"])] });
+    state = applyProgress(state, { ...example.progress_result, state_version: 5, steps: [{ ...heard(["quien_decide"]), status: "done" }] });
     const done = state.progress.steps.cualificar_el_encaje;
     assert.deepEqual([done.status, done.by, done.need], ["done", "brain", 3]);
     assert.deepEqual(done.parts.map((p) => [p.id, p.done, p.quote]), [
       ["crm_que_usan", true, "usamos Salesforce"], ["visitas_al_dia", true, "q visitas_al_dia"], ["quien_decide", true, "q quien_decide"],
     ]);
     assert.deepEqual(progressIn(state).done_steps, ["apertura_con_marco", "cualificar_el_encaje"]);
+    assert.deepEqual(progressIn(state).parts, { cualificar_el_encaje: ["crm_que_usan", "visitas_al_dia", "quien_decide"] });
   });
 
   it("the rep's untick of a step with parts is final even when its parts are heard", () => {

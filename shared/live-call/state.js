@@ -178,6 +178,7 @@ export function dismissPoint(state, id) {
 
 /**
  * Merges a progress result. Evidence accumulates; the rep's marks win; `now` and `missing` follow the newest reading only.
+ * A step with parts comes as `{id, status: "open" | "done", parts: [{id, label, done, quote}], need}`.
  * @param {LiveState} state
  * @param {Object} result
  * @returns {LiveState}
@@ -198,9 +199,8 @@ export function applyProgress(state, result) {
       for (const part of listed) if (part.done && !heard[part.id]) heard[part.id] = { quote: part.quote ?? null };
       parts[step.id] = heard;
     }
-    const list = partLists[step.id];
-    const done = list ? step.status === "done" || Object.keys(parts[step.id] ?? {}).length >= list.need : step.status !== "pending";
-    if (done && !mine.has(step.id) && !steps[step.id]) steps[step.id] = { ...rest, status: "done", by: "brain" };
+    // Only a step the producer calls done is done; an "open" one (a step with parts, not enough heard) brings its parts.
+    if (step.status === "done" && !mine.has(step.id) && !steps[step.id]) steps[step.id] = { ...rest, by: "brain" };
   }
   for (const [id, list] of Object.entries(partLists)) {
     // A done step carries its parts as they stand: done only accumulates.
@@ -259,6 +259,9 @@ export function pointsIn(state) {
   return [...recent, ...open].map((p) => ({
     id: p.id, kind: p.kind, tag_key: p.tag_key, title: p.title, turn_ids: p.turn_ids, outcome: p.outcome,
     say: p.answer ?? p.fallback ?? null,
+    // What the rewrite reads: where the words came from (none: an unknown, the rewrite is a question back) and what was seen.
+    source_id: p.source?.id ?? null,
+    versions: p.versions ?? [],
   }));
 }
 
@@ -273,6 +276,8 @@ export function progressIn(state) {
     rep_unticked: rep.unticked,
     now: progress.now,
     missing: progress.missing,
+    // The parts heard so far, per step.
+    parts: Object.fromEntries(Object.entries(progress.parts ?? {}).map(([id, heard]) => [id, Object.keys(heard)])),
   };
 }
 
