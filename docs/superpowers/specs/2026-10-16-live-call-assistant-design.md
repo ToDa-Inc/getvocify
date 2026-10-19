@@ -219,6 +219,15 @@ Both, the rep's choice in Settings.
   curve), then its content fades in; closing: the content goes first. Drag the strip up or down (4 px separates a drag
   from a tap); it can only sit where the open panel fits whole, so opening never moves it; it is put back on a resize.
 
+### When the island is closed
+
+No macOS notification, no opening by itself: closing it means "not now", and that is respected. The closed notch and the
+side strip show one **dot** where the sparkle was (no AI icon), saying only that something is there and of which kind:
+**solid beige with one pulse** = an answer waiting; **outline** = an opportunity to go deeper (no pulse); **small and
+breathing** = something being prepared; **nothing** = nothing. Opening the island shows the list as it is. A short text
+"peek" while closed is left as a possible setting, off by default, only if reps miss answers (to be measured); before any
+text appears unasked, check that the island window is not captured when the rep shares their screen.
+
 ### Siguiente and what is pending
 
 Unchanged from the 2026-10-16 design: Siguiente saves this call and starts the next recording; the pending count opens
