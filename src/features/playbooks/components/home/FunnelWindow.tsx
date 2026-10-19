@@ -21,7 +21,7 @@ type Step = "define" | "content" | "ask" | "done";
 const plain = "block w-full bg-transparent text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-60";
 
 /**
- * Create or edit the sales funnel (or the calls outside it) in one window, screen after screen:
+ * Create or edit the sales process (or the calls outside it) in one window, screen after screen:
  *   1. the interactions, in order: name and goal (a call outside the funnel only needs a name);
  *   2. their content: one document for all of them, or a document or a pasted text for each; or Vocify asks and builds it;
  *   3. done.
@@ -114,7 +114,7 @@ export function FunnelWindow({
   const footer =
     step === "define" ? (
       <>
-        <StepLine steps={[c.stepInteractions, c.stepContent]} at={0} />
+        <StepLine steps={[funnel ? c.stepSteps : c.stepInteractions, c.stepContent]} at={0} />
         <Button type="button" disabled={process.saving || process.status !== "ready"} onClick={tryNext}>
           {process.saving ? <VocifySpinner size={12} tone="onFill" /> : null}
           {c.next}
@@ -187,16 +187,23 @@ export function FunnelWindow({
                     className={cn(plain, "text-[17px] font-medium")}
                   />
                   {funnel ? (
+                    <label className="block space-y-0.5 pt-1">
+                      <span className={THEME_TOKENS.typography.fieldLabel}>
+                        {c.goalLabel}{" "}
+                        <span className="font-normal text-muted-foreground/70">
+                          {index === rows.length - 1 ? c.goalToClose : c.goalToNext.replace("{next}", rows[index + 1].label.trim() || c.nextFallback)}
+                        </span>
+                      </span>
                     <input
                       value={row.goal ?? ""}
                       maxLength={160}
                       disabled={process.saving}
                       onChange={(event) => update(index, { goal: event.target.value })}
                       placeholder={c.goalPh}
-                      aria-label={c.goalPh}
                       aria-invalid={problem === "goal_required"}
                       className={cn(plain, "text-[14px] text-foreground/80")}
                     />
+                    </label>
                   ) : null}
                   {problem ? (
                     <p className="text-[13px] text-destructive" role="alert">
@@ -223,7 +230,7 @@ export function FunnelWindow({
           </ol>
           <Button type="button" variant="quiet" size="text" disabled={process.saving || rows.length >= 20} onClick={() => setRows([...rows, blank()])}>
             <Plus aria-hidden strokeWidth={1.5} />
-            {c.addInteraction}
+            {funnel ? c.addStep : c.addInteraction}
           </Button>
           {process.problem ? (
             <p className="text-sm text-destructive" role="alert">

@@ -1,7 +1,8 @@
+import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/i18n";
-import { funnelWidths } from "@/lib/playbook-home";
+import { afterColon, nextStep } from "@/lib/playbook-home";
 import type { PublishState } from "@/lib/playbook-doc";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
@@ -16,25 +17,33 @@ const DOT: Record<PublishState, string> = {
   empty: "border border-muted-foreground/50",
 };
 
-/** The empty funnel as a sketch: three dotted steps, wide to narrow, and a "Crear +" that opens the window to define it. */
-function EmptyFunnel({ onCreate, canEdit }: { onCreate: () => void; canEdit: boolean }) {
+/** One step of the process: its number on a line that joins it to the next, its name, and what it takes to move on. */
+function StepRow({ number, last, children }: { number: number; last: boolean; children: ReactNode }) {
+  return (
+    <li className="grid grid-cols-[1.75rem_1fr] gap-x-3">
+      <span className="flex flex-col items-center" aria-hidden>
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-secondary text-xs tabular-nums text-muted-foreground">{number}</span>
+        {last ? null : <span className="w-px flex-1 bg-border" />}
+      </span>
+      <div className={cn("min-w-0", last ? "pb-1" : "pb-5")}>{children}</div>
+    </li>
+  );
+}
+
+/** The empty process as a sketch: three dotted steps in order, and a "Crear +" that opens the window to define it. */
+function EmptyProcess({ onCreate, canEdit }: { onCreate: () => void; canEdit: boolean }) {
   const { t } = useLanguage();
   const c = t.product.pb2.home;
-  const widths = funnelWidths(3);
   const sketch = ["Cold call", "Discovery", "···"];
   const body = (
     <>
-      <span className="flex w-full flex-col items-center gap-3" aria-hidden>
+      <ol className="w-full max-w-[16rem] text-left" aria-hidden>
         {sketch.map((label, index) => (
-          <span
-            key={label}
-            style={{ width: `${widths[index] * 100}%` }}
-            className="rounded-full border border-dashed border-border py-3 text-center text-sm text-muted-foreground/60"
-          >
-            {label}
-          </span>
+          <StepRow key={label} number={index + 1} last={index === sketch.length - 1}>
+            <span className="block pt-1 text-[15px] text-muted-foreground/60">{label}</span>
+          </StepRow>
         ))}
-      </span>
+      </ol>
       {canEdit ? (
         <span className="inline-flex items-center gap-2 pt-2 text-[17px] font-medium text-muted-foreground transition-colors group-hover:text-foreground">
           {c.create}
@@ -58,13 +67,12 @@ function EmptyFunnel({ onCreate, canEdit }: { onCreate: () => void; canEdit: boo
 }
 
 /**
- * "Funnel de ventas": the interactions the company runs to close a customer, drawn as a funnel (the first is the widest, the
- * last the narrowest). A step shows its name and, under it, what it must achieve; a click opens everything about it.
+ * "Proceso de venta": the interactions the company runs to close a customer, as numbered steps in order. Under each name,
+ * what it takes to move to the next step (the last one: to close); a click opens everything about it.
  */
 export function FunnelBlock({ types, canEdit, onCreate, onEdit, onOpen }: { types: HomeType[]; canEdit: boolean; onCreate: () => void; onEdit: () => void; onOpen: (key: string) => void }) {
   const { t } = useLanguage();
   const c = t.product.pb2.home;
-  const widths = funnelWidths(types.length);
   return (
     <section aria-labelledby="home-funnel" className="flex min-w-0 flex-col items-center gap-8">
       <header className="max-w-md space-y-2 text-center lg:min-h-[7rem]">
@@ -75,26 +83,39 @@ export function FunnelBlock({ types, canEdit, onCreate, onEdit, onOpen }: { type
       </header>
       {types.length ? (
         <>
-          <ol className="flex w-full max-w-md flex-col items-center gap-1">
-            {types.map((type, index) => (
-              <li key={type.key} className="flex w-full flex-col items-center gap-1.5 pb-2" style={{ animationDelay: `${index * 40}ms` }}>
-                <button
-                  type="button"
-                  onClick={() => onOpen(type.key)}
-                  style={{ width: `${widths[index] * 100}%` }}
-                  className={cn(
-                    "flex items-center justify-center gap-2.5 rounded-full border border-border/80 px-5 py-3.5 text-[16px] font-medium text-foreground",
-                    "transition-colors duration-150 motion-reduce:transition-none hover:border-beige/50 hover:bg-secondary/40",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    THEME_TOKENS.motion.fadeIn,
-                  )}
-                >
-                  <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-full", DOT[type.state])} />
-                  <span className="min-w-0 truncate">{type.label}</span>
-                </button>
-                {type.goal ? <p className="max-w-[16rem] text-center text-[13px] leading-snug text-muted-foreground">{type.goal}</p> : null}
-              </li>
-            ))}
+          <ol className="w-full max-w-md">
+            {types.map((type, index) => {
+              const next = nextStep(types, index);
+              return (
+                <StepRow key={type.key} number={index + 1} last={next === null}>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(type.key)}
+                    className={cn(
+                      "-mx-2 -mt-0.5 block w-[calc(100%+1rem)] rounded-md px-2 py-1 text-left",
+                      THEME_TOKENS.interaction.rowHover,
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      THEME_TOKENS.motion.fadeIn,
+                    )}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <span className={cn("min-w-0 truncate", THEME_TOKENS.typography.itemTitle)}>{type.label}</span>
+                      <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-full", DOT[type.state])} />
+                    </span>
+                    <span className="mt-0.5 block text-[13px] leading-snug text-muted-foreground">
+                      {type.goal ? (
+                        <>
+                          <span className="text-muted-foreground/70">{next === null ? c.stepToClose : c.stepToNext.replace("{next}", next || c.nextFallback)}</span>{" "}
+                          {afterColon(type.goal)}
+                        </>
+                      ) : (
+                        <span className="text-warning">{c.stepNoGoal}</span>
+                      )}
+                    </span>
+                  </button>
+                </StepRow>
+              );
+            })}
           </ol>
           {canEdit ? (
             <Button type="button" variant="quiet" size="text" onClick={onEdit}>
@@ -104,7 +125,7 @@ export function FunnelBlock({ types, canEdit, onCreate, onEdit, onOpen }: { type
         </>
       ) : (
         <div className="w-full max-w-md">
-          <EmptyFunnel onCreate={onCreate} canEdit={canEdit} />
+          <EmptyProcess onCreate={onCreate} canEdit={canEdit} />
         </div>
       )}
     </section>
