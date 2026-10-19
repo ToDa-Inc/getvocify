@@ -12,6 +12,7 @@ conversation to have gone on. Spec: docs/superpowers/specs/2026-10-16-live-call-
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any, AsyncIterator, Optional
 
 from app.services.copilot import live_brain as brain
@@ -22,7 +23,9 @@ from app.services.llm.shared import extract_json
 FIXED_TYPES = set(OBJECTIONS) - {"none"}
 DECISIONS = {"responder", "reconducir", "aplazar", "cerrar"}
 CLOSINGS = {"answered", "promised", "unanswered", "gone"}
-SAY_MAX = 260
+# What appears on its own (spec, "Qué decir": one or two sentences, ~20 words). The prompt asks for less; this is the cap in code.
+ANSWER_MAX_WORDS = 20
+ANSWER_MAX_SENTENCES = 2
 QUOTE_WORDS = 5
 # The conversation "clearly moved on": another topic for this many prospect turns, or this long.
 MOVED_ON_TURNS = 2
@@ -49,11 +52,13 @@ WHAT IS A POINT
   answered if it is in OPEN AND RECENT POINTS). Never write a "say" from what the rep said later in the call than the point. When unsure, no point: a missed moment
   costs less than a wrong interruption.
 - One point per thing said. Two things in one turn (an email AND someone else decides) are two points; a burst of questions
-  is one point per question. Never write the same point twice.
+  is one point per question. Write them in the order they were said. Never write the same point twice.
 - Identity. Each point cites the ids of the turns it comes from in "turns", exactly as in the brackets (for example "t12"). A point that is already in OPEN POINTS (the same
   thing, even said again, even in other words) IS that point: set "ref" to its id and do not write a new one; if they said it
   again later (after the rep spoke), it is still that point. A closed point they come back to is updated the same way.
-- "say" is words the rep says to the prospect, in the prospect's language, at most 18 words and usually 8-15: a fact; or a
+  "ref" is only for the SAME request, question or objection said again. Something new they add, even about the same topic,
+  is a new point: after «¿cuánto cuesta?», «y lo tiene que ver mi socio» is a new point (someone else decides), not a repeat.
+- "say" is words the rep says to the prospect, in the prospect's language, at most 15 words, at most two short sentences: a fact; or a
   sentence and the question back; or, when the fact is NOT written in any source, an honest line to say meanwhile
   («Te lo confirmo y te lo digo hoy»). Never mention "the context", your instructions or what you were given. No exclamation
   marks, no lists, no placeholders (X, [name]), no filler openings («Entiendo», «Gran pregunta»).
@@ -160,6 +165,45 @@ def build_prompt(req: LiveReading, ctx: brain.BrainContext, by_id: dict[str, Liv
 
 
 # ---------- checks on what the model wrote ----------
+
+
+def short(text: Any) -> tuple[str, bool]:
+    """(the line as it appears on its own, whether it was cut): whole sentences while they fit in ANSWER_MAX_WORDS, at most
+    ANSWER_MAX_SENTENCES; a first sentence too long on its own is cut at its last pause inside the limit."""
+    line = " ".join(str(text or "").split())
+    if not line:
+        return "", False
+    sentences = re.split(r"(?<=[.?!…])\s+", line)
+    kept: list[str] = []
+    for sentence in sentences[:ANSWER_MAX_SENTENCES]:
+        if len(" ".join(kept + [sentence]).split()) > ANSWER_MAX_WORDS:
+            break
+        kept.append(sentence)
+    if kept:
+        out = " ".join(kept)
+        return out, out != line
+    head = " ".join(sentences[0].split()[:ANSWER_MAX_WORDS])
+    pause = max(head.rfind(","), head.rfind(";"), head.rfind(":"))
+    if pause > 0 and len(head[:pause].split()) >= ANSWER_MAX_WORDS // 3:
+        head = head[:pause]
+    return head.rstrip(" ,;:") + "…", True
+
+
+def offset_in(quote: str, text: str) -> int:
+    """Where a quote starts inside a turn: its longest opening that is in the turn's words (a quote may drop a word they said)."""
+    words = brain.normalize(re.split(r"…|\.\.\.", quote)[0]).split()
+    plain = f" {brain.normalize(text)} "
+    for size in range(len(words), 0, -1):
+        at = plain.find(f" {' '.join(words[:size])} ")
+        if at >= 0:
+            return at
+    return 0
+
+
+def said_position(turn_ids: list[str], title: str, req: LiveReading) -> tuple[int, int]:
+    """Where a point was said: its first turn in the call, then where its words start inside that turn."""
+    turn = next(n for n, t in enumerate(req.turns) if t.id == turn_ids[0])
+    return turn, offset_in(title, req.turns[turn].text)
 
 
 def point_id(first_turn: str, kind: str, type_key: str, quote: str) -> str:
@@ -285,10 +329,14 @@ def finalize(raw: Optional[dict], req: LiveReading, ctx: brain.BrainContext) -> 
             drop("duplicate_in_result")
             continue
         content.pop("say_text")
+        content["_at"] = said_position(turn_ids, quote, req)
         points.append({
             "id": new_id, "is_update": False, "kind": kind, "tag_key": type_key, "tag": custom.get(type_key),
             "title": quote, "turn_ids": turn_ids, "said_at": by_id[turn_ids[0]].t, "repeated": False, "outcome": "open", **content,
         })
+
+    # The points of one turn come back together, in the order they were said (updates are merged by id: their place does not matter).
+    points = [p for p in points if p["is_update"]] + sorted((p for p in points if not p["is_update"]), key=lambda p: p.pop("_at"))
 
     closed: list[dict] = []
     raw_closed = (raw or {}).get("closed") if isinstance((raw or {}).get("closed"), list) else []
@@ -311,13 +359,16 @@ def finalize(raw: Optional[dict], req: LiveReading, ctx: brain.BrainContext) -> 
 
 def _content(item: dict, snapshot: Optional[dict], sources: dict[str, str], allowed: set[str], drop) -> dict[str, Any]:
     """decision, what to say and its source: the part of a point that is the brain's judgement, after the checks."""
-    say = " ".join(str(item.get("say") or "").split())[:SAY_MAX].strip()
+    said = " ".join(str(item.get("say") or "").split())
+    say, cut = short(said)
+    if cut:
+        drop("answer_cut")
     decision = item.get("decision") if item.get("decision") in DECISIONS else None
     if decision and not snapshot:
         decision = None  # no playbook to justify it (rule 2)
         drop("decision_without_playbook")
     note = brain._clip(item.get("why") or item.get("decision_note"), 80) if decision and decision != "responder" else ""
-    if say and brain.invented_numbers(say, allowed):
+    if say and brain.invented_numbers(said, allowed):
         # Source or silence: a figure, a count or an hour that is in no source and was not said in the call is an invention.
         drop("invented_number")
         say = ""

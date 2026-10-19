@@ -338,6 +338,52 @@ def agreement(played: dict, labels: list[dict]) -> list[dict]:
     return rows
 
 
+def said_order(point: dict, turns_by_id: dict) -> tuple[int, int]:
+    """Where a point was said: its first turn, then where its words start inside that turn (as the points producer orders them)."""
+    from app.services.copilot.live_points import offset_in
+
+    first = point["turn_ids"][0]
+    return turns_by_id[first][0], offset_in(point.get("title") or "", turns_by_id[first][1])
+
+
+def per_turn(played_calls: list[dict], labels: list[dict]) -> dict:
+    """Step 1 of the 2026-10-19 order of work: points per turn that has something, nothing on turns that have nothing,
+    short answers, order kept. "Has something" is the brain's own decision (a point was written for that turn); the labels
+    add the moments a person marked (unconfirmed until Dani confirms them)."""
+    per_turn_counts, lengths, sentences = [], [], []
+    readings = fired = out_of_order = 0
+    for p in played_calls:
+        by_turn: dict[str, int] = {}
+        for point in p["state"]["points"]:
+            by_turn[point["turn_ids"][0]] = by_turn.get(point["turn_ids"][0], 0) + 1
+            text = point.get("answer") or point.get("fallback") or ""
+            if text:
+                lengths.append(words(text))
+                sentences.append(len([s for s in re.split(r"(?<=[.?!])\s+", text.strip()) if s]))
+        per_turn_counts += list(by_turn.values())
+        index = {t["id"]: (n, t["text"]) for n, t in enumerate(p["call"]["turns"])}
+        for r in p["readings"]:
+            if r["producer"] != "points" or r["reason"] != "turn_end" or r.get("error"):
+                continue
+            readings += 1
+            fired += bool(r.get("new"))
+            order = [said_order(x, index) for x in r.get("new") or []]
+            out_of_order += order != sorted(order)
+    rows = [row for p in played_calls for row in agreement(p, labels)]
+    need = [r for r in rows if r["label"]["expect"]["decision"] != "none"]
+    none = [r for r in rows if r["label"]["expect"]["decision"] == "none"]
+    dist = {"1": sum(1 for c in per_turn_counts if c == 1), "2": sum(1 for c in per_turn_counts if c == 2), "3+": sum(1 for c in per_turn_counts if c >= 3)}
+    return {
+        "turns_with_points": len(per_turn_counts), "points_per_turn_with_points": round(sum(per_turn_counts) / len(per_turn_counts), 2) if per_turn_counts else None,
+        "per_turn_distribution": dist,
+        "turn_end_readings": readings, "turn_end_readings_that_wrote": fired, "results_out_of_order": out_of_order,
+        "answer_words": {"n": len(lengths), "p50": pct(lengths, .5), "p90": pct(lengths, .9), "max": max(lengths, default=None),
+                         "over_20": sum(1 for n in lengths if n > 20), "over_2_sentences": sum(1 for n in sentences if n > 2)},
+        "labels_need_with_point": f"{sum(1 for r in need if r['got'] != 'none')}/{len(need)}",
+        "labels_nothing_with_point": f"{sum(1 for r in none if r['got'] != 'none')}/{len(none)}",
+    }
+
+
 # ---------- report ----------
 
 
@@ -363,7 +409,7 @@ def summarise(played_calls: list[dict], labels: list[dict], judged: dict) -> dic
             "progress_ms": {"n": len(progress_ms), "p50": pct(progress_ms, .5), "p90": pct(progress_ms, .9), "max": max(progress_ms, default=None)},
         },
         "errors": errors, "duplicates": {k: v for k, v in dup.items() if v}, "guards": guards,
-        "invented": judged, "decision_rows": rows,
+        "invented": judged, "decision_rows": rows, "per_turn": per_turn(played_calls, labels),
         "agreement": {"labelled": len(rows), "agree": sum(r["ok"] for r in rows), "confirmed_labels": len(confirmed),
                       "confirmed_agree": sum(r["ok"] for r in confirmed)},
     }
@@ -385,6 +431,7 @@ def render(summary: dict, played_calls: list[dict], *, details: bool, served: di
     lat = summary["latency"]
     inv = summary["invented"]
     agree = summary["agreement"]
+    pt = summary["per_turn"]
 
     def row(name: str, value: dict) -> str:
         return f"| {name} | {value['n']} | {value['p50']} | {value['p90']} | {value['max']} |"
@@ -405,6 +452,18 @@ def render(summary: dict, played_calls: list[dict], *, details: bool, served: di
         f"| Points latency, model time, readings that wrote a point | p90 {lat['points_with_a_new_point_ms']['p90']} ms | ≤ 1100 ms |",
         f"| Progress latency, model time | p90 {lat['progress_ms']['p90']} ms | ≤ 3000 ms |",
         f"| Reading errors | {len(summary['errors'])} | 0 |",
+        "",
+        "## One reply per prospect turn (order of work 1)",
+        "",
+        "| Measure | Result |",
+        "|---|---|",
+        f"| Turns with at least one point (the brain's decision) | {pt['turns_with_points']} |",
+        f"| Points per turn that has something | {pt['points_per_turn_with_points']} (1: {pt['per_turn_distribution']['1']}, 2: {pt['per_turn_distribution']['2']}, 3+: {pt['per_turn_distribution']['3+']}) |",
+        f"| End-of-turn readings that wrote a point | {pt['turn_end_readings_that_wrote']} of {pt['turn_end_readings']} |",
+        f"| Labelled moments to handle that got a point | {pt['labels_need_with_point']} |",
+        f"| Labelled moments with nothing to handle that got a point | {pt['labels_nothing_with_point']} |",
+        f"| Results whose points are not in the order said | {pt['results_out_of_order']} |",
+        f"| Answer length, words | p50 {pt['answer_words']['p50']} · p90 {pt['answer_words']['p90']} · max {pt['answer_words']['max']} (n {pt['answer_words']['n']}; over 20: {pt['answer_words']['over_20']}; over 2 sentences: {pt['answer_words']['over_2_sentences']}) |",
         "",
         "## Latency (ms, model time from the request to the end of the model's answer)",
         "",
