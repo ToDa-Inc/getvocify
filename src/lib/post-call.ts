@@ -288,6 +288,38 @@ export function summaryLines(markdown: string | null | undefined, max = Infinity
   return lines.length ? lines.join("\n") : null;
 }
 
+/** A task the rep added in the island's card: its title and the day it is due (YYYY-MM-DD). */
+export type NewTask = { title: string; due: string };
+
+/** The tasks the island sent, as far as they can be written: a title and a real YYYY-MM-DD day. Anything else is dropped. */
+export function newTasksFrom(raw: unknown): NewTask[] {
+  if (!Array.isArray(raw)) return [];
+  const tasks: NewTask[] = [];
+  for (const item of raw.slice(0, 20)) {
+    const row = item && typeof item === "object" ? (item as Record<string, unknown>) : null;
+    const title = typeof row?.title === "string" ? row.title.replace(/\s+/g, " ").trim().slice(0, 200) : "";
+    const due = typeof row?.due === "string" ? row.due : "";
+    if (title && /^\d{4}-\d{2}-\d{2}$/.test(due) && !Number.isNaN(Date.parse(`${due}T00:00:00Z`))) tasks.push({ title, due });
+  }
+  return tasks;
+}
+
+/**
+ * The call's next steps with the rep's tasks after them, and the day of each step in the same order (the backend writes
+ * a next step as a CRM task and reads its day from there). Nothing added leaves the extraction's steps and days as they are.
+ */
+export function withAddedTasks(
+  extraction: { nextSteps?: string[] | null; raw_extraction?: Record<string, unknown> } | null | undefined,
+  added: NewTask[],
+): { nextSteps: string[]; nextStepSchedules?: string[] } {
+  const steps = extraction?.nextSteps ?? [];
+  if (added.length === 0) return { nextSteps: steps };
+  const raw = extraction?.raw_extraction ?? {};
+  const known = Array.isArray(raw.nextStepSchedules) ? raw.nextStepSchedules : Array.isArray(raw.next_step_schedules) ? raw.next_step_schedules : [];
+  const days = steps.map((_, i) => (typeof known[i] === "string" ? (known[i] as string) : ""));
+  return { nextSteps: [...steps, ...added.map((task) => task.title)], nextStepSchedules: [...days, ...added.map((task) => task.due)] };
+}
+
 /**
  * The note the rep edited in the island, back as the note's markdown: a line they left as it
  * was keeps its heading, bullet and bold; a line they wrote or changed is plain text. Lines

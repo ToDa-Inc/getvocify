@@ -1,6 +1,6 @@
 // Runs one of state.js's merges from outside JavaScript (the backend's evals carry the state through a call with the same
 // code the dashboard uses, not a copy): reads {"op", "state", "result"?, "args"?} on stdin, writes the new state.
-import { applyPoints, applyProgress, dismissPoint, emptyLiveState, pointsIn, progressIn, tick, untick } from "./state.js";
+import { applyPoints, applyProgress, applyRewrite, dismissPoint, emptyLiveState, pointsIn, progressIn, tick, untick } from "./state.js";
 
 const input = JSON.parse(await new Promise((resolve) => {
   let text = "";
@@ -12,6 +12,7 @@ const ops = {
   empty: () => emptyLiveState(args.call_id ?? ""),
   applyPoints: () => applyPoints(state, result, args),
   applyProgress: () => applyProgress(state, result),
+  applyRewrite: () => applyRewrite(state, result),
   dismissPoint: () => dismissPoint(state, args.id),
   tick: () => tick(state, args.id, args.kind),
   untick: () => untick(state, args.id, args.kind),

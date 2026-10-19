@@ -86,7 +86,8 @@ def test_a_grounded_point_keeps_its_source_and_a_gap_becomes_the_honest_line():
               decision_note="Antes de comparar: falta el dolor", source_id="objection:status_quo", say="¿Qué proceso os cuesta más hoy?"),
         point(turns=["t3"], quote="¿desde cuándo?", grounded=False, source_id=None, gap="La fecha no está escrita", say="Te lo confirmo hoy."),
     ]}, reading(), CTX)
-    first, second, third = out["points"]
+    # In the order said: the third quote is not in t3, so its words are the start of t3, before "no queremos cambiar".
+    first, third, second = out["points"]
     assert first["answer"] == "Sí, se integra con HubSpot." and first["source"] == {"id": "knowledge", "label": "Company knowledge"}
     assert second["decision"] == "reconducir" and second["source"]["label"] == "Playbook · status_quo"
     assert third["answer"] is None and third["fallback"] == "Te lo confirmo hoy." and third["gap"] == "La fecha no está escrita" and third["source"] is None
@@ -135,6 +136,42 @@ def test_a_second_question_in_the_same_turn_is_its_own_point_but_the_same_one_tw
     assert [p["tag_key"] for p in out["points"]] == ["question", "objection:custom:email"]
     assert out["points"][1]["tag"] == "Mándame un email"
     assert out["guards"] == {"duplicate_in_result": 1}
+
+
+def test_the_points_of_one_turn_come_back_each_on_its_own_in_the_order_said():
+    call = turns(("you", "Te cuento"), ("them", "Mándame un email, ¿vale? Y yo se lo reenviaré a la directora comercial y lo hablamos."))
+    out = live_points.finalize({"points": [  # the model wrote the second thing first
+        point(turns=["t1"], quote="se lo reenviaré a la directora", kind="objection", objection_type="authority", decision="reconducir",
+              source_id="call", say="¿Qué necesita ver ella para decidir?"),
+        point(turns=["t1"], quote="Mándame un email", kind="objection", objection_type="objection:custom:email", decision="cerrar",
+              source_id="objection:custom:email", say="Claro, ¿y si lo vemos 15 minutos mañana con ella?"),
+    ]}, reading(call=call), CTX)
+    assert [p["tag_key"] for p in out["points"]] == ["objection:custom:email", "authority"]
+    assert all(p["turn_ids"] == ["t1"] for p in out["points"]) and out["guards"] == {}
+    # A quote that drops a word they said is still found where it was said.
+    text = "No tenemos para cambiar ahora. Y mira, no me fío mucho de que la IA rellene mis campos."
+    assert live_points.offset_in("no me fío de que la IA", text) == live_brain.normalize(text).index("no me fio")
+
+
+def test_nothing_to_handle_is_nothing():
+    out = live_points.finalize({"points": [], "closed": []}, reading(), CTX)
+    assert out["points"] == [] and out["closed"] == [] and out["nothing"] is True
+
+
+def test_what_appears_on_its_own_is_one_or_two_sentences_capped_in_words():
+    assert live_points.short("Sí, se integra con HubSpot. ¿Qué CRM usáis hoy?") == ("Sí, se integra con HubSpot. ¿Qué CRM usáis hoy?", False)
+    # A third sentence, or one that would pass the cap, is left out: whole sentences only.
+    line, cut = live_points.short("Sí. Lo usan equipos de campo. ¿Cuántos sois?")
+    assert (line, cut) == ("Sí. Lo usan equipos de campo.", True)
+    line, cut = live_points.short("Se integra con HubSpot. " + "Y además registra cada visita del equipo de campo sin que tengan que escribir nada en el móvil ni después.")
+    assert (line, cut) == ("Se integra con HubSpot.", True)
+    # One sentence too long on its own: cut at its last pause inside the cap.
+    long = "Lo que hacemos es que el comercial habla al salir de la visita, y Vocify rellena el CRM con los datos, las tareas y el siguiente paso acordado."
+    line, cut = live_points.short(long)
+    assert cut and len(line.split()) <= live_points.ANSWER_MAX_WORDS and line == "Lo que hacemos es que el comercial habla al salir de la visita…"
+    # In a point: the answer shown is the short one, and the cut is counted.
+    (p,) = live_points.finalize({"points": [point(say="Sí, se integra con HubSpot. Y con Salesforce también según lo escrito. ¿Cuál usáis?")]}, reading(), CTX)["points"]
+    assert p["answer"] == "Sí, se integra con HubSpot. Y con Salesforce también según lo escrito."
 
 
 def test_a_figure_no_source_and_nobody_in_the_call_gave_is_an_invention_and_is_not_shown():
@@ -530,3 +567,27 @@ def test_the_brains_log_pauses_on_its_own_when_migration_082_is_missing(monkeypa
     monkeypatch.setattr(events, "_paused_until", 0.0)
     events.record(Failing(), {"kind": "points", "user_id": "u"})
     assert events._brain_paused_until > 0 and events._paused_until == 0.0  # the turn checks and cards still log
+
+
+
+def test_unanswered_points_lists_what_had_no_source_in_their_words():
+    from app.services.copilot import events
+    points = [
+        {"is_update": False, "answer": "Sí, con HubSpot.", "title": "¿os integráis con HubSpot?", "kind": "question", "tag_key": "question"},
+        {"is_update": False, "answer": None, "gap": "dónde se guardan datos", "title": "¿dónde guardáis los datos?", "kind": "question", "tag_key": "question"},
+        {"is_update": True, "answer": None, "gap": "x", "title": "lo repite", "kind": "question"},
+        {"is_update": False, "answer": None, "gap": None, "title": "  ", "kind": "objection"},
+        {"is_update": False, "answer": None, "gap": "precio de planes", "title": "¿qué dos planes tenéis? " * 20, "kind": "question", "tag_key": "question"},
+    ]
+    rows = events.unanswered_points(points)
+    assert [r["said"][:26] for r in rows] == ["¿dónde guardáis los datos?", "¿qué dos planes tenéis? ¿q"]
+    assert rows[0] == {"said": "¿dónde guardáis los datos?", "missing": "dónde se guardan datos", "kind": "question", "tag": "question"}
+    assert len(rows[1]["said"]) <= events.UNANSWERED_SAID_MAX
+
+
+def test_unanswered_points_is_none_when_everything_was_answered_and_caps_the_list():
+    from app.services.copilot import events
+    assert events.unanswered_points([{"is_update": False, "answer": "ok", "title": "a"}]) is None
+    assert events.unanswered_points(None) is None
+    many = [{"is_update": False, "answer": None, "title": f"pregunta {i}", "kind": "question"} for i in range(6)]
+    assert len(events.unanswered_points(many)) == events.UNANSWERED_MAX

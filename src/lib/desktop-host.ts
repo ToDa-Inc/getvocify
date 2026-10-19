@@ -9,7 +9,10 @@ export type DesktopCalling = { onPhone: boolean; phoneApp: string | null };
 
 /** The island's own settings on this computer (the tray's "Hide island" is the same switch). */
 export type IslandAppearance = "auto" | "light" | "dark";
-export type IslandState = { appearance: IslandAppearance; visible: boolean };
+/** Where the island sits: the notch at the top, or a strip at the side of the screen. */
+export type IslandPlacement = "notch" | "side";
+/** What the island's settings report; each app reports only the settings it has. */
+export type IslandState = { appearance?: IslandAppearance; visible?: boolean; placement?: IslandPlacement };
 
 export type VocifyDesktopBridge = {
   platform: "darwin" | "win32";
@@ -60,7 +63,10 @@ export type VocifyDesktopBridge = {
     onCallChannel?(cb: (payload: { kind: "call" | "meeting" }) => void): () => void;
     /** A choice made in the island's post-call card: { type, ...details }. */
     onPostCallAction?(cb: (action: { type: string; [key: string]: unknown }) => void): () => void;
-    /** What the rep did in the island's live call assistant (flag LIVE_BRAIN_ENABLED): responder, preguntar, resumen, tick, untick, dismiss. */
+    /**
+     * What the rep did in the island's live call assistant (flag LIVE_BRAIN_ENABLED): responder, preguntar, resumen, tick,
+     * untick, dismiss; with the "Qué decir" view also rewrite, ask_step, responder_turn and event (build contract 2026-10-20, §5).
+     */
     onLiveAction?(cb: (action: { type: string; [key: string]: unknown }) => void): () => void;
   };
   saas: {
@@ -122,11 +128,13 @@ export type VocifyDesktopBridge = {
     /** Opens where the call's microphone is chosen (Mac: FaceTime; Windows: Sound › Recording). Missing in older builds. */
     micSettings?(): Promise<unknown>;
   };
-  /** The island's appearance and whether it shows. Missing in older builds. */
+  /** The island's settings on this computer (appearance, whether it shows, where it sits). Missing in older builds. */
   island?: {
     get(): Promise<IslandState>;
-    setAppearance(appearance: IslandAppearance): Promise<IslandState>;
-    setVisible(visible: boolean): Promise<IslandState>;
+    /** Each setter exists only where the app offers that setting (the Electron app: placement only, so far). */
+    setAppearance?(appearance: IslandAppearance): Promise<IslandState>;
+    setVisible?(visible: boolean): Promise<IslandState>;
+    setPlacement?(placement: IslandPlacement): Promise<IslandState>;
   };
   /** The global record shortcut. Missing in older builds. */
   shortcut?: {

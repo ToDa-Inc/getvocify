@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
-  applyPoints, applyProgress, dismissPoint, emptyLiveState, openPoints, pointsIn, progressIn, tick, unansweredPoints, untick,
+  applyPoints, applyProgress, applyRewrite, dismissPoint, emptyLiveState, openPoints, pointsIn, progressIn, tick, unansweredPoints, untick,
 } from "./state.js";
 
 const example = JSON.parse(readFileSync(new URL("./example.json", import.meta.url), "utf8"));
@@ -60,10 +60,45 @@ describe("points", () => {
     assert.equal(openPoints(state).length, 0);
   });
 
-  it("pointsIn sends the open points and the last closed ones, with what was shown", () => {
-    const state = applyPoints(emptyLiveState(), pointsResult([point(), point({ id: "pt-2", outcome: "answered" })]));
+  it("pointsIn sends the open points and the last closed ones, with what was shown and where it came from", () => {
+    let state = applyPoints(emptyLiveState(), pointsResult([point(), point({ id: "pt-2", outcome: "answered", source: null })]));
+    state = applyRewrite(state, { point_id: "pt-1", version: 2, answer: "Treinta euros al mes por persona." });
     assert.deepEqual(pointsIn(state).map((p) => p.id), ["pt-2", "pt-1"]);
     assert.equal(pointsIn(state)[1].say, "Son 30 € al mes.");
+    assert.deepEqual(pointsIn(state)[1].versions, ["Son 30 € al mes.", "Treinta euros al mes por persona."]);
+    assert.deepEqual(pointsIn(state).map((p) => p.source_id), [null, "knowledge"]);
+  });
+});
+
+describe("go deeper and versions", () => {
+  it("a deepen point is a point like any other: its words are its first version", () => {
+    const state = applyPoints(emptyLiveState(), pointsResult([example.deepen_point]));
+    assert.equal(state.points[0].kind, "deepen");
+    assert.deepEqual(state.points[0].versions, ["¿Cuántas horas a la semana se os van en meterlo en el CRM?"]);
+    assert.deepEqual(state.points[0].turn_ids, ["t8"]);
+  });
+
+  it("a point still being read has no version until its words are written", () => {
+    let state = applyPoints(emptyLiveState(), pointsResult([point({ answer: null, fallback: null })]));
+    assert.deepEqual(state.points[0].versions, []);
+    state = applyPoints(state, pointsResult([{ id: "pt-1", is_update: true, turn_ids: ["t1"], repeated: false, fallback: "Lo confirmo y te digo." }]));
+    assert.deepEqual(state.points[0].versions, ["Lo confirmo y te digo."]);
+  });
+
+  it("a rewrite is appended once; an empty one, an unknown point or a point still being read change nothing", () => {
+    let state = applyPoints(emptyLiveState(), example.points_result);
+    const { rewrite } = example.rewrite_result;
+    state = applyRewrite(state, rewrite);
+    assert.deepEqual(state.points[0].versions, [example.points_result.points[0].answer, rewrite.answer]);
+    assert.equal(applyRewrite(state, rewrite), state);
+    assert.equal(applyRewrite(state, { ...rewrite, answer: "  " }), state);
+    assert.equal(applyRewrite(state, null), state);
+    assert.equal(applyRewrite(state, { ...rewrite, point_id: "pt-nope" }), state);
+    const reading = applyPoints(emptyLiveState(), pointsResult([point({ answer: null, fallback: null })]));
+    assert.equal(applyRewrite(reading, { point_id: "pt-1", version: 0, answer: "Algo." }), reading);
+    // Text on screen is never replaced: a later reading's words do not touch the versions.
+    state = applyPoints(state, pointsResult([{ ...example.points_result.points[0], answer: "Otra." }]));
+    assert.equal(state.points[0].versions.length, 2);
   });
 });
 
@@ -105,6 +140,43 @@ describe("progress", () => {
     assert.ok(!applyProgress(state, brainTicks).progress.steps.plantear_el_problema);
     state = untick(state, "apertura_con_marco", "step"); // something the brain had ticked
     assert.ok(!applyProgress(state, example.progress_result).progress.steps.apertura_con_marco);
+  });
+
+  it("a step with parts: parts heard accumulate, the step is done when the producer says so", () => {
+    let state = applyProgress(emptyLiveState(), example.progress_result);
+    assert.ok(!state.progress.steps.cualificar_el_encaje);
+    assert.deepEqual(state.progress.parts.cualificar_el_encaje, { crm_que_usan: { quote: "usamos Salesforce" } });
+    assert.deepEqual(state.progress.part_lists.cualificar_el_encaje.need, 3);
+    assert.deepEqual(state.progress.part_lists.cualificar_el_encaje.parts.map((p) => p.id), ["crm_que_usan", "visitas_al_dia", "quien_decide"]);
+    const step = example.progress_result.steps[1];
+    const heard = (ids) => ({ ...step, parts: step.parts.map((p) => ({ ...p, done: ids.includes(p.id), quote: ids.includes(p.id) ? `q ${p.id}` : null })) });
+    // A later reading that does not hear the CRM again does not undo it.
+    state = applyProgress(state, { ...example.progress_result, state_version: 4, steps: [heard(["visitas_al_dia"])] });
+    assert.ok(!state.progress.steps.cualificar_el_encaje);
+    assert.deepEqual(Object.keys(state.progress.parts.cualificar_el_encaje), ["crm_que_usan", "visitas_al_dia"]);
+    state = applyProgress(state, { ...example.progress_result, state_version: 5, steps: [{ ...heard(["quien_decide"]), status: "done" }] });
+    const done = state.progress.steps.cualificar_el_encaje;
+    assert.deepEqual([done.status, done.by, done.need], ["done", "brain", 3]);
+    assert.deepEqual(done.parts.map((p) => [p.id, p.done, p.quote]), [
+      ["crm_que_usan", true, "usamos Salesforce"], ["visitas_al_dia", true, "q visitas_al_dia"], ["quien_decide", true, "q quien_decide"],
+    ]);
+    assert.deepEqual(progressIn(state).done_steps, ["apertura_con_marco", "cualificar_el_encaje"]);
+    assert.deepEqual(progressIn(state).parts, { cualificar_el_encaje: ["crm_que_usan", "visitas_al_dia", "quien_decide"] });
+  });
+
+  it("the rep's untick of a step with parts is final even when its parts are heard", () => {
+    let state = untick(emptyLiveState(), "cualificar_el_encaje", "step");
+    const step = example.progress_result.steps[1];
+    state = applyProgress(state, { ...example.progress_result, steps: [{ ...step, status: "done", parts: step.parts.map((p) => ({ ...p, done: true })) }] });
+    assert.ok(!state.progress.steps.cualificar_el_encaje);
+    assert.equal(Object.keys(state.progress.parts.cualificar_el_encaje).length, 3);
+  });
+
+  it("reads a state written before parts existed", () => {
+    const old = emptyLiveState();
+    delete old.progress.parts;
+    delete old.progress.part_lists;
+    assert.ok(applyProgress(old, example.progress_result).progress.parts.cualificar_el_encaje);
   });
 
   it("a skipped reading changes nothing but the cursor", () => {

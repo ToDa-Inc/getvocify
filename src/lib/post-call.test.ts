@@ -17,6 +17,8 @@ import {
   withEdits,
   withLeadStatus,
   type PostCall,
+  newTasksFrom,
+  withAddedTasks,
 } from "./post-call.ts";
 
 describe("changesFrom", () => {
@@ -311,5 +313,24 @@ describe("lead status offered on every call", () => {
     const picked = withEdits(proposed, { "contacts:hs_lead_status": "CONNECTED" });
     assert.equal(picked[0].new_value, "CONNECTED");
     assert.equal(withEdits(proposed, { "contacts:hs_lead_status": "NOPE" })[0].new_value, "");
+  });
+});
+
+describe("tasks added in the island", () => {
+  it("keeps a title with a real day and drops the rest", () => {
+    const tasks = newTasksFrom([{ title: "  Send   the proposal ", due: "2026-10-20" }, { title: "", due: "2026-10-20" }, { title: "No day" }, { title: "Bad day", due: "2026-13-40" }, "x"]);
+    assert.deepEqual(tasks, [{ title: "Send the proposal", due: "2026-10-20" }]);
+    assert.deepEqual(newTasksFrom(undefined), []);
+  });
+
+  it("puts them after the call's steps, each with its day", () => {
+    const out = withAddedTasks({ nextSteps: ["Call back"], raw_extraction: { nextStepSchedules: ["2026-10-21"] } }, [{ title: "Send the proposal", due: "2026-10-20" }]);
+    assert.deepEqual(out, { nextSteps: ["Call back", "Send the proposal"], nextStepSchedules: ["2026-10-21", "2026-10-20"] });
+  });
+
+  it("pads the days of steps that had none, and leaves the extraction alone when nothing was added", () => {
+    const out = withAddedTasks({ nextSteps: ["A", "B"] }, [{ title: "C", due: "2026-10-20" }]);
+    assert.deepEqual(out.nextStepSchedules, ["", "", "2026-10-20"]);
+    assert.deepEqual(withAddedTasks({ nextSteps: ["A"] }, []), { nextSteps: ["A"] });
   });
 });

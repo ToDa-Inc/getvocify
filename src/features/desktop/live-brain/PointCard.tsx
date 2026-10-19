@@ -49,6 +49,8 @@ export function FoldAway({ children }: { children: ReactNode }) {
 }
 
 const CARD = "group relative rounded-xl bg-secondary/50 px-3.5 py-3";
+/** A question to go deeper is quieter than an answer: no box, a thin beige line on the left (it is available, never a task). */
+const DEEPEN = "group relative border-l-2 border-beige/50 py-1.5 pl-3 pr-3.5";
 const ENTER = "animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none";
 
 /** Their words, short, in the card's head. */
@@ -62,7 +64,10 @@ function Head({ tag, quote, repeated, copy, accent, children }: { tag: string; q
   );
 }
 
-/** A point: the tag and their words (small), what to say (the only large text), the source one click away on the tag. */
+/**
+ * A point: the tag and their words (small), what to say (the only large text), the source one click away on the tag. A
+ * question to go deeper ("deepen") draws quieter, as on the island.
+ */
 export function PointCard({
   point,
   copy,
@@ -83,11 +88,12 @@ export function PointCard({
   const noFact = !point.answer && Boolean(point.fallback);
   const tag = pointTag(copy, point);
   const source = point.source?.label ?? null;
+  const deepen = point.kind === "deepen";
   return (
     <div
       data-point={point.id}
       tabIndex={-1}
-      className={cn(CARD, "space-y-1.5 transition-shadow duration-700", enter && ENTER, pulse && "ring-2 ring-beige/50")}
+      className={cn(deepen ? DEEPEN : CARD, "space-y-1.5 transition-shadow duration-700", enter && ENTER, pulse && "ring-2 ring-beige/50")}
     >
       <Head tag={tag} quote={point.title} repeated={point.repeated} copy={copy} accent={point.kind !== "question"}>
         <Tooltip>
@@ -131,7 +137,7 @@ export function PointCard({
           {copy.notInKnowledge}
         </p>
       ) : null}
-      <p className="select-text text-[15px] font-medium leading-snug text-foreground">{says}</p>
+      <p className={cn("select-text leading-snug", deepen ? "text-[14px] text-foreground/85" : "text-[15px] font-medium text-foreground")}>{says}</p>
       {showSource && source ? <p className="text-[11px] text-muted-foreground">{copy.sourceOf(source)}</p> : null}
     </div>
   );

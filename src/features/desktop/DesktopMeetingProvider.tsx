@@ -64,9 +64,11 @@ import {
   leadStatusUpdate,
   meetingFrom,
   pollDelayMs,
+  newTasksFrom,
   noteMarkdown,
   retypedTo,
   summaryLines,
+  withAddedTasks,
   withEdits,
   withLeadStatus,
   type PostCall,
@@ -816,8 +818,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           const edits = action.edits && typeof action.edits === "object" ? (action.edits as Record<string, unknown>) : null;
           // The note as the rep left it in the island; absent when they didn't touch it.
           const note = typeof action.note === "string" ? action.note : null;
-          const kept = current.state.changes.length - omit.filter((key) => current.state.changes.some((c) => c.key === key)).length;
-          // Nothing ticked is still a save when the rep wrote a note: it goes to the CRM on its own.
+          const added = newTasksFrom(action.tasks);
+          const kept = current.state.changes.length - omit.filter((key) => current.state.changes.some((c) => c.key === key)).length + added.length;
+          // Nothing ticked is still a save when the rep wrote a note or added a task: they go to the CRM on their own.
           if (kept <= 0 && !note?.trim()) return;
           showPostCall({ stage: "applying", undoUntil: Date.now() + UNDO_MS });
           current.undoTimer = window.setTimeout(async () => {
@@ -830,7 +833,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
                 updates: withEdits(current.proposed, edits).filter((update) => !omit.includes(proposedFieldKey(update) ?? "")),
                 omittedKeys: omit,
                 summary: note !== null ? noteMarkdown(note, memo.extraction?.summary) : memo.extraction?.summary ?? "",
-                nextSteps: memo.extraction?.nextSteps ?? [],
+                ...withAddedTasks(memo.extraction, added),
               });
               await memosApi.approveForContact(memoId, extraction);
               if (current.run.cancelled) return;

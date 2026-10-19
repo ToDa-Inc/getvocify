@@ -1,5 +1,6 @@
 import { LiveTranscript } from "@/features/recording/components";
 import { useTypeOptions } from "@/features/interactions/hooks/useTypeOptions";
+import { useAuth } from "@/features/auth";
 import { useLanguage } from "@/lib/i18n";
 import type { DesktopMeeting } from "../DesktopMeetingProvider";
 import { useLiveBrain } from "../assist/useLiveBrain";
@@ -22,16 +23,20 @@ export function LiveBrainSection({
   onHelpChange: (on: boolean) => void;
 }) {
   const { language } = useLanguage();
+  const { user } = useAuth();
+  // The "Qué decir" view (build contract 2026-10-20): the island draws it and the brain may suggest going deeper.
+  const sayView = Boolean(user?.company?.features?.includes("LIVE_SAY_VIEW_ENABLED"));
   const copy = liveCopy(language);
   const types = useTypeOptions();
   const typeKey = meeting.callType.key;
   const typeName = typeKey ? types.options.find((option) => option.key === typeKey)?.label ?? types.labelOf(typeKey) : null;
   const brain = useLiveBrain(
     meeting.turns,
-    { flag: true, enabled: helpOn && live && !meeting.paused, helpOn },
+    { flag: true, enabled: helpOn && live && !meeting.paused, helpOn, sayView },
     {
       callId: meeting.callId,
       contactId: meeting.contact?.hubspotId,
+      contactName: meeting.contact?.name,
       callMode: meeting.callMode,
       typeKey,
       typeLabel: typeName,

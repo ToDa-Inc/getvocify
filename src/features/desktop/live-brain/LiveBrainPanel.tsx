@@ -92,7 +92,7 @@ export function LiveBrainPanel({
 
   const pv = useMemo(() => progressView(brain.state.progress, brain.playbook, copy.goal), [brain.state.progress, brain.playbook, copy.goal]);
   const points = useMemo(() => pointsView(brain.state.points, expanded), [brain.state.points, expanded]);
-  const helpCount = helpOn ? points.open.length : 0;
+  const helpCount = helpOn ? points.waiting.length : 0;
   const doCount = helpOn ? pv.picks : 0;
 
   // A count that goes up pulses its tab once; one that goes down does nothing.
@@ -169,10 +169,10 @@ export function LiveBrainPanel({
   };
 
   // The chip: what waits outside the open tab.
-  const newestOpen = points.open[points.open.length - 1];
+  const newestOpen = points.waiting[points.waiting.length - 1];
   const chip =
-    helpOn && points.open.length && tab !== "help"
-      ? { lead: copy.chipWaiting(points.open.length), tip: points.open.map((p: { title: string }) => p.title).join(" · "), go: () => setPeek({ kind: "point", id: newestOpen.id }) }
+    helpOn && points.waiting.length && tab !== "help"
+      ? { lead: copy.chipWaiting(points.waiting.length), tip: points.waiting.map((p: { title: string }) => p.title).join(" · "), go: () => setPeek({ kind: "point", id: newestOpen.id }) }
       : helpOn && tab !== "conversation" && pv.now && pv.picks > 0
         ? { lead: copy.chipMissing, tip: pv.falta.slice(0, 3).map((f) => f.label).join(" · "), go: () => setPeek({ kind: "now" }) }
         : null;

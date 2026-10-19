@@ -16,6 +16,7 @@ const ES = {
   chipWaiting: (n: number) => (n === 1 ? "1 por responder" : `${n} por responder`),
   chipMissing: "Falta",
   question: "Pregunta",
+  deepen: "Puedes preguntar",
   repeats: "Lo repite",
   kinds: {
     question: "Pregunta",
@@ -95,6 +96,7 @@ const EN: Copy = {
   chipWaiting: (n) => (n === 1 ? "1 to answer" : `${n} to answer`),
   chipMissing: "Missing",
   question: "Question",
+  deepen: "You could ask",
   repeats: "Said again",
   kinds: {
     question: "Question",
@@ -165,6 +167,7 @@ export type LiveCopy = Copy;
 
 /** The tag of a point: the playbook entry's name when it has one, else the kind in words. */
 export function pointTag(copy: Copy, point: { kind: string; tag_key: string; tag: string | null }): string {
+  if (point.kind === "deepen") return copy.deepen;
   if (point.tag) return point.tag;
   if (point.tag_key === "question" || point.kind === "question") return copy.question;
   return copy.kinds[point.tag_key] ?? copy.objection;

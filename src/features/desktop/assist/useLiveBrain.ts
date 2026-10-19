@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { playbooksApi } from "@/features/playbooks/api";
 import { getDesktopBridge } from "@/lib/desktop-host";
+import { api } from "@/shared/lib/api-client";
 import { assistContext, BACKSTOP_MS, turnCheck } from "@/lib/live-assist";
 import {
   buildReading,
   clearProgressCursor,
+  contactBrief,
   liveBrainPayload,
+  nextAsk,
   longTurnDue,
   OFFLINE_AFTER,
   playbookView,
@@ -16,25 +19,38 @@ import {
   resetForType,
   streamedPoints,
   toWireTurns,
+  turnsUpTo,
   type LiveBrainAsks,
   type LiveDraft,
   type LiveReason,
   type ReadMark,
   type ReadingCall,
+  type ReadingTarget,
 } from "@/lib/live-brain";
 import type { MeetingDisplayTurn } from "@/lib/meeting-transcript";
-import { applyPoints, applyProgress, dismissPoint, emptyLiveState, tick, untick } from "../../../../shared/live-call/state.js";
+import { applyPoints, applyProgress, applyRewrite, dismissPoint, emptyLiveState, tick, untick } from "../../../../shared/live-call/state.js";
 import { createReader } from "../../../../shared/live-call/reader.js";
-import { LiveBrainError, readSlow, streamPoints } from "./liveBrainApi";
+import { EVENTS_PER_REQUEST, LiveBrainError, pointsResult, postEvents, readSlow, streamPoints, type LiveUiEvent } from "./liveBrainApi";
 import { useProspectPause } from "./useLiveAssist";
 import { readTurn } from "./sources";
 
 /** How the island's push is throttled: a change waits at most this long (many tokens make one push). */
 const PUSH_MS = 250;
+/** UI events wait at most this long before they are sent together. */
+const EVENTS_MS = 5000;
+/** The UI events the backend logs (contract §2.4); anything else the island sends is not ours to log. */
+const EVENT_KINDS = new Set([
+  "shown", "dismissed", "reopened", "rewrite", "ask_step", "tick", "untick", "responder", "bubble",
+  "open_recap", "open_steps", "open_brief", "marker_shown", "marker_seen",
+]);
+const POINT_EVENTS = new Set(["shown", "dismissed", "reopened", "rewrite"]);
+const STEP_EVENTS = new Set(["ask_step", "tick", "untick"]);
 
 export type LiveBrainCall = {
   callId?: string | null;
   contactId?: string | null;
+  /** The contact's name as the CRM has it: the island's contact button. */
+  contactName?: string | null;
   callMode?: "softphone" | "meeting";
   typeKey?: string | null;
   /** The type's name as the rep sees it. */
@@ -45,8 +61,9 @@ export type LiveBrainCall = {
 
 type Spec = { reason: LiveReason; mark: ReadMark; typeChanged?: boolean };
 type Kind = "step" | "data" | "goal";
+type ResultPoint = { id: string };
 
-const NO_ASKS: LiveBrainAsks = { responder: null, recap: null };
+const NO_ASKS: LiveBrainAsks = { responder: null, recap: null, step: null, rewrite: null };
 
 /**
  * The live call assistant on the dashboard (spec 2026-10-16-live-call-assistant-design.md): holds the LiveState, reads at
@@ -54,9 +71,15 @@ const NO_ASKS: LiveBrainAsks = { responder: null, recap: null };
  * Only runs behind the company flag; with it off nothing here is active and today's live help (useLiveAssist) is.
  *
  * `enabled`: the flag, live help on, the call recording and not paused. `flag`: only the flag (the island is told when help is off).
+ * `sayView`: the company flag LIVE_SAY_VIEW_ENABLED: the island draws "Qué decir" and the brain may suggest going deeper.
  */
-export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean; enabled: boolean; helpOn: boolean }, call: LiveBrainCall = {}) {
+export function useLiveBrain(
+  turns: MeetingDisplayTurn[],
+  opts: { flag: boolean; enabled: boolean; helpOn: boolean; sayView?: boolean },
+  call: LiveBrainCall = {},
+) {
   const { flag, enabled, helpOn } = opts;
+  const sayView = Boolean(opts.sayView);
   const callId = call.callId ?? null;
   const active = flag && enabled && Boolean(callId);
 
@@ -76,6 +99,8 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
   callRef.current = call;
   const activeRef = useRef(active);
   activeRef.current = active;
+  const sayViewRef = useRef(sayView);
+  sayViewRef.current = sayView;
 
   const commit = useCallback((next: typeof stateRef.current) => {
     stateRef.current = next;
@@ -95,6 +120,43 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
     failuresRef.current += 1;
     if (failuresRef.current >= OFFLINE_AFTER) setOfflineSince(lastOkRef.current);
   };
+  /** A reading the backend refused (4xx: a reason or endpoint it does not have yet) is not a lost connection. */
+  const refused = (error: unknown) => {
+    const status = (error as { status?: unknown })?.status;
+    return typeof status === "number" && status >= 400 && status < 500;
+  };
+
+  // ---- what the rep did, logged (contract §2.4): batched, fire-and-forget ----
+  const eventsRef = useRef<{ callId: string | null; queue: LiveUiEvent[]; timer: number | undefined; off: boolean }>({
+    callId: null,
+    queue: [],
+    timer: undefined,
+    off: false,
+  });
+  const flushEvents = useCallback(() => {
+    const box = eventsRef.current;
+    window.clearTimeout(box.timer);
+    box.timer = undefined;
+    const { callId: id, queue } = box;
+    box.queue = [];
+    if (!id || box.off) return;
+    for (let at = 0; at < queue.length; at += EVENTS_PER_REQUEST) {
+      void postEvents(id, queue.slice(at, at + EVENTS_PER_REQUEST)).then((status) => {
+        // A backend without the endpoint: nothing more is sent for this call.
+        if ((status === 404 || status === 405) && eventsRef.current.callId === id) eventsRef.current.off = true;
+      });
+    }
+  }, []);
+  const logEvent = useCallback(
+    (kind: string, fields: Omit<LiveUiEvent, "kind" | "at"> = {}) => {
+      const box = eventsRef.current;
+      if (!activeRef.current || !box.callId || box.off || !EVENT_KINDS.has(kind)) return;
+      box.queue.push({ kind, at: new Date().toISOString(), ...fields });
+      if (box.queue.length >= EVENTS_PER_REQUEST) flushEvents();
+      else if (box.timer === undefined) box.timer = window.setTimeout(flushEvents, EVENTS_MS);
+    },
+    [flushEvents],
+  );
 
   // ---- the readings ----
   const askedRef = useRef<{ points: LiveReason | null; progress: LiveReason | null }>({ points: null, progress: null });
@@ -104,7 +166,10 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
     recap: null,
   });
   const typeChangedRef = useRef(false);
-  const seqRef = useRef({ responder: 0, recap: 0 });
+  const seqRef = useRef({ responder: 0, recap: 0, step: 0, rewrite: 0 });
+  /** Responder about one tapped bubble: the turn it reads (kept with the ask, like its reason). */
+  const askedTurnRef = useRef<string | null>(null);
+  const oneShotRef = useRef<{ step: AbortController | null; rewrite: AbortController | null }>({ step: null, rewrite: null });
 
   const readingCall = (): ReadingCall => ({
     callId: callRef.current.callId ?? "",
@@ -117,18 +182,31 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
   const runPoints = async (spec: Spec, options: { asked: boolean }) => {
     const reason = options.asked && askedRef.current.points ? askedRef.current.points : spec.reason;
     askedRef.current.points = null;
-    const wire = toWireTurns(turnsRef.current);
+    const focusTurn = reason === "responder" ? askedTurnRef.current : null;
+    askedTurnRef.current = null;
+    const all = toWireTurns(turnsRef.current);
+    // Responder about a tapped bubble reads that sentence: the call up to it, from it.
+    const wire = focusTurn ? turnsUpTo(all, focusTurn) ?? all : all;
     const responder = reason === "responder";
     if (!activeRef.current || !wire.length) {
-      if (responder) setAsks((a) => ({ ...a, responder: { seq: seqRef.current.responder, status: "nothing", point_id: null } }));
+      if (responder) setAsks((a) => ({ ...a, responder: { seq: seqRef.current.responder, status: "nothing", point_id: null, next: null } }));
       return;
     }
     const controller = new AbortController();
     controllersRef.current.points = controller;
-    const body = buildReading({ call: readingCall(), turns: wire, state: stateRef.current, reason, mark: spec.mark, producer: "points" });
+    const body = buildReading({
+      call: readingCall(),
+      turns: wire,
+      state: stateRef.current,
+      reason,
+      mark: spec.mark,
+      producer: "points",
+      sayView: sayViewRef.current,
+      focusTurn: focusTurn && wire !== all ? focusTurn : null,
+    });
     setReading((r) => ({ ...r, points: true }));
     let text = "";
-    let result: Record<string, unknown> & { points?: { id: string }[] } | null = null;
+    let result: (Record<string, unknown> & { points?: ResultPoint[] }) | null = null;
     let lastDrafts: LiveDraft[] = [];
     try {
       await streamPoints(
@@ -148,8 +226,13 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
       );
       if (!result) throw new LiveBrainError(502, "no result");
       succeeded();
-      const merged = applyPoints(stateRef.current, result, { asked: responder });
+      const before = stateRef.current;
+      const merged = applyPoints(before, result, { asked: responder });
       commit(merged);
+      for (const point of merged.points) {
+        const was = before.points.find((p: ResultPoint) => p.id === point.id);
+        if (was && was.outcome !== "open" && point.outcome === "open") logEvent("reopened", { point_id: point.id });
+      }
       const said = new Set(lastDrafts.map((d) => d.say).filter(Boolean));
       const landed = (result.points ?? []).map((p: { id: string }) => p.id).filter((id: string) => merged.points.some((p: { id: string }) => p.id === id));
       setFromDraft((ids) => [
@@ -158,7 +241,9 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
       ]);
       if (responder) {
         const found = landed.length ? landed[landed.length - 1] : null;
-        setAsks((a) => ({ ...a, responder: { seq: seqRef.current.responder, status: found ? "found" : "nothing", point_id: found } }));
+        // Nothing to answer: the missing item that matters most, with its question (null until the backend gives one).
+        const next = found ? null : nextAsk((result as Record<string, unknown>).next);
+        setAsks((a) => ({ ...a, responder: { seq: seqRef.current.responder, status: found ? "found" : "nothing", point_id: found, next } }));
       }
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -180,7 +265,16 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
     const controller = new AbortController();
     controllersRef.current.progress = controller;
     const changed = Boolean(spec.typeChanged) || typeChangedRef.current;
-    const body = buildReading({ call: readingCall(), turns: wire, state: stateRef.current, reason, mark: spec.mark, producer: "progress", typeChanged: changed });
+    const body = buildReading({
+      call: readingCall(),
+      turns: wire,
+      state: stateRef.current,
+      reason,
+      mark: spec.mark,
+      producer: "progress",
+      typeChanged: changed,
+      sayView: sayViewRef.current,
+    });
     setReading((r) => ({ ...r, progress: true }));
     try {
       const result = await readSlow<Record<string, unknown>>("progress", body, controller.signal);
@@ -197,6 +291,30 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
     } finally {
       if (controllersRef.current.progress === controller) controllersRef.current.progress = null;
       setReading((r) => ({ ...r, progress: false }));
+    }
+  };
+
+  /**
+   * A reading that only answers the rep (a rewrite, a step question): the latest of each kind wins, it adds no points and
+   * moves no cursor. A backend that does not know the reason yet answers 4xx: then there is just nothing new.
+   */
+  const readOnce = async (which: "rewrite" | "step", reason: LiveReason, target: ReadingTarget): Promise<Record<string, unknown> | null> => {
+    oneShotRef.current[which]?.abort();
+    const wire = toWireTurns(turnsRef.current);
+    if (!activeRef.current || !wire.length) return null;
+    const controller = new AbortController();
+    oneShotRef.current[which] = controller;
+    try {
+      const body = buildReading({ call: readingCall(), turns: wire, state: stateRef.current, reason, producer: "points", target, sayView: sayViewRef.current });
+      const result = await pointsResult(body, controller.signal);
+      succeeded();
+      return result;
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
+      if (!refused(error)) failed();
+      return null;
+    } finally {
+      if (oneShotRef.current[which] === controller) oneShotRef.current[which] = null;
     }
   };
 
@@ -309,6 +427,12 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
     controllersRef.current.points?.abort();
     controllersRef.current.progress?.abort();
     controllersRef.current.recap?.abort();
+    oneShotRef.current.step?.abort();
+    oneShotRef.current.rewrite?.abort();
+    askedTurnRef.current = null;
+    // The last call's events go out under its own id; this call starts its own.
+    flushEvents();
+    eventsRef.current = { callId, queue: [], timer: undefined, off: false };
     commit(emptyLiveState(callId ?? ""));
     markRef.current = null;
     lastKeyRef.current = "";
@@ -317,7 +441,7 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
     typeChangedRef.current = false;
     failuresRef.current = 0;
     lastOkRef.current = Date.now();
-    seqRef.current = { responder: 0, recap: 0 };
+    seqRef.current = { responder: 0, recap: 0, step: 0, rewrite: 0 };
     setDrafts([]);
     setFromDraft([]);
     setAsks(NO_ASKS);
@@ -331,10 +455,13 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
     checkRef.current?.abort();
     controllersRef.current.points?.abort();
     controllersRef.current.progress?.abort();
+    oneShotRef.current.step?.abort();
+    oneShotRef.current.rewrite?.abort();
     window.clearTimeout(backstopRef.current);
+    flushEvents();
     setDrafts([]);
     setReading({ points: false, progress: false, recap: false });
-  }, [active]);
+  }, [active, flushEvents]);
 
   useEffect(
     () => () => {
@@ -342,19 +469,76 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
       controllersRef.current.points?.abort();
       controllersRef.current.progress?.abort();
       controllersRef.current.recap?.abort();
+      oneShotRef.current.step?.abort();
+      oneShotRef.current.rewrite?.abort();
       window.clearTimeout(backstopRef.current);
+      flushEvents();
     },
-    [],
+    [flushEvents],
   );
 
   // ---- the rep's asks and marks ----
-  const responder = useCallback(() => {
-    if (!activeRef.current) return;
-    seqRef.current.responder += 1;
-    setAsks((a) => ({ ...a, responder: { seq: seqRef.current.responder, status: "reading", point_id: null } }));
-    askedRef.current.points = "responder";
-    readers.current!.points.request({ reason: "responder", mark: null }, { asked: true });
-  }, []);
+  /** Responder: reads the last minute; with `turnId`, only that bubble (the rep tapped it). */
+  const responder = useCallback(
+    (turnId?: string) => {
+      if (!activeRef.current) return;
+      seqRef.current.responder += 1;
+      setAsks((a) => ({ ...a, responder: { seq: seqRef.current.responder, status: "reading", point_id: null, next: null } }));
+      askedRef.current.points = "responder";
+      askedTurnRef.current = turnId ?? null;
+      logEvent(turnId ? "bubble" : "responder", turnId ? { detail: { turn_id: turnId } } : {});
+      readers.current!.points.request({ reason: "responder", mark: null }, { asked: true });
+    },
+    [logEvent],
+  );
+
+  /** Another version of a point on screen; `version`: how many versions the island already has. */
+  const rewrite = useCallback(
+    async (pointId: string, version: number) => {
+      if (!activeRef.current) return;
+      const point = stateRef.current.points.find((p: ResultPoint) => p.id === pointId);
+      seqRef.current.rewrite += 1;
+      const seq = seqRef.current.rewrite;
+      logEvent("rewrite", { point_id: pointId, detail: { version } });
+      if (!point || !point.versions?.length) return setAsks((a) => ({ ...a, rewrite: { seq, point_id: pointId, status: "none" } }));
+      setAsks((a) => ({ ...a, rewrite: { seq, point_id: pointId, status: "reading" } }));
+      let result: Record<string, unknown> | null = null;
+      try {
+        result = await readOnce("rewrite", "rewrite", { point_id: pointId, version });
+      } catch {
+        return; // a newer rewrite took its place
+      }
+      const answer = result?.rewrite as { point_id?: string; version?: number; answer?: string | null } | null | undefined;
+      const before = stateRef.current;
+      const after = answer?.point_id === pointId ? applyRewrite(before, { point_id: pointId, version: answer.version ?? version, answer: answer.answer ?? null }) : before;
+      if (after !== before) commit(after);
+      setAsks((a) => (a.rewrite?.seq === seq ? { ...a, rewrite: { seq, point_id: pointId, status: after !== before ? "ready" : "none" } } : a));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [commit, logEvent],
+  );
+
+  /** A question for one pending step or data item (the Pasos tap), written from the call. */
+  const askStep = useCallback(
+    async (kind: "step" | "data", id: string) => {
+      if (!activeRef.current) return;
+      seqRef.current.step += 1;
+      const seq = seqRef.current.step;
+      logEvent("ask_step", { step_kind: kind, step_id: id });
+      setAsks((a) => ({ ...a, step: { seq, kind, id, status: "reading", question: null } }));
+      let result: Record<string, unknown> | null = null;
+      try {
+        result = await readOnce("step", "ask_step", { kind, id });
+      } catch {
+        return;
+      }
+      const asked = result?.step_question as { kind?: string; id?: string; question?: string | null } | null | undefined;
+      const question = asked?.id === id && typeof asked.question === "string" && asked.question.trim() ? asked.question.trim() : null;
+      setAsks((a) => (a.step?.seq === seq ? { ...a, step: { seq, kind, id, status: "ready", question } } : a));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [logEvent],
+  );
 
   const preguntar = useCallback(() => {
     if (!activeRef.current) return;
@@ -374,7 +558,7 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
     setAsks((a) => ({ ...a, recap: { seq, status: "reading", up_to_t: upTo?.t ?? null, lines: [], unknown: [] } }));
     setReading((r) => ({ ...r, recap: true }));
     try {
-      const body = buildReading({ call: readingCall(), turns: wire, state: stateRef.current, reason: "resumen", producer: "recap" });
+      const body = buildReading({ call: readingCall(), turns: wire, state: stateRef.current, reason: "resumen", producer: "recap", sayView: sayViewRef.current });
       const result = await readSlow<{ lines?: string[]; unknown?: string[] }>("recap", body, controller.signal);
       succeeded();
       setAsks((a) => ({ ...a, recap: { seq, status: "ready", up_to_t: upTo?.t ?? null, lines: result.lines ?? [], unknown: result.unknown ?? [] } }));
@@ -391,21 +575,54 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
   const tickItem = useCallback(
     (id: string, kind: Kind) => {
       mutate((s) => tick(s, id, kind));
+      logEvent("tick", { step_kind: kind, step_id: id });
       // Ahora and Falta follow the rep's mark on the next reading.
       askedRef.current.progress = "preguntar";
       readers.current!.progress.request({ reason: "preguntar", mark: null }, { asked: true });
     },
-    [mutate],
+    [mutate, logEvent],
   );
-  const untickItem = useCallback((id: string, kind: Kind) => mutate((s) => untick(s, id, kind)), [mutate]);
-  const dismiss = useCallback((id: string) => mutate((s) => dismissPoint(s, id)), [mutate]);
+  const untickItem = useCallback(
+    (id: string, kind: Kind) => {
+      mutate((s) => untick(s, id, kind));
+      logEvent("untick", { step_kind: kind, step_id: id });
+    },
+    [mutate, logEvent],
+  );
+  const dismiss = useCallback(
+    (id: string) => {
+      mutate((s) => dismissPoint(s, id));
+      logEvent("dismissed", { point_id: id });
+    },
+    [mutate, logEvent],
+  );
+
+  /** An event the island logs on its own (what it showed, what the rep opened): its `id` goes where the kind says. */
+  const islandEvent = useCallback(
+    (action: { [key: string]: unknown }) => {
+      const kind = typeof action.kind === "string" ? action.kind : "";
+      const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+      const id = text(action.id);
+      const fields: Omit<LiveUiEvent, "kind" | "at"> = {};
+      const pointId = text(action.point_id) ?? (POINT_EVENTS.has(kind) ? id : undefined);
+      const stepId = text(action.step_id) ?? (STEP_EVENTS.has(kind) ? id : undefined);
+      if (pointId) fields.point_id = pointId;
+      if (stepId) fields.step_id = stepId;
+      if (action.step_kind === "step" || action.step_kind === "data" || action.step_kind === "goal") fields.step_kind = action.step_kind;
+      const detail = action.detail && typeof action.detail === "object" ? { ...(action.detail as Record<string, unknown>) } : {};
+      if (id && id !== pointId && id !== stepId) detail.id = id;
+      if (Object.keys(detail).length) fields.detail = detail;
+      logEvent(kind, fields);
+    },
+    [logEvent],
+  );
 
   /** Closes the Responder ask once its point is dealt with by the view (the island reads `asks`). */
   const clearAsk = useCallback((which: "responder" | "recap") => setAsks((a) => ({ ...a, [which]: null })), []);
 
   // ---- what the island asks for ----
-  const handlersRef = useRef({ responder, preguntar, resumen, tickItem, untickItem, dismiss });
-  handlersRef.current = { responder, preguntar, resumen, tickItem, untickItem, dismiss };
+  const handlersRef = useRef({ responder, preguntar, resumen, tickItem, untickItem, dismiss, rewrite, askStep, islandEvent });
+  handlersRef.current = { responder, preguntar, resumen, tickItem, untickItem, dismiss, rewrite, askStep, islandEvent };
   useEffect(() => {
     if (!flag) return;
     return getDesktopBridge()?.shell.onLiveAction?.((action) => {
@@ -419,6 +636,13 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
         case "tick": return id ? h.tickItem(id, kind) : undefined;
         case "untick": return id ? h.untickItem(id, kind) : undefined;
         case "dismiss": return id ? h.dismiss(id) : undefined;
+        case "rewrite": {
+          const version = typeof action.version === "number" && Number.isFinite(action.version) ? Math.max(0, Math.floor(action.version)) : 1;
+          return id ? void h.rewrite(id, version) : undefined;
+        }
+        case "ask_step": return id && (action.kind === "step" || action.kind === "data") ? void h.askStep(action.kind, id) : undefined;
+        case "responder_turn": return typeof action.turn_id === "string" && action.turn_id ? h.responder(action.turn_id) : undefined;
+        case "event": return h.islandEvent(action);
         default: return undefined;
       }
     });
@@ -441,13 +665,28 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
             hasPlaybook: state.progress.has_playbook || Boolean(editor.data?.steps?.length || editor.data?.qualification?.length),
             editor: editor.data ?? null,
             aids: state.progress.aids,
+            partLists: state.progress.part_lists,
           })
         : null,
-    [typeKey, call.typeLabel, state.progress.playbook, state.progress.has_playbook, state.progress.aids, editor.data],
+    [typeKey, call.typeLabel, state.progress.playbook, state.progress.has_playbook, state.progress.aids, state.progress.part_lists, editor.data],
   );
 
+  // ---- the contact: who they are before this call (only what the CRM and earlier calls say) ----
+  const contactId = call.contactId ?? null;
+  const activity = useQuery({
+    queryKey: ["live-brain-contact", contactId],
+    queryFn: () => api.get<Parameters<typeof contactBrief>[1]>(`/contacts/${encodeURIComponent(contactId as string)}/recent-activity?connection_id=hubspot`),
+    enabled: flag && Boolean(contactId),
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+  const contact = useMemo(() => contactBrief(call.contactName, contactId ? activity.data : null), [call.contactName, contactId, activity.data]);
+
   // ---- the island: the whole state, throttled and as changes ----
-  const payload = flag && callId ? liveBrainPayload({ on: helpOn, callId, state, playbook, reading, offlineSince, drafts, asks, typeChanged }) : null;
+  const payload =
+    flag && callId
+      ? liveBrainPayload({ on: helpOn, callId, state, playbook, reading, offlineSince, drafts, asks, typeChanged, view: sayView ? "say" : "tabs", contact })
+      : null;
   const json = JSON.stringify(payload);
   const pushed = useRef<string | undefined>(undefined);
   const pushTimer = useRef<number | undefined>(undefined);
@@ -481,9 +720,12 @@ export function useLiveBrain(turns: MeetingDisplayTurn[], opts: { flag: boolean;
     asks,
     typeChanged,
     fromDraft,
+    contact,
     responder,
     preguntar,
     resumen,
+    rewrite,
+    askStep,
     tick: tickItem,
     untick: untickItem,
     dismiss,

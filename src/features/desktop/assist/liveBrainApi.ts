@@ -67,3 +67,42 @@ const SLOW_TIMEOUT_MS = 20_000;
 export function readSlow<T>(kind: "progress" | "recap", body: Record<string, unknown>, signal: AbortSignal): Promise<T> {
   return api.post<T>(`/copilot/live/${kind}`, body, { signal, timeoutMs: SLOW_TIMEOUT_MS });
 }
+
+/** One UI event of the live view (build contract 2026-10-20, §2.4). */
+export type LiveUiEvent = {
+  kind: string;
+  /** When it happened (ISO 8601). */
+  at: string;
+  point_id?: string;
+  step_kind?: "step" | "data" | "goal";
+  step_id?: string;
+  detail?: Record<string, unknown>;
+};
+
+/** At most this many events per request (the endpoint's limit). */
+export const EVENTS_PER_REQUEST = 50;
+
+/** POST /copilot/live/events: logging only, never blocks the call. Resolves with the HTTP status (0: not sent). */
+export async function postEvents(callId: string, events: LiveUiEvent[]): Promise<number> {
+  try {
+    await api.post(`/copilot/live/events`, { call_id: callId, events: events.slice(0, EVENTS_PER_REQUEST) }, { timeoutMs: 10_000 });
+    return 204;
+  } catch (error) {
+    return typeof (error as { status?: unknown })?.status === "number" ? (error as { status: number }).status : 0;
+  }
+}
+
+/** A points reading that is only read for its result (a rewrite, a step question): the tokens are not drawn. */
+export async function pointsResult(body: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
+  let result: Record<string, unknown> | null = null;
+  await streamPoints(
+    body,
+    (event) => {
+      if (event.type === "result") result = event;
+      else if (event.type === "error") throw new LiveBrainError(502, event.message ?? "the live brain could not answer");
+    },
+    signal,
+  );
+  if (!result) throw new LiveBrainError(502, "no result");
+  return result;
+}
