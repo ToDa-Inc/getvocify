@@ -406,6 +406,17 @@ Then the island: Qué decir as a list, Responder / Resumen / Pasos / the contact
 flag; tested by Toni on real calls with what is shown, used and dismissed logged. Then the after-call (unanswered and
 promised points into email, tasks and notes) and Siguiente.
 
+**Built 2026-10-20** (wire: `2026-10-20-live-say-view-build-contract.md`):
+- Desktop (`getvocify-desktop` main): the Qué decir view, shown when the dashboard pushes `liveBrain.view = "say"`
+  (7e97088); the closed-island marker (d5540dd); the side placement with its tray choice and `vocifyDesktop.island`
+  bridge (82ac939). Fixtures and click tests for every state (`npm run test:island`, 233 checks), logic and shell tests
+  green. Not yet run on a real call: it needs the dashboard piece (the flag and the new payload) and a desktop build.
+- Backend (deepen, rewrite, ask_step, next, parts, `/live/events`) and dashboard (flag `LIVE_SAY_VIEW_ENABLED`, payload,
+  actions, contact brief, placement setting): proposed as their own sessions, against the contract.
+- Until the backend pieces exist the island degrades on its own: Responder past the last version goes back to the
+  first after 8 s; a Pasos question falls back to the playbook's own question after 4 s; with nothing to answer, the
+  playbook's next item.
+
 ## Open
 
 - The long version of an answer, on request: how it looks and what it says (two attempts rejected).
