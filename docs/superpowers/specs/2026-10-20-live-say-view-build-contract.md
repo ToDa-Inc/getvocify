@@ -64,30 +64,55 @@ Body `{ call_id, events: [{ kind, at, point_id?, step_kind?, step_id?, detail? }
 - `LivePoint.kind` adds `"deepen"`; `LivePoint.turn_ids: string[]`.
 - `LivePoint.versions: string[]` — `[first answer or fallback, ...rewrites]`; `applyRewrite(state, rewrite)` appends.
   The shown version is the island's choice (it cycles), not stored in state.
+- `progress.parts: { [step_id]: { [part_id]: { quote, by? } } }` (only accumulates; the rep's marks are final).
 - `LiveStep.parts?: {id,label,done,quote}[]`, `LiveStep.need?: number` (merged like data: done only accumulates).
 - `asks.step: { seq, kind, id, status: "reading" | "ready", question: string | null } | null`.
+- `asks.rewrite: { seq, point_id, status: "reading" | "ready" | "none" } | null`.
 - `asks.responder` adds `next: { kind, id, label, question } | null`.
 
 ## 4. Island payload (`shell.setState({ liveBrain })`, snake_case on the wire as today)
 
-Additions to `liveBrainPayload`:
+Exact wire, additions to `liveBrainPayload` (everything else unchanged):
 
-- `view: "say" | "tabs"`.
-- `points[]`: `kind` may be `"deepen"`; `turn_ids: string[]`; `versions: string[]` (≥ 1 when the point has text);
-  `rewriting: boolean` (a rewrite reading in flight for it).
-- `playbook.steps[]` / `state.progress.steps[]`: `parts?`, `need?`.
-- `asks.responder.next`; `asks.step` (above).
-- `contact: { name, company, first: boolean, lines: string[] } | null` — the brief: who they are **before** this call
-  (HubSpot activity and earlier calls via `GET /contacts/{id}/recent-activity` or the brief already shown before the
-  call, `islandBrief`); `first: true` when there is no earlier interaction; `null` when there is no contact.
-- Overlay turn ids and `turn_ids` come from the same source (the meeting view's turn ids).
+```jsonc
+{
+  "view": "say",                                  // "say" | "tabs"; absent = "tabs"
+  "state": {
+    "points": [{
+      "kind": "deepen",                           // also "question" | "objection" as today
+      "turn_ids": ["t12", "t13"],                 // same ids as the overlay's turns
+      "versions": ["first answer", "rewrite 1"]   // [answer ?? fallback, ...rewrites]; [] while thinking
+    }],
+    "progress": {
+      "parts": { "<step_id>": { "<part_id>": { "quote": "…" } } }   // parts heard, with evidence; rep marks: by:"rep"
+    }
+  },
+  "playbook": {
+    "steps": [{ "parts": [{ "id": "crm_que_usan", "label": "CRM" }], "need": 3 }]   // only steps whose criterion lists parts
+  },
+  "asks": {
+    "responder": { "seq": 4, "status": "nothing", "point_id": null,
+                   "next": { "kind": "data", "id": "volumen", "label": "Visitas al día", "question": "¿…?" } },
+    "step":      { "seq": 2, "kind": "step", "id": "cualificar_el_encaje", "status": "reading" | "ready", "question": "¿…?" | null },
+    "rewrite":   { "seq": 3, "point_id": "pt-1a2b", "status": "reading" | "ready" | "none" }
+  },
+  "contact": { "name": "Marta Ruiz", "company": "Distribuciones Norte", "first": false, "lines": ["…", "…"] }  // or null
+}
+```
+
+- `contact` is who they are **before** this call (HubSpot activity and earlier calls via `GET /contacts/{id}/recent-activity`,
+  or the brief already shown before the call, `islandBrief`); `first: true` when there is no earlier interaction; `null`
+  when there is no contact. Only what really exists: never a made-up line.
+- `asks.rewrite.status: "none"`: the brain had no other honest angle; the island keeps cycling the versions it has.
+- Overlay turn ids and `turn_ids` must come from the same source (the meeting view's turn ids).
 
 ## 5. Island actions (`livebrain:action`, island → dashboard)
 
 Existing: `responder`, `preguntar`, `resumen`, `tick`, `untick`, `dismiss`. New:
 
-- `{ type: "rewrite", id, version }` — the island shows the next version itself if `versions` already has it (cycling);
-  it sends `rewrite` only when it needs a version that does not exist yet.
+- `{ type: "rewrite", id, version }` — `version` = how many versions the island already has. The island shows the next
+  version itself when `versions` has it (cycling back to the first after the last); it sends `rewrite` only when it
+  needs one that does not exist yet, and shows "Otra forma…" until `versions` grows or `asks.rewrite` says `none`.
 - `{ type: "ask_step", kind, id }` — Pasos tap.
 - `{ type: "responder_turn", turn_id }` — Responder about one tapped bubble (`focus_from` = that turn, the reading only
   that sentence).
