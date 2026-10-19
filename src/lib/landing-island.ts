@@ -8,7 +8,6 @@ export interface IslandStep {
 
 export interface IslandCopy {
   stage: { before: string; join: string; after: string; afterMeta: string };
-  chips: { during: string; after: string };
   steps: [IslandStep, IslandStep, IslandStep];
   before: { contact: string; record: string; brief: { kind: 'task' | 'meeting' | 'chat'; text: string; when: string }[] };
   during: {
@@ -37,7 +36,6 @@ export interface IslandCopy {
 export const islandCopy: Record<Language, IslandCopy> = {
   ES: {
     stage: { before: 'La llamada empieza en 2 min', join: 'Unirse', after: 'Llamada finalizada', afterMeta: 'Duración' },
-    chips: { during: 'Playbook 3/5', after: '4 cambios en el CRM' },
     steps: [
       { label: 'Antes', title: 'Llegas con la historia completa', desc: 'Faltan 2 minutos. Vocify te muestra quién es, qué pasó la última vez y qué falta por hacer.' },
       { label: 'Durante', title: 'Te ayuda mientras hablas', desc: 'Escucha la conversación, la transcribe y te sugiere qué responder cuando surge una objeción.' },
@@ -92,7 +90,6 @@ export const islandCopy: Record<Language, IslandCopy> = {
   },
   EN: {
     stage: { before: 'The call starts in 2 min', join: 'Join', after: 'Call ended', afterMeta: 'Duration' },
-    chips: { during: 'Playbook 3/5', after: '4 CRM changes' },
     steps: [
       { label: 'Before', title: 'Walk in with the full story', desc: 'Two minutes to go. Vocify shows who it is, what happened last time and what is still open.' },
       { label: 'During', title: 'Helps you while you talk', desc: 'It listens, transcribes and suggests what to say when an objection comes up.' },

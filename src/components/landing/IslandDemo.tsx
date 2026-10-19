@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { motion, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { useMotionValueEvent, useReducedMotion, useScroll } from "framer-motion";
 import {
   ArrowUpRight,
   CalendarDays,
@@ -17,7 +17,6 @@ import {
   Pause,
   PhoneOff,
   Sparkles,
-  User,
   Video,
   X,
 } from "lucide-react";
@@ -90,6 +89,18 @@ const Ear = ({ step, elapsed }: { step: number; elapsed: number }) => {
       </span>
     </>
   );
+};
+
+/** A muted camera loop that only plays while its person is speaking, and rests on its last frame otherwise. */
+const Clip = ({ src, poster, playing, className, speaking }: { src: string; poster: string; playing: boolean; className: string; speaking?: boolean }) => {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    if (playing) video.play().catch(() => undefined);
+    else video.pause();
+  }, [playing]);
+  return <video ref={ref} className={className} src={src} poster={poster} data-speaking={speaking} muted loop playsInline preload="auto" aria-hidden />;
 };
 
 const BeforeBody = ({ c, tick }: { c: IslandCopy["before"]; tick: number }) => (
@@ -276,13 +287,6 @@ const IslandDemo = () => {
     setState((cur) => (cur.step === next.step && cur.tick === next.tick && Math.floor(cur.local * 40) === Math.floor(next.local * 40) ? cur : next));
   });
 
-  // depth: the scene eases flat as you scroll in, and follows the pointer on top of that
-  const px = useSpring(useMotionValue(0), { stiffness: 120, damping: 18 });
-  const py = useSpring(useMotionValue(0), { stiffness: 120, damping: 18 });
-  const scrollTilt = useTransform(scrollYProgress, [0, 0.12], [reduced ? 0 : 5, 0]);
-  const rotateX = useTransform([py, scrollTilt], ([a, b]: number[]) => (reduced ? 0 : a) + b);
-  const rotateY = useTransform(px, (v) => (reduced ? 0 : v));
-
   const { step, tick, local } = state;
   const elapsed = START_ELAPSED + Math.round(local * 38);
   const size = SIZES[step];
@@ -314,31 +318,15 @@ const IslandDemo = () => {
           className="id-stage"
           role="img"
           aria-label={copy.steps[step].title}
-          onPointerMove={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            px.set(((e.clientX - r.left) / r.width - 0.5) * 9);
-            py.set(-((e.clientY - r.top) / r.height - 0.5) * 6);
-          }}
-          onPointerLeave={() => {
-            px.set(0);
-            py.set(0);
-          }}
         >
           <div className="id-scene">
-            <motion.div className="id-tilt" style={{ rotateX, rotateY }}>
-              {step > 0 && (
-                <span className="id-chip" data-pos="right" key={step}>
-                  <i />
-                  {copy.chips[step === 1 ? "during" : "after"]}
-                </span>
-              )}
-
+            <div className="id-tilt">
               <div className="id-window" data-phase={["waiting", "live", "ended"][step]} aria-hidden>
                 <div className="id-window-bar">
                   <i /><i /><i />
                 </div>
                 <div className="id-face-wrap">
-                  <img src="/demo/caller.jpg" alt="" className="id-face" data-speaking={step === 1 && lastTurnThem} draggable={false} />
+                  <Clip src="/demo/caller-talking.mp4" poster="/demo/caller.jpg" className="id-face" speaking={lastTurnThem} playing={lastTurnThem && !reduced} />
                   {step === 1 && (
                     <span className="id-name-chip" data-speaking={lastTurnThem}>
                       <i />
@@ -346,7 +334,7 @@ const IslandDemo = () => {
                     </span>
                   )}
                   <span className="id-rep" data-speaking={lastTurnYou} data-phase={["waiting", "live", "ended"][step]}>
-                    <User size={24} strokeWidth={1.5} />
+                    <Clip src="/demo/rep-talking.mp4" poster="/demo/rep.jpg" className="id-rep-clip" playing={lastTurnYou && !reduced} />
                     <span className="id-rep-name">
                       <i />
                       {copy.during.repName}
@@ -396,7 +384,7 @@ const IslandDemo = () => {
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </div>
           </div>
         </div>
 
