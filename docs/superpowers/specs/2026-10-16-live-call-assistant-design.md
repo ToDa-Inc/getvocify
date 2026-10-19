@@ -146,6 +146,12 @@ question on its own, **"what do I say now?"**, and everything else is there only
   seguimiento" when the rep promised to confirm it), and the card fades where it is. The ✓ is never claimed without
   confidence: when the brain is not sure, the card just goes into the history when the conversation moves on. A point the conversation simply moved on from fades with no check (it goes to the
   after-call as unanswered).
+- **Cards are thoughts, not notifications or tasks**: they appear, evolve (a point said again moves down as "Lo repite"),
+  and lose relevance. An opportunity stays available without bothering while the rep talks about something else; when the
+  rep takes it up in their own words, Vocify notices and it fades, without the rep touching anything; if the rep ignores it,
+  nothing happens. **Visual memory without debt**: the "✓" shows only for a moment (~2 s) as acknowledgement; then the card
+  is history like any other (faded, its kind, no mark), so the history never keeps score of what was not taken. The live
+  bar shows no playbook count ("Pasos", not "Pasos 2/6"); progress lives in the Pasos list, on request.
 - **While the prospect is still saying something that will need an answer**, a faint "Preparando · {tema}" line shows at
   the end of the list; the answer comes when they finish.
 - **A fixed height**: one card and a glimpse of the one before. It never grows with what has been said; the transcript
