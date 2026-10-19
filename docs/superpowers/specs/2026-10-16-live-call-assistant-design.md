@@ -101,6 +101,11 @@ question on its own, **"what do I say now?"**, and everything else is there only
 - **No checklist, steps or progress on screen during the call.** The playbook works through what Qué decir suggests (its
   approved answers, its "una causa, un caso, una cifra") and through coaching after the call. Pasos is there for whoever
   wants to look. "The checklist is memory; the suggestion is judgement."
+- **The playbook is a compass, not an examiner.** Vocify respects the rep's style (talking a lot, another order, time spent
+  building trust, skipping what does not apply) and never corrects how they converse; it helps them use the opportunities
+  that come up inside their own way of selling. No special "intervention" mode: what decides whether something shows is its
+  relevance and its moment (a prospect who says "tengo cinco minutos" makes "concretad el siguiente paso" relevant), and it
+  is offered, never ordered. Covering the playbook is not a measure of the rep's quality.
 - **The rep configures nothing about when Vocify speaks.** No "imprescindible" flag, no end-of-call trigger (both were
   considered and rejected by Dani): when to intervene is the brain's job.
 
@@ -116,11 +121,20 @@ question on its own, **"what do I say now?"**, and everything else is there only
 - **A list in the order things were said, the newest at the bottom.** Several things in one turn (Javier: "mándame un
   email" … "se lo reenviaré a la directora comercial") appear one under the other, in the order said. Nothing replaces
   anything; there is no "N más".
+- **Two kinds of card, told apart without headings.** An **answer** (they asked or objected) is a full card and comes
+  first: it resolves an immediate need and must be fast. An **opportunity to go deeper** is quieter (no box, a thin beige
+  line on the left, no tick): it is available, never a task; it never takes the place of an answer.
+- **No card when the prospect already said it concretely.** "Perdemos unas ocho horas semanales" updates what Vocify knows
+  (Resumen, Pasos) silently and Resumen pulses once; only a vague "perdemos muchísimo tiempo" gets a question to go deeper.
+  One question per topic: three minutes on the same problem never gives five variations of it.
+- **What Vocify knows, what it suggests and what the rep does are kept apart**: a suggestion the rep follows in their own
+  words counts as followed (logged, to learn which suggestions help).
 - **A card is two things**: the prospect's words (small) and what to say (the one thing to read). No decision headline on
   screen (Responde / Reconduce / Aplaza / Cierra were tried: jargon). The brain's decision still shapes the line.
 - **When a point is dealt with** (the brain sees the rep answered it, or the rep taps the ✓ that appears on hover): a light
-  sweeps across the card, "✓ Respondido" pops in (or "Apuntado para el seguimiento" when the rep promised to confirm it),
-  and the card fades where it is. A point the conversation simply moved on from fades with no check (it goes to the
+  sweeps across the card, "✓ Respondido" pops in ("✓ Preguntado" for an opportunity the rep took, "Apuntado para el
+  seguimiento" when the rep promised to confirm it), and the card fades where it is. The ✓ is never claimed without
+  confidence: when the brain is not sure, the card just goes into the history when the conversation moves on. A point the conversation simply moved on from fades with no check (it goes to the
   after-call as unanswered).
 - **While the prospect is still saying something that will need an answer**, a faint "Preparando · {tema}" line shows at
   the end of the list; the answer comes when they finish.
@@ -128,7 +142,8 @@ question on its own, **"what do I say now?"**, and everything else is there only
   keeps its room. Older cards stay inside, above; the rep scrolls up to read them.
 - **Where the list looks**: a new open point comes into view at once; an answer being written stays in view as it grows;
   when a point is dealt with, its check stays in view about a second, then the list moves to what is still open. If the rep
-  scrolled up to read, the list leaves them alone until something new arrives.
+  scrolled up to read, the list never moves under them: a small "Nuevo ↓" appears, and a tap (or scrolling back down) takes
+  them to the newest.
 - **Long answers**: what appears on its own is one or two sentences (~20 words). A longer version on request is open (the
   "Más" and "Si insiste" variants were tried and rejected: too large, or playbook instructions that are not sayable).
 
