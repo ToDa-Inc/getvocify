@@ -214,7 +214,7 @@ question on its own, **"what do I say now?"**, and everything else is there only
 Both, the rep's choice in Settings.
 - **Notch**: today's island, recording open at 460 × 400.
 - **Side**: a small rounded strip near the right screen edge (40 × 104, 12 px from the edge) that says what the closed
-  notch says: recording dot and time, the island's voice wave, the same dot when something new waits. It **never changes size
+  notch says: recording dot and time, the island's voice wave, the same dot and line when something new waits. It **never changes size
   or place**: a tap opens the panel out of it, to its left, centred on it (8 px gap, 460 wide, 460 high or less on a short
   screen); the same tap closes it and the panel shrinks back into the strip. Opening: the panel grows (340 ms, the island's
   curve), then its content fades in; closing: the content goes first. Drag the strip up or down (4 px separates a drag
@@ -223,8 +223,10 @@ Both, the rep's choice in Settings.
 ### When the island is closed
 
 No macOS notification, no opening by itself: closing it means "not now", and that is respected. The closed notch and the
-side strip show one **dot** where the sparkle was (no AI icon), and it has one meaning only: **there is something new in
-Qué decir that you have not seen**. Solid beige, 7 px, one pulse when it appears (none with reduce motion); no kinds, no
+side strip show one signal (no AI icon) with one meaning only: **there is something new in Qué decir that you have not
+seen**. It is drawn twice at once: a solid beige **dot** where the sparkle was (7 px, one pulse when it appears) and a beige
+**line around the whole closed island** (the island's own rim recipe, 1.5 px; it glows once on arrival, then stays as a
+calm line; on the notch it fades out under the top screen edge). No animation with reduce motion; no kinds, no
 "preparing" state. "Seen" means the item was live while the island (or the side panel) was open, so opening it clears the
 dot and closing it again does not bring it back for the same item; the next new item lights it again. An item that ends
 before the rep looks (answered, gone stale) takes the dot with it: nothing is waiting any more.
