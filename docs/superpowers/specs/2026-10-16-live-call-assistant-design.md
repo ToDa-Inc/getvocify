@@ -192,7 +192,8 @@ question on its own, **"what do I say now?"**, and everything else is there only
 
 - The playbook's steps in its order, each ticking itself with evidence (the prospect's words beside it) or by the rep's
   tap (final). Done steps are struck through with a line drawn left to right and the circle fills with a small pop.
-- The bar's "Pasos n/m" pulses once when a step is done while the list is closed.
+- The bar's "Pasos" (no count: a live "2/6" reads as a score of the rep) pulses once when a step is done while the list is
+  closed.
 - **Tapping a pending item asks for help with it**: the list closes and Qué decir shows "Puedes preguntar · {item}" with a
   question for it (a step with parts asks for its first missing part; a piece of data, its own question). The playbook is
   not only something to check against: it is a natural way to ask for help, with no setup. An answer waiting still comes
@@ -204,7 +205,7 @@ question on its own, **"what do I say now?"**, and everything else is there only
 
 - **Controls row** (the island's own controls, icons with short tooltips): pause, Stop, the call type, then Siguiente
   llamada, Copiar, the live-help switch, Abrir Vocify. No "⋯" menu.
-- **Bar**: Responder · Resumen · Pasos n/m · then, at the right, the contact's name.
+- **Bar**: Responder · Resumen · Pasos · then, at the right, the contact's name.
 - **Call type** (open): show the channel as an icon and only the type ("📞 Llamada en frío"); open → Llamada | Reunión as
   two buttons and the types of the one picked below. Proposed, not prototyped (it is the real `TypeControl`).
 
@@ -213,7 +214,7 @@ question on its own, **"what do I say now?"**, and everything else is there only
 Both, the rep's choice in Settings.
 - **Notch**: today's island, recording open at 460 × 400.
 - **Side**: a small rounded strip near the right screen edge (40 × 104, 12 px from the edge) that says what the closed
-  notch says: recording dot and time, the island's voice wave, its sparkle when something waits. It **never changes size
+  notch says: recording dot and time, the island's voice wave, the same dot when something new waits. It **never changes size
   or place**: a tap opens the panel out of it, to its left, centred on it (8 px gap, 460 wide, 460 high or less on a short
   screen); the same tap closes it and the panel shrinks back into the strip. Opening: the panel grows (340 ms, the island's
   curve), then its content fades in; closing: the content goes first. Drag the strip up or down (4 px separates a drag
@@ -222,9 +223,12 @@ Both, the rep's choice in Settings.
 ### When the island is closed
 
 No macOS notification, no opening by itself: closing it means "not now", and that is respected. The closed notch and the
-side strip show one **dot** where the sparkle was (no AI icon), saying only that something is there and of which kind:
-**solid beige with one pulse** = an answer waiting; **outline** = an opportunity to go deeper (no pulse); **small and
-breathing** = something being prepared; **nothing** = nothing. Opening the island shows the list as it is. A short text
+side strip show one **dot** where the sparkle was (no AI icon), and it has one meaning only: **there is something new in
+Qué decir that you have not seen**. Solid beige, 7 px, one pulse when it appears (none with reduce motion); no kinds, no
+"preparing" state. "Seen" means the item was live while the island (or the side panel) was open, so opening it clears the
+dot and closing it again does not bring it back for the same item; the next new item lights it again. An item that ends
+before the rep looks (answered, gone stale) takes the dot with it: nothing is waiting any more.
+Opening the island shows the list as it is. A short text
 "peek" while closed is left as a possible setting, off by default, only if reps miss answers (to be measured); before any
 text appears unasked, check that the island window is not captured when the rep shares their screen.
 
