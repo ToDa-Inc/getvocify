@@ -11,8 +11,8 @@ export type DesktopCalling = { onPhone: boolean; phoneApp: string | null };
 export type IslandAppearance = "auto" | "light" | "dark";
 /** Where the island sits: the notch at the top, or a strip at the side of the screen. */
 export type IslandPlacement = "notch" | "side";
-/** `placement` is missing in builds without the side strip. */
-export type IslandState = { appearance: IslandAppearance; visible: boolean; placement?: IslandPlacement };
+/** What the island's settings report; each app reports only the settings it has. */
+export type IslandState = { appearance?: IslandAppearance; visible?: boolean; placement?: IslandPlacement };
 
 export type VocifyDesktopBridge = {
   platform: "darwin" | "win32";
@@ -128,12 +128,12 @@ export type VocifyDesktopBridge = {
     /** Opens where the call's microphone is chosen (Mac: FaceTime; Windows: Sound › Recording). Missing in older builds. */
     micSettings?(): Promise<unknown>;
   };
-  /** The island's appearance and whether it shows. Missing in older builds. */
+  /** The island's settings on this computer (appearance, whether it shows, where it sits). Missing in older builds. */
   island?: {
     get(): Promise<IslandState>;
-    setAppearance(appearance: IslandAppearance): Promise<IslandState>;
-    setVisible(visible: boolean): Promise<IslandState>;
-    /** Missing in builds without the side strip. */
+    /** Each setter exists only where the app offers that setting (the Electron app: placement only, so far). */
+    setAppearance?(appearance: IslandAppearance): Promise<IslandState>;
+    setVisible?(visible: boolean): Promise<IslandState>;
     setPlacement?(placement: IslandPlacement): Promise<IslandState>;
   };
   /** The global record shortcut. Missing in older builds. */
