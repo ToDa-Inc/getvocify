@@ -16,7 +16,7 @@ export function isNotActivated(error: unknown): boolean {
 
 export const salesProcessApi = {
   get: () => api.get<{ types: ProcessType[] }>(BASE),
-  put: (body: { types: { key?: string; label: string; stage: Stage; goal?: string; recognize?: string }[] }) => api.put<{ types: ProcessType[] }>(BASE, body),
+  put: (body: { scope?: "funnel" | "other"; types: { key?: string; label: string; stage: Stage; goal?: string; recognize?: string }[] }) => api.put<{ types: ProcessType[] }>(BASE, body),
   members: () => api.get<MemberTypes>(`${BASE}/members`),
   setMember: (memberId: string, types: string[] | null) =>
     api.put<{ types: string[] | null; sales_role: string }>(`${BASE}/members/${encodeURIComponent(memberId)}`, { types }),

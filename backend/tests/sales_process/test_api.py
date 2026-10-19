@@ -172,3 +172,21 @@ def test_reading_a_document_for_one_interaction_tells_the_model_what_that_intera
     assert info == {"label": "Cold call", "goal": "Crear interés y acordar una reunión", "description": "Primer contacto, por teléfono"}
     assert _own_type_info(FakeDB(), client.repo, "co-1", "nope") is None
     assert get_sales_process_store(None) is not None
+
+
+def test_saving_the_calls_outside_the_funnel_never_archives_the_funnel():
+    """The bug of 19 Oct: the window of the other calls sent only "SAC" and every interaction of the funnel was archived."""
+    client = make_client()
+    funnel = put(client, t("Llamada en frío"), t("Demo", "deal")).json()["types"]
+    done = client.put(BASE, json={"scope": "other", "types": [{"label": "SAC", "stage": "other"}]})
+    assert done.status_code == 200
+    assert [(x["label"], x["stage"]) for x in done.json()["types"]] == [("Llamada en frío", "first_contact"), ("Demo", "deal"), ("SAC", "other")]
+    assert {x["key"] for x in funnel} <= set(client.repo.list_types("co-1"))
+    assert [x["goal"] for x in done.json()["types"]][:2] == ["Objetivo de Llamada en frío", "Objetivo de Demo"]
+
+
+def test_saving_the_funnel_never_archives_the_calls_outside_it():
+    client = make_client()
+    put(client, t("Llamada en frío"), t("SAC", "other"))
+    done = client.put(BASE, json={"scope": "funnel", "types": [t("Discovery")]})
+    assert [x["label"] for x in done.json()["types"]] == ["Discovery", "SAC"]

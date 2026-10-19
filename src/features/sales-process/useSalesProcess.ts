@@ -2,13 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorCode } from "@/features/playbooks/api";
 import { isNotActivated, salesProcessApi, type ProcessType } from "@/features/sales-process/api";
-import { canSave, mergeScope, removedWithContent, scoped, toRequest, type DraftType, type Scope } from "@/lib/sales-process";
+import { canSave, draftOf, mergeScope, removedWithContent, requestFor, scoped, type DraftType, type Scope } from "@/lib/sales-process";
 
 export const PROCESS_QUERY = ["sales-process"] as const;
 export type ProcessStatus = "loading" | "ready" | "error" | "not_activated";
-
-const draftOf = (types: ProcessType[]): DraftType[] =>
-  types.map((item) => ({ key: item.key, label: item.label, stage: item.stage, goal: item.goal ?? undefined, recognize: item.recognize ?? undefined }));
 
 /**
  * The company's own sales process as the Head of Sales edits it: the list from the API becomes a draft they change freely
@@ -37,11 +34,12 @@ export function useSalesProcess({ onSaved, scope = "funnel" }: { onSaved?: (type
   const removing = saved ? removedWithContent(saved.filter((item) => (item.stage === "other") === (scope === "other")), list) : [];
 
   const save = useCallback(async (): Promise<boolean> => {
-    if (!canSave(all)) return false;
+    if (!saved || !canSave(list) || !canSave(mergeScope(draftOf(saved), scope, list))) return false;
     setSaving(true);
     setProblem(null);
     try {
-      const done = await salesProcessApi.put(toRequest(all));
+      // Only this window's part goes from the draft: the rest is sent as saved, so a draft that lost it cannot archive it.
+      const done = await salesProcessApi.put(requestFor(saved, scope, list));
       client.setQueryData(PROCESS_QUERY, done);
       void client.invalidateQueries({ queryKey: ["playbooks"] });
       setDraft(draftOf(done.types));
@@ -53,9 +51,9 @@ export function useSalesProcess({ onSaved, scope = "funnel" }: { onSaved?: (type
     } finally {
       setSaving(false);
     }
-  }, [all, client, onSaved]);
+  }, [saved, scope, list, client, onSaved]);
 
-  return { status, saved, list, all, setList, saving, problem, removing, save, reload: () => void query.refetch(), reset: () => { setDraft(null); setProblem(null); } };
+  return { status, saved, list, all, setList, saving, problem, removing, save, reload: () => void query.refetch(), reset: () => { setDraft(saved ? draftOf(saved) : null); setProblem(null); } };
 }
 
 export type SalesProcessController = ReturnType<typeof useSalesProcess>;

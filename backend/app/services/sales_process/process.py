@@ -32,6 +32,23 @@ class ProcessType(BaseModel):
 
 class ProcessRequest(BaseModel):
     types: list[ProcessType] = Field(min_length=1, max_length=MAX_TYPES)
+    # The part a window edits ("funnel" or "other"): the rest of the process is kept exactly as stored, whatever the list
+    # says about it. Without it the list is the whole process (an omitted type is archived).
+    scope: Optional[Literal["funnel", "other"]] = None
+
+
+def within_scope(current: list[dict], scope: Optional[str], types: list[ProcessType]) -> list[ProcessType]:
+    """The whole list to apply when a window saves only its part: its own types as sent, the others as `current` (the
+    process_view) has them. The funnel goes first and the calls outside it after, as the screens show them."""
+    if scope is None:
+        return types
+    mine = [item for item in types if (item.stage == "other") == (scope == "other")]
+    kept = [
+        ProcessType(key=row["key"], label=row["label"], stage=row["stage"], goal=row.get("goal"), recognize=row.get("recognize"))
+        for row in current
+        if (row["stage"] == "other") != (scope == "other")
+    ]
+    return mine + kept if scope == "funnel" else kept + mine
 
 
 def _present_types(repository: PlaybookRepository, placed: set[str], company_id: str) -> dict[str, dict]:

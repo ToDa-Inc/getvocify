@@ -66,3 +66,14 @@ export function typesSummary(value: string[] | null, types: { key: string; label
   if (!value || !chosen.length || chosen.length === types.length) return all;
   return chosen.length <= 2 ? chosen.map((item) => item.label).join(", ") : manyTemplate.replace("{count}", String(chosen.length));
 }
+
+/** A saved list as a draft to edit. */
+export function draftOf(types: SavedType[]): DraftType[] {
+  return types.map((item) => ({ key: item.key, label: item.label, stage: item.stage, goal: item.goal ?? undefined, recognize: item.recognize ?? undefined }));
+}
+
+/** The body of PUT /sales-process from one window: its own part as edited, the other part exactly as it is saved (never from a
+ * draft that may not hold it), and the scope so the server keeps that other part even if the list came without it. */
+export function requestFor(saved: SavedType[], scope: Scope, edited: DraftType[]) {
+  return { scope, types: toRequest(mergeScope(draftOf(saved), scope, edited)).types };
+}

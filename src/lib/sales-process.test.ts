@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { canSave, mergeScope, moveItem, removedWithContent, suggestedProcess, toRequest, typesSummary, type DraftType } from "./sales-process.ts";
+import { canSave, mergeScope, moveItem, removedWithContent, requestFor, suggestedProcess, toRequest, typesSummary, type DraftType, type SavedType } from "./sales-process.ts";
 
 const t = (label: string, over: Partial<DraftType> = {}): DraftType => ({ label, stage: "first_contact", goal: `Objetivo de ${label}`, recognize: `Cómo es ${label}`, ...over });
 
@@ -75,5 +75,25 @@ describe("sales process helpers", () => {
     assert.equal(typesSummary(["gone"], types, "Todas", "{count} tipos"), "Todas");
     const four = [...types, { key: "d", label: "Cierre" }];
     assert.equal(typesSummary(["a", "b", "c"], four, "Todas", "{count} tipos"), "3 tipos");
+  });
+});
+
+describe("what a window saves", () => {
+  const saved: SavedType[] = [
+    { key: "cold", label: "Llamada en frío", stage: "first_contact", goal: "Reunión", recognize: "Primer contacto", step_count: 6 },
+    { key: "demo", label: "Demo", stage: "deal", goal: "Cerrar", step_count: 4 },
+  ];
+
+  it("the calls outside the funnel never take the funnel with them, even from an empty draft", () => {
+    const body = requestFor(saved, "other", [{ label: "SAC", stage: "other" }]);
+    assert.equal(body.scope, "other");
+    assert.deepEqual(body.types.map((x) => x.key ?? x.label), ["cold", "demo", "SAC"]);
+    assert.deepEqual(body.types[0], { key: "cold", label: "Llamada en frío", stage: "first_contact", goal: "Reunión", recognize: "Primer contacto" });
+  });
+
+  it("the funnel window sends its own list first and the other calls as they are saved", () => {
+    const withOther: SavedType[] = [...saved, { key: "sac", label: "SAC", stage: "other" }];
+    const body = requestFor(withOther, "funnel", [{ key: "demo", label: "Demo", stage: "deal", goal: "Cerrar" }]);
+    assert.deepEqual(body.types.map((x) => x.key), ["demo", "sac"]);
   });
 });

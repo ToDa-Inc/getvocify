@@ -28,7 +28,7 @@ from app.services.feature_flags import is_enabled
 from app.services.playbooks.api_support import require_manager
 from app.services.playbooks.repository import PlaybookRepository, get_playbook_repository
 from app.services.sales_process.members import set_member_types
-from app.services.sales_process.process import MAX_NAME, MAX_TYPES, ProcessRequest, ProcessType, apply_process, process_view  # noqa: F401 (re-exported)
+from app.services.sales_process.process import MAX_NAME, MAX_TYPES, ProcessRequest, ProcessType, apply_process, process_view, within_scope  # noqa: F401 (re-exported)
 from app.services.sales_process.store import SalesProcessStore, SalesProcessUnavailable, get_sales_process_store
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,8 @@ def put_process(body: ProcessRequest, supabase: Client = Depends(get_supabase), 
     store = _gate(supabase, membership)
     repository = get_playbook_repository()
     try:
-        apply_process(repository, store, membership.company_id, body.types)
+        wanted = within_scope(process_view(repository, store, membership.company_id), body.scope, body.types)
+        apply_process(repository, store, membership.company_id, wanted)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": str(exc)}) from exc
     _playbooks_changed(membership.company_id)
