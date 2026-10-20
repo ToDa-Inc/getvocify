@@ -3,6 +3,15 @@
 import type { CompanyTab, Knowledge } from "./playbook-knowledge.ts";
 import { areasFromKnowledge } from "./company-areas.ts";
 
+const NARROWEST = 0.46;
+
+/** The width of each step of the funnel as a share of the widest: 1 for the first, narrowing evenly to the minimum for the last. */
+export function funnelWidths(count: number, min = NARROWEST): number[] {
+  if (count <= 0) return [];
+  if (count === 1) return [1];
+  return Array.from({ length: count }, (_, index) => Math.max(min, 1 - (index / (count - 1)) * (1 - min)));
+}
+
 /** The name of the step after `index`, or null for the last one (whose goal is to close). An unnamed next step is "". */
 export function nextStep(steps: { label: string }[], index: number): string | null {
   return index < steps.length - 1 ? steps[index + 1].label.trim() : null;

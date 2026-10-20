@@ -1,8 +1,18 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { COMPANY_AREAS, afterColon, companyAreaStates, homeProgress, nextStep, splitFunnel } from "./playbook-home.ts";
+import { COMPANY_AREAS, afterColon, companyAreaStates, funnelWidths, homeProgress, nextStep, splitFunnel } from "./playbook-home.ts";
 
 describe("playbook home helpers", () => {
+  it("draws the funnel from wide to narrow and never narrower than the minimum", () => {
+    assert.deepEqual(funnelWidths(1), [1]);
+    assert.deepEqual(funnelWidths(0), []);
+    const widths = funnelWidths(4);
+    assert.equal(widths[0], 1);
+    assert.ok(Math.abs(widths[3] - 0.46) < 1e-9);
+    assert.ok(widths.every((width, index) => index === 0 || width < widths[index - 1]));
+    assert.ok(funnelWidths(12).every((width) => width >= 0.46));
+  });
+
   it("names the step each one leads to, and none after the last", () => {
     const steps = [{ label: "Cold call" }, { label: " Discovery " }, { label: "" }];
     assert.equal(nextStep(steps, 0), "Discovery");
