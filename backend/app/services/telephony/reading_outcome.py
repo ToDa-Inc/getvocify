@@ -34,13 +34,15 @@ async def apply_reading_outcome(supabase: Client, memo_id: str, call_reading: Op
     try:
         found = (
             supabase.table("memos")
-            .select("user_id,source,screening_outcome,transcript")
+            .select("user_id,source,interaction_kind,screening_outcome,transcript")
             .eq("id", memo_id)
             .limit(1)
             .execute()
         )
         memo: dict[str, Any] = (found.data or [None])[0] or {}
-        if memo.get("source") not in _CALL_SOURCES or memo.get("screening_outcome") not in (None, "", "connected"):
+        # A call, whoever placed it: Vocify's dialer, HubSpot's, or a phone the island recorded (a "web" memo of kind call).
+        is_call = memo.get("source") in _CALL_SOURCES or memo.get("interaction_kind") == "call"
+        if not is_call or memo.get("screening_outcome") not in (None, "", "connected"):
             return None
         outcome = unanswered_outcome(call_reading, str(memo.get("transcript") or ""))
         if not outcome:

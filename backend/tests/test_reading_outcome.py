@@ -56,7 +56,14 @@ async def test_call_not_logged_yet_is_left_for_the_logger():
 async def test_memo_already_screened_or_not_a_call_is_untouched():
     for memo in (
         {"user_id": "u1", "source": "vocify_call", "screening_outcome": "voicemail", "transcript": "x"},
-        {"user_id": "u1", "source": "voice_memo", "screening_outcome": None, "transcript": "x"},
+        {"user_id": "u1", "source": "voice_memo", "interaction_kind": "meeting", "screening_outcome": None, "transcript": "x"},
     ):
         assert await apply_reading_outcome(_supabase(memo, []), "m1", VOICEMAIL) is None
 
+
+
+@pytest.mark.asyncio
+async def test_a_call_the_island_recorded_from_the_crm_page_is_screened_too():
+    memo = {"user_id": "u1", "source": "web", "interaction_kind": "call", "screening_outcome": None, "transcript": "Buzón de voz"}
+    supabase = _supabase(memo, [])
+    assert await apply_reading_outcome(supabase, "m1", VOICEMAIL) == "voicemail"
