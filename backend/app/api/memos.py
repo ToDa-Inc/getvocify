@@ -508,6 +508,9 @@ async def extract_memo_async(
                 datetime.utcnow().isoformat(),
             ),
         )
+        from app.services.telephony.reading_outcome import apply_reading_outcome
+
+        await apply_reading_outcome(supabase, memo_id, call_reading)
         schedule_followup(supabase, memo_id)
         from app.services.memo_extraction_hooks import run_post_extraction_hooks
 
