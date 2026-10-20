@@ -165,7 +165,8 @@ export function turnsUpTo(turns: WireTurn[], turnId: string): WireTurn[] | null 
 
 // ---------- the points stream ----------
 
-export type StreamedPoint = { title: string | null; say: string | null; grounded: boolean | null };
+/** A point being written, or one the turn check just spotted: `kind` is what it is ("price", "question"...) as soon as it is known. */
+export type StreamedPoint = { title: string | null; say: string | null; grounded: boolean | null; kind?: string | null; tag?: string | null };
 
 /** The text of a JSON string value being written (the closing quote may not be there yet). */
 function partialString(chunk: string, key: string): string | null {
@@ -203,11 +204,25 @@ export function streamedPoints(text: string): StreamedPoint[] {
   return chunks.map((chunk) => {
     const grounded = /"grounded"\s*:\s*(true|false)/.exec(chunk);
     return {
+      kind: partialString(chunk, "type")?.trim() || null,
       title: partialString(chunk, "quote")?.trim() || null,
       say: partialString(chunk, "say")?.trim() || null,
       grounded: grounded ? grounded[1] === "true" : null,
     };
   });
+}
+
+/**
+ * What the turn check (~0.3 s) just spotted, as a card being written: what it is and their words, before the brain answers.
+ * Null when it is nothing to answer ("none", or no verdict).
+ */
+export function spottedDraft(turn: { objection: string | null; entry_id?: string; label?: string } | null, latest: string): StreamedPoint | null {
+  const kind = turn?.objection;
+  if (!kind || kind === "none") return null;
+  const sentences = latest.split(/(?<=[.?!…])\s+/).filter((sentence) => sentence.trim());
+  const words = (sentences[sentences.length - 1] ?? latest).trim().split(/\s+/).filter(Boolean);
+  const title = words.slice(-10).join(" ");
+  return { kind: kind === "custom" ? turn.entry_id ?? "other" : kind, tag: turn.label ?? null, title: title || null, say: null, grounded: null };
 }
 
 // ---------- the playbook's words for the ids ----------
@@ -432,8 +447,9 @@ export function pointSays(point: Pick<Point, "answer" | "fallback">): string {
 // ---------- what travels to the island ----------
 
 export type LiveDraft = StreamedPoint;
-/** Responder with nothing to answer: the missing item that matters most for the call's goal, and its question. */
-export type NextAsk = { kind: "step" | "data"; id: string; label: string; question: string };
+/** Responder with nothing to answer: the missing item that matters most for the call's goal and its question, or with nothing
+ * pending ("said") a question that takes up the last thing they said (`id` its turn, `label` their words). */
+export type NextAsk = { kind: "step" | "data" | "said"; id: string; label: string; question: string };
 export type LiveBrainAsks = {
   responder: null | { seq: number; status: "reading" | "found" | "nothing"; point_id: string | null; next: NextAsk | null };
   recap: null | { seq: number; status: "reading" | "ready"; up_to_t: number | null; lines: string[]; unknown: string[] };
@@ -448,7 +464,7 @@ export function nextAsk(raw: unknown): NextAsk | null {
   if (!raw || typeof raw !== "object") return null;
   const next = raw as Record<string, unknown>;
   const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
-  const kind = next.kind === "step" || next.kind === "data" ? next.kind : null;
+  const kind = next.kind === "step" || next.kind === "data" || next.kind === "said" ? next.kind : null;
   const id = text(next.id);
   const label = text(next.label);
   const question = text(next.question);
