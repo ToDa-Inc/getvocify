@@ -143,6 +143,13 @@ REASON_TEXT = {
     ),
 }
 
+NEXT_SAID_TEXT = (
+    "\nIF \"points\" IS []: add the key \"next\": {\"question\": string}, ONE question the rep asks now that takes up the LAST "
+    "thing they said (a \"Them:\" line, in their own words) and asks for a little more: a cause, a case or a figure they have not "
+    "given; at most 15 words, in their language, no facts about the company, never presuming what the call does not show. When "
+    "you write a point, \"next\" is null."
+)
+
 NEXT_TEXT = (
     "\nIF \"points\" IS []: add the key \"next\": {{\"question\": string}}, ONE question the rep asks now to find out the PENDING ITEM "
     "below, built from what the prospect said in this call (their words), never asking what they already said, at most 15 words, "
@@ -220,8 +227,8 @@ def build_prompt(req: LiveReading, ctx: brain.BrainContext, by_id: dict[str, Liv
     )
     steps = f"\n\n{_steps_line(snapshot)}" if deepen_on(req, ctx) else ""
     ask = REASON_TEXT.get(req.reason, REASON_TEXT["turn_end"])
-    if req.reason == "responder" and item:
-        ask += NEXT_TEXT.format(item=_item_line(item))
+    if req.reason == "responder":
+        ask += NEXT_TEXT.format(item=_item_line(item)) if item else NEXT_SAID_TEXT
     # Stable first, so the provider reuses the prompt up to the call; what changes every reading comes after it.
     return (
         f"CALL MODE: {req.call_mode}\nPREFERRED LANGUAGE HINT: {req.language}\n\n"
@@ -579,12 +586,34 @@ def _checked_line(text: Any, allowed: set[str], drop) -> Optional[str]:
     return line or None
 
 
+def _last_said(req: LiveReading) -> Optional[LiveTurn]:
+    return next((t for t in reversed(req.turns) if t.who == "them" and t.text.strip()), None)
+
+
+def _next_said(raw: Optional[dict], req: LiveReading, allowed: set[str], drop) -> Optional[dict]:
+    """Nothing pending in the playbook: a question that takes up the last thing they said (kind "said"), never one that
+    could follow any sentence."""
+    turn = _last_said(req)
+    wrote = (raw or {}).get("next")
+    question = _checked_line(wrote.get("question") if isinstance(wrote, dict) else None, allowed, drop)
+    if turn is None or question is None:
+        drop("next_without_question")
+        return None
+    if not shares_their_words(question, turn.text):
+        drop("next_not_their_words")
+        return None
+    words = " ".join(turn.text.split()).split(" ")
+    label = " ".join(words[:QUOTE_WORDS + 3]) + ("…" if len(words) > QUOTE_WORDS + 3 else "")
+    return {"kind": "said", "id": turn.id, "label": label, "question": question}
+
+
 def _next(raw: Optional[dict], req: LiveReading, ctx: brain.BrainContext, allowed: set[str], drop) -> Optional[dict]:
-    """The missing item that matters most and its question in the call's words; the playbook's own question for it when the
-    model wrote none; None when nothing is pending or there is no question to ask."""
+    """Responder with nothing to answer always gives the rep a question: the missing item that matters most, in the call's
+    words (the playbook's own question for it when the model wrote none); with nothing pending, one that takes up the last
+    thing they said. None only when there is no question to ask honestly."""
     item = pending_item(req, ctx)
     if item is None:
-        return None
+        return _next_said(raw, req, allowed, drop)
     wrote = (raw or {}).get("next")
     question = _checked_line(wrote.get("question") if isinstance(wrote, dict) else None, allowed, drop)
     if question is None and item["question"]:

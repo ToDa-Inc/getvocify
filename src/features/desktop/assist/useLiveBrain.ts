@@ -17,6 +17,7 @@ import {
   repReadingDue,
   repWords,
   resetForType,
+  spottedDraft,
   streamedPoints,
   toWireTurns,
   turnsUpTo,
@@ -86,6 +87,8 @@ export function useLiveBrain(
   const stateRef = useRef(emptyLiveState(callId ?? ""));
   const [state, setViewState] = useState(stateRef.current);
   const [drafts, setDrafts] = useState<LiveDraft[]>([]);
+  /** What the turn check just spotted (a question, an objection): its card shows at once and the brain writes into it. */
+  const [spotted, setSpotted] = useState<LiveDraft | null>(null);
   const [reading, setReading] = useState({ points: false, progress: false, recap: false });
   const [offlineSince, setOfflineSince] = useState<number | null>(null);
   const [asks, setAsks] = useState<LiveBrainAsks>(NO_ASKS);
@@ -253,6 +256,8 @@ export function useLiveBrain(
     } finally {
       if (controllersRef.current.points === controller) controllersRef.current.points = null;
       setDrafts([]);
+      // The reading wrote its card (or found nothing to answer): what was spotted has done its job.
+      setSpotted(null);
       setReading((r) => ({ ...r, points: false }));
     }
   };
@@ -364,6 +369,8 @@ export function useLiveBrain(
     ).then((turn) => {
       if (controller.signal.aborted) return;
       const previous = markRef.current;
+      // A question or an objection: the rep sees its card now, the answer follows (a turn not finished says "Preparando").
+      setSpotted(spottedDraft(turn, ctx.latestTurn));
       if (turn && turn.finished === false && !final) {
         // A breath, not an end: a long turn is read every LONG_TURN_MS; otherwise wait and ask again, final.
         if (longTurnDue({ lastReadAt: lastPointsAtRef.current, now: Date.now() })) {
@@ -443,6 +450,7 @@ export function useLiveBrain(
     lastOkRef.current = Date.now();
     seqRef.current = { responder: 0, recap: 0, step: 0, rewrite: 0 };
     setDrafts([]);
+    setSpotted(null);
     setFromDraft([]);
     setAsks(NO_ASKS);
     setTypeChanged(false);
@@ -686,7 +694,10 @@ export function useLiveBrain(
   // ---- the island: the whole state, throttled and as changes ----
   const payload =
     flag && callId
-      ? liveBrainPayload({ on: helpOn, callId, state, playbook, reading, offlineSince, drafts, asks, typeChanged, view: sayView ? "say" : "tabs", contact })
+      ? liveBrainPayload({
+          on: helpOn, callId, state, playbook, reading, offlineSince, drafts: drafts.length ? drafts : spotted && helpOn ? [spotted] : [], asks, typeChanged,
+          view: sayView ? "say" : "tabs", contact,
+        })
       : null;
   const json = JSON.stringify(payload);
   const pushed = useRef<string | undefined>(undefined);

@@ -365,3 +365,20 @@ def test_the_step_question_and_next_never_presume_what_the_call_does_not_show():
     assert "Never presume anything the CALL does not show" in live_points.STEP_SYSTEM
     assert "never presuming what the call does not show" in live_points.NEXT_TEXT
     assert "OUR product, the demo or this call" in live_points.SYSTEM_SAY
+
+
+def test_responder_with_nothing_pending_asks_about_the_last_thing_they_said(monkeypatch):
+    everything = {"done_steps": [s["step_id"] for s in CTX.snapshot["steps"]], "known_data": ["crm", "decide"]}
+    seen: dict = {}
+    fake_model(monkeypatch, {"points": [], "closed": [], "next": {"question": "¿Y quién es esa directora comercial a la que se lo reenviarías?"}}, seen)
+    result = read(reading(reason="responder", progress=everything))[-1]
+    assert result["next"]["kind"] == "said" and result["next"]["id"] == "t5"
+    assert result["next"]["label"].startswith("Y se lo reenviaré") and result["next"]["question"].startswith("¿Y quién es")
+    assert "takes up the LAST" in seen["user"]
+
+
+def test_a_question_about_what_they_said_must_take_up_their_words(monkeypatch):
+    everything = {"done_steps": [s["step_id"] for s in CTX.snapshot["steps"]], "known_data": ["crm", "decide"]}
+    fake_model(monkeypatch, {"points": [], "closed": [], "next": {"question": "¿Qué es lo que más te preocupa hoy?"}})
+    result = read(reading(reason="responder", progress=everything))[-1]
+    assert result["next"] is None and result["guards"] == {"next_not_their_words": 1}

@@ -18,6 +18,7 @@ import {
   progressView,
   repReadingDue,
   repWords,
+  spottedDraft,
   streamedPoints,
   toWireTurns,
   LONG_TURN_MS,
@@ -184,18 +185,27 @@ describe("a reading's request", () => {
 describe("the points stream", () => {
   const full = '{"points": [{"ref": null, "turns": ["t6"], "type": "question", "quote": "¿se integra con HubSpot?", "decision": "responder", "why": "", "grounded": true, "source_id": "knowledge", "gap": "", "say": "Sí, se integra con HubSpot."}], "closed": []}';
 
+  it("shows what the turn check spotted at once, with what it is and their last words", () => {
+    assert.deepEqual(spottedDraft({ objection: "price" }, "Vale, te entiendo. Pero es que es caro para nosotros ahora mismo."), {
+      kind: "price", tag: null, title: "Pero es que es caro para nosotros ahora mismo.", say: null, grounded: null,
+    });
+    assert.deepEqual(spottedDraft({ objection: "custom", entry_id: "objection:custom:email", label: "Mándame un email" }, "mándame un email")?.kind, "objection:custom:email");
+    assert.equal(spottedDraft({ objection: "none" }, "vale"), null);
+    assert.equal(spottedDraft(null, "vale"), null);
+  });
+
   it("reads the quote and the words being written before the JSON is whole", () => {
     assert.deepEqual(streamedPoints('{"points": [{"ref": null, "turns": ["t6"], "type": "question", "quote": "¿se integra'), [
-      { title: "¿se integra", say: null, grounded: null },
+      { kind: "question", title: "¿se integra", say: null, grounded: null },
     ]);
     const cut = full.slice(0, full.indexOf("Sí, se integra") + 8);
-    assert.deepEqual(streamedPoints(cut), [{ title: "¿se integra con HubSpot?", say: "Sí, se i", grounded: true }]);
+    assert.deepEqual(streamedPoints(cut), [{ kind: "question", title: "¿se integra con HubSpot?", say: "Sí, se i", grounded: true }]);
   });
 
   it("reads the whole answer, with escapes", () => {
     assert.equal(streamedPoints(full)[0].say, "Sí, se integra con HubSpot.");
     const escaped = '{"points": [{"ref": null, "quote": "a \\"b\\"", "say": "línea\\nuno \\u00e9"}]}';
-    assert.deepEqual(streamedPoints(escaped), [{ title: 'a "b"', say: "línea\nuno é", grounded: null }]);
+    assert.deepEqual(streamedPoints(escaped), [{ kind: null, title: 'a "b"', say: "línea\nuno é", grounded: null }]);
     assert.equal(streamedPoints('{"points": [{"ref": null, "say": "cortado \\u00').pop()?.say, "cortado");
   });
 
