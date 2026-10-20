@@ -50,6 +50,7 @@ import {
 import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
 import { SpeakerTimeline } from "@/lib/speaker-timeline";
 import { CALL_UPLOAD_RETRY_DELAYS_MS, withTransientRetries } from "@/lib/transient-retry";
+import { addJob, dropJob, forIsland, patchJob, stateOfMemo, stopAutoOpen, type AfterCallJob } from "@/lib/after-call-jobs";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, desktopPlatform, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
 import { islandCallContact, islandRecordContact, latestOnly, type CallPreview } from "@/lib/call-contact";
@@ -173,6 +174,9 @@ const MAX_RECONNECTS = 5;
 const DRAIN_MS = 4000;
 /** Worst case a crash loses this much transcript. */
 const SAVE_EVERY_MS = 2000;
+/** The calls the rep has dealt with that the island keeps in reach: how many, and for how long. */
+const DONE_JOBS_KEPT = 6;
+const DONE_JOB_FOR_MS = 10 * 60 * 1000;
 
 export const DesktopMeetingContext = createContext<DesktopMeeting | null>(null);
 
@@ -831,12 +835,144 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   );
 
 
+  /* ---------- the calls the rep has finished, while they go on ---------- */
+
+  const jobsRef = useRef<AfterCallJob[]>([]);
+  /** What re-runs a job that failed: sending its draft again, or following its call's memo again. */
+  const retriesRef = useRef(new Map<string, () => void>());
+  const setJobs = useCallback((change: (jobs: AfterCallJob[]) => AfterCallJob[]) => {
+    jobsRef.current = change(jobsRef.current);
+    getDesktopBridge()?.shell.setState({ background: forIsland(jobsRef.current) });
+  }, []);
+  /** Done for the rep: it goes from the list (and from the retries) after a moment, or at once. */
+  const finishJob = useCallback(
+    (id: string, afterMs = 0) => {
+      const drop = () => {
+        retriesRef.current.delete(id);
+        setJobs((jobs) => dropJob(jobs, id));
+      };
+      if (afterMs > 0) window.setTimeout(drop, afterMs);
+      else drop();
+    },
+    [setJobs],
+  );
+  /** A call the rep has dealt with stays reachable from the island for a while (it can be opened again), and the oldest go first. */
+  const settleJob = useCallback(
+    (id: string) => {
+      setJobs((jobs) => {
+        const next = patchJob(jobs, id, { state: "done" });
+        const done = next.filter((j) => j.state === "done");
+        const surplus = new Set(done.slice(0, Math.max(0, done.length - DONE_JOBS_KEPT)).map((j) => j.id));
+        return surplus.size ? next.filter((j) => !surplus.has(j.id)) : next;
+      });
+      finishJob(id, DONE_JOB_FOR_MS);
+    },
+    [finishJob, setJobs],
+  );
+  const startJob = useCallback(
+    (id: string, name: string | null, retry: () => void) => {
+      retriesRef.current.set(id, retry);
+      setJobs((jobs) => addJob(jobs, { id, name, state: "working", memoId: null, autoOpen: true }));
+    },
+    [setJobs],
+  );
+  const retryJob = useCallback(
+    (id: string) => {
+      const retry = retriesRef.current.get(id);
+      if (!retry) return;
+      setJobs((jobs) => patchJob(jobs, id, { state: "working" }));
+      retry();
+    },
+    [setJobs],
+  );
+  const failJob = useCallback((id: string) => setJobs((jobs) => (jobs.some((j) => j.id === id) ? patchJob(jobs, id, { state: "failed" }) : jobs)), [setJobs]);
+
+  // The island learns that this dashboard keeps the finished calls: it need not wait on a spinner after a recording.
+  useEffect(() => {
+    getDesktopBridge()?.shell.setState({ background: forIsland(jobsRef.current) });
+  }, []);
+
+  /** Shows a finished call's card, as it did right after the call: the memo's page, and its update in the island. */
+  const openJob = useCallback(
+    (id: string) => {
+      const job = jobsRef.current.find((j) => j.id === id);
+      if (!job?.memoId) return;
+      getDesktopBridge()?.shell.setState({ finish: null });
+      navigate(ROUTES.MEMO_DETAIL(job.memoId));
+      void followPostCall(job.memoId, job.name);
+    },
+    [followPostCall, navigate],
+  );
+
+  /** Waits for the memo of a finished call to be written, then says what it needs. It opens its card by itself only while the rep has taken up nothing else. */
+  const watchJob = useCallback(
+    async (id: string) => {
+      const startedAt = Date.now();
+      let memo: Awaited<ReturnType<typeof memosApi.get>> | null = null;
+      for (let attempt = 0; Date.now() - startedAt < POST_CALL_GIVE_UP_MS; attempt++) {
+        const job = jobsRef.current.find((j) => j.id === id);
+        if (!job?.memoId) return;
+        const found = await memosApi.get(job.memoId).catch(() => null);
+        if (found && !isProcessing(found.status)) {
+          memo = found;
+          break;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs(attempt)));
+      }
+      if (!jobsRef.current.some((j) => j.id === id)) return;
+      if (!memo) return failJob(id);
+      const state = stateOfMemo(memo, hubspotConnectedRef.current, isNoConversation(memo.screeningOutcome));
+      if (state === "failed") return failJob(id);
+      setJobs((jobs) => patchJob(jobs, id, { state }));
+      const job = jobsRef.current.find((j) => j.id === id);
+      if (job?.autoOpen && phaseRef.current === "idle") return openJob(id);
+      if (state === "done") settleJob(id);
+    },
+    [failJob, openJob, settleJob, setJobs],
+  );
+  const jobMemo = useCallback(
+    (id: string, memoId: string) => {
+      setJobs((jobs) => patchJob(jobs, id, { memoId }));
+      void watchJob(id);
+    },
+    [setJobs, watchJob],
+  );
+
+  /** Sends a stopped recording without holding the next one back: the draft is on disk until it is sent, so a quit or a failure loses nothing. */
+  const sendInBackground = useCallback(
+    async (draft: MeetingDraft) => {
+      const bridge = getDesktopBridge();
+      try {
+        jobMemo(draft.id, await sendDraft(draft));
+      } catch {
+        setPending((list) => (list.some((d) => d.id === draft.id) ? list : [...list, draft]));
+        failJob(draft.id);
+        const isMac = desktopPlatform() === "darwin";
+        const unsent = bridge?.drafts
+          ? `Couldn't send the meeting. It's saved on this ${isMac ? "Mac" : "computer"}.`
+          : "Couldn't send the meeting. Retry before closing Vocify.";
+        // An island that does not keep the list says it itself; one that does shows the failed line, and a recording on the way is not interrupted.
+        if (phaseRef.current === "idle") bridge?.shell.setState({ finish: { step: "failed", message: unsent } });
+        fail(unsent);
+      }
+    },
+    [fail, failJob, jobMemo, sendDraft],
+  );
+
   /** What the rep chose in the island's card. Every write goes through the same API Vocify uses. */
   const onPostCallAction = useCallback(
     async (action: { type: string; [key: string]: unknown }) => {
+      // A finished call asked for from the island: its card, or another try.
+      if (action.type === "openJob" && typeof action.id === "string") return openJob(action.id);
+      if (action.type === "retryJob" && typeof action.id === "string") return retryJob(action.id);
       const current = postCallRef.current;
       if (!current) return;
       const { memoId } = current.state;
+      // The rep has dealt with it (saved it or closed it): it is no longer waiting for them.
+      if (action.type === "approve" || action.type === "dismiss") {
+        const done = jobsRef.current.find((j) => j.memoId === memoId);
+        if (done) settleJob(done.id);
+      }
       const fail = (patch: Partial<PostCall>) => !current.run.cancelled && showPostCall(patch);
 
       switch (action.type) {
@@ -950,7 +1086,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           return;
       }
     },
-    [endPostCall, memoChanged, navigate, queryClient, showPostCall],
+    [endPostCall, memoChanged, navigate, openJob, queryClient, retryJob, settleJob, showPostCall],
   );
   const onPostCallActionRef = useRef(onPostCallAction);
   onPostCallActionRef.current = onPostCallAction;
@@ -960,16 +1096,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
    * memo (GET /calls/{sid}), then follow it in the island like a recorded meeting.
    */
   const followCallMemo = useCallback(
-    async (callSid: string, contactName: string | null) => {
+    async (callSid: string) => {
       const bridge = getDesktopBridge();
       let since: number | null = null;
       for (;;) {
         const summary = (await callsApi.getCall(callSid).catch(() => null)) as CallSummary | null;
-        // A voicemail pickup has a memo too, but nothing to review: the island says so instead of opening a card.
-        if (summary?.memoId && !isNoConversation(summary.screeningOutcome)) {
-          bridge?.shell.setState({ finish: null });
-          navigate(ROUTES.MEMO_DETAIL(summary.memoId));
-          void followPostCall(summary.memoId, contactName);
+        // The memo is there (a voicemail pickup has one too, with nothing to review: its job says so): follow it.
+        if (summary?.memoId) {
+          jobMemo(callSid, summary.memoId);
           return;
         }
         const resolution = afterCallResolution(summary);
@@ -980,6 +1114,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
                 ? { step: "skipped", message: "No answer. Logged as no answer." }
                 : { step: "failed", message: "The call failed." },
           });
+          if (resolution === "no_answer") {
+            setJobs((jobs) => patchJob(jobs, callSid, { state: "done" }));
+            finishJob(callSid, 6000);
+          } else failJob(callSid);
           return;
         }
         const next = afterCallPoll(summary, since, Date.now());
@@ -987,13 +1125,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           bridge?.shell.setState({
             finish: { step: "failed", message: "Still processing the call. It will show up in Vocify." },
           });
+          failJob(callSid);
           return;
         }
         since = next.since;
         await new Promise((resolve) => window.setTimeout(resolve, next.interval as number));
       }
     },
-    [followPostCall, navigate],
+    [failJob, finishJob, jobMemo, setJobs],
   );
 
   const stop = useCallback(async () => {
@@ -1034,6 +1173,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       setPhase("idle");
       bridge?.shell.setState({ finish: { step: "uploading" } });
       const contactName = draft?.contact?.name ?? null;
+      // The previous call's card goes; this call is its own job, and the next call may start at once.
+      endPostCall();
+      startJob(call.callSid, contactName, () => void followCallMemo(call.callSid));
       // The live transcript is the memo, seconds after hang-up. Twilio's recording joins the same memo
       // later (playback, CRM call log). A send that got no answer is sent again (the server keeps one memo
       // per call); if it still fails, the recording makes the memo as before.
@@ -1059,20 +1201,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           );
           reportCallStep("live-memo", { memoId: memo.id });
           queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
-          if (isNoConversation(memo.screeningOutcome)) {
-            // A voicemail (or nobody there): no card, no extraction. The call is logged as no answer in the CRM.
-            bridge?.shell.setState({ finish: { step: "skipped", message: "No answer. Logged as no answer." } });
-            return;
-          }
-          bridge?.shell.setState({ finish: null });
-          navigate(ROUTES.MEMO_DETAIL(memo.id));
-          void followPostCall(memo.id, contactName);
+          jobMemo(call.callSid, memo.id);
           return;
         } catch (e) {
           reportCallStep("live-memo-failed", { message: e instanceof Error ? e.message : String(e) });
         }
       }
-      void followCallMemo(call.callSid, contactName);
+      void followCallMemo(call.callSid);
       return;
     }
     const phoneCall = Boolean(draft) && phoneDraftRef.current === draft?.id;
@@ -1098,29 +1233,16 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     }
     await bridge?.drafts?.save(draft);
 
-    setPhase("uploading");
+    // The recording is over: the next one may start while this one is sent.
+    clearNotes();
+    updateTranscript(EMPTY_MEETING_TRANSCRIPT);
+    setPhase("idle");
     bridge?.shell.setState({ finish: { step: "uploading" } });
-    try {
-      const memoId = await sendDraft(draft);
-      clearNotes();
-      updateTranscript(EMPTY_MEETING_TRANSCRIPT);
-      setPhase("idle");
-      navigate(ROUTES.MEMO_DETAIL(memoId));
-      bridge?.shell.setState({ finish: null });
-      void followPostCall(memoId, draft.contact?.name ?? null);
-    } catch {
-      setPending((list) => [...list, draft]);
-      clearNotes();
-      updateTranscript(EMPTY_MEETING_TRANSCRIPT);
-      setPhase("idle");
-      const isMac = desktopPlatform() === "darwin";
-      const unsent = bridge?.drafts
-        ? `Couldn't send the meeting. It's saved on this ${isMac ? "Mac" : "computer"}.`
-        : "Couldn't send the meeting. Retry before closing Vocify.";
-      bridge?.shell.setState({ finish: { step: "failed", message: unsent } });
-      fail(unsent);
-    }
-  }, [clearNotes, currentDraft, drainSocket, fail, followCallMemo, followPostCall, navigate, queryClient, releaseAudio, sendDraft, setPhase, updateTranscript]);
+    // The previous call's card goes; this one is its own job, and the next recording may start at once.
+    endPostCall();
+    startJob(draft.id, draft.contact?.name ?? null, () => void sendInBackground(draft));
+    void sendInBackground(draft);
+  }, [clearNotes, currentDraft, drainSocket, endPostCall, fail, followCallMemo, jobMemo, queryClient, releaseAudio, sendInBackground, setPhase, startJob, updateTranscript]);
 
   /** The rep threw the recording away from the island: it is stopped like `stop`, but nothing is kept, sent or written. */
   const discard = useCallback(async () => {
@@ -1156,6 +1278,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const start = useCallback(async (call?: VocifyCallSession, options?: { stay?: boolean; contact?: MeetingDraft["contact"] | null }) => {
     const bridge = getDesktopBridge();
     if (!bridge || phaseRef.current !== "idle") return;
+    // The rep takes up the next one: what is ready from the last waits for them, it does not appear over this.
+    if (jobsRef.current.some((j) => j.autoOpen)) setJobs(stopAutoOpen);
     if (!user?.id || !api.getToken()) {
       fail("Sign in to record.");
       return;
@@ -1495,7 +1619,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       void bridge.shell.hideOverlay();
       bridge.shell.command("show");
     }
-  }, [applyCallType, clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, sendOverlay, setPhase, t, typeName, updateTranscript, user?.id]);
+  }, [applyCallType, clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, sendOverlay, setJobs, setPhase, t, typeName, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(
@@ -1519,12 +1643,15 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (!pending.length) return;
     setError(null);
     const { sent, failed } = await sendAll(pending);
+    // What went out is no longer a failed line in the island.
+    const stillFailed = new Set(failed.map((d) => d.id));
+    pending.filter((d) => !stillFailed.has(d.id)).forEach((d) => finishJob(d.id));
     if (failed.length) {
       fail("Still couldn't send. Check your connection and retry.");
       return;
     }
     navigate(sent.length === 1 ? ROUTES.MEMO_DETAIL(sent[0]) : ROUTES.MEMOS);
-  }, [fail, navigate, pending, sendAll]);
+  }, [fail, finishJob, navigate, pending, sendAll]);
 
   // Meetings left behind by a quit, crash or failed send go out on their own.
   useEffect(() => {
@@ -1752,9 +1879,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const followCall = useCallback(
     (callSid: string, contactName: string | null) => {
       getDesktopBridge()?.shell.setState({ finish: { step: "uploading" } });
-      void followCallMemo(callSid, contactName);
+      startJob(callSid, contactName, () => void followCallMemo(callSid));
+      void followCallMemo(callSid);
     },
-    [followCallMemo],
+    [followCallMemo, startJob],
   );
 
   const expectPhoneCall = useCallback((call: { contact: MeetingDraft["contact"] | null; source: CallSourceInfo } | null) => {
