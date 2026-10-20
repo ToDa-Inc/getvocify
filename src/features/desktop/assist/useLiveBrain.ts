@@ -650,8 +650,9 @@ export function useLiveBrain(
 
   // ---- the playbook's words for the ids ----
   const editor = useQuery({
-    queryKey: ["live-brain-playbook", typeKey],
-    queryFn: () => playbooksApi.editor(typeKey as string),
+    // The published version, the one the brain reads: a manager's pending draft would list steps the call does not have.
+    queryKey: ["live-brain-playbook", typeKey, "live"],
+    queryFn: () => playbooksApi.liveEditor(typeKey as string),
     enabled: flag && Boolean(typeKey),
     staleTime: 5 * 60_000,
     retry: false,

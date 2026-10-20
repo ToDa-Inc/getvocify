@@ -141,6 +141,18 @@ def test_publishing_then_editing_creates_a_new_draft_and_leaves_the_live_version
     assert again["version_id"] == body["version_id"]
 
 
+def test_live_true_gives_a_manager_the_live_version_a_call_uses_not_the_pending_draft(client_for):
+    client = client_for()
+    client.put(f"{BASE}/draft", json=draft("Apertura"))
+    assert client.post(f"{BASE}/publish").status_code == 200
+    live = client.get(f"{BASE}/editor").json()
+    client.put(f"{BASE}/draft", json={**draft("Apertura nueva"), "base_updated_at": live["updated_at"]})
+    # The live assistant's Pasos lists the steps its brain reads: the published ones.
+    during_a_call = client.get(f"{BASE}/editor", params={"live": "true"}).json()
+    assert during_a_call["source"] == "published" and during_a_call["steps"][0]["label"] == "Apertura"
+    assert client.get(f"{BASE}/editor").json()["steps"][0]["label"] == "Apertura nueva"
+
+
 def test_a_stale_base_is_409_and_changes_nothing(client_for):
     client = client_for()
     one = client.put(f"{BASE}/draft", json=draft("Uno")).json()

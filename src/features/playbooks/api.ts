@@ -105,6 +105,8 @@ export function blobBase64(blob: Blob): Promise<string> {
 export const playbooksApi = {
   list: () => api.get<PlaybookList>("/playbooks"),
   editor: (key: string) => api.get<EditorDoc>(`${path(key)}/editor`),
+  /** The live version, as a call uses it: never a pending draft (the live assistant's Pasos). */
+  liveEditor: (key: string) => api.get<EditorDoc>(`${path(key)}/editor?live=true`),
   saveDraft: (
     key: string,
     body: ReturnType<typeof draftPayload> & {
