@@ -150,8 +150,13 @@ def split_reviewed(
     kept: list[CommitmentTask] = []
     left_steps: list[str] = []
     left_positions: list[int] = []
+    # A row whose day the rep changed (`reviewedTaskDates`, one item per step, "" when untouched) is no longer
+    # the commitment's: it is written as a step on the day and hour chosen, which sit in its schedule hint.
+    redated = (extraction.raw_extraction or {}).get("reviewedTaskDates")
+    redated = redated if isinstance(redated, list) else []
     for position, step in enumerate(extraction.nextSteps or []):
-        match = next((t for t in tasks if t not in kept and _same_text(t.text, step)), None)
+        chosen = position < len(redated) and bool(str(redated[position] or "").strip())
+        match = None if chosen else next((t for t in tasks if t not in kept and _same_text(t.text, step)), None)
         if match is not None:
             kept.append(match)
         else:

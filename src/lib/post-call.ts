@@ -36,6 +36,8 @@ export type PostCallChange = {
   when: string | null;
   /** The call gave the task no day: `when` is the default it will be written with. */
   whenSuggested: boolean;
+  /** A task's due moment (ISO, with offset), which the island's day and hour picker starts from. Absent on anything else. */
+  dueAt?: string;
   /** Nothing was proposed (the lead status the call left alone): written only once the rep picks a value. */
   pending?: boolean;
 };
@@ -133,6 +135,8 @@ export type PostCall = {
   notes: boolean;
   /** The call note as plain text, one line per line of the note. */
   summary?: string | null;
+  /** Nobody answered (a voicemail): the card offers only the lead status and tasks, and no note is written. */
+  noAnswer?: boolean;
   /** The connected CRM's name ("HubSpot", "Pipedrive"...); null when none is known. */
   crm?: string | null;
   type?: PostCallType | null;
@@ -214,6 +218,7 @@ export function changesFrom(proposed: Update[] | null | undefined): PostCallChan
       check: confidence !== null && confidence < CONFIDENCE.MEDIUM,
       when: dueAt ? meetingWhen(dueAt, null) : null,
       whenSuggested: Boolean(dueAt && update.due_date_inferred),
+      ...(dueAt ? { dueAt } : {}),
     });
   }
   return changes;
@@ -288,8 +293,21 @@ export function summaryLines(markdown: string | null | undefined, max = Infinity
   return lines.length ? lines.join("\n") : null;
 }
 
-/** A task the rep added in the island's card: its title and the day it is due (YYYY-MM-DD). */
-export type NewTask = { title: string; due: string };
+/** A task the rep added in the island's card: its title, the day it is due (YYYY-MM-DD) and, when chosen, the hour (HH:MM). */
+export type NewTask = { title: string; due: string; time?: string };
+
+/** The day and hour the rep chose for a task (an added one, or a proposed one they moved). */
+export type TaskDue = { due: string; time?: string };
+
+const DUE_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const DUE_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function dueFrom(row: Record<string, unknown> | null): TaskDue | null {
+  const due = typeof row?.due === "string" ? row.due : "";
+  if (!DUE_DAY.test(due) || Number.isNaN(Date.parse(`${due}T00:00:00Z`))) return null;
+  const time = typeof row?.time === "string" && DUE_TIME.test(row.time) ? row.time : undefined;
+  return time ? { due, time } : { due };
+}
 
 /** The tasks the island sent, as far as they can be written: a title and a real YYYY-MM-DD day. Anything else is dropped. */
 export function newTasksFrom(raw: unknown): NewTask[] {
@@ -298,10 +316,85 @@ export function newTasksFrom(raw: unknown): NewTask[] {
   for (const item of raw.slice(0, 20)) {
     const row = item && typeof item === "object" ? (item as Record<string, unknown>) : null;
     const title = typeof row?.title === "string" ? row.title.replace(/\s+/g, " ").trim().slice(0, 200) : "";
-    const due = typeof row?.due === "string" ? row.due : "";
-    if (title && /^\d{4}-\d{2}-\d{2}$/.test(due) && !Number.isNaN(Date.parse(`${due}T00:00:00Z`))) tasks.push({ title, due });
+    const due = dueFrom(row);
+    if (title && due) tasks.push({ title, ...due });
   }
   return tasks;
+}
+
+/** What the rep changed on one of the call's proposed tasks: its text, and/or the day and hour it is due. */
+export type TaskEdit = { title?: string; due?: string; time?: string };
+
+/** The changes the rep made to the call's proposed tasks in the island, by the task's change key. Only real values are kept. */
+export function taskEditsFrom(raw: unknown): Record<string, TaskEdit> {
+  const edits: Record<string, TaskEdit> = {};
+  if (!raw || typeof raw !== "object") return edits;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>).slice(0, 40)) {
+    const row = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+    const title = typeof row?.title === "string" ? row.title.replace(/\s+/g, " ").trim().slice(0, 200) : "";
+    const due = dueFrom(row);
+    if (title || due) edits[key] = { ...(title ? { title } : {}), ...(due ?? {}) };
+  }
+  return edits;
+}
+
+/** A day and hour the way a task's schedule hint reads them: the backend takes "YYYY-MM-DD a las HH:MM". */
+export function dueHint({ due, time }: TaskDue): string {
+  return time ? `${due} a las ${time}` : due;
+}
+
+function isTaskUpdate(update: Update): boolean {
+  return update.object_type === "task" || String(update.field_name || "").startsWith("next_step_task_");
+}
+
+/**
+ * The tasks to write: the call's proposed ones the rep kept (a task they moved carries its new day and hour, marked in
+ * `reviewedTaskDates` so the backend writes it as chosen; one they re-worded is written from its new text), then the ones they added. A call that proposed no task rows keeps
+ * the steps the extraction had.
+ */
+export function tasksForApprove(
+  extraction: { nextSteps?: string[] | null; raw_extraction?: Record<string, unknown> } | null | undefined,
+  proposed: Update[] | null | undefined,
+  omit: string[],
+  edits: Record<string, TaskEdit>,
+  added: NewTask[],
+): { nextSteps: string[]; nextStepSchedules: string[]; reviewedTaskDates: string[] } {
+  const rows = (proposed ?? []).filter(isTaskUpdate);
+  if (rows.length === 0) {
+    const steps = withAddedTasks(extraction, added);
+    const schedules = steps.nextStepSchedules ?? [];
+    return { nextSteps: steps.nextSteps, nextStepSchedules: schedules, reviewedTaskDates: schedules.map(() => "") };
+  }
+  const index = (update: Update) => parseInt(String(update.field_name).replace("next_step_task_", ""), 10) || 0;
+  const kept = rows
+    .filter((update) => !omit.includes(proposedFieldKey(update) ?? ""))
+    .sort((a, b) => index(a) - index(b))
+    .map((update) => ({ step: text(update.new_value), update }))
+    .filter((row) => row.step);
+  const editOf = (update: Update) => {
+    const key = proposedFieldKey(update);
+    return key ? edits[key] : undefined;
+  };
+  // Re-worded, a task is no longer the commitment's text: it keeps the day and hour the call gave it.
+  const given = (update: Update) => {
+    const at = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(text(update.due_at));
+    return at ? `${at[1]} a las ${at[2]}` : text(update.due_date);
+  };
+  const steps = kept.map((row) => editOf(row.update)?.title ?? row.step);
+  const schedules = kept.map((row) => {
+    const edit = editOf(row.update);
+    if (edit?.due) return dueHint({ due: edit.due, time: edit.time });
+    return edit?.title ? given(row.update) : text(row.update.due_date);
+  });
+  const reviewed = kept.map((row) => {
+    const edit = editOf(row.update);
+    return edit?.due ? dueHint({ due: edit.due, time: edit.time }) : "";
+  });
+  return {
+    nextSteps: [...steps, ...added.map((task) => task.title)],
+    nextStepSchedules: [...schedules, ...added.map((task) => dueHint(task))],
+    reviewedTaskDates: [...reviewed, ...added.map(() => "")],
+  };
 }
 
 /**
@@ -317,7 +410,7 @@ export function withAddedTasks(
   const raw = extraction?.raw_extraction ?? {};
   const known = Array.isArray(raw.nextStepSchedules) ? raw.nextStepSchedules : Array.isArray(raw.next_step_schedules) ? raw.next_step_schedules : [];
   const days = steps.map((_, i) => (typeof known[i] === "string" ? (known[i] as string) : ""));
-  return { nextSteps: [...steps, ...added.map((task) => task.title)], nextStepSchedules: [...days, ...added.map((task) => task.due)] };
+  return { nextSteps: [...steps, ...added.map((task) => task.title)], nextStepSchedules: [...days, ...added.map((task) => dueHint(task))] };
 }
 
 /**

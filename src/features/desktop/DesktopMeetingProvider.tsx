@@ -68,7 +68,8 @@ import {
   noteMarkdown,
   retypedTo,
   summaryLines,
-  withAddedTasks,
+  tasksForApprove,
+  taskEditsFrom,
   withEdits,
   withLeadStatus,
   type PostCall,
@@ -743,10 +744,28 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       }
 
       if (isNoConversation(memo.screeningOutcome)) {
-        // The reading found nobody answered (a voicemail the screening let through): no card, logged as no answer.
-        endPostCall();
-        getDesktopBridge()?.shell.setState({ finish: { step: "skipped", message: "No answer. Logged as no answer." } });
-        memoChanged(memoId);
+        // Nobody answered (a voicemail the screening let through): the call is logged as no answer already. The card
+        // offers what a rep still does after one, the lead status and a task to call again, and writes no note.
+        const contact = memo.hubspotContactId || undefined;
+        const offer =
+          contact && hubspotConnectedRef.current
+            ? await crmApi
+                .getSchema("contacts")
+                .then((schema) => leadStatusUpdate(schema.properties) as ProposedUpdate | null)
+                .catch(() => null)
+            : null;
+        if (run.cancelled || !postCallRef.current) return;
+        if (!offer) {
+          endPostCall();
+          getDesktopBridge()?.shell.setState({ finish: { step: "skipped", message: "No answer. Logged as no answer." } });
+          memoChanged(memoId);
+          return;
+        }
+        postCallRef.current.contactId = contact;
+        postCallRef.current.proposed = [offer];
+        const noAnswerCrm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, [offer]);
+        postCallRef.current.crm = noAnswerCrm;
+        showPostCall({ ...noAnswerCrm, noAnswer: true, notes: false, summary: null });
         return;
       }
 
@@ -841,8 +860,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
                 memoExtraction: (memo.extraction ?? null) as unknown as Record<string, unknown> | null,
                 updates: withEdits(current.proposed, edits).filter((update) => !omit.includes(proposedFieldKey(update) ?? "")),
                 omittedKeys: omit,
-                summary: note !== null ? noteMarkdown(note, memo.extraction?.summary) : memo.extraction?.summary ?? "",
-                ...withAddedTasks(memo.extraction, added),
+                summary: current.state.noAnswer ? "" : note !== null ? noteMarkdown(note, memo.extraction?.summary) : memo.extraction?.summary ?? "",
+                ...tasksForApprove(memo.extraction, current.proposed, omit, taskEditsFrom(action.taskEdits), added),
               });
               await memosApi.approveForContact(memoId, extraction);
               if (current.run.cancelled) return;

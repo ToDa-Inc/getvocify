@@ -593,3 +593,22 @@ def test_v8_pipeline_turns_commitment_tasks_on(monkeypatch):
     from app.services.intelligence.extract import CALL_READING_FLAG
     monkeypatch.setattr(ct, "is_enabled", lambda _sb, _company, flag: flag == CALL_READING_FLAG)
     assert ct._enabled(object(), COMPANY) is True
+
+
+def test_a_row_the_rep_gave_another_day_is_a_step_on_that_day_not_the_commitment():
+    from app.services.hubspot.tasks import format_next_step_task
+
+    tasks = ct.commitment_tasks(_memo([DAY, UNDATED]), tz_name="Europe/Madrid")
+    reviewed = MemoExtraction(
+        nextSteps=["Enviar el caso de logística", "Preparar la propuesta"],
+        raw_extraction={
+            "nextStepSchedules": ["2026-10-30 a las 15:30", ""],
+            "reviewedTaskDates": ["2026-10-30 a las 15:30", ""],
+        },
+    )
+    kept, extraction = ct.split_reviewed(tasks, reviewed)
+    assert [t.commitment_id for t in kept] == ["com-3"]
+    assert extraction.nextSteps == ["Enviar el caso de logística"]
+    hint = extraction.raw_extraction["nextStepSchedules"][0]
+    due = format_next_step_task(extraction.nextSteps[0], schedule_hint=hint).due_date
+    assert due == datetime(2026, 10, 30, 15, 30, tzinfo=MADRID)

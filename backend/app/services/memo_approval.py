@@ -12,6 +12,7 @@ from supabase import Client
 from app.logging_config import log_domain, DOMAIN_MEMO
 from app.models.memo import Memo, MemoExtraction, ApproveMemoRequest
 from app.services import after_call, commitment_tasks
+from app.services.followup_logic import SKIPPED_SCREENING
 from app.services.crm_config import CRMConfigurationService
 from app.services.deal_stage_confirm import STAGE_FIELD, stage_sync_kwargs
 from app.services.crm_providers import (
@@ -332,7 +333,9 @@ async def approve_memo_core(
         auto_create_contact_company=auto_create_contact_company,
         auto_create_companies=auto_create_companies,
         auto_create_contacts=auto_create_contacts,
-        create_note=True if not payload else bool(getattr(payload, "create_note", True)),
+        # A call nobody answered already carries its own line in the CRM: its "summary" is not a note to write.
+        create_note=(True if not payload else bool(getattr(payload, "create_note", True)))
+        and memo_data.get("screening_outcome") not in SKIPPED_SCREENING,
         contact_id=contact_id,
         company_id=company_id,
         skip_deal=skip_deal,

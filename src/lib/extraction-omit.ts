@@ -225,6 +225,7 @@ export function buildApproveExtraction({
   summary,
   nextSteps,
   nextStepSchedules,
+  reviewedTaskDates,
 }: {
   memoExtraction?: ExtractionRecord | null;
   updates?: ProposedUpdate[] | null;
@@ -233,6 +234,8 @@ export function buildApproveExtraction({
   nextSteps?: string[] | null;
   /** The day of each next step, in the same order; absent keeps what the extraction had. */
   nextStepSchedules?: string[] | null;
+  /** Per next step, the day and hour the rep chose for it ("" when they left it as proposed). */
+  reviewedTaskDates?: string[] | null;
 } = {}): ExtractionRecord {
   let next = applyProposedUpdates(memoExtraction || {}, updates || []);
   next = stripOmittedFields(next, omittedKeys || []);
@@ -249,6 +252,9 @@ export function buildApproveExtraction({
   // The schedules follow the steps the rep kept: left as extracted, a removed row shifts every later date.
   if (Array.isArray(nextStepSchedules)) {
     next.raw_extraction.nextStepSchedules = selectedSteps.map((_, i) => nextStepSchedules[i] || "");
+  }
+  if (Array.isArray(reviewedTaskDates) && reviewedTaskDates.some(Boolean)) {
+    next.raw_extraction.reviewedTaskDates = selectedSteps.map((_, i) => reviewedTaskDates[i] || "");
   }
   if (selectedSteps[0]) next.raw_extraction.hs_next_step = selectedSteps[0];
   else delete next.raw_extraction.hs_next_step;

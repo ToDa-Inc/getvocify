@@ -19,6 +19,8 @@ import {
   type PostCall,
   newTasksFrom,
   withAddedTasks,
+  tasksForApprove,
+  taskEditsFrom,
 } from "./post-call.ts";
 
 describe("changesFrom", () => {
@@ -332,5 +334,43 @@ describe("tasks added in the island", () => {
     const out = withAddedTasks({ nextSteps: ["A", "B"] }, [{ title: "C", due: "2026-10-20" }]);
     assert.deepEqual(out.nextStepSchedules, ["", "", "2026-10-20"]);
     assert.deepEqual(withAddedTasks({ nextSteps: ["A"] }, []), { nextSteps: ["A"] });
+  });
+});
+
+describe("tasks the rep moved or added in the island", () => {
+  const task = (n: number, value: string, due: string) => ({ field_name: `next_step_task_${n}`, object_type: "task", new_value: value, due_date: due, field_label: "Task", current_value: null, extraction_confidence: 0.9 });
+  const proposed = [task(0, "Enviar el caso", "2026-10-21"), task(1, "Llamar a Ana", "2026-10-22")];
+
+  it("keeps the proposed days, and marks the one the rep moved with its new day and hour", () => {
+    const out = tasksForApprove({ nextSteps: [] }, proposed, [], { "task:next_step_task_1": { due: "2026-10-30", time: "15:30" } }, []);
+    assert.deepEqual(out.nextSteps, ["Enviar el caso", "Llamar a Ana"]);
+    assert.deepEqual(out.nextStepSchedules, ["2026-10-21", "2026-10-30 a las 15:30"]);
+    assert.deepEqual(out.reviewedTaskDates, ["", "2026-10-30 a las 15:30"]);
+  });
+
+  it("writes a re-worded task from its new text, on the day and hour the call gave it", () => {
+    const timed = [{ ...task(0, "Llamar a Ana", "2026-10-29"), due_at: "2026-10-29T18:00:00+01:00" }];
+    const out = tasksForApprove({ nextSteps: [] }, timed, [], { "task:next_step_task_0": { title: "Llamar a Ana por el precio" } }, []);
+    assert.deepEqual(out.nextSteps, ["Llamar a Ana por el precio"]);
+    assert.deepEqual(out.nextStepSchedules, ["2026-10-29 a las 18:00"]);
+    assert.deepEqual(out.reviewedTaskDates, [""]);
+  });
+
+  it("leaves out a task the rep unticked, and adds theirs after with the hour they chose", () => {
+    const out = tasksForApprove({ nextSteps: [] }, proposed, ["task:next_step_task_0"], {}, [{ title: "Mandar contrato", due: "2026-10-28", time: "09:00" }]);
+    assert.deepEqual(out.nextSteps, ["Llamar a Ana", "Mandar contrato"]);
+    assert.deepEqual(out.nextStepSchedules, ["2026-10-22", "2026-10-28 a las 09:00"]);
+    assert.deepEqual(out.reviewedTaskDates, ["", ""]);
+  });
+
+  it("keeps the extraction's steps when the call proposed no task rows", () => {
+    const out = tasksForApprove({ nextSteps: ["Call back"] }, [], [], {}, [{ title: "Send it", due: "2026-10-20" }]);
+    assert.deepEqual(out.nextSteps, ["Call back", "Send it"]);
+  });
+
+  it("takes only real days and hours from the island", () => {
+    assert.deepEqual(newTasksFrom([{ title: "A", due: "2026-10-20", time: "7:5" }]), [{ title: "A", due: "2026-10-20" }]);
+    assert.deepEqual(newTasksFrom([{ title: "A", due: "2026-10-20", time: "07:05" }]), [{ title: "A", due: "2026-10-20", time: "07:05" }]);
+    assert.deepEqual(taskEditsFrom({ k: { due: "2026-13-40" }, j: { due: "2026-10-20" }, t: { title: "  Nuevo   texto " } }), { j: { due: "2026-10-20" }, t: { title: "Nuevo texto" } });
   });
 });
