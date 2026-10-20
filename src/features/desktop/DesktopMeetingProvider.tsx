@@ -333,6 +333,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const vocifyCallRef = useRef<VocifyCallSession | null>(null);
   const startRef = useRef<(call?: VocifyCallSession, options?: { contact?: MeetingDraft["contact"] | null }) => Promise<void>>(async () => {});
   const stopRef = useRef<() => Promise<void>>(async () => {});
+  const discardRef = useRef<() => Promise<void>>(async () => {});
   const pauseRef = useRef<() => void>(() => {});
   const resumeRef = useRef<() => void>(() => {});
 
@@ -1094,6 +1095,37 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     }
   }, [clearNotes, currentDraft, drainSocket, fail, followCallMemo, followPostCall, navigate, queryClient, releaseAudio, sendDraft, setPhase, updateTranscript]);
 
+  /** The rep threw the recording away from the island: it is stopped like `stop`, but nothing is kept, sent or written. */
+  const discard = useCallback(async () => {
+    if (phaseRef.current !== "live" || vocifyCallRef.current) return;
+    setPhase("stopping");
+    pausedRef.current = false;
+    setPaused(false);
+    const bridge = getDesktopBridge();
+    bridge?.shell.setState({ listening: false, liveType: null, finish: null });
+    void bridge?.shell.hideOverlay();
+    await releaseAudio();
+    if (nativeRef.current) {
+      nativeRef.current = false;
+      await bridge?.recorder?.stop();
+    } else {
+      wsRef.current?.close();
+      wsRef.current = null;
+    }
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const id = draftRef.current?.id;
+    if (id) void bridge?.drafts?.remove(id);
+    draftRef.current = null;
+    phoneDraftRef.current = null;
+    setContact(null);
+    clearNotes();
+    updateTranscript(EMPTY_MEETING_TRANSCRIPT);
+    setPhase("idle");
+  }, [clearNotes, releaseAudio, setPhase, updateTranscript]);
+
   const start = useCallback(async (call?: VocifyCallSession, options?: { stay?: boolean; contact?: MeetingDraft["contact"] | null }) => {
     const bridge = getDesktopBridge();
     if (!bridge || phaseRef.current !== "idle") return;
@@ -1503,6 +1535,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   pauseRef.current = pause;
   resumeRef.current = resume;
   stopRef.current = stop;
+  discardRef.current = discard;
 
   useEffect(() => {
     const bridge = getDesktopBridge();
@@ -1514,7 +1547,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         if (name === "stop") callEngine.hangup();
         return;
       }
-      if (name === "stop" || (name === "toggle" && current === "live")) {
+      if (name === "discard") {
+        void discardRef.current();
+      } else if (name === "stop" || (name === "toggle" && current === "live")) {
         void stopRef.current();
       } else if (name === "listen" || (name === "toggle" && current === "idle")) {
         navigate(ROUTES.RECORD);
