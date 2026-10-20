@@ -500,6 +500,10 @@ async def extract_memo_async(
         from app.services.playbooks.type_classifier import apply_reading_type
 
         apply_reading_type(supabase, memo_id, call_reading)
+        # Before the memo reads as ready: the island that is waiting for it must see a voicemail as one.
+        from app.services.telephony.reading_outcome import apply_reading_outcome
+
+        await apply_reading_outcome(supabase, memo_id, call_reading)
         update_memo_row(
             supabase,
             memo_id,
@@ -508,9 +512,6 @@ async def extract_memo_async(
                 datetime.utcnow().isoformat(),
             ),
         )
-        from app.services.telephony.reading_outcome import apply_reading_outcome
-
-        await apply_reading_outcome(supabase, memo_id, call_reading)
         schedule_followup(supabase, memo_id)
         from app.services.memo_extraction_hooks import run_post_extraction_hooks
 

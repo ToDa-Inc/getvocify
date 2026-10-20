@@ -742,6 +742,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      if (isNoConversation(memo.screeningOutcome)) {
+        // The reading found nobody answered (a voicemail the screening let through): no card, logged as no answer.
+        endPostCall();
+        getDesktopBridge()?.shell.setState({ finish: { step: "skipped", message: "No answer. Logged as no answer." } });
+        memoChanged(memoId);
+        return;
+      }
+
       const contactId = memo.hubspotContactId || undefined;
       // The CRM changes are the slow part (the preview reads the CRM). It starts now, and the card
       // shows what is already known - the type, the call note, the meeting - without waiting for it.
