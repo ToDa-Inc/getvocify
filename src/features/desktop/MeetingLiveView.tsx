@@ -14,13 +14,8 @@ import { desktopPlatform, getDesktopBridge, TRANSCRIPT_SEARCH_EVENT } from "@/li
 import { audioIssueCopy } from "@/lib/audio-health";
 import { useDesktopMeeting } from "./DesktopMeetingProvider";
 import { LiveAssistPanel } from "./assist/LiveAssistPanel";
-import { useLiveAssist, useLiveAssistEnabled } from "./assist/useLiveAssist";
-import { liveHelpActive } from "@/lib/live-call-type";
-import { useAuth } from "@/features/auth";
+import { useLiveHelp } from "./assist/LiveHelpProvider";
 import { LiveBrainSection } from "./live-brain/LiveBrainSection";
-
-/** The company flag of the live call assistant (one brain: points, progress, recap). Off: today's live help. */
-const LIVE_BRAIN_FLAG = "LIVE_BRAIN_ENABLED";
 
 const BAR_SHAPE = [0.45, 0.8, 1, 0.65];
 
@@ -28,8 +23,8 @@ const BAR_SHAPE = [0.45, 0.8, 1, 0.65];
 export function MeetingLiveView() {
   const meeting = useDesktopMeeting();
   const live = meeting.phase === "live";
-  const { user } = useAuth();
-  const brainOn = Boolean(user?.company?.features?.includes(LIVE_BRAIN_FLAG));
+  // Live help runs for the whole meeting (LiveHelpProvider), whatever page is shown: this view only draws it.
+  const { brainOn, assistOn, setAssistOn, helpOn, assist } = useLiveHelp();
   // With the new live view the transcript is one of its tabs: the dock below keeps the recording controls.
   const [transcriptOpen, setTranscriptOpen] = useState(!brainOn);
   useEffect(() => {
@@ -52,30 +47,6 @@ export function MeetingLiveView() {
     setSearchOpen(false);
     setQuery("");
   };
-  const [assistOn, setAssistOn] = useLiveAssistEnabled();
-  // On for this call per the remembered switch, unless the rep flipped it in the island; never on an internal call.
-  const helpOn = liveHelpActive({ remembered: assistOn, override: meeting.liveHelpOverride, typeKey: meeting.callType.key });
-  const assist = useLiveAssist(meeting.turns, helpOn && live && !meeting.paused && !brainOn, {
-    contactId: meeting.contact?.hubspotId,
-    callMode: meeting.callMode,
-    callId: meeting.callId,
-    typeKey: meeting.callType.key,
-    prospectLevel: meeting.levels.them,
-  });
-
-  useEffect(() => {
-    getDesktopBridge()?.shell.setState({ liveHelp: helpOn });
-  }, [helpOn]);
-
-  // The floating pill shows the same live card while it is open.
-  useEffect(() => {
-    const card = assist.active;
-    getDesktopBridge()?.shell.setState({
-      assist: card
-        ? { label: card.label, kind: card.kind, stage: card.stage, bridge: card.bridge, sayThis: card.sayThis }
-        : null,
-    });
-  }, [assist.active]);
   const [startedAt] = useState(() =>
     new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   );

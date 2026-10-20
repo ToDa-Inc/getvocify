@@ -113,6 +113,21 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
   const turnsRef = useRef(turns);
   turnsRef.current = turns;
 
+  // A new call starts with nothing shown and nothing remembered: the hook lives as long as the dashboard (LiveHelpProvider),
+  // not as long as one call.
+  useEffect(() => {
+    checkRef.current?.abort();
+    answerRef.current?.abort();
+    window.clearTimeout(backstopRef.current);
+    changedAtRef.current = 0;
+    lastKeyRef.current = "";
+    askedRef.current = null;
+    shownRef.current = [];
+    shownAtRef.current = null;
+    setActive(null);
+    setThinking(false);
+  }, [call.callId]);
+
   const found = enabled ? assistContext(turns, askedRef.current) : null;
   const context = found
     ? {

@@ -28,6 +28,7 @@ import { CALL_STATES, isInCall, type CallState } from "@/lib/dial-target";
 import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopMeetingProvider } from "@/features/desktop/DesktopMeetingProvider";
+import { LiveHelpProvider } from "@/features/desktop/assist/LiveHelpProvider";
 import { DesktopCallProvider } from "@/features/desktop/DesktopCallProvider";
 import { MeetingHeadsUp } from "@/features/desktop/MeetingHeadsUp";
 import { DesktopRecordingChip } from "@/features/desktop/DesktopRecordingChip";
@@ -108,6 +109,7 @@ const DashboardLayout = () => {
 
   return (
     <DesktopMeetingProvider>
+    <LiveHelpProvider>
     <DesktopCalling>
     <DialerFocusProvider onOpenDialer={() => setDialerOpen(true)}>
     <HomeColumnContext.Provider value={column}>
@@ -269,6 +271,7 @@ const DashboardLayout = () => {
     </HomeColumnContext.Provider>
     </DialerFocusProvider>
     </DesktopCalling>
+    </LiveHelpProvider>
     </DesktopMeetingProvider>
   );
 };
