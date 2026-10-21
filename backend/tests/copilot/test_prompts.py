@@ -89,11 +89,11 @@ def test_live_help_reasoning_follows_the_setting(monkeypatch):
     from app.config import settings
     from app.services.copilot import suggest
 
-    # Gemini Flash-Lite refuses "none"; GPT-6 Luna is ~1 s slower to its first word with "minimal".
+    # Live help never reasons unless a model refuses "none" (Gemini Flash-Lite) and the setting says "minimal".
     monkeypatch.setattr(settings, "COPILOT_REASONING_EFFORT", None, raising=False)
-    assert suggest.live_reasoning() == {"reasoning": {"effort": "minimal"}}
-    monkeypatch.setattr(settings, "COPILOT_REASONING_EFFORT", "none", raising=False)
     assert suggest.live_reasoning() == {"reasoning": {"effort": "none"}}
+    monkeypatch.setattr(settings, "COPILOT_REASONING_EFFORT", "minimal", raising=False)
+    assert suggest.live_reasoning() == {"reasoning": {"effort": "minimal"}}
 
 
 def test_the_live_card_asks_the_model_for_one_line_only():

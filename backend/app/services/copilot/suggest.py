@@ -19,11 +19,11 @@ from app.services.llm.shared import extract_json
 logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-# Live help can't wait for long hidden reasoning, but some models (gemini-3.5-flash-lite) refuse
-# to switch it off and fail every request with "Reasoning is mandatory". Ask for the least instead;
-# models that don't reason ignore it.
+# Live help never reasons: hidden thinking spends the small token budgets before the first word
+# (Claude Haiku at "minimal" wrote nothing). Only an effort is sent, never `enabled: false`, so a
+# model with mandatory reasoning (gemini-3.5-flash-lite) can still be set to "minimal" by env.
 def live_reasoning() -> dict[str, Any]:
-    effort = (settings.COPILOT_REASONING_EFFORT or "").strip() or "minimal"
+    effort = (settings.COPILOT_REASONING_EFFORT or "").strip() or "none"
     return {"reasoning": {"effort": effort}}
 
 

@@ -71,8 +71,8 @@ class Settings(BaseSettings):
     # Gemini Live (3.1 Flash Live) is Google Live API only (not OpenRouter) and needs AI Studio key.
     # DeepSeek V4.1 Flash thinks by default (~540 hidden tokens); suggest.py turns that off.
     COPILOT_MODEL: str = "deepseek/deepseek-v4.1-flash"
-    # Live help's reasoning effort. Empty means "minimal" (Gemini Flash-Lite refuses "none");
-    # "none" for models that think before their first word even at "minimal" (GPT-6 Luna).
+    # Live help's reasoning effort. Empty means "none": live help never reasons. Set "minimal" only
+    # for a model that refuses "none" (Gemini Flash-Lite).
     COPILOT_REASONING_EFFORT: Optional[str] = None
     # OpenRouter provider pinned for COPILOT_MODEL (e.g. "Cerebras"); unset, OpenRouter picks the fastest.
     COPILOT_PROVIDER: Optional[str] = None
