@@ -22,8 +22,11 @@ export type Moment = {
   response: string | null;
   /** What went wrong, for a step. */
   reason: string | null;
-  /** The call reading's own advice for a step: the fallback when no line could be written. */
+  /** The call reading's own advice for a step: the fallback when no line could be written. For an objection
+   * read with the whole call (C04 v9): what the reply did and what would have served. */
   advice: string | null;
+  /** C04 v9: the line already written for this objection with the whole call read; shown as is, nothing asked. */
+  line?: string | null;
 };
 
 /** The state as a small tag: green when it went well, amber halfway, red not. */
@@ -40,7 +43,7 @@ const BUBBLE: Record<BubbleKind, string> = {
 
 /** One turn of the exchange: the prospect on the left, the rep on the right, with a small caption saying
  * whose it is. `actions` sit beside the bubble, away from the text. */
-function Bubble({ kind, caption, children, actions }: { kind: BubbleKind; caption: string; children: ReactNode; actions?: ReactNode }) {
+export function Bubble({ kind, caption, children, actions }: { kind: BubbleKind; caption: string; children: ReactNode; actions?: ReactNode }) {
   const right = kind !== "prospect";
   return (
     <div className={cn("flex flex-col gap-0.5", right ? "items-end" : "items-start")}>
@@ -50,6 +53,35 @@ function Bubble({ kind, caption, children, actions }: { kind: BubbleKind; captio
         {actions ? <span className="flex shrink-0 items-center">{actions}</span> : null}
       </div>
     </div>
+  );
+}
+
+/** A line already written with the call (C04 v9): shown as the better line, with a copy icon. */
+function WrittenLine({ line }: { line: string }) {
+  const { t } = useLanguage();
+  const p = t.product;
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(line).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <Bubble
+      kind="better"
+      caption={p.coachBetter}
+      actions={
+        <IconAction label={copied ? p.coachCopied : p.coachCopy} onClick={copy}>
+          {copied ? <Check className="h-4 w-4 text-success" strokeWidth={1.75} /> : <Copy className="h-4 w-4" strokeWidth={1.5} />}
+        </IconAction>
+      }
+    >
+      <span className="flex items-start gap-2">
+        <Lightbulb aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" strokeWidth={1.75} />
+        <span className="min-w-0 font-medium">{line}</span>
+      </span>
+    </Bubble>
   );
 }
 
@@ -213,7 +245,10 @@ export function OccurrencePager({ type, kind, itemKey, how, moments, eager = tru
         {!objection && moment.tone === "good" && moment.quote && moment.reason ? (
           <p className="text-[13.5px] leading-snug text-muted-foreground">{moment.reason}</p>
         ) : null}
-        {eager || asked || moment.tone === "good" || hidden.has(lineKey(request)) ? (
+        {objection && moment.advice ? <p className="text-[13.5px] leading-snug text-muted-foreground">{moment.advice}</p> : null}
+        {objection && moment.line ? (
+          <WrittenLine line={moment.line} />
+        ) : eager || asked || moment.tone === "good" || hidden.has(lineKey(request)) ? (
           <Better request={request} how={objection ? how : null} fallback={objection ? null : moment.advice ?? how} playbookHref={href} show={moment.tone !== "good"} />
         ) : (
           <div className="flex justify-end">

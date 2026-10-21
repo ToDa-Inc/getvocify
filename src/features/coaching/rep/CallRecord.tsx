@@ -10,9 +10,9 @@ import { CHANNEL_ICON, CHANNEL_TILE } from "@/features/interactions/components/I
 import { formatCallDuration } from "@/lib/call-duration";
 import { channelOf, groupByDay, scrolledToEnd, timeLabel } from "@/lib/interactions";
 import { useLanguage } from "@/lib/i18n";
-import { cleanSummaryLine, type CoachCall } from "@/lib/rep-coaching";
+import { cleanSummaryLine, type CoachCall, type CoachCallReading } from "@/lib/rep-coaching";
 import { cn } from "@/lib/utils";
-import { OccurrencePager, type Moment } from "./OccurrencePager";
+import { Bubble, OccurrencePager, type Moment } from "./OccurrencePager";
 
 /** The record shows the app's list size per page, in a panel that dissolves at its bottom edge while
  * there is more to read (Inicio's list), with the pager of Conversaciones under it. */
@@ -60,35 +60,94 @@ function StepMeter({ call }: { call: CoachCall }) {
   );
 }
 
-/** One call opened: each thing to improve in it (a step slipped on, an objection given), one moment each,
- * with the line to say instead. The worst first. */
+/** The call as a whole (C04 v9), first: what cost it most, how to steer the decisive moment next time,
+ * and the best it could have given. Each part only when the reading has it. */
+function CallReading({ reading }: { reading: CoachCallReading }) {
+  const { t } = useLanguage();
+  const p = t.product;
+  const steer = reading.steer?.line ? reading.steer : null;
+  const best = reading.best_outcome?.what ? reading.best_outcome : null;
+  if (!reading.main_error && !steer && !best) return null;
+  return (
+    <div className="space-y-5" data-testid="coach-call-reading">
+      {reading.main_error ? (
+        <section className="space-y-1.5">
+          <h4 className="text-[15px] font-medium text-foreground">{p.coachReadingError}</h4>
+          <p className="text-[14.5px] leading-snug text-foreground/90">{reading.main_error}</p>
+        </section>
+      ) : null}
+      {steer ? (
+        <section className="space-y-2">
+          <h4 className="text-[15px] font-medium text-foreground">{p.coachReadingSteer}</h4>
+          <div className="space-y-2.5">
+            {reading.decisive_moment?.quote ? <Bubble kind="prospect" caption={p.coachReadingWhenTheySaid}>{reading.decisive_moment.quote}</Bubble> : null}
+            <Bubble kind="better" caption={p.coachReadingSay}>
+              <span className="font-medium">{steer.line}</span>
+            </Bubble>
+          </div>
+          {steer.branches.length ? (
+            <ul className="space-y-1.5 pt-1">
+              {steer.branches.map((branch, index) => (
+                <li key={index} className="text-[13.5px] leading-snug">
+                  <span className="text-muted-foreground">{branch.if}</span>
+                  <span aria-hidden className="text-muted-foreground"> → </span>
+                  <span className="text-foreground">«{branch.then}»</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
+      {best ? (
+        <section className="space-y-1.5">
+          <h4 className="text-[15px] font-medium text-foreground">{p.coachReadingBest}</h4>
+          <p className="text-[14.5px] leading-snug text-foreground/90">{best.what}</p>
+          {best.got !== null ? (
+            <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium", best.got ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive")}>
+              {best.got ? p.coachReadingGot : p.coachReadingNotGot}
+            </span>
+          ) : null}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+/** One call opened: first the call as a whole (when it was read with v9), then each objection, then each
+ * step slipped on, one moment each, with the line to say instead. The worst first within each. */
 function CallDetail({ call, type }: { call: CoachCall; type: string }) {
   const { t } = useLanguage();
   const p = t.product;
   const categories = p.playbookObjectionCategories as Record<string, string>;
+  const natures = p.coachObjectionNatures as Record<string, string>;
   const slips = [...call.slips].sort((a, b) => Number(a.state !== "missing") - Number(b.state !== "missing"));
   const objections = [...(call.objections ?? [])].sort((a, b) => Number(a.resolution === "resolved") - Number(b.resolution === "resolved"));
   const at = call.observed_at ?? "";
   return (
     <div className="space-y-5 py-3">
+      {call.reading ? <CallReading reading={call.reading} /> : null}
+      {objections.map((objection, index) => {
+        const moment: Moment = {
+          memo_id: call.memo_id, observed_at: at, tone: objection.resolution === "resolved" ? "good" : objection.resolution === "open" ? "bad" : "unknown",
+          quote: objection.quote, response: objection.response, reason: null, advice: objection.advice ?? null, line: objection.line ?? null,
+        };
+        const nature = objection.nature ? natures[objection.nature] : null;
+        return (
+          <section key={`${objection.key}-${index}`} className="space-y-2">
+            <h4 className="text-[15px] font-medium text-foreground">
+              {objection.label || categories[objection.category] || objection.category}
+              {nature ? <span className="ml-2 text-[12px] font-normal text-muted-foreground">· {nature}</span> : null}
+            </h4>
+            <OccurrencePager type={type} kind="objection" itemKey={objection.key} how={objection.how} moments={[moment]} eager={index === 0} />
+          </section>
+        );
+      })}
       {slips.map((slip, slipIndex) => {
         const moment: Moment = { memo_id: call.memo_id, observed_at: at, tone: slip.state === "missing" ? "bad" : "half", quote: slip.quote, response: null, reason: slip.reason, advice: slip.advice };
         return (
           <section key={slip.step_id} className="space-y-2">
             <h4 className="text-[15px] font-medium text-foreground">{slip.label}</h4>
-            <OccurrencePager type={type} kind="step" itemKey={slip.step_id} how={null} moments={[moment]} eager={slipIndex === 0} />
-          </section>
-        );
-      })}
-      {objections.map((objection, index) => {
-        const moment: Moment = {
-          memo_id: call.memo_id, observed_at: at, tone: objection.resolution === "resolved" ? "good" : objection.resolution === "open" ? "bad" : "unknown",
-          quote: objection.quote, response: objection.response, reason: null, advice: null,
-        };
-        return (
-          <section key={`${objection.key}-${index}`} className="space-y-2">
-            <h4 className="text-[15px] font-medium text-foreground">{objection.label || categories[objection.category] || objection.category}</h4>
-            <OccurrencePager type={type} kind="objection" itemKey={objection.key} how={objection.how} moments={[moment]} eager={slips.length === 0 && index === 0} />
+            <OccurrencePager type={type} kind="step" itemKey={slip.step_id} how={null} moments={[moment]} eager={objections.length === 0 && slipIndex === 0} />
           </section>
         );
       })}
@@ -105,7 +164,7 @@ function CallRow({ call, type }: { call: CoachCall; type: string }) {
   const Icon = channel ? CHANNEL_ICON[channel] : AudioLines;
   const duration = formatCallDuration(call.duration_s ?? 0);
   const at = call.observed_at ?? "";
-  const hasDetail = call.slips.length > 0 || (call.objections?.length ?? 0) > 0;
+  const hasDetail = call.slips.length > 0 || (call.objections?.length ?? 0) > 0 || Boolean(call.reading?.main_error || call.reading?.steer?.line || call.reading?.best_outcome?.what);
   const body = (
     <>
       <span aria-hidden className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border", CHANNEL_TILE[channel ?? "voice_note"])}>

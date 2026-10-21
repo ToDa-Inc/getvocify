@@ -40,11 +40,19 @@ QUALIFICATION_FLAG = "PLAYBOOK_QUALIFICATION_ENABLED"
 # (INTELLIGENCE_CALL_READING_ENABLED, per company). Same shape as v7 plus `call`.
 CALL_READING_PROMPT_VERSION = "intelligence_v8"
 CALL_READING_FLAG = "INTELLIGENCE_CALL_READING_ENABLED"
+# v9 = v8 plus a reading of the whole call written before any field (the decisive moment, the error that
+# cost it most, how to steer it next time, the best it could have given), which makes step advice and
+# objections true to the call, and each objection's nature with what would have served
+# (COACHING_READING_ENABLED, per company, on top of v8). Same shape as v8 plus `reading`. v8 blocks are
+# not re-read when a company turns it on: only new conversations get it.
+COACHING_READING_PROMPT_VERSION = "intelligence_v9"
+COACHING_READING_FLAG = "COACHING_READING_ENABLED"
+CALL_READING_VERSIONS = frozenset({CALL_READING_PROMPT_VERSION, COACHING_READING_PROMPT_VERSION})
 CURRENT_PROMPT_VERSIONS = frozenset({
-    PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION, CALL_READING_PROMPT_VERSION,
+    PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION, *CALL_READING_VERSIONS,
 })
-_READS_STEPS = frozenset({OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION, CALL_READING_PROMPT_VERSION})
-_READS_QUALIFICATION = frozenset({QUALIFICATION_PROMPT_VERSION, CALL_READING_PROMPT_VERSION})
+_READS_STEPS = frozenset({OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION, *CALL_READING_VERSIONS})
+_READS_QUALIFICATION = frozenset({QUALIFICATION_PROMPT_VERSION, *CALL_READING_VERSIONS})
 _REASON_MAX = 240
 _QUALITY = frozenset({"solid", "improvable"})
 _MAX_CRITERIA = 8
@@ -478,6 +486,53 @@ def _qualification_observations(
     return out
 
 
+_NATURE = frozenset({"sin_dolor", "alternativa", "fondo", "objecion", "duda"})
+_PAIN_READING = frozenset({"found", "absent", "not_reached", "unclear"})
+_ADVICE_MAX = 400
+_LINE_MAX = 280
+_BRANCHES_MAX = 3
+
+
+def _sentence(value: Any, limit: int) -> str | None:
+    text = " ".join(str(value or "").split())
+    return text[:limit].rstrip() or None
+
+
+def _reading(memo_id: str, raw: Any, transcript: str, evidence: dict[str, dict]) -> dict | None:
+    """v9: the whole call as the rep's coaching reads it first. The decisive moment counts only with the
+    prospect's words found in the transcript; the rest is the model's judgement, kept short. None when the
+    model wrote nothing to go on."""
+    if not isinstance(raw, dict):
+        return None
+    moment = raw.get("decisive_moment") if isinstance(raw.get("decisive_moment"), dict) else {}
+    ref = _evidence(memo_id, moment.get("quote"), transcript) if moment.get("quote") else None
+    if ref is not None:
+        evidence[ref["id"]] = ref
+    steer = raw.get("steer") if isinstance(raw.get("steer"), dict) else {}
+    branches = [
+        {"if": _sentence(b.get("if"), _LINE_MAX), "then": _sentence(b.get("then"), _LINE_MAX)}
+        for b in (steer.get("branches") or []) if isinstance(b, dict)
+    ]
+    branches = [b for b in branches if b["if"] and b["then"]][:_BRANCHES_MAX]
+    best = raw.get("best_outcome") if isinstance(raw.get("best_outcome"), dict) else {}
+    reading = {
+        "verdict": _sentence(raw.get("verdict"), _ADVICE_MAX),
+        "pain": raw.get("pain") if raw.get("pain") in _PAIN_READING else None,
+        "decisive_moment": (
+            {"quote": ref["quote"], "meaning": _sentence(moment.get("meaning"), _ADVICE_MAX), "evidence_refs": [ref["id"]]}
+            if ref is not None else None
+        ),
+        "root_cause": _sentence(raw.get("root_cause"), _ADVICE_MAX),
+        "main_error": _sentence(raw.get("main_error"), _ADVICE_MAX),
+        "steer": {"line": _sentence(steer.get("line"), _LINE_MAX), "branches": branches} if _sentence(steer.get("line"), _LINE_MAX) else None,
+        "best_outcome": (
+            {"what": _sentence(best.get("what"), _ADVICE_MAX), "got": best.get("got") if isinstance(best.get("got"), bool) else None}
+            if _sentence(best.get("what"), _ADVICE_MAX) else None
+        ),
+    }
+    return reading if any(reading[k] for k in ("verdict", "main_error", "steer", "best_outcome")) else None
+
+
 def shape_intelligence(
     memo: dict,
     raw: dict,
@@ -542,6 +597,11 @@ def shape_intelligence(
             # does not have (or one on an obstacle) is dropped, the category stays a fixed one.
             matched = str(item.get("objection_id") or "").strip()
             entry["objection_id"] = matched if kind == "objection" and matched in custom_ids else None
+        if prompt_version == COACHING_READING_PROMPT_VERSION and kind == "objection":
+            # v9: what it really was (no need, another tool, the idea itself...) and what would have served.
+            entry["nature"] = item.get("nature") if item.get("nature") in _NATURE else None
+            entry["advice"] = _sentence(item.get("advice"), _ADVICE_MAX)
+            entry["line"] = _sentence(item.get("line"), _LINE_MAX)
         objections.append(entry)
 
     commitments = []
@@ -596,7 +656,9 @@ def shape_intelligence(
     }
     if prompt_version in _READS_QUALIFICATION:
         shaped["qualification_observations"] = qualification
-    if prompt_version == CALL_READING_PROMPT_VERSION:
+    if prompt_version == COACHING_READING_PROMPT_VERSION:
+        shaped["reading"] = _reading(memo_id, raw.get("reading"), transcript, evidence)
+    if prompt_version in CALL_READING_VERSIONS:
         shaped["next"] = _next_actions(
             memo_id, raw.get("next"), transcript, evidence, memo.get("timezone"),
             memo.get("capture_started_at") or memo.get("created_at"),
@@ -635,7 +697,7 @@ def build_messages(
         for step in playbook_steps:
             if not step.get("step_id"):
                 continue
-            if prompt_version == CALL_READING_PROMPT_VERSION and step_outcome(step):
+            if prompt_version in CALL_READING_VERSIONS and step_outcome(step):
                 continue  # the rep declares it after the call; the model never judges it
             row = {
                 "step_id": str(step.get("step_id") or ""),
@@ -643,7 +705,7 @@ def build_messages(
                 "criterion": str(step.get("criterion") or ""),
             }
             example = " ".join(str(step.get("example") or "").split())
-            if example and prompt_version == CALL_READING_PROMPT_VERSION:
+            if example and prompt_version in CALL_READING_VERSIONS:
                 row["example"] = example
             payload["playbook_steps"].append(row)
     if prompt_version in _READS_QUALIFICATION:
@@ -791,7 +853,7 @@ def _needs_upgrade(memo: dict, planned_version: str) -> bool:
     the company's own objections). A newer block is never downgraded when the flag goes off."""
     extraction = memo.get("extraction") if isinstance(memo.get("extraction"), dict) else {}
     stored = ((extraction or {}).get("intelligence") or {}).get("prompt_version")
-    if planned_version == CALL_READING_PROMPT_VERSION:
+    if planned_version in CALL_READING_VERSIONS:
         return stored in (PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION)
     if planned_version == QUALIFICATION_PROMPT_VERSION:
         return stored in (PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION)
@@ -803,7 +865,9 @@ def extraction_plan(supabase: Any, memo: dict) -> tuple[str, list[dict]]:
     from app.services.feature_flags import is_enabled
 
     if is_enabled(supabase, memo.get("company_id"), CALL_READING_FLAG):
-        return CALL_READING_PROMPT_VERSION, pinned_playbook_steps(supabase, memo)
+        version = (COACHING_READING_PROMPT_VERSION if is_enabled(supabase, memo.get("company_id"), COACHING_READING_FLAG)
+                   else CALL_READING_PROMPT_VERSION)
+        return version, pinned_playbook_steps(supabase, memo)
     if is_enabled(supabase, memo.get("company_id"), QUALIFICATION_FLAG):
         return QUALIFICATION_PROMPT_VERSION, pinned_playbook_steps(supabase, memo)
     if not is_enabled(supabase, memo.get("company_id"), OBSERVATIONS_FLAG):
@@ -826,7 +890,7 @@ def _intelligence_inputs(supabase: Any, memo_id: str) -> dict:
     objections: list[dict] = []
     if prompt_version in _READS_QUALIFICATION:
         qualification, objections = pinned_qualification_inputs(supabase, memo)
-    context = call_context(supabase, memo) if prompt_version == CALL_READING_PROMPT_VERSION else {}
+    context = call_context(supabase, memo) if prompt_version in CALL_READING_VERSIONS else {}
     return {
         "memo": memo,
         "prompt_version": prompt_version,
@@ -1054,10 +1118,10 @@ async def extract_intelligence(
     call = None
     transcript = None
     reading_meta: dict = {}
-    reused = _stored_reading(memo) if prompt_version == CALL_READING_PROMPT_VERSION else None
+    reused = _stored_reading(memo) if prompt_version in CALL_READING_VERSIONS else None
     if reused is not None:
         call, transcript = reused
-    elif prompt_version == CALL_READING_PROMPT_VERSION:
+    elif prompt_version in CALL_READING_VERSIONS:
         from app.services.intelligence.call_reading import read_call
 
         call, transcript, reading_meta = await read_call(

@@ -1,0 +1,18 @@
+
+## Final check before you answer (every step you marked "missed")
+
+Do this for each step marked "missed", in order, and change it when a check says so:
+1. Did the rep do any part of what the step is for, even weakly, late, or with a closed question? → "met" (quality "improvable").
+2. Is the call (by call.call_type or by what happened) bad_moment, gatekeeper, wrong_person, no_conversation or not_a_sales_call? → only opening steps can be "missed"; any other step is "not_applicable".
+3. Did the conversation actually go on past the moment this step belongs to, with real room for the rep to do it? First find the turn where the prospect closed: "no estamos interesados", "no me interesa", "me pillas", "envíame un mail", "ya hablaremos", "te agradezco la llamada", has to go, hangs up. If after that turn the rep only insists (pitches again, asks again) and the prospect keeps declining or leaves, the conversation did NOT go on: every step whose moment comes after that turn is "not_applicable". It went on only if the prospect re-engaged and answered questions for several turns. Use the order of the playbook's steps, not call.phase_reached: when the prospect closed while the rep was introducing themselves, giving the reason for the call or presenting what they do, every step listed after that one in the playbook (who decides, the pain, company data, urgency, booking the meeting) is "not_applicable", even though the call reached the pitch. The same rule for every step of the call: never "not_applicable" for one step and "missed" for another that comes after the same closing turn. Writing "antes de que cortara" in a reason means it is "not_applicable", never "missed".
+4. In follow_up, meeting_confirmation or meeting_reschedule, a step done in an earlier conversation, or one this kind of call does not ask for → "not_applicable".
+Keep "missed" only when none of the four applies. Between "missed" and "not_applicable", when unsure, choose "not_applicable": a wrong "no lo hiciste" costs the rep's trust more than a missed tip.
+Also check next.callback: "needed" only if someone said IN THIS CALL that they would call or be called again; a meeting booked means no callback.
+
+## Final check of "unknown", reasons and quotes
+
+5. Every step marked "unknown": if a rep line in the transcript does what the step asks, it is "met" (confirming the prospect's role, "¿tú eres el CEO, verdad?", "vendes tú solo", is at least "met" with quality "improvable" for a step about who decides); if the call got there and the rep did none of it, "missed"; otherwise "not_applicable". "unknown" is only for an unintelligible stretch or a step settled by what the rep declares after the call (the meeting booked).
+6. The reason must say the same as the status. A "not_applicable" reason says why the step did not apply ("El prospecto cortó antes de llegar aquí"), never "No preguntaste…" or "No hiciste…". A "met" reason never says the rep did not do it.
+7. A reason only states what is in the transcript: never say the rep apologised, gave their name or job title, or asked something unless a rep line shows it. "Perdona" for interrupting or to get a word in is not an apology for calling. What the rep said to a receptionist was not said to the prospect.
+8. In a follow_up, meeting_confirmation or meeting_reschedule, recalling the earlier contact or the meeting fully meets an opening or reason-for-the-call step: "met", not "improvable", and never asks for the company's achievements as well.
+9. Never mark a step "improvable" or give advice for something the prospect's interruption left no turn to do.

@@ -365,6 +365,10 @@ class Settings(BaseSettings):
     # criteria and the company's own objections, and the score is built from three blocks
     # (steps, qualification, objections) instead of steps alone.
     PLAYBOOK_QUALIFICATION_ENABLED: bool = False
+    # C04 v9 (2026-10-21): v8 plus a reading of the whole call (the error that cost it most, how to steer it,
+    # the best it could have given) that makes step advice and objections precise. Needs
+    # INTELLIGENCE_CALL_READING_ENABLED too. Off everywhere; on in an environment or per company to test.
+    COACHING_READING_ENABLED: bool = False
     # Recall.ai dashboard > API keys. Unset -> POST /meetings/bot returns 503.
     RECALL_API_KEY: Optional[str] = None
     # Recall's per-region API host (https://{region}.recall.ai). Our workspace is in the EU

@@ -575,6 +575,8 @@ async def get_my_coaching_calls(
             "slips": engine.call_slips(row),  # empty: nothing to improve in this one
             # What the prospect objected to in this call, even when no step could be judged in it.
             "objections": engine.call_objections(row, playbook["entries"]),
+            # C04 v9: the reading of the whole call, shown first; None for calls read before it.
+            "reading": row.get("reading") if row["is_conversation"] else None,
         })
     body["calls"] = calls[:_MAX_CALLS]
     return body
