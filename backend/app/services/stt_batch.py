@@ -448,6 +448,24 @@ async def _transcribe_once(
             multichannel=multichannel,
         )
 
+    if provider == "mai":
+        from app.services.mai_batch import MODEL as MAI_MODEL, transcribe_mai
+
+        try:
+            mai = await transcribe_mai(audio_bytes, language=lang)
+            record_stage(
+                "stt", t0, provider="openrouter", model=MAI_MODEL, language=lang,
+                chunks=mai.chunks, cost_usd=mai.cost_usd,
+            )
+            return BatchTranscript(text=mai.text, diarization="none", channels=1)
+        except Exception as e:
+            logger.warning("MAI STT failed; falling back to Deepgram: %s", e)
+            record_stage(
+                "stt", t0, provider="openrouter", model=MAI_MODEL, language=lang,
+                error=str(e)[:500], fallback="deepgram",
+            )
+            t0 = time.perf_counter()
+
     from app.services.deepgram_batch import DEEPGRAM_MODEL, DeepgramBatchService
 
     try:

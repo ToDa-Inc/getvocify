@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     DEEPGRAM_API_KEY: Optional[str] = None
     SPEECHMATICS_API_KEY: Optional[str] = None
     # File STT (HubSpot recordings, uploads, WhatsApp). Live copilot stays Speechmatics WS.
+    # deepgram | speechmatics | mai (MAI-Transcribe-2 through OpenRouter, no speaker labels; falls back to Deepgram).
     STT_PROVIDER: str = "deepgram"
     # Realtime language when the client sends `multi`. Must be an ISO code (`es`, `en`, …).
     # `auto` is batch-only — eu2 rejects wss://…/v2/auto with HTTP 404.
@@ -138,7 +139,7 @@ class Settings(BaseSettings):
     @field_validator("STT_PROVIDER")
     @classmethod
     def validate_stt_provider(cls, v: str) -> str:
-        allowed = {"deepgram", "speechmatics"}
+        allowed = {"deepgram", "speechmatics", "mai"}
         normalized = (v or "deepgram").strip().lower()
         if normalized not in allowed:
             raise ValueError(
