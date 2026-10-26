@@ -652,6 +652,10 @@ async def read_card(body: Any, ctx: Any) -> dict:
         result["event"] = "skipped:empty"
         return result
     end = ends(turns)
+    # The latest turn lasts until now. Its words alone do not say when now is: a turn that kept growing (both voices on
+    # one side for minutes) stopped the clock at 49.6 s, every card came out "at 49.6" and sorted above newer ones.
+    if body.now_t is not None:
+        end[-1] = max(end[-1], body.now_t)
     now = end[-1]
     shown = sorted(({"id": c.id, "say": c.say, "visible_t": c.visible_t, "open": c.open} for c in body.cards), key=lambda c: c["visible_t"])
     moment = due(body.reason, body.objection, turns, end, now, body.last_read_t)

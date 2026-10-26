@@ -6,6 +6,7 @@ import {
   buildCardReading,
   buildReading,
   cardsIn,
+  clockSeconds,
   turnObjection,
   clearProgressCursor,
   contactBrief,
@@ -494,6 +495,16 @@ describe("the strategic card (pilot)", () => {
     assert.equal(body.say_view, true);
     const first = buildCardReading({ call, turns, state: emptyLiveState("c1"), reason: "rep_turn", mark: null }) as any;
     assert.equal("objection" in first || "last_read_t" in first, false);
+  });
+
+  it("the reading carries the call's clock, read from the meeting's timer", () => {
+    assert.equal(clockSeconds("04:37"), 277);
+    assert.equal(clockSeconds("1:02:05"), 3725);
+    assert.equal(clockSeconds("00:00"), 0);
+    assert.equal(clockSeconds(""), null);
+    assert.equal(clockSeconds("4:3x"), null);
+    const body = buildCardReading({ call, turns, state: emptyLiveState("c1"), reason: "turn_end", mark: null, nowT: 277 }) as any;
+    assert.equal(body.now_t, 277);
   });
 
   it("a playbook's own objection goes as its entry", () => {

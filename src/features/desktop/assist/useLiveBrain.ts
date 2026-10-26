@@ -60,6 +60,8 @@ export type LiveBrainCall = {
   typeLabel?: string | null;
   /** Their side's audio level (0–1): when it goes quiet is when they may have finished. */
   prospectLevel?: number;
+  /** The call's clock in seconds (the meeting's timer): when a strategic card appears. */
+  clockSeconds?: number | null;
 };
 
 type Spec = { reason: LiveReason; mark: ReadMark; typeChanged?: boolean; objection?: string | null };
@@ -324,6 +326,7 @@ export function useLiveBrain(
       sayView: sayViewRef.current,
       objection: spec.objection ?? null,
       lastReadT: lastCardReadRef.current,
+      nowT: callRef.current.clockSeconds ?? null,
     });
     setReading((r) => ({ ...r, points: true }));
     try {

@@ -170,6 +170,18 @@ def test_a_card_before_they_have_spoken_still_has_words_on_its_first_line(monkey
     assert card["title"] and card["turn_ids"] == ["t0"]
 
 
+def test_the_card_appears_at_the_calls_clock_even_when_one_turn_kept_growing(monkeypatch):
+    # Both voices on one side for minutes: one turn that started at 40 s. Its words say the call is at about 50 s; the
+    # call's clock says 330 s. A card at "50 s" sorted above everything said since.
+    fake_model(monkeypatch, answer())
+    grown = turns(("you", "Hola, ¿qué tal?", 0.0),
+                  ("them", " ".join(["nosotros priorizamos las cuentas grandes y el seguimiento lo lleva cada comercial"] * 3), 40.0))
+    result = run(live_card.read_card(reading(call=grown, reason="turn_end", now_t=330.0), CTX))
+    assert result["read_t"] == 330.0 and result["points"][0]["said_at"] == 330.0 and result["points"][0]["visible_t"] == 330.0
+    # Without the clock, the turn's words decide, as before.
+    assert run(live_card.read_card(reading(call=grown, reason="turn_end"), CTX))["read_t"] < 60
+
+
 def test_an_approved_answer_is_a_respuesta_with_its_playbook_source(monkeypatch):
     fake_model(monkeypatch, answer(line="El plan es desde 49 € al mes por usuario; ¿lo vemos 15 minutos?", source="objection:price"))
     (card,) = run(live_card.read_card(reading(reason="turn_end", objection="price"), CTX))["points"]
