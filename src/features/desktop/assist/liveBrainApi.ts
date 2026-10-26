@@ -68,6 +68,16 @@ export function readSlow<T>(kind: "progress" | "recap", body: Record<string, unk
   return api.post<T>(`/copilot/live/${kind}`, body, { signal, timeoutMs: SLOW_TIMEOUT_MS });
 }
 
+const CARD_TIMEOUT_MS = 20_000;
+
+/** The strategic card's result (POST /copilot/live/card): the points result's shape, so applyPoints merges it. */
+export type CardResult = Record<string, unknown> & { points?: { id: string }[]; closed?: { id: string; outcome: string }[]; event?: string; read_t?: number | null };
+
+/** POST /copilot/live/card (pilot, flag LIVE_CARD_ENABLED): ONE card or nothing at an automatic checkpoint. */
+export function readCard(body: Record<string, unknown>, signal: AbortSignal): Promise<CardResult> {
+  return api.post<CardResult>(`/copilot/live/card`, body, { signal, timeoutMs: CARD_TIMEOUT_MS });
+}
+
 /** One UI event of the live view (build contract 2026-10-20, §2.4). */
 export type LiveUiEvent = {
   kind: string;

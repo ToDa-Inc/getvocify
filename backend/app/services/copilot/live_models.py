@@ -113,3 +113,24 @@ class LiveReading(BaseModel):
     target: Optional[Target] = None
     # The island draws the "Qué decir" view (LIVE_SAY_VIEW_ENABLED): enables the "go deeper" trigger.
     say_view: bool = False
+
+
+class CardIn(BaseModel):
+    """A card of the strategic producer the rep has seen: its words, when it appeared (seconds into the call, the
+    producer's own `read_t`) and whether it is still on screen (the rep has not closed it and no card replaced it)."""
+
+    id: str = Field(..., max_length=64)
+    say: str = Field(..., max_length=400)
+    visible_t: float = Field(..., ge=0)
+    open: bool = True
+
+
+class CardReading(LiveReading):
+    """One reading of the strategic card producer (pilot, LIVE_CARD_ENABLED)."""
+
+    # Every card shown in this call, oldest first: the thread of moves already made, and the one on screen.
+    cards: list[CardIn] = Field(default_factory=list, max_length=60)
+    # What the turn check saw in their latest turn ("none", an objection type or a playbook entry's id).
+    objection: Optional[str] = Field(default=None, max_length=200)
+    # The previous reading's `read_t`: a long intervention or a long rep floor is read once per stretch.
+    last_read_t: Optional[float] = Field(default=None, ge=0)

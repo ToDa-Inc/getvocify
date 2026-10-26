@@ -22,8 +22,8 @@ from app.services.company import Membership
 from app.services.copilot.contact_history import load_contact_history
 from app.services.copilot.context import live_assist_kind_from_call_mode, resolve_suggest_context
 from app.services import demo_profile
-from app.services.copilot import call_type, events, live_brain, live_context, live_points, live_progress, playbook_objections, turn
-from app.services.copilot.live_models import LiveReading
+from app.services.copilot import call_type, events, live_brain, live_card, live_context, live_points, live_progress, playbook_objections, turn
+from app.services.copilot.live_models import CardReading, LiveReading
 from app.services.copilot.checklist import build_meeting_checklist
 from app.services.copilot.load_grounding import (
     load_company_knowledge,
@@ -493,6 +493,50 @@ async def live_points_reading(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
+
+
+LIVE_CARD_FLAG = "LIVE_CARD_ENABLED"
+
+
+def _card_log(supabase: Client, membership: Membership, body: CardReading, result: dict, prep_ms: Optional[int]) -> None:
+    """Every card reading, kept to learn from the pilot: logged as a points reading (the table's kinds), producer "card"."""
+    them = next((t.text for t in reversed(body.turns) if t.who == "them"), "")
+    trace = result.get("trace") or {}
+    detail = {
+        "prompt_version": live_card.PROMPT_VERSION, "producer": "card", "reason": body.reason, "moment": result.get("moment"),
+        "event": result.get("event"), "read_t": result.get("read_t"), "turns": len(body.turns), "cards": len(body.cards),
+        "prep_ms": prep_ms, "say": (result.get("points") or [{}])[0].get("answer") or trace.get("card"),
+        "reading": trace.get("reading"), "checks": trace.get("checks"), "retry": trace.get("retry"), "replaces": trace.get("replaces"),
+    }
+    events.record(supabase, events.brain_row(
+        kind="points", user_id=membership.user_id, company_id=membership.company_id, call_mode=body.call_mode,
+        sales_motion_key=(body.sales_motion_key or "").strip() or None, call_id=body.call_id, latest_turn=them,
+        result=result, error=result.get("error"), detail={k: v for k, v in detail.items() if v is not None},
+    ))
+
+
+@router.post("/live/card")
+async def live_card_reading(
+    body: CardReading,
+    background: BackgroundTasks,
+    membership: Membership = Depends(get_membership),
+    supabase: Client = Depends(get_supabase),
+):
+    """The strategic card (pilot): at an automatic checkpoint, ONE card for the rep or nothing, with the card it replaces.
+    The points result's shape (`points`, `closed`), so the renderer merges it the same way. Behind LIVE_CARD_ENABLED."""
+    await _brain_gate(supabase, membership)
+    if not await run_in_threadpool(is_enabled, supabase, membership.company_id, LIVE_CARD_FLAG):
+        raise HTTPException(status_code=403, detail="live_card_disabled")
+    if (body.sales_motion_key or "").strip() == INTERNAL_KEY:
+        return {"type": "result", "producer": "card", "state_version": body.state_version, "points": [], "closed": [],
+                "event": "skipped:internal", "moment": None, "read_t": None}
+    started = time.perf_counter()
+    ctx = await _brain_context(supabase, membership, body)
+    prep_ms = int((time.perf_counter() - started) * 1000)
+    result = await live_card.read_card(body, ctx)
+    if not result.get("event", "").startswith("skipped"):
+        background.add_task(_card_log, supabase, membership, body, result, prep_ms)
+    return {k: v for k, v in result.items() if k != "trace"}
 
 
 async def _slow_reading(body: LiveReading, membership: Membership, supabase: Client, background: BackgroundTasks, kind: str):

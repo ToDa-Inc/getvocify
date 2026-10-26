@@ -11,6 +11,8 @@ import { useLiveBrain } from "./useLiveBrain";
 const LIVE_BRAIN_FLAG = "LIVE_BRAIN_ENABLED";
 /** The "Qué decir" view (build contract 2026-10-20): the island draws it and the brain may suggest going deeper. */
 const LIVE_SAY_VIEW_FLAG = "LIVE_SAY_VIEW_ENABLED";
+/** The strategic card (pilot, with "Qué decir"): the automatic readings write ONE card or nothing. */
+const LIVE_CARD_FLAG = "LIVE_CARD_ENABLED";
 
 export type LiveHelp = {
   /** The company has the live call assistant (else today's live help, `assist`). */
@@ -42,6 +44,7 @@ export function LiveHelpProvider({ children }: { children: ReactNode }) {
   const features = user?.company?.features;
   const brainOn = Boolean(features?.includes(LIVE_BRAIN_FLAG));
   const sayView = Boolean(features?.includes(LIVE_SAY_VIEW_FLAG));
+  const card = Boolean(features?.includes(LIVE_CARD_FLAG));
   const [assistOn, setAssistOn] = useLiveAssistEnabled();
   const helpOn = liveHelpActive({ remembered: assistOn, override: meeting.liveHelpOverride, typeKey: meeting.callType.key });
   const typeKey = meeting.callType.key;
@@ -58,7 +61,7 @@ export function LiveHelpProvider({ children }: { children: ReactNode }) {
   });
   const brain = useLiveBrain(
     meeting.turns,
-    { flag: brainOn, enabled: running, helpOn, sayView },
+    { flag: brainOn, enabled: running, helpOn, sayView, card },
     {
       callId: meeting.callId,
       contactId: meeting.contact?.hubspotId,

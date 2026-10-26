@@ -157,6 +157,46 @@ export function buildReading(input: {
   };
 }
 
+/** A card of the strategic producer as it goes back to it: every card shown in this call, oldest first, with whether it is
+ * still on screen (the rep has not closed it and no newer card replaced it). The producer's points carry `visible_t`. */
+export type CardIn = { id: string; say: string; visible_t: number; open: boolean };
+
+export function cardsIn(state: StateLike): CardIn[] {
+  return state.points
+    .flatMap((point: { id: string; outcome: string; versions?: string[]; answer?: string | null; visible_t?: unknown }): CardIn[] =>
+      typeof point.visible_t === "number"
+        ? [{ id: point.id, say: (point.versions?.[0] ?? point.answer ?? "").slice(0, 400), visible_t: point.visible_t, open: point.outcome === "open" }]
+        : [],
+    )
+    .slice(-60);
+}
+
+/** One reading of the strategic card (pilot, flag LIVE_CARD_ENABLED, live_models.CardReading): an automatic checkpoint with the
+ * cards already shown, what the turn check saw in their latest turn and the previous reading's `read_t`. */
+export function buildCardReading(input: {
+  call: ReadingCall;
+  turns: WireTurn[];
+  state: StateLike;
+  reason: LiveReason;
+  mark?: ReadMark;
+  sayView?: boolean;
+  objection?: string | null;
+  lastReadT?: number | null;
+}): Record<string, unknown> {
+  return {
+    ...buildReading({ ...input, producer: "points" }),
+    cards: cardsIn(input.state),
+    ...(input.objection ? { objection: input.objection.slice(0, 200) } : {}),
+    ...(typeof input.lastReadT === "number" ? { last_read_t: input.lastReadT } : {}),
+  };
+}
+
+/** What the turn check saw, as the card producer wants it: the playbook entry for one of its own objections, else the type. */
+export function turnObjection(turn: { objection: string | null; entry_id?: string } | null): string | null {
+  if (!turn?.objection) return null;
+  return turn.objection === "custom" && turn.entry_id ? turn.entry_id : turn.objection;
+}
+
 /** The call up to and including one turn (Responder about a tapped bubble reads that sentence); null when it is not there. */
 export function turnsUpTo(turns: WireTurn[], turnId: string): WireTurn[] | null {
   const at = turns.findIndex((turn) => turn.id === turnId);
