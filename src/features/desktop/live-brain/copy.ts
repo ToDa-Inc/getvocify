@@ -91,6 +91,16 @@ const ES = {
     kinds: { answer: "Respuesta", unknown: "No está en tu conocimiento", explore: "Puedes preguntar" },
     preparing: "Preparando",
     nothingNew: "Ahora no hay una jugada nueva: sigue con la que tienes.",
+    pause: "Pausar la grabación",
+    resume: "Seguir grabando",
+    stop: "Parar",
+    stopTip: "Termina la grabación",
+    typeTip: "Tipo de llamada: la ayuda sigue su playbook",
+    channel: "Canal",
+    type: "Tipo",
+    vocifyDecides: "Que lo decida Vocify",
+    proposed: "propuesto",
+    noType: "Sin tipo",
   },
 };
 
@@ -186,6 +196,16 @@ const EN: Copy = {
     kinds: { answer: "Answer", unknown: "Not in your knowledge", explore: "You could ask" },
     preparing: "Preparing",
     nothingNew: "No new move right now: carry on with the one you have.",
+    pause: "Pause the recording",
+    resume: "Resume recording",
+    stop: "Stop",
+    stopTip: "Ends the recording",
+    typeTip: "Call type: help follows its playbook",
+    channel: "Channel",
+    type: "Type",
+    vocifyDecides: "Let Vocify decide",
+    proposed: "proposed",
+    noType: "No type",
   },
 };
 

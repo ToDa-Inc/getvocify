@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Info, ListChecks, Maximize2, MessageCircleQuestion, MessageSquareReply, Reply, ScrollText, X } from "lucide-react";
+import { ChevronDown, Info, ListChecks, Maximize2, MessageCircleQuestion, MessageSquareReply, Pause, Play, Reply, ScrollText, Square, X } from "lucide-react";
 import { IconAction } from "@/components/ui/icon-action";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { LiveTranscript } from "@/features/recording/components";
@@ -33,6 +43,7 @@ export function CompactLiveView({
   brain,
   copy,
   helpOn,
+  onHelpChange,
   typeName,
   onExpand,
 }: {
@@ -40,6 +51,7 @@ export function CompactLiveView({
   brain: LiveBrain;
   copy: LiveCopy;
   helpOn: boolean;
+  onHelpChange: (on: boolean) => void;
   typeName: string | null;
   onExpand: () => void;
 }) {
@@ -80,18 +92,40 @@ export function CompactLiveView({
   return (
     <TooltipProvider delayDuration={300}>
       <div className={cn("flex h-dvh flex-col overflow-hidden bg-card", THEME_TOKENS.motion.fadeIn)}>
-        <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 pl-3 pr-1.5">
-          <span
-            className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meeting.paused ? "bg-muted-foreground/50" : "bg-destructive animate-pulse motion-reduce:animate-none")}
-            aria-hidden
-          />
-          <span className="shrink-0 text-[12px] tabular-nums text-foreground">{meeting.paused ? `${copy.compact.paused} · ${meeting.elapsed}` : meeting.elapsed}</span>
-          <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
-            {[typeName, contactName].filter(Boolean).join(" · ")}
-          </span>
-          <IconAction label={copy.compact.expand} onClick={onExpand}>
-            <Maximize2 />
-          </IconAction>
+        {/* The island's head, in two rows: the clock and who the call is with, then the recording's controls, the call's
+            type and live help on or off. */}
+        <header className="shrink-0 border-b border-border/60">
+          <div className="flex h-9 items-center gap-2 pl-3.5 pr-1.5">
+            <span
+              className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meeting.paused ? "bg-muted-foreground/50" : "bg-destructive animate-pulse motion-reduce:animate-none")}
+              aria-hidden
+            />
+            <span className="shrink-0 text-[12px] tabular-nums text-foreground">{meeting.paused ? `${copy.compact.paused} · ${meeting.elapsed}` : meeting.elapsed}</span>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{contactName ?? ""}</span>
+            <IconAction label={copy.compact.expand} onClick={onExpand}>
+              <Maximize2 />
+            </IconAction>
+          </div>
+          <div className="flex h-10 items-center gap-1.5 px-2.5 pb-1.5">
+            <IconAction label={meeting.paused ? copy.compact.resume : copy.compact.pause} onClick={meeting.paused ? meeting.resume : meeting.pause}>
+              {meeting.paused ? <Play /> : <Pause />}
+            </IconAction>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => void meeting.stop()}
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-destructive px-3 text-[12px] font-medium text-destructive-foreground transition-opacity duration-150 hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+                >
+                  <Square className="h-2.5 w-2.5 fill-current" strokeWidth={1.5} />
+                  {copy.compact.stop}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{copy.compact.stopTip}</TooltipContent>
+            </Tooltip>
+            <TypeMenu meeting={meeting} typeName={typeName} copy={copy} />
+            <Switch checked={helpOn} onCheckedChange={onHelpChange} aria-label={copy.switchLabel} className="shrink-0" />
+          </div>
         </header>
 
         <section aria-label={copy.compact.say} className="flex max-h-[42%] min-h-[88px] shrink-0 flex-col border-b border-border/60">
@@ -162,6 +196,63 @@ export function CompactLiveView({
         </nav>
       </div>
     </TooltipProvider>
+  );
+}
+
+/** The call's type, as the island's menu: the channel when types go by channel, then the channel's types (Vocify's
+ * proposal marked), or letting Vocify decide. The chip reads like the island's: "Llamada · Descubrimiento". */
+function TypeMenu({ meeting, typeName, copy }: { meeting: DesktopMeeting; typeName: string | null; copy: LiveCopy }) {
+  const menu = meeting.typeMenu;
+  const channel = menu?.channel ?? null;
+  const channelLabel = channel?.options.find((option) => option.key === channel.selected)?.label ?? null;
+  const label = [channelLabel, typeName ?? copy.compact.noType].filter(Boolean).join(" · ");
+  if (!menu) return <span className="min-w-0 flex-1 truncate px-1 text-[12px] text-muted-foreground">{label}</span>;
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-8 min-w-0 flex-1 items-center gap-1 rounded-full px-2.5 text-[12px] text-foreground transition-colors duration-150 hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/60 motion-reduce:transition-none"
+            >
+              <span className="min-w-0 truncate">{label}</span>
+              {meeting.callType.proposed ? <span className="shrink-0 text-[11px] text-muted-foreground">· {copy.compact.proposed}</span> : null}
+              <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{copy.compact.typeTip}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="start" className="w-64">
+        {channel && !channel.fixed ? (
+          <>
+            <DropdownMenuLabel>{copy.compact.channel}</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={channel.selected} onValueChange={(kind) => meeting.pickChannel(kind as "call" | "meeting")}>
+              {channel.options.map((option) => (
+                <DropdownMenuRadioItem key={option.key} value={option.key}>{option.label}</DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
+        <DropdownMenuLabel>{copy.compact.type}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={meeting.callType.proposed ? "" : meeting.callType.key ?? ""}
+          onValueChange={(key) => meeting.pickCallType(key || null)}
+        >
+          {menu.options.map((option) => (
+            <DropdownMenuRadioItem key={option.key} value={option.key}>
+              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {meeting.callType.proposed && meeting.callType.key === option.key ? (
+                <span className="shrink-0 text-[11px] text-muted-foreground">{copy.compact.proposed}</span>
+              ) : null}
+            </DropdownMenuRadioItem>
+          ))}
+          <DropdownMenuRadioItem value="">{copy.compact.vocifyDecides}</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

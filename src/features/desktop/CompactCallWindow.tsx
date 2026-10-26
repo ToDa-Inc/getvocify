@@ -17,7 +17,7 @@ import { useCompactWindow } from "./useCompactWindow";
  */
 export function CompactCallWindow() {
   const meeting = useDesktopMeeting();
-  const { brain, helpOn, typeName } = useLiveHelp();
+  const { brain, helpOn, setAssistOn, typeName } = useLiveHelp();
   const { language } = useLanguage();
   const { available, compact, setCompact } = useCompactWindow();
 
@@ -37,12 +37,14 @@ export function CompactCallWindow() {
 
   if (!compactViewShown(compact, meeting.phase)) return null;
   return (
-    <div className="fixed inset-0 z-[60]">
+    // Above the sidebar (z-40) and the dock; under tooltips, menus and dialogs (z-50), which open from inside it.
+    <div className="fixed inset-0 z-[45]">
       <CompactLiveView
         meeting={meeting}
         brain={brain}
         copy={liveCopy(language)}
         helpOn={helpOn}
+        onHelpChange={setAssistOn}
         typeName={typeName}
         onExpand={() => setCompact(false)}
       />
