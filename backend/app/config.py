@@ -408,9 +408,9 @@ class Settings(BaseSettings):
     # here (USD per million tokens, in/out) so memos.cost_breakdown stays complete.
     TOGETHER_API_KEY: Optional[str] = None
     TOGETHER_PRICES: dict[str, tuple[float, float]] = {"deepseek-ai/DeepSeek-V4.1-Flash": (0.30, 1.20)}
-    # Together answers or the call fails: no other provider stands in by default. A model id mapped
-    # here ({"deepseek-ai/...": "deepseek/..."}) is retried through OpenRouter after Together fails.
-    TOGETHER_FALLBACKS: dict[str, str] = {}
+    # When Together fails (a 503 outage on 2026-10-15 left every per-call job without a model), the same
+    # model answers through OpenRouter, still without reasoning. Together stays the first choice.
+    TOGETHER_FALLBACKS: dict[str, str] = {"deepseek-ai/DeepSeek-V4.1-Flash": "deepseek/deepseek-v4.1-flash"}
     # Jev (OpenRouter System One) decides follow-up email / callback / meeting on top of the C04
     # verdict: 36 calls with a wrong next action vs 38 for the DeepSeek verdict alone (151 calls).
     JEV_DECISIONS_ENABLED: bool = False
