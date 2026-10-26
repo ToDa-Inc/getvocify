@@ -133,7 +133,7 @@ export function LiveTranscript({
                       transition={BUBBLE_RESIZE}
                       className={cn(
                         'overflow-hidden rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed text-foreground',
-                        you ? 'bg-[hsl(36_52%_87%)]' : 'bg-[#f3f0eb]',
+                        you ? BUBBLE_TONE.you : BUBBLE_TONE.them,
                       )}
                     >
                       <motion.span layout={reduceMotion ? false : 'position'} className="block">
@@ -184,6 +184,9 @@ export function LiveTranscript({
 }
 
 const BUBBLE_RESIZE = { type: 'spring', stiffness: 520, damping: 44, mass: 0.7 } as const;
+/** The two sides' bubbles: the rep's warm, theirs neutral; in dark mode the same two tones on the dark surface (the light
+ * ones left white text unreadable). */
+const BUBBLE_TONE = { you: 'bg-[hsl(36_52%_87%)] dark:bg-beige/20', them: 'bg-[#f3f0eb] dark:bg-secondary' } as const;
 
 function TypingBubble({ you }: { you: boolean }) {
   return (
@@ -191,7 +194,7 @@ function TypingBubble({ you }: { you: boolean }) {
       aria-label="Speaking"
       className={cn(
         'flex h-9 items-center gap-1 rounded-2xl px-3.5 animate-in fade-in duration-200 motion-reduce:animate-none',
-        you ? 'bg-[hsl(36_52%_87%)]' : 'bg-[#f3f0eb]',
+        you ? BUBBLE_TONE.you : BUBBLE_TONE.them,
       )}
     >
       {[0, 160, 320].map((delay) => (
