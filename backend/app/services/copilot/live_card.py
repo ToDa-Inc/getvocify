@@ -506,9 +506,8 @@ async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperat
         direct = live_direct()
         if direct:
             url, key, _ = direct
-            model = (settings.LIVE_CARD_MODEL or "").strip() or CARD_MODEL
-            sources.append((f"direct:{model}", lambda: _post(client, url, {"Authorization": f"Bearer {key}"},
-                                                            {**base, "model": model, "reasoning_effort": effort})))
+            sources.append((f"direct:{CARD_MODEL}", lambda: _post(client, url, {"Authorization": f"Bearer {key}"},
+                                                                 {**base, "model": CARD_MODEL, "reasoning_effort": effort})))
         router_key = (settings.OPENROUTER_API_KEY or "").strip()
         if router_key:
             model_r = (settings.COPILOT_MODEL or "").strip() or "deepseek/deepseek-v4.1-flash"

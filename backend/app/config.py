@@ -364,8 +364,6 @@ class Settings(BaseSettings):
     # The strategic card (pilot, 2026-10-26): with the "Qué decir" view, the automatic readings write ONE card or nothing
     # (services/copilot/live_card.py, the replay engine frozen as turns-6b). Off everywhere; switched on per company.
     LIVE_CARD_ENABLED: bool = False
-    # The model the strategic card was tested with, on the direct provider (COPILOT_DIRECT_URL).
-    LIVE_CARD_MODEL: Optional[str] = None
     # Playbooks v2, per company. QUALIFICATION: C04 v7 reads "what has to come out of the call"
     # criteria and the company's own objections, and the score is built from three blocks
     # (steps, qualification, objections) instead of steps alone.
