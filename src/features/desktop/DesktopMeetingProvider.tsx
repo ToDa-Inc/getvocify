@@ -23,7 +23,7 @@ import { ROUTES } from "@/shared/lib/constants";
 import { overlayWithSpeaking } from "@/lib/typing-bubbles";
 import { SteadyTails } from "@/lib/steady-tail";
 import { openRepMic, serverEchoCancel, type EchoCancellation } from "@/lib/rep-mic";
-import { findChosen, isUnusual, loadChoice, loadUsual, micDevices, saveChoice, saveUsual, type MicChoice, type MicDevice } from "@/lib/desktop-mic";
+import { findChosen, isUnusual, loadChoice, loadUsual, micDevices, micName, saveChoice, saveUsual, type MicChoice, type MicDevice } from "@/lib/desktop-mic";
 import {
   encodeChannelAudio,
   hookMicPcm,
@@ -1352,8 +1352,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         const mic = await (found ? openRepMic(getUserMedia, found.id).catch(() => openRepMic(getUserMedia)) : openRepMic(getUserMedia)).catch(() => {
           throw new PermissionMissing("Could not open the microphone. Check it in Settings › System.");
         });
-        const opened = mic.stream.getAudioTracks()[0]?.getSettings().deviceId;
-        const inUse = mic.stream.getAudioTracks()[0]?.label || null;
+        const track = mic.stream.getAudioTracks()[0];
+        const opened = track?.getSettings().deviceId;
+        const inUse = track ? micName(track.label, opened, micListRef.current) : null;
         micUseRef.current = { inUse, notice: inUse !== null && isUnusual(inUse, choice, found && found.id === opened ? found : null, loadUsual()) };
         // Allowed now: the mics have their names, and the list the island shows is complete.
         void listMics();

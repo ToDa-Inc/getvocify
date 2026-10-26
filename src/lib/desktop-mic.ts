@@ -43,6 +43,17 @@ export function micDevices(all: MediaDeviceInfo[]): { devices: MicDevice[]; defa
   };
 }
 
+/**
+ * The name of the mic a track opened: the listed mic it is, the system's default by its device's name when it opened
+ * "default", else the track's own name without Chromium's "Default - ".
+ */
+export function micName(label: string, deviceId: string | undefined, list: { devices: MicDevice[]; defaultLabel: string | null }): string | null {
+  const listed = list.devices.find((d) => d.id === deviceId)?.label;
+  if (listed) return listed;
+  if (deviceId === "default" && list.defaultLabel) return list.defaultLabel;
+  return label.replace(DEFAULT_PREFIX, "") || null;
+}
+
 /** The picked mic among the connected ones: by id, else by name (an id can change when it is plugged in again). */
 export function findChosen(devices: MicDevice[], chosen: MicChoice | null): MicDevice | null {
   if (!chosen) return null;

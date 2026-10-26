@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { findChosen, isUnusual, micDevices } from "./desktop-mic.ts";
+import { findChosen, isUnusual, micDevices, micName } from "./desktop-mic.ts";
 
 const input = (deviceId: string, label: string, groupId = deviceId) => ({ kind: "audioinput", deviceId, label, groupId }) as MediaDeviceInfo;
 
@@ -53,5 +53,19 @@ describe("isUnusual", () => {
     assert.equal(isUnusual("iPhone", null, null, "AirPods Pro"), true);
     assert.equal(isUnusual("AirPods Pro", null, null, "AirPods Pro"), false);
     assert.equal(isUnusual("AirPods Pro", null, null, null), false);
+  });
+});
+
+describe("micName", () => {
+  const list = { devices: [{ id: "m1", label: "MacBook Air Microphone (Built-in)" }], defaultLabel: "MacBook Air Microphone (Built-in)" };
+
+  it("names the default mic by its device, never Chromium's \"Default - \" entry", () => {
+    assert.equal(micName("Default - MacBook Air Microphone (Built-in)", "default", list), "MacBook Air Microphone (Built-in)");
+    assert.equal(micName("Default - MacBook Air Microphone (Built-in)", "default", { devices: [], defaultLabel: null }), "MacBook Air Microphone (Built-in)");
+  });
+
+  it("names a picked mic as the list does", () => {
+    assert.equal(micName("MacBook Air Microphone (Built-in)", "m1", list), "MacBook Air Microphone (Built-in)");
+    assert.equal(micName("", "gone", { devices: [], defaultLabel: null }), null);
   });
 });
