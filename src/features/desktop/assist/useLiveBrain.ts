@@ -5,6 +5,7 @@ import { getDesktopBridge } from "@/lib/desktop-host";
 import { api } from "@/shared/lib/api-client";
 import { assistContext, BACKSTOP_MS, turnCheck } from "@/lib/live-assist";
 import {
+  buildCardReading,
   buildReading,
   clearProgressCursor,
   contactBrief,
@@ -20,6 +21,7 @@ import {
   spottedDraft,
   streamedPoints,
   toWireTurns,
+  turnObjection,
   turnsUpTo,
   type LiveBrainAsks,
   type LiveDraft,
@@ -31,7 +33,7 @@ import {
 import type { MeetingDisplayTurn } from "@/lib/meeting-transcript";
 import { applyPoints, applyProgress, applyRewrite, dismissPoint, emptyLiveState, tick, untick } from "../../../../shared/live-call/state.js";
 import { createReader } from "../../../../shared/live-call/reader.js";
-import { EVENTS_PER_REQUEST, LiveBrainError, pointsResult, postEvents, readSlow, streamPoints, type LiveUiEvent } from "./liveBrainApi";
+import { EVENTS_PER_REQUEST, LiveBrainError, pointsResult, postEvents, readCard, readSlow, streamPoints, type LiveUiEvent } from "./liveBrainApi";
 import { useProspectPause } from "./useLiveAssist";
 import { readTurn } from "./sources";
 
@@ -60,7 +62,7 @@ export type LiveBrainCall = {
   prospectLevel?: number;
 };
 
-type Spec = { reason: LiveReason; mark: ReadMark; typeChanged?: boolean };
+type Spec = { reason: LiveReason; mark: ReadMark; typeChanged?: boolean; objection?: string | null };
 type Kind = "step" | "data" | "goal";
 type ResultPoint = { id: string };
 
@@ -73,14 +75,17 @@ const NO_ASKS: LiveBrainAsks = { responder: null, recap: null, step: null, rewri
  *
  * `enabled`: the flag, live help on, the call recording and not paused. `flag`: only the flag (the island is told when help is off).
  * `sayView`: the company flag LIVE_SAY_VIEW_ENABLED: the island draws "Qué decir" and the brain may suggest going deeper.
+ * `card`: the company flag LIVE_CARD_ENABLED (pilot, with "Qué decir"): the automatic readings go to the strategic card, ONE
+ * card or nothing (backend services/copilot/live_card.py); Responder and the rep's other asks stay with the points producer.
  */
 export function useLiveBrain(
   turns: MeetingDisplayTurn[],
-  opts: { flag: boolean; enabled: boolean; helpOn: boolean; sayView?: boolean },
+  opts: { flag: boolean; enabled: boolean; helpOn: boolean; sayView?: boolean; card?: boolean },
   call: LiveBrainCall = {},
 ) {
   const { flag, enabled, helpOn } = opts;
   const sayView = Boolean(opts.sayView);
+  const cardMode = sayView && Boolean(opts.card);
   const callId = call.callId ?? null;
   const active = flag && enabled && Boolean(callId);
 
@@ -104,6 +109,8 @@ export function useLiveBrain(
   activeRef.current = active;
   const sayViewRef = useRef(sayView);
   sayViewRef.current = sayView;
+  const cardRef = useRef(cardMode);
+  cardRef.current = cardMode;
 
   const commit = useCallback((next: typeof stateRef.current) => {
     stateRef.current = next;
@@ -163,11 +170,14 @@ export function useLiveBrain(
 
   // ---- the readings ----
   const askedRef = useRef<{ points: LiveReason | null; progress: LiveReason | null }>({ points: null, progress: null });
-  const controllersRef = useRef<{ points: AbortController | null; progress: AbortController | null; recap: AbortController | null }>({
+  const controllersRef = useRef<{ points: AbortController | null; progress: AbortController | null; recap: AbortController | null; card: AbortController | null }>({
     points: null,
     progress: null,
     recap: null,
+    card: null,
   });
+  /** The previous card reading's `read_t` (seconds into the call): a long stretch is read once per stretch. */
+  const lastCardReadRef = useRef<number | null>(null);
   const typeChangedRef = useRef(false);
   const seqRef = useRef({ responder: 0, recap: 0, step: 0, rewrite: 0 });
   /** Responder about one tapped bubble: the turn it reads (kept with the ask, like its reason). */
@@ -299,6 +309,37 @@ export function useLiveBrain(
     }
   };
 
+  /** A strategic card reading: ONE card (the one still open fades) or nothing, merged like a points result. */
+  const runCard = async (spec: Spec) => {
+    const wire = toWireTurns(turnsRef.current);
+    if (!activeRef.current || !wire.length) return;
+    const controller = new AbortController();
+    controllersRef.current.card = controller;
+    const body = buildCardReading({
+      call: readingCall(),
+      turns: wire,
+      state: stateRef.current,
+      reason: spec.reason,
+      mark: spec.mark,
+      sayView: sayViewRef.current,
+      objection: spec.objection ?? null,
+      lastReadT: lastCardReadRef.current,
+    });
+    setReading((r) => ({ ...r, points: true }));
+    try {
+      const result = await readCard(body, controller.signal);
+      succeeded();
+      if (typeof result.read_t === "number" && !String(result.event ?? "").startsWith("skipped")) lastCardReadRef.current = result.read_t;
+      if (result.points?.length || result.closed?.length) commit(applyPoints(stateRef.current, result));
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (!refused(error)) failed();
+    } finally {
+      if (controllersRef.current.card === controller) controllersRef.current.card = null;
+      setReading((r) => ({ ...r, points: false }));
+    }
+  };
+
   /**
    * A reading that only answers the rep (a rewrite, a step question): the latest of each kind wins, it adds no points and
    * moves no cursor. A backend that does not know the reason yet answers 4xx: then there is just nothing new.
@@ -328,11 +369,14 @@ export function useLiveBrain(
   runPointsRef.current = runPoints;
   const runProgressRef = useRef(runProgress);
   runProgressRef.current = runProgress;
-  const readers = useRef<{ points: ReturnType<typeof createReader>; progress: ReturnType<typeof createReader> } | null>(null);
+  const runCardRef = useRef(runCard);
+  runCardRef.current = runCard;
+  const readers = useRef<{ points: ReturnType<typeof createReader>; progress: ReturnType<typeof createReader>; card: ReturnType<typeof createReader> } | null>(null);
   if (!readers.current) {
     readers.current = {
       points: createReader((spec: Spec, o: { asked: boolean }) => runPointsRef.current(spec, o)),
       progress: createReader((spec: Spec, o: { asked: boolean }) => runProgressRef.current(spec, o)),
+      card: createReader((spec: Spec) => runCardRef.current(spec)),
     };
   }
 
@@ -341,11 +385,12 @@ export function useLiveBrain(
   const lastPointsAtRef = useRef<number | null>(null);
   const repReadRef = useRef({ words: 0, at: null as number | null });
 
-  /** A checkpoint reading: points and progress (a long turn reads only points). */
-  const read = (reason: LiveReason, mark: ReadMark, only?: "points") => {
+  /** A checkpoint reading: points (or the strategic card) and progress (a long turn reads only points). */
+  const read = (reason: LiveReason, mark: ReadMark, only?: "points", objection?: string | null) => {
     lastPointsAtRef.current = Date.now();
     repReadRef.current = { words: repWords(turnsRef.current), at: Date.now() };
-    readers.current!.points.request({ reason, mark });
+    if (cardRef.current) readers.current!.card.request({ reason, mark, objection: objection ?? null });
+    else readers.current!.points.request({ reason, mark });
     if (!only) readers.current!.progress.request({ reason, mark });
   };
 
@@ -370,7 +415,8 @@ export function useLiveBrain(
       if (controller.signal.aborted) return;
       const previous = markRef.current;
       // A question or an objection: the rep sees its card now, the answer follows (a turn not finished says "Preparando").
-      setSpotted(spottedDraft(turn, ctx.latestTurn));
+      // The strategic card may stay silent: nothing shows before it decides.
+      if (!cardRef.current) setSpotted(spottedDraft(turn, ctx.latestTurn));
       if (turn && turn.finished === false && !final) {
         // A breath, not an end: a long turn is read every LONG_TURN_MS; otherwise wait and ask again, final.
         if (longTurnDue({ lastReadAt: lastPointsAtRef.current, now: Date.now() })) {
@@ -381,7 +427,7 @@ export function useLiveBrain(
         return;
       }
       markRef.current = { turnKey: ctx.turnKey, length: ctx.length };
-      read("turn_end", previous);
+      read("turn_end", previous, undefined, turnObjection(turn));
     });
   };
 
@@ -405,7 +451,9 @@ export function useLiveBrain(
       const open = stateRef.current.points.some((p: { outcome: string }) => p.outcome === "open" || p.outcome === "unanswered");
       repReadRef.current = { words: repTotal, at: Date.now() };
       readers.current!.progress.request({ reason: "rep_turn", mark: markRef.current });
-      if (open) readers.current!.points.request({ reason: "rep_turn", mark: markRef.current });
+      // The card producer decides in code whether the rep has held the floor long enough to read.
+      if (cardRef.current) readers.current!.card.request({ reason: "rep_turn", mark: markRef.current });
+      else if (open) readers.current!.points.request({ reason: "rep_turn", mark: markRef.current });
     }, 1500);
     return () => window.clearTimeout(timer);
   }, [repTotal, active]);
@@ -434,6 +482,7 @@ export function useLiveBrain(
     controllersRef.current.points?.abort();
     controllersRef.current.progress?.abort();
     controllersRef.current.recap?.abort();
+    controllersRef.current.card?.abort();
     oneShotRef.current.step?.abort();
     oneShotRef.current.rewrite?.abort();
     askedTurnRef.current = null;
@@ -444,6 +493,7 @@ export function useLiveBrain(
     markRef.current = null;
     lastKeyRef.current = "";
     lastPointsAtRef.current = null;
+    lastCardReadRef.current = null;
     repReadRef.current = { words: 0, at: null };
     typeChangedRef.current = false;
     failuresRef.current = 0;
@@ -463,6 +513,7 @@ export function useLiveBrain(
     checkRef.current?.abort();
     controllersRef.current.points?.abort();
     controllersRef.current.progress?.abort();
+    controllersRef.current.card?.abort();
     oneShotRef.current.step?.abort();
     oneShotRef.current.rewrite?.abort();
     window.clearTimeout(backstopRef.current);
@@ -477,6 +528,7 @@ export function useLiveBrain(
       controllersRef.current.points?.abort();
       controllersRef.current.progress?.abort();
       controllersRef.current.recap?.abort();
+      controllersRef.current.card?.abort();
       oneShotRef.current.step?.abort();
       oneShotRef.current.rewrite?.abort();
       window.clearTimeout(backstopRef.current);

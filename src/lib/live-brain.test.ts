@@ -3,7 +3,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  buildCardReading,
   buildReading,
+  cardsIn,
+  turnObjection,
   clearProgressCursor,
   contactBrief,
   nextAsk,
@@ -453,5 +456,49 @@ describe("the contact's brief", () => {
     assert.deepEqual(nextAsk(example.responder_nothing_result.next), example.responder_nothing_result.next);
     assert.equal(nextAsk({ kind: "data", id: "x", label: "X", question: " " }), null);
     assert.equal(nextAsk(null), null);
+  });
+});
+
+describe("the strategic card (pilot)", () => {
+  const card = (id: string, say: string, visible_t: number) => ({
+    id, kind: "deepen", tag_key: "question", tag: null, title: "el precio nos preocupa", turn_ids: ["t1"], said_at: visible_t,
+    decision: null, decision_note: null, answer: say, fallback: null, gap: null, source: null, repeated: false, outcome: "open", visible_t,
+  });
+  const call = { callId: "c1", callMode: "softphone" as const, typeKey: "discovery" };
+  const turns = [{ id: "t1", who: "them" as const, text: "el precio nos preocupa", t: 4 }];
+
+  it("a new card comes in and the one still open fades: one card on screen", () => {
+    let state = applyPoints(emptyLiveState("c1"), { state_version: 0, points: [card("a", "¿Qué os preocupa del precio?", 10)], closed: [] });
+    state = applyPoints(state, { state_version: 1, points: [card("b", "¿Lo vemos 15 minutos el martes?", 40)], closed: [{ id: "a", outcome: "gone" }] });
+    assert.deepEqual(state.points.map((p: any) => [p.id, p.outcome]), [["a", "gone"], ["b", "open"]]);
+    assert.deepEqual(cardsIn(state), [
+      { id: "a", say: "¿Qué os preocupa del precio?", visible_t: 10, open: false },
+      { id: "b", say: "¿Lo vemos 15 minutos el martes?", visible_t: 40, open: true },
+    ]);
+  });
+
+  it("a card the rep closed is not on screen any more; points of the other producer are not cards", () => {
+    let state = applyPoints(emptyLiveState("c1"), example.points_result);
+    state = applyPoints(state, { state_version: 1, points: [card("b", "¿Lo vemos el martes?", 40)], closed: [] });
+    state = dismissPoint(state, "b");
+    assert.deepEqual(cardsIn(state), [{ id: "b", say: "¿Lo vemos el martes?", visible_t: 40, open: false }]);
+  });
+
+  it("the reading carries the cards, what the turn check saw and the previous reading's time", () => {
+    const state = applyPoints(emptyLiveState("c1"), { state_version: 0, points: [card("a", "¿Qué os preocupa?", 10)], closed: [] });
+    const body = buildCardReading({ call, turns, state, reason: "turn_end", mark: null, sayView: true, objection: "price", lastReadT: 10 }) as any;
+    assert.equal(body.reason, "turn_end");
+    assert.equal(body.objection, "price");
+    assert.equal(body.last_read_t, 10);
+    assert.equal(body.cards.length, 1);
+    assert.equal(body.say_view, true);
+    const first = buildCardReading({ call, turns, state: emptyLiveState("c1"), reason: "rep_turn", mark: null }) as any;
+    assert.equal("objection" in first || "last_read_t" in first, false);
+  });
+
+  it("a playbook's own objection goes as its entry", () => {
+    assert.equal(turnObjection({ objection: "custom", entry_id: "objection:custom:email" }), "objection:custom:email");
+    assert.equal(turnObjection({ objection: "price" }), "price");
+    assert.equal(turnObjection(null), null);
   });
 });
