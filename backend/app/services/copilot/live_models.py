@@ -134,3 +134,5 @@ class CardReading(LiveReading):
     objection: Optional[str] = Field(default=None, max_length=200)
     # The previous reading's `read_t`: a long intervention or a long rep floor is read once per stretch.
     last_read_t: Optional[float] = Field(default=None, ge=0)
+    # The call's clock at the reading (seconds, pauses held): when the cards appear. Turns only say when each one started.
+    now_t: Optional[float] = Field(default=None, ge=0)

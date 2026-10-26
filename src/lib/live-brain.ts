@@ -182,13 +182,23 @@ export function buildCardReading(input: {
   sayView?: boolean;
   objection?: string | null;
   lastReadT?: number | null;
+  /** The call's clock at the reading, in seconds: when the card appears. */
+  nowT?: number | null;
 }): Record<string, unknown> {
   return {
     ...buildReading({ ...input, producer: "points" }),
     cards: cardsIn(input.state),
     ...(input.objection ? { objection: input.objection.slice(0, 200) } : {}),
     ...(typeof input.lastReadT === "number" ? { last_read_t: input.lastReadT } : {}),
+    ...(typeof input.nowT === "number" ? { now_t: input.nowT } : {}),
   };
+}
+
+/** The meeting's timer ("04:37", "1:02:05") in seconds; null when it is not one. */
+export function clockSeconds(elapsed: string | null | undefined): number | null {
+  const parts = (elapsed ?? "").trim().split(":");
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return null;
+  return parts.reduce((total, part) => total * 60 + Number(part), 0);
 }
 
 /** What the turn check saw, as the card producer wants it: the playbook entry for one of its own objections, else the type. */
