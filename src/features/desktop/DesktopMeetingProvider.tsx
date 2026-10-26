@@ -119,6 +119,11 @@ export type VocifyCallSession = {
   contact: MeetingDraft["contact"] | null;
 };
 
+export type CallTypeMenu = {
+  options: { key: string; label: string }[];
+  channel: { selected: "call" | "meeting"; fixed: boolean; options: { key: "call" | "meeting"; label: string }[] } | null;
+};
+
 export type DesktopMeeting = {
   available: boolean;
   phase: MeetingPhase;
@@ -152,6 +157,13 @@ export type DesktopMeeting = {
   callId: string | null;
   /** The rep switched live help on or off for this call only; null follows the remembered setting. */
   liveHelpOverride: boolean | null;
+  /** What the island's type menu offers for the call being recorded (the channel's types; the channel when types go by
+   * channel); null when there is nothing to choose. */
+  typeMenu: CallTypeMenu | null;
+  /** The rep's pick of type for this call (null: Vocify decides), the same as a pick in the island. */
+  pickCallType: (key: string | null) => void;
+  /** The rep's switch of channel for this call (types by channel), the same as in the island. */
+  pickChannel: (kind: "call" | "meeting") => void;
   start: () => Promise<void>;
   /** Starts a recording and stays on this page (Inicio keeps its chat). False when it did not go live. */
   startHere: () => Promise<boolean>;
@@ -280,6 +292,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
   /** The call's type while recording: Vocify proposes, the rep's pick is final. */
   const [callType, setCallTypeState] = useState<CallTypeState>(NO_CALL_TYPE);
+  const [typeMenu, setTypeMenu] = useState<CallTypeMenu | null>(null);
   const callTypeRef = useRef<CallTypeState>(NO_CALL_TYPE);
   /** The company's types the island offers, once loaded. */
   const typeOptionsRef = useRef<{ key: string; label: string }[]>([]);
@@ -423,6 +436,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         liveType: { selected: shown.key, proposed: shown.proposed, options: typeOptionsRef.current, ...(channel && { channel }) },
       });
     }
+    setTypeMenu(typeOptionsRef.current.length || channel ? { options: typeOptionsRef.current, channel: channel as CallTypeMenu["channel"] } : null);
   }, []);
 
   /** The island's type options: the channel's types with types by channel, else the published ones. */
@@ -1769,22 +1783,24 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // The call type the rep picked in the island while recording.
+  /** The rep picked the call's type, in the island or in the compact window. */
+  const pickCallType = useCallback(
+    (key: string | null) => {
+      if (!draftRef.current) return;
+      applyCallType(withPick(callTypeRef.current, key || null));
+    },
+    [applyCallType],
+  );
   useEffect(() => {
     const bridge = getDesktopBridge();
     if (!bridge?.shell.onCallType) return;
-    return bridge.shell.onCallType(({ key }) => {
-      if (!draftRef.current) return;
-      applyCallType(withPick(callTypeRef.current, key || null));
-    });
-  }, [applyCallType]);
+    return bridge.shell.onCallType(({ key }) => pickCallType(key));
+  }, [pickCallType]);
 
-  // The channel the rep switched to in the island (types by channel): the types, the proposals and
-  // live help follow it. A Vocify call is a call by construction and never switches.
-  useEffect(() => {
-    const bridge = getDesktopBridge();
-    if (!bridge?.shell.onCallChannel) return;
-    return bridge.shell.onCallChannel(({ kind }) => {
+  /** The rep switched channel (types by channel), in the island or in the compact window: the types, the proposals and
+   * live help follow it. A Vocify call is a call by construction and never switches. */
+  const pickChannel = useCallback(
+    (kind: "call" | "meeting") => {
       const draft = draftRef.current;
       const all = allTypesRef.current;
       if (!draft || !all || !byChannel(all.payload) || vocifyCallRef.current) return;
@@ -1798,8 +1814,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       applyCallType(next);
       scheduleSave();
       if (!next.rep && !next.vocify) void guessCallType();
-    });
-  }, [applyCallType, guessCallType, optionsForCall, scheduleSave]);
+    },
+    [applyCallType, guessCallType, optionsForCall, scheduleSave],
+  );
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.shell.onCallChannel) return;
+    return bridge.shell.onCallChannel(({ kind }) => pickChannel(kind));
+  }, [pickChannel]);
 
   // Where the call happens; a recording that already started without it picks it up.
   useEffect(() => {
@@ -1919,6 +1941,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       callMode,
       callId,
       liveHelpOverride,
+      typeMenu,
+      pickCallType,
+      pickChannel,
       start: startMeeting,
       startHere,
       startCall,
@@ -1928,7 +1953,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallType, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;
