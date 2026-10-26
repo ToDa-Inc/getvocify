@@ -29,6 +29,7 @@ import { companyCanUseDialer, companyIsPaywalled } from "@/lib/billing-access";
 import AskPanel from "@/features/ask/components/AskPanel";
 import { DesktopMeetingProvider } from "@/features/desktop/DesktopMeetingProvider";
 import { LiveHelpProvider } from "@/features/desktop/assist/LiveHelpProvider";
+import { CompactCallWindow } from "@/features/desktop/CompactCallWindow";
 import { DesktopCallProvider } from "@/features/desktop/DesktopCallProvider";
 import { MeetingHeadsUp } from "@/features/desktop/MeetingHeadsUp";
 import { DesktopRecordingChip } from "@/features/desktop/DesktopRecordingChip";
@@ -267,6 +268,7 @@ const DashboardLayout = () => {
         </DockTabs>
       ) : null}
       <DesktopSetupDialog />
+      <CompactCallWindow />
     </div>
     </HomeColumnContext.Provider>
     </DialerFocusProvider>

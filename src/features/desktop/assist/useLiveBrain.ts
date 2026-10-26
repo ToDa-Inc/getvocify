@@ -64,7 +64,7 @@ export type LiveBrainCall = {
   clockSeconds?: number | null;
 };
 
-type Spec = { reason: LiveReason; mark: ReadMark; typeChanged?: boolean; objection?: string | null };
+type Spec = { reason: LiveReason; mark: ReadMark; typeChanged?: boolean; objection?: string | null; turnId?: string | null };
 type Kind = "step" | "data" | "goal";
 type ResultPoint = { id: string };
 
@@ -311,10 +311,24 @@ export function useLiveBrain(
     }
   };
 
-  /** A strategic card reading: ONE card (the one still open fades) or nothing, merged like a points result. */
-  const runCard = async (spec: Spec) => {
-    const wire = toWireTurns(turnsRef.current);
-    if (!activeRef.current || !wire.length) return;
+  /** Responder in card mode: what it asked for, kept with the ask (a newer automatic checkpoint may replace its words). */
+  const askedCardRef = useRef<{ turnId: string | null } | null>(null);
+
+  /**
+   * A strategic card reading: ONE card (the one still open fades) or nothing, merged like a points result. Responder asks
+   * the same brain at once ("what do I say now?"): its answer takes the screen, and says whether it found one.
+   */
+  const runCard = async (queued: Spec, options: { asked: boolean } = { asked: false }) => {
+    const asked = options.asked && askedCardRef.current ? askedCardRef.current : null;
+    askedCardRef.current = null;
+    const spec: Spec = asked ? { ...queued, reason: "responder", turnId: asked.turnId } : queued;
+    const all = toWireTurns(turnsRef.current);
+    const wire = spec.turnId ? turnsUpTo(all, spec.turnId) ?? all : all;
+    const responder = spec.reason === "responder";
+    if (!activeRef.current || !wire.length) {
+      if (responder) setAsks((a) => ({ ...a, responder: { seq: seqRef.current.responder, status: "nothing", point_id: null, next: null } }));
+      return;
+    }
     const controller = new AbortController();
     controllersRef.current.card = controller;
     const body = buildCardReading({
@@ -333,9 +347,14 @@ export function useLiveBrain(
       const result = await readCard(body, controller.signal);
       succeeded();
       if (typeof result.read_t === "number" && !String(result.event ?? "").startsWith("skipped")) lastCardReadRef.current = result.read_t;
-      if (result.points?.length || result.closed?.length) commit(applyPoints(stateRef.current, result));
+      if (result.points?.length || result.closed?.length) commit(applyPoints(stateRef.current, result, { asked: responder }));
+      if (responder) {
+        const found = result.points?.[0]?.id ?? null;
+        setAsks((a) => ({ ...a, responder: { seq: seqRef.current.responder, status: found ? "found" : "nothing", point_id: found, next: null } }));
+      }
     } catch (error) {
       if (controller.signal.aborted) return;
+      if (responder) setAsks((a) => ({ ...a, responder: null }));
       if (!refused(error)) failed();
     } finally {
       if (controllersRef.current.card === controller) controllersRef.current.card = null;
@@ -379,7 +398,7 @@ export function useLiveBrain(
     readers.current = {
       points: createReader((spec: Spec, o: { asked: boolean }) => runPointsRef.current(spec, o)),
       progress: createReader((spec: Spec, o: { asked: boolean }) => runProgressRef.current(spec, o)),
-      card: createReader((spec: Spec) => runCardRef.current(spec)),
+      card: createReader((spec: Spec, o: { asked: boolean }) => runCardRef.current(spec, o)),
     };
   }
 
@@ -550,6 +569,11 @@ export function useLiveBrain(
       askedRef.current.points = "responder";
       askedTurnRef.current = turnId ?? null;
       logEvent(turnId ? "bubble" : "responder", turnId ? { detail: { turn_id: turnId } } : {});
+      // Card mode: the strategic brain answers "what do I say now?" from the conversation (a different move each time).
+      if (cardRef.current) {
+        askedCardRef.current = { turnId: turnId ?? null };
+        return readers.current!.card.request({ reason: "responder", mark: null, turnId: turnId ?? null }, { asked: true });
+      }
       readers.current!.points.request({ reason: "responder", mark: null }, { asked: true });
     },
     [logEvent],
@@ -779,6 +803,8 @@ export function useLiveBrain(
   );
 
   return {
+    /** The strategic card answers the automatic readings and Responder (company flag LIVE_CARD_ENABLED). */
+    cardMode,
     state,
     playbook,
     drafts,

@@ -117,6 +117,15 @@ export type VocifyDesktopBridge = {
   devTrace?: {
     audio(side: string, pcm: ArrayBuffer, at: number, recording: number): void;
   };
+  /**
+   * The dashboard's own window: compact is a small window at the side of the screen, above the call, for the live view
+   * only. Missing in older builds (and in the Mac app).
+   */
+  window?: {
+    get(): Promise<{ compact: boolean }>;
+    setCompact(compact: boolean): Promise<{ compact: boolean }>;
+    onCompact(cb: (payload: { compact: boolean }) => void): () => void;
+  };
   /** Vocify calling on this computer; off, the island's Call opens on the rep's own phone. Missing in older builds. */
   calling?: {
     get(): Promise<DesktopCalling>;
