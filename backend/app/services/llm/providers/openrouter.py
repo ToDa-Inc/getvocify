@@ -279,14 +279,16 @@ class OpenRouterProvider(BaseLLMProvider):
                         body = e.response.json()
                         err_detail = body.get("error", {}).get("message", body.get("message", str(body)))
                         logger.error(
-                            "OpenRouter %s: %s (model=%s)",
+                            "%s %s: %s (model=%s)",
+                            provider,
                             e.response.status_code,
                             err_detail,
                             model or self.model,
                         )
                     except Exception:
                         logger.error(
-                            "OpenRouter %s: %s",
+                            "%s %s: %s",
+                            provider,
                             e.response.status_code,
                             e.response.text[:200] if e.response.text else str(e),
                         )
