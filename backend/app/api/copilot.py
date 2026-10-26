@@ -506,7 +506,7 @@ def _card_log(supabase: Client, membership: Membership, body: CardReading, resul
         "prompt_version": live_card.PROMPT_VERSION, "producer": "card", "reason": body.reason, "moment": result.get("moment"),
         "event": result.get("event"), "read_t": result.get("read_t"), "turns": len(body.turns), "cards": len(body.cards),
         "prep_ms": prep_ms, "say": (result.get("points") or [{}])[0].get("answer") or trace.get("card"),
-        "reading": trace.get("reading"), "checks": trace.get("checks"), "retry": trace.get("retry"), "replaces": trace.get("replaces"),
+        "reading": trace.get("reading"), "checks": trace.get("checks"), "retries": trace.get("retries"), "replaces": trace.get("replaces"),
     }
     events.record(supabase, events.brain_row(
         kind="points", user_id=membership.user_id, company_id=membership.company_id, call_mode=body.call_mode,

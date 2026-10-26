@@ -281,3 +281,79 @@ def test_a_checkpoint_that_is_not_a_moment_costs_nothing_and_is_not_logged(monke
     db = FakeDb()
     response = client_for(db, monkeypatch).post("/api/v1/copilot/live/card", json={**BODY, "reason": "rep_turn"})
     assert response.json()["event"] == "skipped:not_a_moment" and calls == [] and db.inserted == []
+
+
+def test_responder_reads_at_once_tells_the_reading_it_was_asked_and_takes_the_screen(monkeypatch):
+    seen = []
+
+    async def ask(system, user, schema, *, max_tokens, temperature):
+        seen.append(user)
+        meta = {"model": "direct:test", "latency_ms": 10, "error": None}
+        if system == live_card.SYSTEM:
+            return answer(line="¿Qué pasa hoy cuando uno de los dos no está y un cliente pregunta por su cuenta?"), meta
+        if system == live_card.FACT_SYSTEM:
+            return {"unsupported": False, "what": ""}, meta
+        if system == live_card.CLOSING_SYSTEM:
+            return {"closing": False, "evidence": ""}, meta
+        return {"repeats": False, "same_as": "", "why": ""}, meta
+
+    monkeypatch.setattr(live_card, "ask", ask)
+    end = live_card.ends(CALL)
+    on = [{"id": "a", "say": "¿Qué prioridades tenéis ahora?", "visible_t": round(end[-1], 1), "open": True}]
+    result = run(live_card.read_card(reading(reason="responder", cards=on), CTX))
+    assert result["moment"] == "asked" and result["event"] == "shown"
+    assert result["closed"] == [{"id": "a", "outcome": "gone"}], "asked for, it replaces the card the rep has not used yet"
+    assert "THE REP ASKED YOU NOW" in seen[0]
+    # An automatic reading at the same moment waits for the rep to use the card on screen, and is not told it was asked.
+    seen.clear()
+    assert run(live_card.read_card(reading(reason="turn_end", cards=on), CTX))["event"] == "drop:rep_has_last_card"
+    assert "THE REP ASKED YOU NOW" not in seen[0]
+
+
+def test_asked_a_card_with_an_unsupported_claim_gets_one_more_try_but_an_automatic_one_does_not(monkeypatch):
+    lines = iter([answer(line="¿Te enseño cómo quedaría en vuestro CRM?"), answer(line="¿Qué pasa hoy cuando uno de los dos no está?")])
+    facts = iter([True, False])
+    seen = []
+
+    async def ask(system, user, schema, *, max_tokens, temperature):
+        meta = {"model": "direct:test", "latency_ms": 10, "error": None}
+        if system == live_card.SYSTEM:
+            seen.append(user)
+            return next(lines), meta
+        if system == live_card.FACT_SYSTEM:
+            return {"unsupported": next(facts), "what": "shows the CRM filled"}, meta
+        if system == live_card.CLOSING_SYSTEM:
+            return {"closing": False, "evidence": ""}, meta
+        return {"repeats": False, "same_as": "", "why": ""}, meta
+
+    monkeypatch.setattr(live_card, "ask", ask)
+    result = run(live_card.read_card(reading(reason="responder"), CTX))
+    assert result["event"] == "shown" and result["points"][0]["answer"].startswith("¿Qué pasa hoy")
+    assert "STATES WHAT NO SOURCE SAYS (shows the CRM filled)" in seen[1]
+    fake_model(monkeypatch, answer(), unsupported=True)
+    assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "drop:unsupported_fact"
+
+
+def test_asked_again_the_same_words_are_another_try_not_nothing(monkeypatch):
+    shown_say = "Vale, cada uno en su cabeza. ¿Y cuánto tarda un comercial nuevo en vender solo con ese sistema?"
+    lines = iter([answer(line="Vale, cada uno en su cabeza. ¿Y cuánto tarda un comercial nuevo en vender solo así?"),
+                  answer(line="¿Quién decide si probáis algo así, tú o alguien más?")])
+    seen = []
+
+    async def ask(system, user, schema, *, max_tokens, temperature):
+        meta = {"model": "direct:test", "latency_ms": 10, "error": None}
+        if system == live_card.SYSTEM:
+            seen.append(user)
+            return next(lines), meta
+        if system == live_card.FACT_SYSTEM:
+            return {"unsupported": False, "what": ""}, meta
+        if system == live_card.CLOSING_SYSTEM:
+            return {"closing": False, "evidence": ""}, meta
+        return {"repeats": False, "same_as": "", "why": ""}, meta
+
+    monkeypatch.setattr(live_card, "ask", ask)
+    on = [{"id": "a", "say": shown_say, "visible_t": 5.0, "open": True}]
+    result = run(live_card.read_card(reading(reason="responder", cards=on), CTX))
+    assert result["event"] == "shown" and result["points"][0]["answer"].startswith("¿Quién decide")
+    assert f"REPEATS «{shown_say}»" in seen[1]
+

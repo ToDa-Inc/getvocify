@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Calendar, ChevronDown, ChevronUp, Copy, Minus, Pause, Play, Search, Square, X } from "lucide-react";
+import { AlertCircle, Calendar, ChevronDown, ChevronUp, Copy, Minimize2, Minus, Pause, Play, Search, Square, X } from "lucide-react";
 import { toast } from "sonner";
 import { LiveTranscript } from "@/features/recording/components";
 import {
@@ -16,6 +16,10 @@ import { useDesktopMeeting } from "./DesktopMeetingProvider";
 import { LiveAssistPanel } from "./assist/LiveAssistPanel";
 import { useLiveHelp } from "./assist/LiveHelpProvider";
 import { LiveBrainSection } from "./live-brain/LiveBrainSection";
+import { liveCopy } from "./live-brain/copy";
+import { useCompactWindow } from "./useCompactWindow";
+import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/lib/i18n";
 
 const BAR_SHAPE = [0.45, 0.8, 1, 0.65];
 
@@ -25,6 +29,8 @@ export function MeetingLiveView() {
   const live = meeting.phase === "live";
   // Live help runs for the whole meeting (LiveHelpProvider), whatever page is shown: this view only draws it.
   const { brainOn, assistOn, setAssistOn, helpOn, assist } = useLiveHelp();
+  const compactWindow = useCompactWindow();
+  const { language } = useLanguage();
   // With the new live view the transcript is one of its tabs: the dock below keeps the recording controls.
   const [transcriptOpen, setTranscriptOpen] = useState(!brainOn);
   useEffect(() => {
@@ -99,6 +105,17 @@ export function MeetingLiveView() {
                 {!live ? "Stopped" : meeting.paused ? `Paused · ${meeting.elapsed}` : meeting.elapsed}
               </span>
             </Chip>
+            {live && compactWindow.available ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => compactWindow.setCompact(true)} className="h-7 gap-1.5 rounded-full px-2.5 text-[12px]">
+                    <Minimize2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                    {liveCopy(language).compact.enter}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{liveCopy(language).compact.enterTip}</TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
         </header>
 

@@ -77,6 +77,21 @@ const ES = {
   point: "Punto",
   typeChanged: "El tipo cambió: se lee la llamada de nuevo con su playbook.",
   transcriptEmpty: "Aquí aparece la conversación.",
+  compact: {
+    enter: "Ventana compacta",
+    enterTip: "Encoge el dashboard a una ventana pequeña encima de la llamada",
+    expand: "Abrir el dashboard completo",
+    say: "Qué decir",
+    sayEmpty: "Aparece aquí cuando hay algo que decir.",
+    steps: "Pasos",
+    stepsTip: (done: number, total: number) => `Pasos · ${done} de ${total}`,
+    contact: "Contacto",
+    contactEmpty: "Sin historial con este contacto.",
+    paused: "En pausa",
+    kinds: { answer: "Respuesta", unknown: "No está en tu conocimiento", explore: "Puedes preguntar" },
+    preparing: "Preparando",
+    nothingNew: "Ahora no hay una jugada nueva: sigue con la que tienes.",
+  },
 };
 
 type Copy = typeof ES;
@@ -157,6 +172,21 @@ const EN: Copy = {
   point: "Point",
   typeChanged: "The type changed: the call is read again with its playbook.",
   transcriptEmpty: "The conversation appears here.",
+  compact: {
+    enter: "Compact window",
+    enterTip: "Shrinks the dashboard to a small window on top of the call",
+    expand: "Open the whole dashboard",
+    say: "What to say",
+    sayEmpty: "It shows here when there is something to say.",
+    steps: "Steps",
+    stepsTip: (done, total) => `Steps · ${done} of ${total}`,
+    contact: "Contact",
+    contactEmpty: "No history with this contact.",
+    paused: "Paused",
+    kinds: { answer: "Answer", unknown: "Not in your knowledge", explore: "You could ask" },
+    preparing: "Preparing",
+    nothingNew: "No new move right now: carry on with the one you have.",
+  },
 };
 
 export function liveCopy(language: Language): Copy {

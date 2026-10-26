@@ -351,9 +351,12 @@ export function LiveBrainPanel({
           >
             <ShieldCheck />
           </BarButton>
-          <BarButton label={copy.bar.ask} tip={copy.barTips.ask} on={peek?.kind === "now"} disabled={!helpOn || !pv.hasPlaybook} onClick={askNow}>
-            <MessageCircleQuestion />
-          </BarButton>
+          {/* With the strategic card, Responder already gives the next move from the conversation: no playbook step here. */}
+          {!brain.cardMode ? (
+            <BarButton label={copy.bar.ask} tip={copy.barTips.ask} on={peek?.kind === "now"} disabled={!helpOn || !pv.hasPlaybook} onClick={askNow}>
+              <MessageCircleQuestion />
+            </BarButton>
+          ) : null}
           <BarButton label={copy.bar.recap} tip={copy.barTips.recap} on={peek?.kind === "recap"} disabled={!helpOn} onClick={askRecap}>
             <History />
           </BarButton>

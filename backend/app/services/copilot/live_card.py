@@ -269,7 +269,10 @@ def due(reason: str, objection: Optional[str], turns: list[dict], end: list[floa
     - turn_end (their pause with a complete idea): "them_urgent" when the turn check saw a question or an objection,
       else "them_end"; only with MIN_SUBSTANCE words of substance said in their intervention since the last reading.
     - long_turn (a breath in a long intervention): "them_mid" every MID_GAP_S seconds of it.
-    - rep_turn: "rep_long" once the rep has held the floor REP_FLOOR_S, once per floor."""
+    - rep_turn: "rep_long" once the rep has held the floor REP_FLOOR_S, once per floor.
+    - responder (the rep asked: "what do I say now?"): "asked", always."""
+    if reason == "responder":
+        return "asked"
     signals = listening(turns)
     held = floors(turns)
     last = last_read_t if last_read_t is not None else -1.0
@@ -477,6 +480,15 @@ def can_update(shown: list[dict], turns: list[dict], floors_them: list[tuple[flo
     return during and at - last >= MIN_SHOW_S and rep_said(turns, last, at) < 3
 
 
+# The rep pressed Responder: the same reading, told that help was asked for now. Silence stays possible, but a rep who asks
+# wants the next move; the thread and the repeat check keep it from being the card already shown.
+ASKED_NOTE = ("\n\nTHE REP ASKED YOU NOW («what do I say?»): give the next useful move from this conversation, an answer to "
+              "what they just said or the next step toward the goal, not a move already made; silence only when nothing fits.")
+
+
+ASKED_TRIES = 2  # more tries an asked reading gets after a dropped card; an automatic one gets one, only for a repeat
+
+
 # ---------- the model ----------
 
 
@@ -666,7 +678,7 @@ async def read_card(body: Any, ctx: Any) -> dict:
     motion = (body.sales_motion_key or "").strip() or None
     sources = sources_text(ctx, motion)
     started = time.perf_counter()
-    user = reading_input(sources, turns, end, now, shown)
+    user = reading_input(sources, turns, end, now, shown) + (ASKED_NOTE if moment == "asked" else "")
     out, meta = await ask(SYSTEM, user, SCHEMA, max_tokens=TOKENS, temperature=0.2)
     trace: dict[str, Any] = {"reading": out, "reading_ms": meta["latency_ms"]}
     result.update(model=meta["model"], trace=trace)
@@ -684,14 +696,32 @@ async def read_card(body: Any, ctx: Any) -> dict:
         return finish("low_confidence")
     card, why, checks = await vet(out, turns, end, now, shown, sources)
     trace.update(card=card["say"], checks=checks)
-    if why == "repeats":  # the small gate saw the same move: one more try for a different one, or silence
-        trace["repeat_of"] = card.get("same_as", "")
-        retry, meta2 = await ask(SYSTEM, user + f"\n\nYOUR CARD «{card['say']}» REPEATS «{card.get('same_as', '')}», "
-                                 "already shown, with nothing new from them since. Give a different next move that responds to what they "
-                                 "said, or silence.", SCHEMA, max_tokens=TOKENS, temperature=0.2)
-        trace["retry"] = retry
+    # Another try, told why: the same move again (any reading: one more try, as turns-6b), or, when the rep asked, also a
+    # claim no source makes or the same words again (two more tries, each told every reason so far: a rep who pressed
+    # Responder gets a move that stays inside what is written and is not one already made, rather than nothing).
+    tries = ASKED_TRIES if moment == "asked" else 1
+    notes = ""
+    while why and tries > 0:
+        if why == "same_text_as_shown" and moment == "asked":
+            # Asked again, the same words are the same move: the rep wants another one.
+            text = f"«{card['say']}»".lower()
+            card["same_as"] = max(shown, key=lambda c: SequenceMatcher(None, text, f"«{c['say']}»".lower()).ratio())["say"]
+            why = "repeats"
+        if why == "repeats":
+            trace["repeat_of"] = card.get("same_as", "")
+            notes += (f"\n\nYOUR CARD «{card['say']}» REPEATS «{card.get('same_as', '')}», already shown, with nothing new from them "
+                      "since. Give a different next move that responds to what they said, or silence.")
+        elif why == "unsupported_fact" and moment == "asked":
+            what = ((checks.get("facts") or {}).get("what") or "").strip()
+            notes += (f"\n\nYOUR CARD «{card['say']}» STATES WHAT NO SOURCE SAYS{f' ({what})' if what else ''}. Give a move that "
+                      "claims nothing about the product beyond the SOURCES (a question about their situation, or a next step), or silence.")
+        else:
+            break
+        tries -= 1
+        retry, _ = await ask(SYSTEM, user + notes, SCHEMA, max_tokens=TOKENS, temperature=0.2)
+        trace.setdefault("retries", []).append(retry)
         if not retry or retry.get("decision") != "card" or not (retry.get("line") or "").strip() or retry.get("understanding_confidence") == "low":
-            return finish("drop:repeats→silence")
+            return finish(f"drop:{why}→silence")
         out = retry
         card, why, checks = await vet(out, turns, end, now, shown, sources)
         trace.update(card=card["say"], checks_retry=checks)
@@ -699,7 +729,8 @@ async def read_card(body: Any, ctx: Any) -> dict:
         return finish(f"drop:{why}")
     floors_them = them_floors(turns, end)
     replaces = None
-    if not rep_could_use(shown, turns, floors_them, now):
+    # Asked for, the new card takes the screen; on its own it waits until the rep could use the one there.
+    if moment != "asked" and not rep_could_use(shown, turns, floors_them, now):
         if not can_update(shown, turns, floors_them, moment, now):
             return finish("drop:rep_has_last_card")
         replaces = shown[-1]["id"]
