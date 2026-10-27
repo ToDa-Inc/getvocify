@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth";
+import { HubspotCalls } from "@/features/interactions/components/HubspotCalls";
 import { ChannelFilter } from "@/features/interactions/components/InteractionFilters";
 import { InteractionList, InteractionSkeleton } from "@/features/interactions/components/InteractionRow";
 import { useInteractionFeed } from "@/features/interactions/hooks/useInteractionFeed";
@@ -69,6 +70,8 @@ export function LatestInteractions({ manager }: { manager: boolean }) {
           </div>
         )}
       </div>
+
+      <HubspotCalls authorUserId={null} enabled={feed.channel === "all" || feed.channel === "call"} />
 
       {feed.isLoading ? (
         <InteractionSkeleton rows={4} />
