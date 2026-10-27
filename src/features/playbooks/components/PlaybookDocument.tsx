@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { FileUp, ListOrdered, MessagesSquare, Plus, Target, Trash2, Undo2 } from "lucide-react";
+import { Compass, FileUp, ListOrdered, MessagesSquare, Plus, Target, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
@@ -10,6 +10,7 @@ import { playbooksApi, type FillScope, type FillSource } from "@/features/playbo
 import { CompleteButton } from "@/features/playbooks/components/DocParts";
 import { FillBox } from "@/features/playbooks/components/FillBox";
 import { ObjectionTypes } from "@/features/playbooks/components/ObjectionTypes";
+import { PlaybookConduct } from "@/features/playbooks/components/PlaybookConduct";
 import { PlaybookObjections } from "@/features/playbooks/components/PlaybookObjections";
 import { PlaybookQualification } from "@/features/playbooks/components/PlaybookQualification";
 import { PlaybookStart, type SourceInput } from "@/features/playbooks/components/PlaybookStart";
@@ -50,7 +51,7 @@ import { cn } from "@/lib/utils";
 export type { Flush } from "@/features/playbooks/hooks/usePlaybookDraft";
 
 type Notice = { tone: "info" | "error"; text: string } | null;
-type Tab = "steps" | "qualification" | "objections";
+type Tab = "steps" | "qualification" | "objections" | "conduct";
 
 /** A small dot on a tab that has something to fix (a step without "counts as done", an unanswered objection). */
 function Attention({ on, label }: { on: boolean; label: string }) {
@@ -60,8 +61,9 @@ function Attention({ on, label }: { on: boolean; label: string }) {
 
 /**
  * One call type's playbook: a header (owned by the panel), the one line where the manager tells
- * Vocify what to change, and three tabs, one per layer: the steps Vocify checks, what the call
- * has to find out, and the answers to objections. Everything reads as sentences and is edited
+ * Vocify what to change, and a tab per layer: the steps Vocify checks, what the call has to find
+ * out, the answers to objections, and (for a manager) «Cómo trabajamos», what a good call is and how
+ * the company runs it, which saves by itself and is not published. Everything reads as sentences and is edited
  * where it is read; what is missing Vocify writes on request. Changes save themselves as a draft
  * and reach the team when the panel publishes them. A rep reads the same view.
  */
@@ -398,6 +400,12 @@ export function PlaybookDocument({
               ) : null}
             </TabsTrigger>
           ) : null}
+          {editable ? (
+            <TabsTrigger value="conduct">
+              <Compass size={15} strokeWidth={1.5} />
+              {copy.blocks.conduct}
+            </TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="steps">
@@ -479,10 +487,17 @@ export function PlaybookDocument({
             }
           />
         </TabsContent>
+
+        {editable ? (
+          <TabsContent value="conduct">
+            <PlaybookConduct key={motionKey} motionKey={motionKey} />
+          </TabsContent>
+        ) : null}
       </Tabs>
 
-      {canEdit && !rebuildOpen ? (
-        // Floats at the bottom of the screen: the list scrolls under it (glass), always one step away.
+      {canEdit && !rebuildOpen && tab !== "conduct" ? (
+        // Floats at the bottom of the screen: the list scrolls under it (glass), always one step away. It writes the
+        // steps, qualification and objections, so «Cómo trabajamos» (typed by the manager) does not offer it.
         <div className="sticky bottom-4 z-10 pt-2">
           <FillBox placeholder={copy.fillPlaceholder} busy={filling !== null} submit={(source) => fill(source, "box")} />
         </div>

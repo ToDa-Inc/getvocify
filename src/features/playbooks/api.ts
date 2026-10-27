@@ -81,6 +81,9 @@ export type TypeStats = { days: number; types: Record<string, { count: number; c
 
 const path = (key: string) => `/playbooks/${encodeURIComponent(key)}`;
 
+/** «Cómo trabajamos» of a call type: what a good call is and how the company conducts it (not versioned). */
+export type Conduct = { goal: string; also_good: string; stop_when: string; criteria: string[] };
+
 /** The `detail.code` of a 4xx, when the API sent one. */
 export function errorCode(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
@@ -115,6 +118,8 @@ export const playbooksApi = {
     },
   ) => api.put<EditorDoc>(`${path(key)}/draft`, body),
   discardDraft: (key: string) => api.delete<EditorDoc>(`${path(key)}/draft`),
+  conduct: (key: string) => api.get<{ conduct: Conduct }>(`${path(key)}/conduct`),
+  saveConduct: (key: string, conduct: Conduct) => api.put<{ conduct: Conduct }>(`${path(key)}/conduct`, conduct),
   publish: (key: string) => api.post<{ motions: Record<string, MotionStatus> }>(`${path(key)}/publish`),
   // Waits on transcription (audio) and up to two model calls, well past the default 20 s.
   structure: (key: string, kind: SourceKind, payload: string, name?: string) =>

@@ -35,6 +35,7 @@ from app.services.copilot.grounding import SuggestGrounding
 from app.services.copilot.suggest import silent_suggestion, stream_objection_suggestion
 from app.services.rep_timezone import DEFAULT_TZ, rep_timezone
 from app.services.feature_flags import is_enabled
+from app.services.playbooks import conduct as playbook_conduct
 from app.services.playbooks.catalog import INTERNAL_KEY
 
 logger = logging.getLogger(__name__)
@@ -401,9 +402,15 @@ async def _brain_context(supabase: Client, membership: Membership, body: LiveRea
     motion = (body.sales_motion_key or "").strip() or None
     kind = live_assist_kind_from_call_mode(body.call_mode)
     offer = (body.product_context or "").strip()
-    live = await _live_context(
-        supabase, user_id=membership.user_id, company_id=membership.company_id, motion=motion, kind=kind,
-        need_product=not offer,
+    live, conduct = await asyncio.gather(
+        _live_context(
+            supabase, user_id=membership.user_id, company_id=membership.company_id, motion=motion, kind=kind,
+            need_product=not offer,
+        ),
+        live_context.cached(
+            ("conduct", membership.company_id, motion),
+            lambda: playbook_conduct.read_for_brain(supabase, membership.company_id, motion),
+        ) if motion else _nothing(None),
     )
     grounding = live.grounding
     context = resolve_suggest_context(body.contact_id, call_mode=body.call_mode)
@@ -429,6 +436,7 @@ async def _brain_context(supabase: Client, membership: Membership, body: LiveRea
         history=history,
         today=today_line(live.timezone),
         playbook_version_id=grounding.playbook_version_id if grounding else None,
+        conduct=conduct.value,
     )
 
 

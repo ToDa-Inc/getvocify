@@ -32,6 +32,7 @@ import httpx
 from app.config import settings
 from app.services.copilot import live_brain as brain
 from app.services.copilot.suggest import OPENROUTER_URL, live_direct, live_provider, live_reasoning
+from app.services.playbooks import conduct
 from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
@@ -301,9 +302,15 @@ def due(reason: str, objection: Optional[str], turns: list[dict], end: list[floa
 
 def sources_text(ctx: Any, motion: Optional[str]) -> str:
     """The SOURCES block: the playbook's goal as a starting point, the offer and the knowledge, the approved answers,
-    the steps, what to find out and today's date (the same text the replays read)."""
-    header = brain.playbook_header(ctx.snapshot, motion, None).replace(
-        "GOAL:", "USUAL GOAL FOR THIS TYPE OF CALL (a starting point, not an obligation):", 1)
+    the steps, what to find out and today's date (the same text the replays read). When the company wrote «Cómo
+    trabajamos» for the type, its goal, other good outcomes, when to stop and its criteria replace the usual goal; they
+    sit before every source block, so a card can never rest on them for a fact."""
+    header = brain.playbook_header(ctx.snapshot, motion, None)
+    company = conduct.brain_text(getattr(ctx, "conduct", None), brain.goal_for(motion))
+    if company:
+        header = header.split("\nGOAL:", 1)[0] + "\n" + company
+    else:
+        header = header.replace("GOAL:", "USUAL GOAL FOR THIS TYPE OF CALL (a starting point, not an obligation):", 1)
     return header + "\n\n" + "\n\n".join([
         brain.context_blocks(product_context=ctx.product_context, knowledge=ctx.knowledge, history=ctx.history, call_text=""),
         brain.entries_block(ctx.snapshot) if ctx.snapshot else "",
