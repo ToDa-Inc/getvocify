@@ -7,12 +7,14 @@ import { formatCallDuration } from "@/lib/call-duration";
 import {
   channelOf,
   groupByDay,
+  mergeCrmCalls,
   rowContacts,
   rowHeadline,
   rowStatus,
   timeLabel,
   typeChip,
   type Channel,
+  type CrmCallEntry,
   type RowStatus,
   type TypeOption,
 } from "@/lib/interactions";
@@ -21,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/features/auth";
 import { isManagerRole } from "@/lib/nav";
 import { useCrmContactLink } from "../hooks/useCrmContactLink";
+import { CrmCallRow } from "./CrmCallRow";
 import { InteractionMenu } from "./InteractionMenu";
 import { ContactStack } from "./ContactStack";
 import { TypeChip } from "./TypeChip";
@@ -169,6 +172,15 @@ export function InteractionRow({
   );
 }
 
+/** The CRM calls Vocify has not read, shown among the conversations of the page that covers their time. */
+export type CrmCalls = {
+  entries: CrmCallEntry[];
+  page: number;
+  hasMore: boolean;
+  busyId: string | null;
+  onTranscribe: (callId: string) => Promise<unknown>;
+};
+
 /** Rows under "Hoy", "Ayer" and dates. `stale` = old rows showing under a new filter. */
 export function InteractionList({
   items,
@@ -176,15 +188,18 @@ export function InteractionList({
   labelOf,
   authorOf,
   stale = false,
+  crmCalls,
 }: {
   items: Memo[];
   options: TypeOption[];
   labelOf?: (key: string) => string;
   authorOf: (memo: Memo) => string | null;
   stale?: boolean;
+  crmCalls?: CrmCalls;
 }) {
   const { t } = useLanguage();
-  const groups = groupByDay(items, new Date(), t.product.hourLocale);
+  const entries = mergeCrmCalls(items, crmCalls?.entries ?? [], { page: crmCalls?.page ?? 0, hasMore: crmCalls?.hasMore ?? false });
+  const groups = groupByDay(entries, new Date(), t.product.hourLocale);
   return (
     <div
       aria-busy={stale || undefined}
@@ -194,9 +209,18 @@ export function InteractionList({
         <section key={group.key} aria-label={group.label || undefined}>
           {group.label ? <h3 className="px-3 pb-1 text-[13px] font-medium text-muted-foreground">{group.label}</h3> : null}
           <ul className="space-y-0.5">
-            {group.items.map((memo) => (
-              <InteractionRow key={memo.id} memo={memo} options={options} labelOf={labelOf} author={authorOf(memo)} />
-            ))}
+            {group.items.map((entry) =>
+              entry.kind === "memo" ? (
+                <InteractionRow key={entry.id} memo={entry.memo} options={options} labelOf={labelOf} author={authorOf(entry.memo)} />
+              ) : (
+                <CrmCallRow
+                  key={`crm-${entry.id}`}
+                  call={entry.call}
+                  busy={crmCalls?.busyId === entry.id}
+                  onTranscribe={crmCalls?.onTranscribe ?? (() => Promise.resolve())}
+                />
+              ),
+            )}
           </ul>
         </section>
       ))}

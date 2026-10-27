@@ -11,6 +11,7 @@ import {
   initialsOf,
   interactionsAuthor,
   memoTypeLine,
+  mergeCrmCalls,
   memoTypeName,
   pageOf,
   retagOptions,
@@ -410,5 +411,28 @@ describe("rowContacts", () => {
   it("is empty when nobody is known", () => {
     assert.deepEqual(rowContacts({ extraction: {} }), []);
     assert.deepEqual(rowContacts({}), []);
+  });
+});
+
+describe("mergeCrmCalls", () => {
+  const iso = (d: number, h: number) => new Date(2026, 8, d, h, 0).toISOString();
+  const memo = (id: string, d: number, h: number) => ({ id, createdAt: iso(d, h) }) as never;
+  const call = (id: string, d: number, h: number) => ({ id, createdAt: iso(d, h), title: id, subtitle: "", seconds: 0 });
+  const ids = (entries: ReturnType<typeof mergeCrmCalls>) => entries.map((entry) => entry.id);
+
+  it("puts a call among the conversations by time", () => {
+    const entries = mergeCrmCalls([memo("m1", 30, 17), memo("m2", 30, 9)], [call("c1", 30, 12)], { page: 0, hasMore: false });
+    assert.deepEqual(ids(entries), ["m1", "c1", "m2"]);
+  });
+  it("keeps every call newer than the first page's newest and older than the last page's oldest", () => {
+    assert.deepEqual(ids(mergeCrmCalls([memo("m1", 30, 10)], [call("new", 30, 18), call("old", 1, 9)], { page: 0, hasMore: false })), ["new", "m1", "old"]);
+  });
+  it("leaves out a call older than this page when there is a next one, and newer than it past the first", () => {
+    const memos = [memo("m1", 20, 17), memo("m2", 20, 9)];
+    const calls = [call("older", 10, 9), call("newer", 25, 9), call("inside", 20, 12)];
+    assert.deepEqual(ids(mergeCrmCalls(memos, calls, { page: 1, hasMore: true })), ["m1", "inside", "m2"]);
+  });
+  it("lists the calls alone when there are no conversations", () => {
+    assert.deepEqual(ids(mergeCrmCalls([], [call("c1", 30, 9)], { page: 0, hasMore: false })), ["c1"]);
   });
 });

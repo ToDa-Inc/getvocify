@@ -1,4 +1,4 @@
-import type { MemoFilters } from "@/features/memos/types";
+import type { Memo, MemoFilters } from "@/features/memos/types";
 import { memoContactName } from "./copilot-note.ts";
 import { motionLabel } from "./motion-label.ts";
 
@@ -218,6 +218,34 @@ export function groupByDay<T extends { createdAt: string }>(
   const out = [...groups.values()];
   if (undated.length) out.push({ key: "undated", label: "", items: undated });
   return out;
+}
+
+/** A call logged in the CRM that Vocify has not turned into a conversation yet, as the list shows it. */
+export type CrmCallEntry = { id: string; createdAt: string; title: string; subtitle: string; seconds: number };
+
+export type FeedEntry =
+  | { kind: "memo"; id: string; createdAt: string; memo: Memo }
+  | { kind: "crm_call"; id: string; createdAt: string; call: CrmCallEntry };
+
+/**
+ * One page of the feed with the CRM calls that fall inside it, newest first. The feed is paged by
+ * the server, the calls are one short list: a call belongs on the page whose time span covers it.
+ * The first page has no upper bound and the last no lower one, so no call is left out.
+ */
+export function mergeCrmCalls(memos: Memo[], calls: CrmCallEntry[], { page, hasMore }: { page: number; hasMore: boolean }): FeedEntry[] {
+  const times = memos.map((memo) => new Date(memo.createdAt).getTime()).filter((ms) => !Number.isNaN(ms));
+  const upper = page === 0 || times.length === 0 ? Infinity : Math.max(...times);
+  const lower = !hasMore || times.length === 0 ? -Infinity : Math.min(...times);
+  const inside = calls.filter((call) => {
+    const at = new Date(call.createdAt).getTime();
+    return !Number.isNaN(at) && at <= upper && at >= lower;
+  });
+  const entries: FeedEntry[] = [
+    ...memos.map((memo): FeedEntry => ({ kind: "memo", id: memo.id, createdAt: memo.createdAt, memo })),
+    ...inside.map((call): FeedEntry => ({ kind: "crm_call", id: call.id, createdAt: call.createdAt, call })),
+  ];
+  // Stable: a memo and a call at the same moment keep the server's order for the memos.
+  return entries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 /**
