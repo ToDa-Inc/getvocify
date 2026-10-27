@@ -3,9 +3,9 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth";
-import { HubspotCalls } from "@/features/interactions/components/HubspotCalls";
 import { ChannelFilter } from "@/features/interactions/components/InteractionFilters";
 import { InteractionList, InteractionSkeleton } from "@/features/interactions/components/InteractionRow";
+import { useCrmCalls } from "@/features/interactions/hooks/useCrmCalls";
 import { useInteractionFeed } from "@/features/interactions/hooks/useInteractionFeed";
 import { useTypeOptions } from "@/features/interactions/hooks/useTypeOptions";
 import type { Memo } from "@/features/memos/types";
@@ -29,7 +29,8 @@ export function LatestInteractions({ manager }: { manager: boolean }) {
   const home = t.product.home;
   const feed = useInteractionFeed({ scope: manager ? "company" : "me", pageSize: FEED_SIZE });
   const { options, labelOf } = useTypeOptions();
-  const empty = !feed.isLoading && !feed.isError && feed.items.length === 0;
+  const crm = useCrmCalls({ authorUserId: null, enabled: feed.channel === "all" || feed.channel === "call" });
+  const empty = !feed.isLoading && !feed.isError && feed.items.length === 0 && crm.entries.length === 0;
   // Nothing recorded yet is the account's first step, not an empty filter: no filter over nothing.
   const firstRun = empty && feed.channel === "all";
   // Who recorded it, for a manager: only when it was someone else, not "You" on every row.
@@ -71,8 +72,6 @@ export function LatestInteractions({ manager }: { manager: boolean }) {
         )}
       </div>
 
-      <HubspotCalls authorUserId={null} enabled={feed.channel === "all" || feed.channel === "call"} />
-
       {feed.isLoading ? (
         <InteractionSkeleton rows={4} />
       ) : feed.isError && feed.items.length === 0 ? (
@@ -101,7 +100,14 @@ export function LatestInteractions({ manager }: { manager: boolean }) {
           style={fade}
           className="app-scroll max-h-[min(56vh,34rem)] overflow-y-auto overscroll-contain"
         >
-          <InteractionList items={feed.items} options={options} labelOf={labelOf} authorOf={authorOf} stale={feed.isPlaceholderData} />
+          <InteractionList
+            items={feed.items}
+            options={options}
+            labelOf={labelOf}
+            authorOf={authorOf}
+            stale={feed.isPlaceholderData}
+            crmCalls={{ entries: crm.entries, page: 0, hasMore: feed.hasMore, busyId: crm.busyId, onTranscribe: crm.transcribe }}
+          />
           {feed.hasMore ? (
             <div className="flex justify-center px-3 py-3">
               <Button asChild variant="quiet" size="text">

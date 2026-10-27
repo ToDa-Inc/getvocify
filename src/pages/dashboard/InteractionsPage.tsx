@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { useAuth } from "@/features/auth";
 import { companyApi, companyKeys } from "@/features/company/api";
-import { HubspotCalls } from "@/features/interactions/components/HubspotCalls";
 import { InteractionFilters } from "@/features/interactions/components/InteractionFilters";
 import { InteractionList, InteractionSkeleton } from "@/features/interactions/components/InteractionRow";
+import { useCrmCalls } from "@/features/interactions/hooks/useCrmCalls";
 import { useInteractionFeed } from "@/features/interactions/hooks/useInteractionFeed";
 import { useTypeOptions } from "@/features/interactions/hooks/useTypeOptions";
 import type { Memo } from "@/features/memos/types";
@@ -46,8 +46,9 @@ const InteractionsPage = () => {
     defaultAuthorUserId: interactionsAuthor(canViewCompany, searchParams.get("author")),
   });
   const { options, labelOf } = useTypeOptions();
-  // HubSpot calls Vocify has not read yet sit above the first page, and only where calls are listed.
-  const showHubspotCalls = feed.page === 0 && feed.typeKey === "all" && (feed.channel === "all" || feed.channel === "call");
+  // Calls the CRM logged that Vocify has not read yet are listed with the conversations, where calls are.
+  const showCrmCalls = feed.typeKey === "all" && (feed.channel === "all" || feed.channel === "call");
+  const crm = useCrmCalls({ authorUserId: feed.authorUserId, enabled: showCrmCalls });
   // Your own list with nothing in it is an empty account, not a filter: offer to record.
   const filtered =
     feed.channel !== "all" || feed.typeKey !== "all" || Boolean(feed.authorUserId && feed.authorUserId !== user?.id);
@@ -86,8 +87,6 @@ const InteractionsPage = () => {
         />
       </div>
 
-      <HubspotCalls authorUserId={feed.authorUserId} enabled={showHubspotCalls} />
-
       <div ref={listRef} className="scroll-mt-6">
         {feed.isLoading ? (
           <InteractionSkeleton rows={6} />
@@ -98,7 +97,7 @@ const InteractionsPage = () => {
               {copy.retry}
             </Button>
           </div>
-        ) : feed.items.length === 0 ? (
+        ) : feed.items.length === 0 && crm.entries.length === 0 ? (
           <div className={cn(listClass, "flex flex-col items-center gap-4 px-6 py-14 text-center")}>
             <p className={THEME_TOKENS.typography.sectionTitle}>{filtered ? copy.emptyFiltered : copy.empty}</p>
             {filtered ? (
@@ -121,6 +120,7 @@ const InteractionsPage = () => {
             labelOf={labelOf}
             authorOf={authorOf}
             stale={feed.isPlaceholderData}
+            crmCalls={{ entries: crm.entries, page: feed.page, hasMore: feed.hasMore, busyId: crm.busyId, onTranscribe: crm.transcribe }}
           />
         )}
       </div>
