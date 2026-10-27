@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from app.services.live_calls import linking
 from app.services.live_calls.linking import (
     LINK_WINDOW_SECONDS,
+    calls_recorded_on_desktop,
     link_desktop_call,
     link_desktop_calls_for_contact,
     match_calls_to_memos,
@@ -135,7 +136,8 @@ def _row(mid, start, duration, **over):
     return {
         "id": mid, "user_id": "rep-1", "source": "desktop", "interaction_kind": "call",
         "hubspot_contact_id": "901", "hubspot_engagement_id": None,
-        "capture_status": "complete", "capture_started_at": _iso(start), "audio_duration": duration, **over,
+        "capture_status": "complete", "capture_started_at": _iso(start), "audio_duration": duration,
+        "created_at": _iso(start + duration), **over,
     }
 
 
@@ -269,3 +271,23 @@ async def test_recordings_list_links_on_contact_pages_only(monkeypatch):
     await crm._recordings_for_record("rep-1", object(), "contacts", "901")
     await crm._recordings_for_record("rep-1", object(), "deals", "55")
     assert seen == [("rep-1", "901")]
+
+
+def test_calls_recorded_on_desktop_are_found_on_any_contact_and_nothing_is_written():
+    start = _recent()
+    db = _DB([_row("m1", start, 300, hubspot_contact_id="555")])
+    calls = [_call("hs-1", start + 3, 297), _call("hs-2", start - 7200, 60)]
+    assert calls_recorded_on_desktop(db, "rep-1", calls, 24) == {"hs-1"}
+    assert db.memos[0]["hubspot_engagement_id"] is None
+
+
+def test_calls_recorded_on_desktop_only_look_at_the_reps_own_memos_in_the_window():
+    start = _recent()
+    db = _DB([_row("theirs", start, 300, user_id="rep-2"), _row("old", start - 3 * 86400, 300)])
+    assert calls_recorded_on_desktop(db, "rep-1", [_call("hs-1", start, 300)], 24) == set()
+
+
+def test_a_dashboard_recording_matches_by_when_it_must_have_started():
+    start = _recent()
+    db = _DB([_row("web-1", start, 206, source="web", capture_started_at=None, capture_status=None)])
+    assert calls_recorded_on_desktop(db, "rep-1", [_call("hs-1", start + 20, 163)], 24) == {"hs-1"}

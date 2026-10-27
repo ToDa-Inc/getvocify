@@ -23,7 +23,7 @@ from app.services.activity_scope import (
     visible_recordings_for_viewer,
 )
 from app.services.company_scope import require_company_id, require_crm_write_access, require_crm_connection, get_crm_connection
-from app.services.live_calls.linking import link_desktop_calls_for_contact
+from app.services.live_calls.linking import calls_recorded_on_desktop, link_desktop_calls_for_contact
 from app.services.hubspot import (
     HubSpotClient,
     HubSpotValidationService,
@@ -424,8 +424,13 @@ async def list_recent_hubspot_recordings(
     user_id: str = Depends(get_user_id),
     limit: int = Query(20, ge=1, le=50),
     author_user_id: Optional[str] = None,
+    hide_desktop_recorded: bool = False,
 ):
-    """Newest HubSpot calls with recordings across the portal."""
+    """Newest HubSpot calls with recordings across the portal.
+
+    hide_desktop_recorded drops the calls the rep already recorded with the desktop app
+    (they are conversations already), for the dashboard list of calls still to be read.
+    """
     client = get_hubspot_client_from_connection(user_id, supabase)
     owner_id = None
     wanted = (author_user_id or "").strip()
@@ -452,7 +457,24 @@ async def list_recent_hubspot_recordings(
                 except Exception:
                     owner_id = None
     items = await list_recent_recordings(client, limit=limit, owner_id=owner_id)
-    return await _present_recordings(user_id, supabase, items, author_user_id)
+    presented = await _present_recordings(user_id, supabase, items, author_user_id)
+    if hide_desktop_recorded:
+        presented = _without_desktop_recorded(supabase, user_id, presented)
+    return presented
+
+
+DESKTOP_MATCH_LOOKBACK_HOURS = 14 * 24
+
+
+def _without_desktop_recorded(supabase: Client, viewer_id: str, recordings: list[dict]) -> list[dict]:
+    by_author: dict[str, list[dict]] = {}
+    for row in recordings:
+        if not row.get("memo_id"):
+            by_author.setdefault(str(row.get("author_user_id") or viewer_id), []).append(row)
+    covered: set[str] = set()
+    for author, calls in by_author.items():
+        covered |= calls_recorded_on_desktop(supabase, author, calls, DESKTOP_MATCH_LOOKBACK_HOURS)
+    return [row for row in recordings if str(row.get("call_id")) not in covered]
 
 
 @router.post("/hubspot/calls/{call_id}/process")

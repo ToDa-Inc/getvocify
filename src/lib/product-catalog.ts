@@ -698,6 +698,14 @@ export const productCatalog = {
       pages: "Pages",
       previous: "Previous",
       next: "Next",
+      hubspotCalls: {
+        title: "Calls in HubSpot not yet in Vocify",
+        transcribe: "Transcribe",
+        starting: "Starting",
+        failed: "Couldn't start the transcription. Try again.",
+        showMore: "Show {n} more",
+        showLess: "Show fewer",
+      },
       page: "Page {n}",
     },
     home: {
@@ -2669,6 +2677,14 @@ export const productCatalog = {
       pages: "Páginas",
       previous: "Anterior",
       next: "Siguiente",
+      hubspotCalls: {
+        title: "Llamadas en HubSpot aún sin leer en Vocify",
+        transcribe: "Transcribir",
+        starting: "Iniciando",
+        failed: "No se pudo iniciar la transcripción. Inténtalo otra vez.",
+        showMore: "Ver {n} más",
+        showLess: "Ver menos",
+      },
       page: "Página {n}",
     },
     home: {
