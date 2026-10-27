@@ -95,6 +95,7 @@ def unlinked_desktop_call_memos(
     supabase: Client,
     user_id: str,
     contact_ids: list[str],
+    lookback_hours: int = CANDIDATE_LOOKBACK_HOURS,
 ) -> list[dict]:
     """The rep's recent, finished desktop call memos on these contacts not yet tied to a HubSpot call.
 
@@ -105,7 +106,7 @@ def unlinked_desktop_call_memos(
     """
     if not contact_ids:
         return []
-    since = (datetime.now(timezone.utc) - timedelta(hours=CANDIDATE_LOOKBACK_HOURS)).isoformat()
+    since = (datetime.now(timezone.utc) - timedelta(hours=lookback_hours)).isoformat()
     result = (
         supabase.table("memos")
         .select("id,capture_started_at,audio_duration,hubspot_contact_id")
@@ -194,3 +195,48 @@ def link_desktop_call(
     except Exception as e:
         logger.warning("Desktop call linking skipped: %s", e)
         return None
+
+
+def calls_recorded_on_desktop(
+    supabase: Client,
+    user_id: str,
+    calls: list[dict],
+    lookback_hours: int,
+) -> set[str]:
+    """Ids of these HubSpot calls (one rep's) that the rep already recorded in Vocify.
+
+    Read-only: unlike link_desktop_calls_for_contact it writes nothing, so a list can use it
+    for calls on any contact. The contacts are not known here, so any unlinked call memo of the
+    rep within the window may match; a near-tie links nothing. A recording made from the
+    dashboard has no capture start: it began as long before it was saved as it lasts.
+    """
+    if not calls:
+        return set()
+    since = (datetime.now(timezone.utc) - timedelta(hours=lookback_hours)).isoformat()
+    try:
+        rows = (
+            supabase.table("memos")
+            .select("id,capture_started_at,created_at,audio_duration")
+            .eq("user_id", user_id)
+            .in_("source", ["desktop", "web"])
+            .eq("interaction_kind", "call")
+            .is_("hubspot_engagement_id", "null")
+            .or_("capture_status.is.null,capture_status.neq.recording")
+            .gte("created_at", since)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as e:
+        logger.warning("Desktop call matching skipped: %s", e)
+        return set()
+    memos = []
+    for row in rows:
+        started = row.get("capture_started_at")
+        if not started:
+            saved = _epoch_seconds(row.get("created_at"))
+            if saved is None:
+                continue
+            started = saved - float(row.get("audio_duration") or 0)
+        memos.append({**row, "capture_started_at": started})
+    return set(match_calls_to_memos(calls, memos))

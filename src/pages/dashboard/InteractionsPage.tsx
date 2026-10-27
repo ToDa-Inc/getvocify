@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { useAuth } from "@/features/auth";
 import { companyApi, companyKeys } from "@/features/company/api";
+import { HubspotCallRows } from "@/features/interactions/components/HubspotCallRows";
 import { InteractionFilters } from "@/features/interactions/components/InteractionFilters";
 import { InteractionList, InteractionSkeleton } from "@/features/interactions/components/InteractionRow";
+import { useHubspotCalls } from "@/features/interactions/hooks/useHubspotCalls";
 import { useInteractionFeed } from "@/features/interactions/hooks/useInteractionFeed";
 import { useTypeOptions } from "@/features/interactions/hooks/useTypeOptions";
 import type { Memo } from "@/features/memos/types";
@@ -45,6 +47,9 @@ const InteractionsPage = () => {
     defaultAuthorUserId: interactionsAuthor(canViewCompany, searchParams.get("author")),
   });
   const { options, labelOf } = useTypeOptions();
+  // HubSpot calls Vocify has not read yet sit above the first page, and only where calls are listed.
+  const showHubspotCalls = feed.page === 0 && feed.typeKey === "all" && (feed.channel === "all" || feed.channel === "call");
+  const hubspot = useHubspotCalls({ authorUserId: feed.authorUserId, enabled: showHubspotCalls });
   // Your own list with nothing in it is an empty account, not a filter: offer to record.
   const filtered =
     feed.channel !== "all" || feed.typeKey !== "all" || Boolean(feed.authorUserId && feed.authorUserId !== user?.id);
@@ -82,6 +87,14 @@ const InteractionsPage = () => {
           currentUserId={user?.id}
         />
       </div>
+
+      {showHubspotCalls && hubspot.calls.length > 0 ? (
+        <HubspotCallRows
+          calls={hubspot.calls}
+          busyId={hubspot.transcribe.isPending ? hubspot.transcribe.variables ?? null : null}
+          onTranscribe={hubspot.transcribe.mutateAsync}
+        />
+      ) : null}
 
       <div ref={listRef} className="scroll-mt-6">
         {feed.isLoading ? (
