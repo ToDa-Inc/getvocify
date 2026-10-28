@@ -85,9 +85,14 @@ def check_turn(expect: str, reading: dict | None, source_id: str | None, say: st
 
 def load_production_provider() -> None:
     """Live help in production goes to a direct provider with reasoning off; OpenRouter is only its backup.
-    Reads those COPILOT_* settings from Railway into this process only: nothing is printed or written."""
+    Reads those COPILOT_* settings from Railway into this process only: nothing is printed or written. Without the
+    Railway CLI, COPILOT_DIRECT_URL and COPILOT_DIRECT_API_KEY set in the environment are used instead."""
     import subprocess
 
+    if os.environ.get("COPILOT_DIRECT_URL") and os.environ.get("COPILOT_DIRECT_API_KEY"):
+        os.environ.setdefault("COPILOT_DIRECT_MODEL", "deepseek-ai/DeepSeek-V4.1-Flash")
+        os.environ.setdefault("COPILOT_REASONING_EFFORT", "none")
+        return
     out = subprocess.run(
         ["railway", "variables", "--service", "getvocify", "--environment", "production", "--kv"],
         capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2],
