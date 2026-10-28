@@ -1,18 +1,25 @@
 """The strategic card of the live call assistant (pilot, company flag LIVE_CARD_ENABLED): ONE intervention, or silence.
 
-A port of the replay engine frozen for the pilot on 2026-10-26 (backend/evals/strategic/run_turns.py, "turns-6b"):
-the same prompt, the same small gate and the same screen rule. Only what a live call needs is different: the renderer
-sends the call and the cards already shown (the producer stays stateless, like the points producer) and says why it
-reads; the code decides whether that is a moment turns-6b would read at.
+A port of the decision engine tried on Vocify's cold calls on 2026-10-28 (backend/evals/strategic/run_engine.py), on the
+clock of turns-6b (when to read). The renderer sends the call and the cards already shown (the producer stays stateless,
+like the points producer) and says why it reads; the code decides whether that is a moment to read at.
 
-- One reading: what is happening, their latest words, the last move, then a card or silence (DeepSeek, strict JSON).
+The rules only say how to read and decide, the same for any company: what was said comes before the playbook, then the
+company's goals, then its criterion and situations (its own or Vocify's buenas prácticas, imported), then the approved
+answers and the examples as ways to say things. Anything about selling lives in the playbook, not here.
+
+- One reading: what is happening, what they said, what is only supposed, what is unknown, which of the company's
+  situations fits, the last move, an action (clarify, deepen, answer, add value, next step, listen), what happens to the
+  card on screen, and a card that rests on their own words, or silence (DeepSeek, strict JSON).
 - Code checks what can be checked: at most 35 words, a fact cited from the playbook really is there, no number an
   answer invents, not the same text as a card already shown, not after their goodbye.
 - The small gate, in parallel: facts (only against the approved text and the conversation), the call closing, and a
   repeat of a move already made (one more try for a different move, or silence).
-- The screen holds one card until the rep could use it: they said REP_WORDS words of substance since it appeared, or
-  the other side began and finished a new intervention, or the rep closed it. A card that came while they were still
-  talking may be replaced at the end of that intervention.
+- The fact check also stops a question or proposal that goes against what they set or asks again what they answered.
+- The screen holds one card. Until the rep could use it (REP_WORDS words of substance since it appeared, a new
+  intervention of theirs begun and finished, or the rep closed it) each reading says whether it stays, is updated,
+  replaced, made wrong by what they said (closed at once) or no longer the best (closed once it could be read). Never
+  changed once the rep has started to speak.
 """
 
 from __future__ import annotations
@@ -37,50 +44,162 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "strategic_turns6b"
+PROMPT_VERSION = "strategic_engine_20261028"
 
-# ---------- the prompts, word for word as tested (turns-6b) ----------
+# ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
 
 SYSTEM = """You are the real-time sales copilot of a salesperson ("the rep", "You") in a call with a prospect ("Them").
-You know their company's playbook and everything said so far.
+You see the company's playbook and everything said so far.
 
-Most moments need nothing from you: the rep is talking, listening or already handling it. You show a card only when one
-concrete intervention would help the rep move the conversation toward the company's goal, as far as this conversation
-allows.
+Most moments need nothing from you: the rep is talking, listening or already handling it.
 
-How to decide, in this order (your answer follows the same order):
-1. Understand what is really happening ("what_is_happening"). What they say about their own situation is fact;
-   examples, hypotheses, irony and mere interest are not. The transcript can be wrong (misheard words, speakers mixed
-   up): read it with common sense. "understanding_confidence" is "low" when the words are garbled, the meaning is
-   ambiguous or it may be irony.
-2. What they just said comes first ("their_latest"): a question, an objection, new information, or a limit (no time,
-   not this week, email instead, do not quote me). A question or an objection is answered first, with the company's
-   approved answer when there is one. Every card respects their limits.
-3. The real purpose of the conversation. The playbook's goal is the direction, not an order: when the purpose changes
-   (they are not the buyer, they left the company, they are advising, they are already buying), help with that purpose
-   instead of forcing the goal.
-4. What has already been done ("last_move"): the last card in THE THREAD or the rep's own move on this, and what they
-   answered. A move already made is made: the next card responds to their answer with the next step, never the same
-   move again, not even reworded. Do not give up at the first no when the playbook says to try again; after a clear no
-   more than once, only a genuinely new angle justifies a card.
-5. Decide: a card only when it adds something concrete the rep is not already doing; otherwise "silence".
+What you read has four levels. When they disagree, the higher level wins:
+1. THE CONVERSATION and the fixed rules. What they said, what was agreed (a day, an email, a person), what they asked
+   and is still unanswered, the limits they set. Facts about the product, prices, customers or results only from the
+   SOURCES (OFFER, COMPANY KNOWLEDGE and the facts inside an approved answer). Never invent facts, commitments or
+   actions the rep has not done; never contradict a day, a preference or a limit they set. When they ask something only
+   the company can answer (how you got their contact, a price, a policy), that comes before anything else: answer it
+   only from the SOURCES; when they do not say it, "silence" (the rep answers), never a card that goes on past it.
+2. THE COMPANY'S GOALS: the goal of the call (with what else counts as good and when to stop pursuing it), WHAT TO FIND
+   OUT and the STEPS. They say what the company wants to achieve and learn, not questions to ask in order: pursue them
+   when this conversation makes them useful.
+3. HOW THE COMPANY WANTS VOCIFY TO DECIDE: its general criterion and its situations, when present.
+4. APPROVED ANSWERS and every example (of the steps, of the situations): ways to say things well. Use one when it fits
+   this moment. Its facts count as a source; its tactic (pitching a capability, asking for a meeting now) is only a
+   suggestion and never overrides levels 1 to 3. Never recite an example as is.
+
+How to decide (your answer follows this order):
+1. "what_is_happening"; "understanding_confidence" is "low" when the words are garbled, the meaning is ambiguous or it
+   may be irony.
+2. "observed": what they have actually said that matters now, each point with their words.
+3. "hypotheses": plausible readings you are not sure of. You may reason from them, but a card never states or
+   presupposes them as facts: no question that takes for granted a failure, a loss or a gap they did not mention.
+4. "unknown": the most important thing still not known that could change the next commercial decision, or "nada
+   relevante ahora".
+5. "situation": which of the company's SITUATIONS fits this moment, from everything they have said (its number and
+   name), or "none" (often none fits, or there are no situations). When one fits, your action does what it says to do
+   and nothing it says not to do.
+6. "their_latest", then "last_move": the last card or the rep's own move on this and what they answered. A move already
+   made is not made again, not even reworded; respond to their answer.
+7. "action", the move that helps most now:
+   - clarify: what they just said is ambiguous and the ambiguity changes how you read the opportunity;
+   - deepen: understand how something works, what it gives them, what it costs when it happens or whether it is a
+     priority, whichever matters now (no fixed order);
+   - answer: they asked something; answer it first. About the seller's company or product only from the SOURCES; what a
+     general term means or how something usually works, from common knowledge;
+   - add_value: they have shown a concrete need the offer covers; connect only that part of the offer. A question that
+     steers toward what the offer does is add_value too, and needs that need;
+   - next_step: there is interest; a concrete next step that respects what they already set;
+   - listen: the rep is handling it, they are mid-explanation, or nothing is worth saying now.
+   Persist while finding out still has value and they are receptive; change angle when a line stops giving anything new;
+   respect a clear no. When one of the company's situations describes this moment, act as it says. No checklist: a
+   qualification question only when its answer matters for a decision now.
+8. "card_on_screen": when a CARD ON SCREEN is listed, what happens to it given what was said since: "keep" (still the
+   best move), "update" (same intention, its words are now out of date), "replace" (a materially better move appeared),
+   "invalid" (what they just said makes it wrong: it contradicts them, they answered it or closed that topic),
+   "withdraw" (no longer the best move and there is nothing better). "no_card" when none is listed.
+9. "because": for a card, their words that make it the move now, copied exactly from what they said (at least three
+   words); "" for silence. A card with no such words is not shown.
+10. "decision": "card" only with a line to show (a new card, an update or a replacement); otherwise "silence".
 
 The card: one sentence the rep can say as is, in the language of the call, at most 20 words, natural and respectful,
-built from their words. Respect the playbook's mandatory rules; adapt its tactics and examples to this conversation,
-never recite them. Never invent facts about the product or commitments they did not make, never state as done what has
-not been done (an invitation sent, an email that arrived), never confirm a detail they did not give.
+built from their words.
 
 Notes on the data: a fact about the product, prices, customers or results only when the SOURCES say it ("source": the
 entry id as written before " · ", "offer" or "knowledge"; "source_quote": the verbatim text of the SOURCES); otherwise
 "source" is "context" and "source_quote" is "". For days use the CALENDAR."""
 SCHEMA = {
-    "type": "object", "additionalProperties": False,
-    "required": ["what_is_happening", "understanding_confidence", "their_latest", "last_move", "decision", "line", "source", "source_quote"],
-    "properties": {"what_is_happening": {"type": "string"},
-                   "understanding_confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-                   "their_latest": {"type": "string"}, "last_move": {"type": "string"},
-                   "decision": {"type": "string", "enum": ["card", "silence"]},
-                   "line": {"type": "string"}, "source": {"type": "string"}, "source_quote": {"type": "string"}},
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "what_is_happening",
+        "understanding_confidence",
+        "observed",
+        "hypotheses",
+        "unknown",
+        "situation",
+        "their_latest",
+        "last_move",
+        "action",
+        "card_on_screen",
+        "because",
+        "decision",
+        "line",
+        "source",
+        "source_quote"
+    ],
+    "properties": {
+        "what_is_happening": {
+            "type": "string"
+        },
+        "understanding_confidence": {
+            "type": "string",
+            "enum": [
+                "high",
+                "medium",
+                "low"
+            ]
+        },
+        "observed": {
+            "type": "string"
+        },
+        "hypotheses": {
+            "type": "string"
+        },
+        "unknown": {
+            "type": "string"
+        },
+        "situation": {
+            "type": "string"
+        },
+        "their_latest": {
+            "type": "string"
+        },
+        "last_move": {
+            "type": "string"
+        },
+        "action": {
+            "type": "string",
+            "enum": [
+                "clarify",
+                "deepen",
+                "answer",
+                "add_value",
+                "next_step",
+                "listen"
+            ]
+        },
+        "card_on_screen": {
+            "type": "string",
+            "enum": [
+                "no_card",
+                "keep",
+                "update",
+                "replace",
+                "invalid",
+                "withdraw"
+            ]
+        },
+        "because": {
+            "type": "string"
+        },
+        "decision": {
+            "type": "string",
+            "enum": [
+                "card",
+                "silence"
+            ]
+        },
+        "line": {
+            "type": "string"
+        },
+        "source": {
+            "type": "string"
+        },
+        "source_quote": {
+            "type": "string"
+        }
+    }
 }
 REPEAT_SYSTEM = """A live assistant wants to show a salesperson ONE new card. The cards already shown in this call are
 listed, then what was said since the last one. Is the new card the same move as a card already shown (the same request,
@@ -98,6 +217,8 @@ and that needs the SOURCE like any statement. Offering to show it in general («
 nothing. What is outside the question marks is judged as a statement, also when a question follows it («Con Excel no
 hay integración que montar: ¿…?»).
 Each kind of content has its own source:
+- General knowledge that is not about the seller's company, product or offer nor about the other side (what a common
+  business term means, how something usually works in sales): fine when it is correct and commonly known.
 - About the seller's company, team, people or product, or about what another product can do (who founded it, who does
   what, a capability, an integration, a figure, a customer, a result, why something is slow, recording the call): only
   the SOURCE (the company's approved text) supports it. The line may say less than the SOURCE or say it in other words;
@@ -106,7 +227,9 @@ Each kind of content has its own source:
   · a fact or guarantee about the company or the product (it will work from tomorrow, a trial or access, a discount, a
     price, an integration): only the SOURCE supports it;
   · a proposal: a question or a suggestion of a next step («¿te llamo en enero?», «¿lo vemos el martes a las 10?»): it
-    states nothing, fine when it fits the conversation;
+    states nothing, fine when it fits the conversation; but it is unsupported when it goes against what the other side
+    set or said (a date earlier than the one they gave, another channel or person than the one they named, whether
+    their solution misses something they said it covers) or asks again what they already answered;
   · an action under the seller's own control (sending the information or an invitation, calling back, writing): fine
     when the seller can simply do it and it fits what was said («te mando la información hoy» after they asked for it).
     What it adds still needs THE CONVERSATION: a person nobody mentioned («con vuestra directora comercial»), or a date
@@ -144,8 +267,10 @@ MIN_SUBSTANCE = 4  # an intervention with fewer words of substance («sí, claro
 MID_GAP_S = 40.0  # a long intervention is also read every this long while it goes on
 REP_FLOOR_S = 45.0  # the rep holding the floor this long is a moment to read
 REP_WORDS = 15  # the rep has had the chance to use the card on screen once they said this many words of substance
-MIN_SHOW_S = 6.0  # a card on screen is not replaced before this, and never once the rep has started to speak
-TOKENS = 450
+# A card on screen is not changed before the rep could read and use it, unless what they said made it wrong. At 4 s a
+# replay changed one card four times in 38 s while the prospect kept talking.
+MIN_READ_S = 10.0
+TOKENS = 700  # the reading also writes what it observed, its hypotheses, what is unknown and the situation
 # The reading is asked for at most 20 words; only a clearly excessive card is refused (half the cards cut at 25 words
 # were good ones of 26 to 31 words).
 MAX_CARD_WORDS = 35
@@ -300,6 +425,23 @@ def due(reason: str, objection: Optional[str], turns: list[dict], end: list[floa
 # ---------- what the reading reads ----------
 
 
+LEVEL_NOTES = {
+    "APPROVED ANSWERS (": "(Level 4: ways to answer. Their facts are a source; their tactic is only a suggestion.)",
+    "STEPS (": "(Level 2: what the company wants each phase to achieve, not questions to ask in order.)",
+    "WHAT TO FIND OUT (": "(Level 2: what is worth learning when it matters for a decision, not a list to ask.)",
+}
+
+
+def with_levels(sources: str) -> str:
+    """A note under each playbook block saying its level in the reading's hierarchy. The headers stay as they are: the
+    fact check finds the sources by them."""
+    out = []
+    for line in sources.splitlines():
+        out.append(line)
+        out += [note for header, note in LEVEL_NOTES.items() if line.startswith(header)]
+    return "\n".join(out)
+
+
 def sources_text(ctx: Any, motion: Optional[str]) -> str:
     """The SOURCES block: the playbook's goal as a starting point, the offer and the knowledge, the approved answers,
     the steps, what to find out and today's date (the same text the replays read). When the company wrote «Cómo
@@ -311,13 +453,13 @@ def sources_text(ctx: Any, motion: Optional[str]) -> str:
         header = header.split("\nGOAL:", 1)[0] + "\n" + company
     else:
         header = header.replace("GOAL:", "USUAL GOAL FOR THIS TYPE OF CALL (a starting point, not an obligation):", 1)
-    return header + "\n\n" + "\n\n".join([
+    return with_levels(header + "\n\n" + "\n\n".join([
         brain.context_blocks(product_context=ctx.product_context, knowledge=ctx.knowledge, history=ctx.history, call_text=""),
         brain.entries_block(ctx.snapshot) if ctx.snapshot else "",
         brain.steps_block(ctx.snapshot) if ctx.snapshot else "",
         brain.qualification_block(ctx.snapshot) if ctx.snapshot else "",
         ctx.today,
-    ])
+    ]))
 
 
 def calendar(sources: str, days: int = 28) -> str:
@@ -358,10 +500,14 @@ def thread(turns: list[dict], end: list[float], shown: list[dict], now: float) -
     return "THE THREAD (the latest moves already made and what came after each):\n" + ("\n".join(out) or "(no card yet)")
 
 
-def reading_input(sources: str, turns: list[dict], end: list[float], now: float, shown: list[dict]) -> str:
+def reading_input(sources: str, turns: list[dict], end: list[float], now: float, shown: list[dict],
+                  pending: Optional[dict] = None) -> str:
     # The renderer sends what has been said; nobody is mid-word in a transcript that has arrived.
+    screen = (f"CARD ON SCREEN NOW (the rep has not used it yet): «{pending['say']}», shown at "
+              f"{int(pending['visible_t'] // 60)}:{int(pending['visible_t'] % 60):02d}") if pending else "CARD ON SCREEN NOW: none"
     return (f"{sources}\n\n{calendar(sources)}\n\nLOG (\"You\" is the rep; [card shown] is a card the rep saw):\n"
-            f"{log_text(turns, end, shown)}\n\nSPEAKING NOW:\n(nobody)\n\n{thread(turns, end, shown, now)}\n\nNOW: {round(now)} s into the call.")
+            f"{log_text(turns, end, shown)}\n\nSPEAKING NOW:\n(nobody)\n\n{thread(turns, end, shown, now)}\n\n{screen}\n\n"
+            f"NOW: {round(now)} s into the call.")
 
 
 def conversation_lines(turns: list[dict], end: list[float], now: float, n: int = 12, since: Optional[float] = None,
@@ -477,14 +623,14 @@ def rep_could_use(shown: list[dict], turns: list[dict], floors_them: list[tuple[
     return rep_said(turns, last, at) >= REP_WORDS or any(last < a and b <= at for a, b in floors_them)
 
 
-def can_update(shown: list[dict], turns: list[dict], floors_them: list[tuple[float, float]], moment: str, at: float) -> bool:
-    """The card on screen may be replaced only when it came during the intervention that just ended, the rep has not
-    started to speak since, and it has been up MIN_SHOW_S: what they added after it changed the move."""
-    if not shown or moment not in ("them_end", "them_urgent"):
-        return False
-    last = shown[-1]["visible_t"]
-    during = any(a <= last <= b + 0.5 and b <= at for a, b in floors_them)
-    return during and at - last >= MIN_SHOW_S and rep_said(turns, last, at) < 3
+def rests_on_their_words(out: dict, turns: list[dict]) -> bool:
+    """The card names the words of theirs that make it the move now, copied from what they said. Before they have said
+    anything there is nothing to rest on: the rep's own floor is the reason."""
+    because = " ".join(str(out.get("because") or "").split())
+    said = " ".join(t["text"] for t in turns if t["who"] == "them")
+    if not said.strip():
+        return True
+    return len(because.split()) >= 3 and brain.quote_in(because, said)
 
 
 # The rep pressed Responder: the same reading, told that help was asked for now. Silence stays possible, but a rep who asks
@@ -678,6 +824,10 @@ async def read_card(body: Any, ctx: Any) -> dict:
     now = end[-1]
     shown = sorted(({"id": c.id, "say": c.say, "visible_t": c.visible_t, "open": c.open} for c in body.cards), key=lambda c: c["visible_t"])
     moment = due(body.reason, body.objection, turns, end, now, body.last_read_t)
+    floors_them = them_floors(turns, end)
+    # The card the rep has not had the chance to use yet: the reading says whether it stays, changes or goes. Asked for,
+    # a new card takes the screen.
+    pending = shown[-1] if moment not in (None, "asked") and shown and not rep_could_use(shown, turns, floors_them, now) else None
     result.update(moment=moment, read_t=round(now, 1))
     if moment is None:
         result["event"] = "skipped:not_a_moment"
@@ -685,7 +835,7 @@ async def read_card(body: Any, ctx: Any) -> dict:
     motion = (body.sales_motion_key or "").strip() or None
     sources = sources_text(ctx, motion)
     started = time.perf_counter()
-    user = reading_input(sources, turns, end, now, shown) + (ASKED_NOTE if moment == "asked" else "")
+    user = reading_input(sources, turns, end, now, shown, pending) + (ASKED_NOTE if moment == "asked" else "")
     out, meta = await ask(SYSTEM, user, SCHEMA, max_tokens=TOKENS, temperature=0.2)
     trace: dict[str, Any] = {"reading": out, "reading_ms": meta["latency_ms"]}
     result.update(model=meta["model"], trace=trace)
@@ -697,11 +847,33 @@ async def read_card(body: Any, ctx: Any) -> dict:
     if not out:
         result["error"] = meta["error"]
         return finish("error")
+    status = (out.get("card_on_screen") or "no_card") if pending else "no_card"
+    if pending and status == "no_card":  # a card on screen it did not account for: a new line replaces it
+        status = "replace"
+    trace["card_on_screen"] = status
+    if pending and status in ("invalid", "withdraw"):
+        # Wrong now (it contradicts them, they answered it): off at once. Only no longer the best: not before it was read.
+        if status == "withdraw" and now - pending["visible_t"] < MIN_READ_S:
+            return finish("keep:card_on_screen_too_new")
+        result["closed"] = [{"id": pending["id"], "outcome": "gone"}]
+        return finish(status)
+    if pending and status == "keep":
+        return finish("keep")
     if out.get("decision") != "card" or not (out.get("line") or "").strip():
         return finish("silence")
     if out.get("understanding_confidence") == "low":  # not sure what was meant (garbled, ambiguous, irony): no card
         return finish("low_confidence")
-    card, why, checks = await vet(out, turns, end, now, shown, sources)
+    if moment != "asked" and not rests_on_their_words(out, turns):
+        return finish("drop:no_reason_in_their_words")
+    if pending:
+        # A change: never once the rep has started to speak, nor before the card on screen could be read.
+        if rep_said(turns, pending["visible_t"], now) >= 3:
+            return finish("drop:rep_started_speaking")
+        if now - pending["visible_t"] < MIN_READ_S:
+            return finish("drop:card_on_screen_too_new")
+    # An update keeps the intention of the card on screen: it is not checked as a repeat of it.
+    against = [s for s in shown if s is not pending] if pending and status == "update" else shown
+    card, why, checks = await vet(out, turns, end, now, against, sources)
     trace.update(card=card["say"], checks=checks)
     # Another try, told why: the same move again (any reading: one more try, as turns-6b), or, when the rep asked, also a
     # claim no source makes or the same words again (two more tries, each told every reason so far: a rep who pressed
@@ -730,21 +902,15 @@ async def read_card(body: Any, ctx: Any) -> dict:
         if not retry or retry.get("decision") != "card" or not (retry.get("line") or "").strip() or retry.get("understanding_confidence") == "low":
             return finish(f"drop:{why}→silence")
         out = retry
-        card, why, checks = await vet(out, turns, end, now, shown, sources)
+        card, why, checks = await vet(out, turns, end, now, against, sources)
         trace.update(card=card["say"], checks_retry=checks)
     if why:
         return finish(f"drop:{why}")
-    floors_them = them_floors(turns, end)
-    replaces = None
-    # Asked for, the new card takes the screen; on its own it waits until the rep could use the one there.
-    if moment != "asked" and not rep_could_use(shown, turns, floors_them, now):
-        if not can_update(shown, turns, floors_them, moment, now):
-            return finish("drop:rep_has_last_card")
-        replaces = shown[-1]["id"]
+    replaces = pending["id"] if pending else None
     labels = brain.allowed_sources(ctx.snapshot, has_knowledge=bool(ctx.knowledge), has_offer=bool(ctx.product_context),
                                    has_history=bool(ctx.history))
     result["points"] = [_card_point(card, body.call_id, turns, now, labels)]
     # One card on screen: whatever was still open fades where it is ("gone"), replaced or not.
     result["closed"] = [{"id": s["id"], "outcome": "gone"} for s in shown if s.get("open", True)]
     trace["replaces"] = replaces
-    return finish("shown")
+    return finish(status if pending else "shown")

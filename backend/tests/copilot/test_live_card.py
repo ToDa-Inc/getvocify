@@ -45,8 +45,10 @@ def reading(call=CALL, **kw):
 
 
 def answer(line="Entiendo, ¿qué os preocupa más del precio: el coste por usuario o justificarlo ante dirección?", **kw):
-    return {"what_is_happening": "Pone el precio como freno.", "understanding_confidence": "high", "their_latest": "precio",
-            "last_move": "", "decision": "card", "line": line, "source": "context", "source_quote": "", **kw}
+    return {"what_is_happening": "Pone el precio como freno.", "understanding_confidence": "high",
+            "observed": "«el precio nos preocupa bastante»", "hypotheses": "", "unknown": "qué parte del precio", "situation": "none",
+            "their_latest": "precio", "last_move": "", "action": "deepen", "card_on_screen": "no_card",
+            "because": "el precio nos preocupa bastante", "decision": "card", "line": line, "source": "context", "source_quote": "", **kw}
 
 
 def fake_model(monkeypatch, reading_out, *, unsupported=False, closing=False, repeats=False, retry=None):
@@ -187,7 +189,7 @@ def test_a_card_before_they_have_spoken_still_has_words_on_its_first_line(monkey
 def test_the_card_appears_at_the_calls_clock_even_when_one_turn_kept_growing(monkeypatch):
     # Both voices on one side for minutes: one turn that started at 40 s. Its words say the call is at about 50 s; the
     # call's clock says 330 s. A card at "50 s" sorted above everything said since.
-    fake_model(monkeypatch, answer())
+    fake_model(monkeypatch, answer(because="priorizamos las cuentas grandes"))
     grown = turns(("you", "Hola, ¿qué tal?", 0.0),
                   ("them", " ".join(["nosotros priorizamos las cuentas grandes y el seguimiento lo lleva cada comercial"] * 3), 40.0))
     result = run(live_card.read_card(reading(call=grown, reason="turn_end", now_t=330.0), CTX))
@@ -217,12 +219,50 @@ def test_an_unsupported_fact_or_a_closing_call_shows_nothing(monkeypatch):
     assert run(live_card.read_card(reading(call=call, reason="turn_end"), CTX))["event"] in ("drop:call_closing", "drop:after_goodbye")
 
 
-def test_a_new_card_waits_while_the_rep_has_not_had_the_chance_to_use_the_one_on_screen(monkeypatch):
-    fake_model(monkeypatch, answer())
-    end = live_card.ends(CALL)
-    on = [{"id": "a", "say": "¿Qué prioridades tenéis ahora?", "visible_t": round(end[-1], 1), "open": True}]
-    result = run(live_card.read_card(reading(reason="turn_end", cards=on), CTX))
-    assert result["event"] == "drop:rep_has_last_card" and result["points"] == []
+def test_the_card_the_rep_has_not_used_yet_stays_changes_or_goes_as_the_reading_says(monkeypatch):
+    # They keep talking: a card shown during their intervention is one the rep has not had the chance to use.
+    long = turns(("you", CALL[0]["text"], 0.0),
+                 ("them", " ".join(["ahora mismo tenemos otras prioridades y el precio nos preocupa bastante"] * 4), 6.0))
+    end = live_card.ends(long)
+
+    def on(age):
+        return [{"id": "a", "say": "¿Qué prioridades tenéis ahora?", "visible_t": round(end[-1] - age, 1), "open": True}]
+
+    def reading_with(cards):
+        return reading(call=long, reason="turn_end", cards=cards)
+
+    # Shown while they were still talking: the rep has not had the chance to use it.
+    fake_model(monkeypatch, answer(card_on_screen="keep", decision="silence", line=""))
+    result = run(live_card.read_card(reading_with(on(12)), CTX))
+    assert result["event"] == "keep" and result["points"] == [] and result["closed"] == []
+    # A better move replaces it, once it could be read.
+    fake_model(monkeypatch, answer(card_on_screen="replace"))
+    result = run(live_card.read_card(reading_with(on(12)), CTX))
+    assert result["event"] == "replace" and result["points"] and result["closed"] == [{"id": "a", "outcome": "gone"}]
+    assert result["trace"]["replaces"] == "a"
+    fake_model(monkeypatch, answer(card_on_screen="replace"))
+    result = run(live_card.read_card(reading_with(on(1)), CTX))
+    assert result["event"] == "drop:card_on_screen_too_new" and result["points"] == []
+    # Made wrong by what they said: off at once. Only no longer the best: not before it could be read.
+    fake_model(monkeypatch, answer(card_on_screen="invalid", decision="silence", line=""))
+    result = run(live_card.read_card(reading_with(on(1)), CTX))
+    assert result["event"] == "invalid" and result["closed"] == [{"id": "a", "outcome": "gone"}]
+    fake_model(monkeypatch, answer(card_on_screen="withdraw", decision="silence", line=""))
+    result = run(live_card.read_card(reading_with(on(1)), CTX))
+    assert result["event"] == "keep:card_on_screen_too_new" and result["closed"] == []
+
+
+def test_a_card_rests_on_their_own_words(monkeypatch):
+    fake_model(monkeypatch, answer(because="nos falla el seguimiento de cada reunión"))
+    result = run(live_card.read_card(reading(reason="turn_end"), CTX))
+    assert result["event"] == "drop:no_reason_in_their_words" and result["points"] == []
+
+
+def test_the_prompts_hold_the_hierarchy_the_situations_and_the_proposal_rule():
+    assert "When they disagree, the higher level wins" in live_card.SYSTEM and '"situation"' in live_card.SYSTEM
+    assert "asks again what they already answered" in live_card.FACT_SYSTEM and "General knowledge" in live_card.FACT_SYSTEM
+    sources = live_card.sources_text(CTX, "discovery")
+    assert "APPROVED ANSWERS (" in sources and "(Level 4: ways to answer." in sources
 
 
 # ---------- the endpoint ----------
@@ -318,9 +358,9 @@ def test_responder_reads_at_once_tells_the_reading_it_was_asked_and_takes_the_sc
     assert result["moment"] == "asked" and result["event"] == "shown"
     assert result["closed"] == [{"id": "a", "outcome": "gone"}], "asked for, it replaces the card the rep has not used yet"
     assert "THE REP ASKED YOU NOW" in seen[0]
-    # An automatic reading at the same moment waits for the rep to use the card on screen, and is not told it was asked.
+    # An automatic reading at the same moment does not change a card the rep could not read yet, and is not told it was asked.
     seen.clear()
-    assert run(live_card.read_card(reading(reason="turn_end", cards=on), CTX))["event"] == "drop:rep_has_last_card"
+    assert run(live_card.read_card(reading(reason="turn_end", cards=on), CTX))["event"] == "drop:card_on_screen_too_new"
     assert "THE REP ASKED YOU NOW" not in seen[0]
 
 

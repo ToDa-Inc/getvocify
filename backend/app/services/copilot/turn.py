@@ -17,9 +17,9 @@ LATEST_CHARS = 1000
 CONVERSATION_CHARS = 6000
 
 OBJECTIONS: dict[str, str] = {
-    "none": "Small talk, agreement, describing their situation, agreeing on a next step or a goodbye, or anything that is not pushback or a product question. Saying they are short of time but still going on with the call («dime, pero rápido») is not pushback.",
+    "none": "Small talk, agreement, describing their situation, agreeing on a next step or a goodbye, or anything that is not pushback or a product question. Saying they are short of time but still going on with the call («dime, pero rápido») is not pushback. Not recognising who is calling or what it is about («no te ubico», «no caigo», «¿de qué?») is none.",
     "price": "Too expensive, budget, cost.",
-    "timing": "Pushback on the moment: not now, not buying anything at the moment, cannot talk now (in a meeting, travelling or away for a period), call me in a few months.",
+    "timing": "Pushback on the moment: not now, not buying anything at the moment, cannot talk now (in a meeting, travelling or away for a period), call me in a few months. Not recognising the caller is not timing.",
     "authority": "Someone else decides or must approve.",
     "competitor": "Already use or prefer another tool.",
     "status_quo": "Happy with how they work today, no need to change.",
@@ -62,7 +62,7 @@ def questions_for(custom: Optional[dict[str, dict[str, str]]]) -> dict:
     criteria = {
         **OBJECTIONS,
         **{
-            entry_id: f"The team's own objection «{entry['label']}»."
+            entry_id: f"Only when they say this or the same thing in other words, not something related to it: the team's own objection «{entry['label']}»."
             + (f" They say things like: {entry['trigger']}" if entry["trigger"] else "")
             for entry_id, entry in custom.items()
         },

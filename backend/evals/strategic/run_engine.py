@@ -29,6 +29,8 @@ What changes, and why (three cold calls of Vocify read card by card):
 - Round 5: the brain only holds how to read and decide, the same for any company; what is about selling (telling a no
   with a reason from a lack of time, playing something down, the offer's capability only against a need, where their
   contact came from) moved to the playbook as Vocify's buenas prácticas (app/services/playbooks/practices.py).
+- Round 6: before deciding, the reading names which of the company's situations fits (or none) and follows it: moved to
+  the playbook, the practices were followed less than the same words as rules of the brain.
 - Round 4: the fact check also stops a question or proposal that goes against what they set or said, or asks again
   what they answered (a sooner month than the «in six months» they gave); before, a proposal passed as stating nothing.
 """
@@ -76,9 +78,12 @@ How to decide (your answer follows this order):
    presupposes them as facts: no question that takes for granted a failure, a loss or a gap they did not mention.
 4. "unknown": the most important thing still not known that could change the next commercial decision, or "nada
    relevante ahora".
-5. "their_latest", then "last_move": the last card or the rep's own move on this and what they answered. A move already
+5. "situation": which of the company's SITUATIONS fits this moment, from everything they have said (its number and
+   name), or "none" (often none fits, or there are no situations). When one fits, your action does what it says to do
+   and nothing it says not to do.
+6. "their_latest", then "last_move": the last card or the rep's own move on this and what they answered. A move already
    made is not made again, not even reworded; respond to their answer.
-6. "action", the move that helps most now:
+7. "action", the move that helps most now:
    - clarify: what they just said is ambiguous and the ambiguity changes how you read the opportunity;
    - deepen: understand how something works, what it gives them, what it costs when it happens or whether it is a
      priority, whichever matters now (no fixed order);
@@ -91,13 +96,13 @@ How to decide (your answer follows this order):
    Persist while finding out still has value and they are receptive; change angle when a line stops giving anything new;
    respect a clear no. When one of the company's situations describes this moment, act as it says. No checklist: a
    qualification question only when its answer matters for a decision now.
-7. "card_on_screen": when a CARD ON SCREEN is listed, what happens to it given what was said since: "keep" (still the
+8. "card_on_screen": when a CARD ON SCREEN is listed, what happens to it given what was said since: "keep" (still the
    best move), "update" (same intention, its words are now out of date), "replace" (a materially better move appeared),
    "invalid" (what they just said makes it wrong: it contradicts them, they answered it or closed that topic),
    "withdraw" (no longer the best move and there is nothing better). "no_card" when none is listed.
-8. "because": for a card, their words that make it the move now, copied exactly from what they said (at least three
+9. "because": for a card, their words that make it the move now, copied exactly from what they said (at least three
    words); "" for silence. A card with no such words is not shown.
-9. "decision": "card" only with a line to show (a new card, an update or a replacement); otherwise "silence".
+10. "decision": "card" only with a line to show (a new card, an update or a replacement); otherwise "silence".
 
 The card: one sentence the rep can say as is, in the language of the call, at most 20 words, natural and respectful,
 built from their words.
@@ -108,12 +113,13 @@ entry id as written before " · ", "offer" or "knowledge"; "source_quote": the v
 
 SCHEMA = {
     "type": "object", "additionalProperties": False,
-    "required": ["what_is_happening", "understanding_confidence", "observed", "hypotheses", "unknown", "their_latest",
+    "required": ["what_is_happening", "understanding_confidence", "observed", "hypotheses", "unknown", "situation", "their_latest",
                  "last_move", "action", "card_on_screen", "because", "decision", "line", "source", "source_quote"],
     "properties": {
         "what_is_happening": {"type": "string"},
         "understanding_confidence": {"type": "string", "enum": ["high", "medium", "low"]},
         "observed": {"type": "string"}, "hypotheses": {"type": "string"}, "unknown": {"type": "string"},
+        "situation": {"type": "string"},
         "their_latest": {"type": "string"}, "last_move": {"type": "string"},
         "action": {"type": "string", "enum": ["clarify", "deepen", "answer", "add_value", "next_step", "listen"]},
         "card_on_screen": {"type": "string", "enum": ["no_card", "keep", "update", "replace", "invalid", "withdraw"]},
@@ -174,9 +180,8 @@ def sources_for(context: str) -> str:
     """The context with the reworded playbook lines, without the examples of the situations and of the Problema step,
     and a note under each block saying its level. Block headers stay as they are: the fact check finds the sources by
     them."""
+    # Published in Vocify's playbook on 2026-10-28: a context read after that has them already.
     for old, new in {**REWORDED, **{e: "" for e in STEP_EXAMPLES_OUT}}.items():
-        if old not in context:
-            raise ValueError(f"playbook line not found: {old[:60]}")
         context = context.replace(old, new)
     lines, example = [], False
     for line in context.splitlines():
@@ -393,6 +398,6 @@ def play(call: dict, sources: str, checks: dict[str, dict]) -> dict:
         shown.append({"visible_t": round(at, 1), "after_turn": turns[max(0, done - 1)]["id"], "say": card["say"], "source": card["source"],
                       "born_t": start, "reason": reason, "action": out["action"], "change": status if change else "new",
                       "what_is_happening": out["what_is_happening"], "observed": out["observed"], "hypotheses": out["hypotheses"],
-                      "unknown": out["unknown"]})
+                      "unknown": out["unknown"], "situation": out["situation"]})
         entry["event"] = {"update": "update", "replace": "replace"}.get(status, "shown") if change else "shown"
     return {"id": call["id"], "readings": readings, "shown": shown, "dropped": dropped, "duration": end[-1], "cost": spent}
