@@ -4,7 +4,7 @@ then open prototypes/playbook-briefing/index.html on the dev server.
 Local API for trying «Cómo trabajamos» against Vocify's real playbook (port 8888), with no login and no writes.
 
 - Reads go to the real database (backend/.env): the playbook, the company notes.
-- «Cómo trabajamos» is kept in memory (migration 087 is not applied).
+- «Cómo trabajamos» (GET/PUT /playbooks/<key>/conduct) is the real one: it is read from and SAVED to the database.
 - «Completar» / «Dile a Vocify» on a call type (POST /playbooks/<key>/fill) runs: it writes with the model and saves
   nothing. The company's fill saves at once, so it stays refused.
 - POST /prototype/copilot/replay replays a recorded cold call (816ba4f7, exported to backend/evals/copilot/calls/) with the live brain (turns-6b, the eval) and the moments the
@@ -51,6 +51,19 @@ os.environ["COPILOT_DIRECT_MODEL"] = "deepseek/deepseek-v4.1-flash"
 from evals.strategic import run_v2 as _v2  # noqa: E402
 
 _v2.MODEL = "deepseek/deepseek-v4.1-flash"
+_post = _v2.httpx.post
+
+
+def _on_together(url, *args, json=None, **kwargs):
+    """Every model call of the eval as production's fallback sends it: reasoning off, served by Together only (the
+    provider of the production path; other providers of the same model answered field names instead of a line)."""
+    if json and "openrouter.ai" in str(url):
+        effort = json.pop("reasoning_effort", "none")
+        json = {**json, "reasoning": {"effort": effort}, "provider": {"only": ["together"], "require_parameters": True}}
+    return _post(url, *args, json=json, **kwargs)
+
+
+_v2.httpx.post = _on_together
 # The playbook's own calls (fill, structure) ask for "together/…": in this process only, they go to the same model on
 # OpenRouter (Together has no credit left). Production's settings are not touched.
 from app.config import settings as _settings  # noqa: E402
@@ -66,12 +79,10 @@ from fastapi.responses import JSONResponse  # noqa: E402
 from app.deps import get_membership, get_user_id  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services.company import Membership  # noqa: E402
-from app.services.playbooks.conduct import InMemoryConductStore, set_conduct_store  # noqa: E402
 
 COMPANY = "70b7ffd2-c360-4d4f-a339-4affec769f7a"
 USER = os.environ["LOCAL_OWNER_ID"]
 
-set_conduct_store(InMemoryConductStore())
 app.dependency_overrides[get_user_id] = lambda: USER
 app.dependency_overrides[get_membership] = lambda: Membership(id="local", company_id=COMPANY, user_id=USER, role="owner", status="active", sales_role=None)
 
@@ -115,6 +126,43 @@ def replay(body: dict):
         "readings": [{"t": r["start_t"], "moment": (r["output"] or {}).get("moment"), "event": r["event"]} for r in played["readings"]],
         "cost": played["cost"],
     }
+
+
+# Real cold calls of Vocify to play with the playbook as it is saved (exported to backend/evals/copilot/calls/).
+REAL_CALLS = {"272ac057": "Josep", "56ef086b": "Natalia", "5723ae33": "Manel"}
+
+
+@app.post("/prototype/copilot/real-call")
+def real_call(body: dict):
+    """{"call", "motion"} → {name, turns, shown, cost}: a real call played with the live brain (turns-6b) reading the
+    call type's playbook and «Cómo decide Vocify» exactly as they are saved now. About a minute and $0.01-0.02."""
+    import json
+
+    from app.services.copilot.live_brain import goal_for
+    from app.services.copilot.playbook_objections import custom_entries
+    from app.services.playbooks.conduct import SqlConductStore, brain_text
+    from app.services.playbooks.live import live_snapshot
+    from evals.copilot.export_calls import supabase
+    from evals.strategic import run_turns
+    from evals.strategic import turns as semantic
+    from evals.strategic.forma_de_trabajar import _GOAL_LINE
+    from evals.strategic.run import CALLS, context_for
+
+    key = body.get("call", "")
+    if key not in REAL_CALLS:
+        return JSONResponse({"detail": {"code": "unknown_call"}}, status_code=404)
+    call = json.loads((CALLS / f"{key}.local.json").read_text(encoding="utf-8"))
+    motion = body.get("motion") or call["motion"]
+    sb = supabase()
+    context = context_for({**call, "motion": motion, "playbook_version_id": None}).replace(
+        "GOAL:", "USUAL GOAL FOR THIS TYPE OF CALL (a starting point, not an obligation):", 1)
+    company = brain_text(SqlConductStore(sb).get(COMPANY, motion), goal_for(motion))
+    if company:
+        context = _GOAL_LINE.sub(lambda _: company, context, count=1)
+    custom = custom_entries(live_snapshot(sb, COMPANY, motion))
+    semantic.turn_readings(call, custom)
+    played = run_turns.play(call, context, custom)
+    return {"name": REAL_CALLS[key], "turns": call["turns"], "shown": played["shown"], "cost": played["cost"]}
 
 
 RULE_WRITER = """A sales manager is telling Vocify, the live assistant that shows a salesperson what to say during a

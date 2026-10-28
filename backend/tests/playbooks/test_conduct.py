@@ -110,3 +110,45 @@ def test_the_brain_text_uses_the_usual_goal_when_none_is_written_and_nothing_whe
     assert "- Main goal: a meeting booked" in text and "1. No asumir dolor." in text and "2. Saber terminar sin forzar." in text
     assert conduct.brain_text(conduct.empty(), "a meeting booked") == ""
     assert "HOW THIS COMPANY" not in conduct.brain_text({"goal": "Demo"}, None)
+
+
+SITUATED = {
+    "core": [{"name": "Principio", "text": "Distingue lo que ha afirmado,\nlo que hemos comprendido   y lo que no sabemos."}],
+    "situations": [
+        {"name": "Dice que ya lo tiene resuelto", "when": "Afirma que lo tiene resuelto.", "do": "Entender qué significa «resuelto».",
+         "example": "«¿Y cómo lo estáis haciendo ahora mismo?»", "avoid": "No rebatir."},
+        {"name": "", "when": "", "do": "", "example": "", "avoid": ""},
+    ],
+}
+
+
+def test_core_and_situations_are_kept_whole_and_read_by_the_brain():
+    stored = conduct.normalize({**WRITTEN, **SITUATED})
+    assert stored["core"] == [{"name": "Principio", "text": "Distingue lo que ha afirmado,\nlo que hemos comprendido y lo que no sabemos."}]
+    assert [s["name"] for s in stored["situations"]] == ["Dice que ya lo tiene resuelto"]
+    text = conduct.brain_text(stored, "Agendar una demo")
+    assert "## Principio\nDistingue lo que ha afirmado," in text
+    assert "1. Dice que ya lo tiene resuelto\nWhen it applies: Afirma que lo tiene resuelto." in text
+    assert "Example: «¿Y cómo lo estáis haciendo ahora mismo?»" in text
+    assert conduct.normalize(SITUATED)["goal"] == ""  # situations alone are written conduct
+
+
+def test_a_save_without_situations_keeps_the_stored_ones():
+    client = make_client()
+    assert client.put(URL, json={**WRITTEN, **SITUATED}).status_code == 200
+    saved = client.put(URL, json={**WRITTEN, "goal": "Otra"}).json()["conduct"]
+    assert saved["goal"] == "Otra"
+    assert [s["name"] for s in saved["situations"]] == ["Dice que ya lo tiene resuelto"]
+    assert client.put(URL, json={**WRITTEN, "core": [], "situations": []}).json()["conduct"]["situations"] == []
+
+
+def test_an_imported_practice_keeps_its_id_and_the_page_lists_the_pack():
+    stored = conduct.normalize({"situations": [{"name": "Le quita importancia", "do": "Entender el motivo.", "practice": "le_quita_importancia"},
+                                               {"name": "Propia", "do": "Algo nuestro."}]})
+    assert [s["practice"] for s in stored["situations"]] == ["le_quita_importancia", ""]
+    assert "le_quita_importancia" not in conduct.brain_text(stored, "Agendar una demo")
+    client = make_client()
+    pack = client.get("/api/v1/playbooks/discovery/practices").json()["practices"]
+    assert pack and {"id", "name", "when", "do", "avoid"} <= set(pack[0])
+    assert client.get("/api/v1/playbooks/closing/practices").json()["practices"] == []
+    assert client.get("/api/v1/playbooks/custom_type/practices?goal=meeting_booked").json()["practices"] == pack

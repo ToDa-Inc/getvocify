@@ -3,11 +3,17 @@
 The playbook's steps, qualification and objections say WHAT to cover; this says how to decide. Written by the manager in
 their own words, one per call type, not versioned (a change applies to the next call):
 
-  conduct  {goal, also_good, stop_when, criteria: [text]}
+  conduct  {goal, also_good, stop_when, criteria: [text], core: [{name, text}],
+            situations: [{name, when, do, example, avoid}]}
     goal       what the call is for ("una demo con alguien que tenga una necesidad real")
     also_good  the other outcomes that count as a good call (find who decides, a follow-up tied to something, disqualify)
     stop_when  when to stop pursuing the goal (no need after exploring it, a clear no, no fit)
     criteria   up to MAX_CRITERIA lines, "cuando… → …"
+    core       how Vocify decides in any moment of these calls (a principle, how to pick the next question, how to say it
+               to the rep), each a named block of text kept whole
+    situations what to do in a recognisable moment ("dice que ya lo tiene resuelto"): when it applies, what to do, an
+               example in the rep's words and what not to do, each kept whole; `practice` is the id of the Vocify
+               practice it was imported from (services/playbooks/practices.py), "" for the company's own
 
 The live card brain reads it as guidance next to the playbook, never as a SOURCE: a card cannot rest on it to state a
 fact. Until the migration is applied the SQL store raises ConductUnavailable (`not_activated`) and the brain reads none.
@@ -26,6 +32,12 @@ MAX_GOAL = 200
 MAX_OUTCOME = 300
 MAX_CRITERION = 220
 MAX_CRITERIA = 8
+# Core blocks and situations are kept whole as the company wrote them: these only stop a runaway paste.
+MAX_BLOCK_NAME = 160
+MAX_BLOCK_TEXT = 4_000
+MAX_CORE = 12
+MAX_SITUATIONS = 40
+SITUATION_FIELDS = ("when", "do", "example", "avoid")
 _MISSING_MARKERS = ("does not exist", "could not find", "pgrst204", "42703")
 
 
@@ -38,15 +50,49 @@ class ConductUnavailable(Exception):
         super().__init__("not_activated")
 
 
+class CoreBlock(BaseModel):
+    name: str = Field(default="", max_length=MAX_BLOCK_NAME)
+    text: str = Field(default="", max_length=MAX_BLOCK_TEXT)
+
+
+class Situation(BaseModel):
+    name: str = Field(default="", max_length=MAX_BLOCK_NAME)
+    when: str = Field(default="", max_length=MAX_BLOCK_TEXT)
+    do: str = Field(default="", max_length=MAX_BLOCK_TEXT)
+    example: str = Field(default="", max_length=MAX_BLOCK_TEXT)
+    avoid: str = Field(default="", max_length=MAX_BLOCK_TEXT)
+    practice: str = Field(default="", max_length=MAX_BLOCK_NAME)
+
+
 class Conduct(BaseModel):
     goal: str = Field(default="", max_length=MAX_GOAL)
     also_good: str = Field(default="", max_length=MAX_OUTCOME)
     stop_when: str = Field(default="", max_length=MAX_OUTCOME)
     criteria: list[str] = Field(default_factory=list, max_length=MAX_CRITERIA)
+    core: list[CoreBlock] = Field(default_factory=list, max_length=MAX_CORE)
+    situations: list[Situation] = Field(default_factory=list, max_length=MAX_SITUATIONS)
 
 
 def _line(text: Any, limit: int) -> str:
     return " ".join(str(text or "").split())[:limit]
+
+
+def _text(text: Any, limit: int) -> str:
+    """A block kept as written: its lines (a list stays a list), each trimmed, no blank runs."""
+    lines = [" ".join(line.split()) for line in str(text or "").splitlines()]
+    return "\n".join(line for i, line in enumerate(lines) if line or (i and lines[i - 1])).strip()[:limit]
+
+
+def _blocks(raw: Any, fields: tuple[str, ...], limit: int, tags: tuple[str, ...] = ()) -> list[dict]:
+    """The named blocks still written (a name or any field), in order; `tags` are one-line fields kept alongside."""
+    out = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        block = {"name": _line(item.get("name"), MAX_BLOCK_NAME), **{f: _text(item.get(f), MAX_BLOCK_TEXT) for f in fields}}
+        if any(block.values()):
+            out.append({**block, **{t: _line(item.get(t), MAX_BLOCK_NAME) for t in tags}})
+    return out[:limit]
 
 
 def normalize(raw: Any) -> Optional[dict]:
@@ -59,12 +105,14 @@ def normalize(raw: Any) -> Optional[dict]:
         "also_good": _line(raw.get("also_good"), MAX_OUTCOME),
         "stop_when": _line(raw.get("stop_when"), MAX_OUTCOME),
         "criteria": criteria,
+        "core": _blocks(raw.get("core"), ("text",), MAX_CORE),
+        "situations": _blocks(raw.get("situations"), SITUATION_FIELDS, MAX_SITUATIONS, tags=("practice",)),
     }
     return conduct if any(conduct.values()) else None
 
 
 def empty() -> dict:
-    return {"goal": "", "also_good": "", "stop_when": "", "criteria": []}
+    return {"goal": "", "also_good": "", "stop_when": "", "criteria": [], "core": [], "situations": []}
 
 
 def brain_text(conduct: Optional[dict], usual_goal: Optional[str]) -> str:
@@ -84,6 +132,17 @@ def brain_text(conduct: Optional[dict], usual_goal: Optional[str]) -> str:
     if conduct["criteria"]:
         parts.append("HOW THIS COMPANY CONDUCTS THESE CALLS (written by the company; guidance on how to decide, never a "
                      "source of facts):\n" + "\n".join(f"{n}. {text}" for n, text in enumerate(conduct["criteria"], 1)))
+    if conduct["core"]:
+        parts.append("HOW THIS COMPANY WANTS VOCIFY TO DECIDE IN THESE CALLS (written by the company; it applies to every "
+                     "card; guidance on how to decide, never a source of facts):\n"
+                     + "\n\n".join(f"## {b['name']}\n{b['text']}".strip() for b in conduct["core"]))
+    if conduct["situations"]:
+        labels = (("when", "When it applies"), ("do", "What to do"), ("example", "Example"), ("avoid", "What not to do"))
+        parts.append("SITUATIONS THIS COMPANY DESCRIBED (written by the company; guidance, never a source of facts). Recognise "
+                     "the one the conversation is in from everything they have said, not only their last words, and act as "
+                     "it says; often none fits:\n"
+                     + "\n\n".join(f"{n}. {s['name']}\n" + "\n".join(f"{label}: {s[f]}" for f, label in labels if s[f])
+                                    for n, s in enumerate(conduct["situations"], 1)))
     return "\n\n".join(parts)
 
 

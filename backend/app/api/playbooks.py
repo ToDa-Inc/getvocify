@@ -486,7 +486,8 @@ async def get_playbook_conduct(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
-    """«Cómo trabajamos» of the type: {conduct: {goal, also_good, stop_when, criteria}}. 409 `not_activated` before
+    """«Cómo trabajamos» of the type: {conduct: {goal, also_good, stop_when, criteria, core, situations}}. 409
+    `not_activated` before
     migration 087."""
     require_manager(membership)
     try:
@@ -496,6 +497,20 @@ async def get_playbook_conduct(
     return {"conduct": conduct or empty_conduct()}
 
 
+@router.get("/{sales_motion_key}/practices")
+async def get_playbook_practices(
+    sales_motion_key: str,
+    goal: Optional[str] = None,
+    membership: Membership = Depends(get_membership),
+):
+    """Vocify's buenas prácticas for this call type (by `goal`, else the catalog's): situations a manager can import into
+    «Cómo decide Vocify». {practices: [{id, name, when, do, avoid}]}; empty when there is no pack for that goal."""
+    from app.services.playbooks.practices import practices_for
+
+    require_manager(membership)
+    return {"practices": practices_for(sales_motion_key, goal)}
+
+
 @router.put("/{sales_motion_key}/conduct")
 async def save_playbook_conduct(
     sales_motion_key: str,
@@ -503,11 +518,16 @@ async def save_playbook_conduct(
     supabase: Client = Depends(get_supabase),
     membership: Membership = Depends(get_membership),
 ):
-    """Saves «Cómo trabajamos» (all of it; empty clears it). It applies to the next card: not drafted nor published."""
+    """Saves «Cómo trabajamos» (what is sent; empty clears it). A part the request leaves out keeps what is stored, so
+    an editor that only knows the goal and the criteria never wipes the core or the situations. It applies to the next
+    card: not drafted nor published."""
     require_manager(membership)
-    conduct = normalize_conduct(body.model_dump())
+    store = get_conduct_store(supabase)
     try:
-        get_conduct_store(supabase).set(membership.company_id, sales_motion_key, conduct)
+        sent = body.model_dump(exclude_unset=True)
+        kept = {} if {"core", "situations"} <= sent.keys() else (store.get(membership.company_id, sales_motion_key) or {})
+        conduct = normalize_conduct({**{k: kept[k] for k in ("core", "situations") if k in kept}, **sent})
+        store.set(membership.company_id, sales_motion_key, conduct)
     except ConductUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
     _playbooks_changed(membership.company_id)
