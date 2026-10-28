@@ -212,7 +212,11 @@ def started(monkeypatch):
     monkeypatch.setattr(auto_sync, "find_hubspot_connection_for_portal", lambda *_a: {"id": "conn-1", "access_token": "t"})
     monkeypatch.setattr(auto_sync, "auto_sync_enabled_for_connection", lambda *_a: True)
     monkeypatch.setattr("app.services.hubspot.token_refresh.ensure_hubspot_connection_tokens_fresh", fresh)
+    async def long_call(*_a):
+        return {"hs_call_duration": "386000"}
+
     monkeypatch.setattr(auto_sync, "resolve_user_for_hubspot_call", user)
+    monkeypatch.setattr(auto_sync, "call_properties", long_call)
     monkeypatch.setattr("app.services.hubspot.call_processor.enqueue_hubspot_call_process", enqueue)
     return calls
 

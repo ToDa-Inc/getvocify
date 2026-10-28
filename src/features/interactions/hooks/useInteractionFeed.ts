@@ -48,6 +48,8 @@ export function useInteractionFeed({
     refetchInterval: (current) => (feedBusy(current.state.data ?? []) ? POLL_MS : false),
   });
   const { items, hasMore } = pageOf(query.data ?? [], pageSize);
+  // The extra row is the next page's first: where this page's span ends.
+  const nextAt = hasMore ? ((query.data ?? [])[pageSize]?.createdAt ?? null) : null;
 
   // A retag or a delete can empty the last page: step back rather than show "nothing here".
   const emptiedPage = query.isSuccess && !query.isPlaceholderData && page > 0 && items.length === 0;
@@ -58,6 +60,7 @@ export function useInteractionFeed({
   return {
     items,
     hasMore,
+    nextAt,
     page,
     setPage,
     channel,

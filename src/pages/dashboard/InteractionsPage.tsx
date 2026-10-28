@@ -120,7 +120,15 @@ const InteractionsPage = () => {
             labelOf={labelOf}
             authorOf={authorOf}
             stale={feed.isPlaceholderData}
-            crmCalls={{ entries: crm.entries, page: feed.page, hasMore: feed.hasMore, busyId: crm.busyId, onTranscribe: crm.transcribe }}
+            crmCalls={{
+              entries: crm.entries,
+              page: feed.page,
+              hasMore: feed.hasMore,
+              nextAt: feed.nextAt,
+              busyId: crm.busyId,
+              onTranscribe: crm.transcribe,
+              onMarkUnanswered: crm.markUnanswered,
+            }}
           />
         )}
       </div>

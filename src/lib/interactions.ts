@@ -230,15 +230,23 @@ export type FeedEntry =
 /**
  * One page of the feed with the CRM calls that fall inside it, newest first. The feed is paged by
  * the server, the calls are one short list: a call belongs on the page whose time span covers it.
- * The first page has no upper bound and the last no lower one, so no call is left out.
+ * The first page has no upper bound and the last no lower one, so no call is left out. `nextAt`, the
+ * time of the next page's first conversation, closes the gap between two pages: a call newer than it
+ * is on this page, so one between this page's oldest and the next page's newest is not lost.
  */
-export function mergeCrmCalls(memos: Memo[], calls: CrmCallEntry[], { page, hasMore }: { page: number; hasMore: boolean }): FeedEntry[] {
+export function mergeCrmCalls(
+  memos: Memo[],
+  calls: CrmCallEntry[],
+  { page, hasMore, nextAt }: { page: number; hasMore: boolean; nextAt?: string | null },
+): FeedEntry[] {
   const times = memos.map((memo) => new Date(memo.createdAt).getTime()).filter((ms) => !Number.isNaN(ms));
   const upper = page === 0 || times.length === 0 ? Infinity : Math.max(...times);
-  const lower = !hasMore || times.length === 0 ? -Infinity : Math.min(...times);
+  const next = nextAt ? new Date(nextAt).getTime() : NaN;
   const inside = calls.filter((call) => {
     const at = new Date(call.createdAt).getTime();
-    return !Number.isNaN(at) && at <= upper && at >= lower;
+    if (Number.isNaN(at) || at > upper) return false;
+    if (!hasMore || times.length === 0) return true;
+    return Number.isNaN(next) ? at >= Math.min(...times) : at > next;
   });
   const entries: FeedEntry[] = [
     ...memos.map((memo): FeedEntry => ({ kind: "memo", id: memo.id, createdAt: memo.createdAt, memo })),

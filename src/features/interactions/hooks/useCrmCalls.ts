@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { memoKeys } from "@/features/memos/api";
 import { recordingKeys, recordingsApi } from "@/features/recordings/api";
+import type { CrmCallRecording, ProcessCallRecordingResponse, UnansweredOutcome } from "@/features/recordings/types";
 import { callDurationSeconds } from "@/lib/call-duration";
 import type { CrmCallEntry } from "@/lib/interactions";
 
@@ -20,12 +21,23 @@ export function useCrmCalls({ authorUserId, enabled = true }: { authorUserId: st
     staleTime: STALE_MS,
     retry: false,
   });
+  // Once Vocify has the call it is a conversation: it leaves this list at once rather than on the next refetch,
+  // and a call the server did not turn into one is an error, not a quiet return to the button.
+  const settle = (callId: string, result: ProcessCallRecordingResponse) => {
+    if (!result?.memo_id) throw new Error("no memo");
+    queryClient.setQueryData<CrmCallRecording[]>(recordingKeys.recent(authorUserId), (calls) =>
+      calls?.map((call) => (call.call_id === callId ? { ...call, memo_id: result.memo_id, memo_status: result.status } : call)),
+    );
+    void queryClient.invalidateQueries({ queryKey: recordingKeys.all });
+    void queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
+    return result;
+  };
   const transcribe = useMutation({
-    mutationFn: (callId: string) => recordingsApi.process(callId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: recordingKeys.all });
-      void queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
-    },
+    mutationFn: async (callId: string) => settle(callId, await recordingsApi.process(callId)),
+  });
+  const markUnanswered = useMutation({
+    mutationFn: async ({ callId, outcome }: { callId: string; outcome: UnansweredOutcome }) =>
+      settle(callId, await recordingsApi.markUnanswered(callId, outcome)),
   });
   const entries: CrmCallEntry[] = enabled
     ? (query.data ?? [])
@@ -46,7 +58,12 @@ export function useCrmCalls({ authorUserId, enabled = true }: { authorUserId: st
     : [];
   return {
     entries,
-    busyId: transcribe.isPending ? (transcribe.variables ?? null) : null,
+    busyId: transcribe.isPending
+      ? (transcribe.variables ?? null)
+      : markUnanswered.isPending
+        ? (markUnanswered.variables?.callId ?? null)
+        : null,
     transcribe: transcribe.mutateAsync,
+    markUnanswered: (callId: string, outcome: UnansweredOutcome) => markUnanswered.mutateAsync({ callId, outcome }),
   };
 }

@@ -161,35 +161,51 @@ def write_crm_call_recordings_preference(supabase: Client, user_id: str, process
     supabase.table("user_profiles").update({"process_crm_call_recordings": bool(process)}).eq("id", user_id).execute()
 
 
-async def resolve_user_for_hubspot_call(
+async def call_owner_member(
     supabase: Client,
     connection: dict[str, Any],
     access_token: str,
-    call_id: str,
-) -> Optional[str]:
+    owner_id: Optional[str],
+) -> tuple[Optional[str], int]:
+    """(Vocify user the HubSpot owner is, team size). The user is None when the owner is nobody on the team."""
     from app.services.activity_scope import invert_hubspot_owners
     from app.services.company import CompanyService
-    from app.services.hubspot.calls import get_call_engagement
     from app.services.hubspot.client import HubSpotClient
     from app.services.hubspot.sync import cache_owners_for_members
 
-    fallback = str(connection.get("user_id") or "") or None
-    client = HubSpotClient(access_token)
-    engagement = await get_call_engagement(client, str(call_id))
-    props = (engagement or {}).get("properties") or {}
-    owner_id = str(props.get("hubspot_owner_id") or "").strip() or None
     owner_to_user = invert_hubspot_owners(connection.get("metadata") or {})
     members: list[dict] = []
     company_id = connection.get("company_id")
     if company_id:
         members = CompanyService(supabase).list_members(str(company_id))
         matched = await cache_owners_for_members(
-            client, supabase, connection["id"], members
+            HubSpotClient(access_token), supabase, connection["id"], members
         )
         owner_to_user = {hid: uid for uid, hid in matched.items()}
-    team_size = len(members) if members else 1
+    mapped = owner_to_user.get(str(owner_id)) if owner_id else None
+    return (str(mapped) if mapped else None), (len(members) if members else 1)
+
+
+async def call_properties(access_token: str, call_id: str) -> dict[str, Any]:
+    from app.services.hubspot.calls import get_call_engagement
+    from app.services.hubspot.client import HubSpotClient
+
+    engagement = await get_call_engagement(HubSpotClient(access_token), str(call_id))
+    return (engagement or {}).get("properties") or {}
+
+
+async def resolve_user_for_hubspot_call(
+    supabase: Client,
+    connection: dict[str, Any],
+    access_token: str,
+    call_id: str,
+) -> Optional[str]:
+    fallback = str(connection.get("user_id") or "") or None
+    props = await call_properties(access_token, call_id)
+    owner_id = str(props.get("hubspot_owner_id") or "").strip() or None
+    mapped, team_size = await call_owner_member(supabase, connection, access_token, owner_id)
     return resolve_auto_sync_user_id(
-        owner_id, owner_to_user, fallback, team_size=team_size
+        owner_id, {str(owner_id): mapped} if owner_id and mapped else {}, fallback, team_size=team_size
     )
 
 
@@ -197,17 +213,23 @@ async def handle_hubspot_recording_events(
     supabase: Client,
     events: list,
 ) -> tuple[int, int]:
-    """Start auto-sync for recording-ready webhook events. Returns (started, skipped)."""
+    """Start auto-sync for recording-ready webhook events. Returns (started, skipped).
+
+    A call under SHORT_CALL_SECONDS is kept as no answer whatever the switches say (it is never
+    transcribed, so nothing runs twice); a longer one is transcribed only when both switches are on.
+    """
     from app.services.hubspot.call_processor import enqueue_hubspot_call_process
+    from app.services.hubspot.calls import is_short_call
     from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_fresh
 
     started = 0
     skipped = 0
     for portal_id, call_id in recording_ready_jobs(events):
         conn = find_hubspot_connection_for_portal(supabase, portal_id)
-        if not conn or not auto_sync_enabled_for_connection(supabase, str(conn["id"])):
+        if not conn:
             skipped += 1
             continue
+        auto_sync = auto_sync_enabled_for_connection(supabase, str(conn["id"]))
         try:
             conn = await ensure_hubspot_connection_tokens_fresh(supabase, conn)
         except Exception as exc:
@@ -218,13 +240,21 @@ async def handle_hubspot_recording_events(
         if not access_token:
             skipped += 1
             continue
+        try:
+            short = is_short_call(await call_properties(access_token, call_id))
+        except Exception as exc:
+            logger.warning("HubSpot call %s: properties lookup failed: %s", call_id, exc)
+            short = False
+        if not auto_sync and not short:
+            skipped += 1
+            continue
         user_id = await resolve_user_for_hubspot_call(
             supabase, conn, access_token, call_id
         )
         if not user_id:
             skipped += 1
             continue
-        if not read_crm_call_recordings_preference(supabase, user_id):
+        if not short and not read_crm_call_recordings_preference(supabase, user_id):
             # This rep records calls with the island: the call is already a memo, live.
             skipped += 1
             continue
@@ -244,7 +274,7 @@ async def handle_hubspot_recording_events(
         if not result.get("memo_id"):
             skipped += 1
             continue
-        if result.get("status") == "pending_review":
+        if result.get("status") == "pending_review" and not short:
             await maybe_auto_approve_hubspot_call(
                 supabase, str(result["memo_id"]), user_id
             )

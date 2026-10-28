@@ -126,6 +126,40 @@ app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(TimeoutMiddleware)
 app.add_middleware(PaywallMiddleware)
 
+class UnhandledErrorMiddleware:
+    """An unhandled exception answers as the JSON 500 from here, inside CORS.
+
+    Starlette runs an Exception handler in ServerErrorMiddleware, outside every other middleware, so
+    that 500 went out without CORS headers: the browser could not read it and the app showed
+    "Failed to fetch" instead of the error (the dashboard's Transcribe, 2026-10-28).
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def send_tracking(message):
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_tracking)
+        except Exception as exc:
+            if started:
+                raise
+            response = await unhandled_exception_handler(Request(scope), exc)
+            await response(scope, receive, send)
+
+
+app.add_middleware(UnhandledErrorMiddleware)
+
 # CORS middleware
 _frontend_url = settings.FRONTEND_URL.rstrip("/")
 _cors_origins = [

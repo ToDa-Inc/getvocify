@@ -30,6 +30,9 @@ export interface ProcessCallRecordingResponse {
   processing_started: boolean;
 }
 
+/** How a call Vocify does not transcribe is kept: nobody answered, or a voicemail. */
+export type UnansweredOutcome = 'no_response' | 'voicemail';
+
 export type RecordingActionKind = 'transcribe' | 'continue' | 'view';
 
 export interface RecordingAction {

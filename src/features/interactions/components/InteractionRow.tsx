@@ -24,6 +24,7 @@ import { useAuth } from "@/features/auth";
 import { isManagerRole } from "@/lib/nav";
 import { useCrmContactLink } from "../hooks/useCrmContactLink";
 import { CrmCallRow } from "./CrmCallRow";
+import type { UnansweredOutcome } from "@/features/recordings/types";
 import { InteractionMenu } from "./InteractionMenu";
 import { ContactStack } from "./ContactStack";
 import { TypeChip } from "./TypeChip";
@@ -177,8 +178,10 @@ export type CrmCalls = {
   entries: CrmCallEntry[];
   page: number;
   hasMore: boolean;
+  nextAt?: string | null;
   busyId: string | null;
   onTranscribe: (callId: string) => Promise<unknown>;
+  onMarkUnanswered: (callId: string, outcome: UnansweredOutcome) => Promise<unknown>;
 };
 
 /** Rows under "Hoy", "Ayer" and dates. `stale` = old rows showing under a new filter. */
@@ -198,7 +201,11 @@ export function InteractionList({
   crmCalls?: CrmCalls;
 }) {
   const { t } = useLanguage();
-  const entries = mergeCrmCalls(items, crmCalls?.entries ?? [], { page: crmCalls?.page ?? 0, hasMore: crmCalls?.hasMore ?? false });
+  const entries = mergeCrmCalls(items, crmCalls?.entries ?? [], {
+    page: crmCalls?.page ?? 0,
+    hasMore: crmCalls?.hasMore ?? false,
+    nextAt: crmCalls?.nextAt,
+  });
   const groups = groupByDay(entries, new Date(), t.product.hourLocale);
   return (
     <div
@@ -218,6 +225,7 @@ export function InteractionList({
                   call={entry.call}
                   busy={crmCalls?.busyId === entry.id}
                   onTranscribe={crmCalls?.onTranscribe ?? (() => Promise.resolve())}
+                  onMarkUnanswered={crmCalls?.onMarkUnanswered ?? (() => Promise.resolve())}
                 />
               ),
             )}

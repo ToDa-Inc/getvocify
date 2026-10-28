@@ -432,6 +432,14 @@ describe("mergeCrmCalls", () => {
     const calls = [call("older", 10, 9), call("newer", 25, 9), call("inside", 20, 12)];
     assert.deepEqual(ids(mergeCrmCalls(memos, calls, { page: 1, hasMore: true })), ["m1", "inside", "m2"]);
   });
+  it("keeps a call that falls between this page's oldest and the next page's newest on this page", () => {
+    const memos = [memo("m1", 20, 17), memo("m2", 20, 9)];
+    const calls = [call("gap", 18, 12), call("next", 15, 9)];
+    const page0 = mergeCrmCalls(memos, calls, { page: 0, hasMore: true, nextAt: iso(16, 9) });
+    assert.deepEqual(ids(page0), ["m1", "m2", "gap"]);
+    const page1 = mergeCrmCalls([memo("m3", 16, 9), memo("m4", 14, 9)], calls, { page: 1, hasMore: false });
+    assert.deepEqual(ids(page1), ["m3", "next", "m4"]);
+  });
   it("lists the calls alone when there are no conversations", () => {
     assert.deepEqual(ids(mergeCrmCalls([], [call("c1", 30, 9)], { page: 0, hasMore: false })), ["c1"]);
   });

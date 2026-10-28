@@ -29,6 +29,10 @@ CALL_PROPERTIES = (
 
 MAX_RECORDINGS_PER_RECORD = 20
 RECENT_RECORDINGS_LIMIT = 20
+# The most calls one listing reads from HubSpot (two search pages).
+MAX_RECENT_RECORDINGS = 200
+# A call shorter than this is not transcribed: nobody was reached, it is kept as "no answer".
+SHORT_CALL_SECONDS = 30
 
 GENERIC_RECORDING_TITLES = frozenset({"call", "llamada vocify"})
 
@@ -87,6 +91,16 @@ def unanswered_outcome(props: dict) -> Optional[str]:
     if str(props.get("hs_call_status") or "").strip().upper() in _UNANSWERED_STATUSES:
         return "no_response"
     return None
+
+
+def is_short_call(props: dict) -> bool:
+    """Under SHORT_CALL_SECONDS. An unknown length (0) is not short: the transcript decides then."""
+    return 0 < call_duration_ms(props) < SHORT_CALL_SECONDS * 1000
+
+
+def short_call_outcome(props: dict) -> str:
+    """What a short call is kept as: what the phone system says when it says it, else no answer."""
+    return unanswered_outcome(props) or "no_response"
 
 
 def call_duration_ms(props: dict) -> int:
@@ -287,30 +301,47 @@ async def list_recent_recordings(
     *,
     limit: int = RECENT_RECORDINGS_LIMIT,
     owner_id: Optional[str] = None,
+    owner_ids: Optional[list[str]] = None,
+    since_ms: Optional[int] = None,
 ) -> list[dict[str, Any]]:
-    """Newest HubSpot calls with a recording, across the portal."""
-    filters = [{
+    """Newest HubSpot calls with a recording, across the portal or for these owners, since `since_ms` when given.
+
+    HubSpot pages at 100: up to MAX_RECENT_RECORDINGS are read, so a busy day is not cut at the newest 20.
+    """
+    filters: list[dict[str, Any]] = [{
         "propertyName": "hs_call_recording_url",
         "operator": "HAS_PROPERTY",
     }]
-    if owner_id:
-        filters.append({
-            "propertyName": "hubspot_owner_id",
-            "operator": "EQ",
-            "value": str(owner_id),
-        })
-    body = {
-        "filterGroups": [{"filters": filters}],
-        "sorts": [{"propertyName": "hs_timestamp", "direction": "DESCENDING"}],
-        "properties": list(CALL_PROPERTIES),
-        "limit": min(max(limit, 1), 100),
-    }
-    try:
-        data = await client.post("/crm/v3/objects/calls/search", data=body)
-    except HubSpotError:
-        return []
-    results = (data or {}).get("results") or []
-    items = [parse_call_summary(c) for c in results if c.get("id")]
+    owners = [str(o) for o in ([owner_id] if owner_id else (owner_ids or [])) if o]
+    if len(owners) == 1:
+        filters.append({"propertyName": "hubspot_owner_id", "operator": "EQ", "value": owners[0]})
+    elif owners:
+        filters.append({"propertyName": "hubspot_owner_id", "operator": "IN", "values": owners})
+    if since_ms:
+        filters.append({"propertyName": "hs_timestamp", "operator": "GTE", "value": str(int(since_ms))})
+    wanted = min(max(limit, 1), MAX_RECENT_RECORDINGS)
+    results: list[dict[str, Any]] = []
+    after: Optional[str] = None
+    while len(results) < wanted:
+        body: dict[str, Any] = {
+            "filterGroups": [{"filters": filters}],
+            "sorts": [{"propertyName": "hs_timestamp", "direction": "DESCENDING"}],
+            "properties": list(CALL_PROPERTIES),
+            "limit": min(wanted - len(results), 100),
+        }
+        if after:
+            body["after"] = after
+        try:
+            data = await client.post("/crm/v3/objects/calls/search", data=body)
+        except HubSpotError:
+            if results:
+                break
+            return []
+        results.extend((data or {}).get("results") or [])
+        after = (((data or {}).get("paging") or {}).get("next") or {}).get("after")
+        if not after:
+            break
+    items = [parse_call_summary(c) for c in results[:wanted] if c.get("id")]
     return [item for item in items if item.get("has_recording")]
 
 

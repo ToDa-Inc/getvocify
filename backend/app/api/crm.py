@@ -3,7 +3,8 @@ CRM integration API endpoints
 """
 
 import asyncio
-from datetime import datetime, timedelta
+import logging
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -73,7 +74,7 @@ from app.services.hubspot.calls import (
     list_recordings_for_record,
     recording_display_title,
 )
-from app.services.hubspot.call_processor import enqueue_hubspot_call_process
+from app.services.hubspot.call_processor import CallMemoElsewhere, call_memo_row, enqueue_hubspot_call_process
 from app.services.hubspot.auto_sync import (
     read_crm_call_recordings_preference,
     write_crm_call_recordings_preference,
@@ -86,6 +87,7 @@ _CONTEXT_CACHE = CoalesceCache(ttl_seconds=30)
 
 
 router = APIRouter(prefix="/api/v1/crm", tags=["crm"])
+logger = logging.getLogger(__name__)
 
 
 class CallRecordingsPreference(BaseModel):
@@ -418,45 +420,62 @@ async def list_hubspot_recordings_for_company(
     )
 
 
+async def _scoped_owner_ids(
+    client: HubSpotClient,
+    supabase: Client,
+    user_id: str,
+    author_user_id: Optional[str],
+) -> tuple[Optional[str], Optional[list[str]]]:
+    """(one owner, team owners) the recent-calls search is narrowed to, so nobody else's calls take the
+    page: the picked author, else the team for a viewer who sees it, else the viewer. None, None when
+    no owner is known (the whole portal, as before)."""
+    membership, members, _authors = load_viewer_scope(supabase, user_id)
+    can_view = can_view_company_activity(
+        membership.role if membership else None,
+        effective_visibility(supabase, membership),
+    )
+    conn = get_crm_connection(supabase, user_id, "hubspot")
+    if not conn or not members:
+        return None, None
+    try:
+        from app.services.hubspot.sync import cache_owners_for_members
+
+        matched = await cache_owners_for_members(client, supabase, conn["id"], members)
+    except Exception:
+        return None, None
+    wanted = (author_user_id or "").strip()
+    if wanted and should_apply_author_recording_filter(
+        author_user_id=wanted, can_view_company=can_view, members=members
+    ):
+        return matched.get(wanted), None
+    if can_view:
+        return None, sorted({str(o) for o in matched.values() if o}) or None
+    return matched.get(user_id), None
+
+
 @router.get("/hubspot/recordings")
 async def list_recent_hubspot_recordings(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
-    limit: int = Query(20, ge=1, le=50),
+    limit: int = Query(20, ge=1, le=200),
     author_user_id: Optional[str] = None,
     hide_desktop_recorded: bool = False,
+    days: Optional[int] = Query(None, ge=1, le=31),
 ):
-    """Newest HubSpot calls with recordings across the portal.
+    """Newest HubSpot calls with recordings of the viewer's scope (themselves, their team, or `author_user_id`).
 
-    hide_desktop_recorded drops the calls the rep already recorded with the desktop app
-    (they are conversations already), for the dashboard list of calls still to be read.
+    `days` reads every such call of that many days (up to `limit`) instead of only the newest `limit`:
+    the dashboard lists a day's calls in full. hide_desktop_recorded drops the calls the rep already
+    recorded with the desktop app (they are conversations already), for the list of calls still to be read.
     """
     client = get_hubspot_client_from_connection(user_id, supabase)
-    owner_id = None
-    wanted = (author_user_id or "").strip()
-    if wanted:
-        membership, members, _authors = load_viewer_scope(supabase, user_id)
-        can_view = can_view_company_activity(
-            membership.role if membership else None,
-            effective_visibility(supabase, membership),
-        )
-        if should_apply_author_recording_filter(
-            author_user_id=wanted,
-            can_view_company=can_view,
-            members=members,
-        ):
-            conn = get_crm_connection(supabase, user_id, "hubspot")
-            if conn:
-                try:
-                    from app.services.hubspot.sync import cache_owners_for_members
-
-                    matched = await cache_owners_for_members(
-                        client, supabase, conn["id"], members
-                    )
-                    owner_id = matched.get(wanted)
-                except Exception:
-                    owner_id = None
-    items = await list_recent_recordings(client, limit=limit, owner_id=owner_id)
+    owner_id, owner_ids = await _scoped_owner_ids(client, supabase, user_id, author_user_id)
+    since_ms = None
+    if days:
+        since_ms = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+    items = await list_recent_recordings(
+        client, limit=limit, owner_id=owner_id, owner_ids=owner_ids, since_ms=since_ms
+    )
     presented = await _present_recordings(user_id, supabase, items, author_user_id)
     if hide_desktop_recorded:
         presented = _without_desktop_recorded(supabase, user_id, presented)
@@ -477,16 +496,42 @@ def _without_desktop_recorded(supabase: Client, viewer_id: str, recordings: list
     return [row for row in recordings if str(row.get("call_id")) not in covered]
 
 
-@router.post("/hubspot/calls/{call_id}/process")
-async def process_hubspot_call(
+async def _call_author_user_id(
+    supabase: Client,
+    viewer_id: str,
+    access_token: str,
+    props: dict,
+) -> str:
+    """Whose memo the call becomes: the rep who made it in HubSpot, when the viewer may act for them.
+    Filing it under whoever clicked put a rep's calls in their manager's list (2026-10-28)."""
+    owner_id = str(props.get("hubspot_owner_id") or "").strip() or None
+    conn = get_crm_connection(supabase, viewer_id, "hubspot")
+    if not owner_id or not conn:
+        return viewer_id
+    from app.services.hubspot.auto_sync import call_owner_member
+
+    try:
+        owner_user, _team = await call_owner_member(supabase, conn, access_token, owner_id)
+    except Exception:
+        logger.warning("HubSpot call author lookup failed; filed under the viewer", exc_info=True)
+        return viewer_id
+    if not owner_user or owner_user == viewer_id:
+        return viewer_id
+    membership, _members, _authors = load_viewer_scope(supabase, viewer_id)
+    can_view = can_view_company_activity(
+        membership.role if membership else None,
+        effective_visibility(supabase, membership),
+    )
+    return owner_user if can_view else viewer_id
+
+
+async def _start_hubspot_call(
     call_id: str,
-    supabase: Client = Depends(get_supabase),
-    user_id: str = Depends(get_user_id),
-):
-    """
-    Start (or retry) transcription for a HubSpot call recording.
-    Idempotent on hubspot_engagement_id; retries failed memos.
-    """
+    supabase: Client,
+    user_id: str,
+    *,
+    unanswered: Optional[str] = None,
+) -> dict:
     client = get_hubspot_client_from_connection(user_id, supabase)
     access_token = _hubspot_access_token(user_id, supabase)
 
@@ -494,21 +539,64 @@ async def process_hubspot_call(
     if not eng:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Call not found")
     props = eng.get("properties") or {}
-    if not (props.get("hs_call_recording_url") or "").strip():
+    if not unanswered and not (props.get("hs_call_recording_url") or "").strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This call has no recording yet.",
         )
 
-    result = await enqueue_hubspot_call_process(
-        supabase, user_id, call_id, access_token
-    )
+    author_id = await _call_author_user_id(supabase, user_id, access_token, props)
+    filed = call_memo_row(supabase, call_id)
+    if filed and str(filed.get("user_id") or "") not in (author_id, user_id) and author_id == user_id:
+        # A teammate's memo the viewer cannot open: say so, rather than a row that comes back as unread.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "filed_under_teammate", "message": "This call is already in Vocify, filed under a teammate."},
+        )
+    try:
+        result = await enqueue_hubspot_call_process(
+            supabase, author_id, call_id, access_token, unanswered=unanswered
+        )
+    except CallMemoElsewhere:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This call is already in another Vocify workspace.",
+        )
     if not result.get("memo_id"):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not create memo for this call",
         )
     return result
+
+
+@router.post("/hubspot/calls/{call_id}/process")
+async def process_hubspot_call(
+    call_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """
+    Start (or retry) transcription for a HubSpot call recording, filed under the rep who made the call.
+    Idempotent on hubspot_engagement_id; retries failed memos. A call under 30s is kept as no answer,
+    not transcribed.
+    """
+    return await _start_hubspot_call(call_id, supabase, user_id)
+
+
+class MarkUnansweredRequest(BaseModel):
+    outcome: Literal["no_response", "voicemail"] = "no_response"
+
+
+@router.post("/hubspot/calls/{call_id}/mark-unanswered")
+async def mark_hubspot_call_unanswered(
+    call_id: str,
+    payload: MarkUnansweredRequest,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """Keep a HubSpot call Vocify has not read as no answer (or voicemail), without transcribing it."""
+    return await _start_hubspot_call(call_id, supabase, user_id, unanswered=payload.outcome)
 
 
 @router.get("/hubspot/contacts/{contact_id}/context")

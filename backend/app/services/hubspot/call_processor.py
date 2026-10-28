@@ -25,8 +25,10 @@ from app.services.hubspot.calls import (
     download_recording,
     get_call_associations,
     get_call_engagement,
+    is_short_call,
     parse_call_summary,
     parse_hubspot_timestamp_ms,
+    short_call_outcome,
     unanswered_outcome,
 )
 from app.services.captures import interaction_kind_for, pin_playbook_on_row, with_author_company
@@ -61,6 +63,39 @@ async def _contact_terms_for_call(client: HubSpotClient, contact_id: Optional[st
         return []
 
 
+class CallMemoElsewhere(Exception):
+    """The call already has a memo in another workspace (memos.hubspot_engagement_id is unique)."""
+
+
+def call_memo_row(supabase: Client, call_id: str) -> Optional[dict]:
+    rows = (
+        supabase.table("memos")
+        .select("id,user_id,company_id,status")
+        .eq("hubspot_engagement_id", str(call_id))
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    return rows[0] if rows else None
+
+
+def existing_call_memo_id(supabase: Client, user_id: str, call_id: str) -> Optional[str]:
+    """The call's memo, whoever on the team it is filed under. A call has one memo across Vocify (unique
+    index), so looking only at the viewer's made a second click on a teammate's call a duplicate-key 500."""
+    row = call_memo_row(supabase, call_id)
+    if not row:
+        return None
+    if str(row.get("user_id") or "") == str(user_id):
+        return str(row["id"])
+    from app.services import company
+
+    mine = company.get_company_id_for_user(supabase, str(user_id))
+    if mine and str(row.get("company_id") or "") == str(mine):
+        return str(row["id"])
+    raise CallMemoElsewhere(str(call_id))
+
+
 async def initiate_hubspot_call_memo(
     supabase: Client,
     user_id: str,
@@ -68,19 +103,13 @@ async def initiate_hubspot_call_memo(
     access_token: str,
 ) -> Tuple[Optional[str], bool]:
     """
-    Idempotent memo row for a HubSpot call. Returns (memo_id, created_new).
+    Idempotent memo row for a HubSpot call, filed under `user_id` (the rep who made the call).
+    Returns (memo_id, created_new).
     """
     cid = str(call_id)
-    existing = (
-        supabase.table("memos")
-        .select("id")
-        .eq("hubspot_engagement_id", cid)
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
-    if existing.data:
-        return str(existing.data[0]["id"]), False
+    existing = existing_call_memo_id(supabase, user_id, cid)
+    if existing:
+        return existing, False
 
     client = HubSpotClient(access_token)
     deals, contacts = await get_call_associations(client, cid)
@@ -122,20 +151,12 @@ async def initiate_hubspot_call_memo(
     try:
         ins = supabase.table("memos").insert(pin_playbook_on_row(supabase, with_author_company(supabase, row))).execute()
     except Exception as insert_exc:
-        # Lost a race against a redelivered HubSpot webhook for the same
-        # call_id (unique index from migration 009) - the other request
-        # already created the memo, return it instead of failing.
+        # Lost a race against a redelivered HubSpot webhook or a second click for the same
+        # call_id (unique index from migration 009): the other request made the memo, return it.
         if "duplicate key" in str(insert_exc).lower() or "23505" in str(insert_exc):
-            retry = (
-                supabase.table("memos")
-                .select("id")
-                .eq("hubspot_engagement_id", cid)
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
-            )
-            if retry.data:
-                return str(retry.data[0]["id"]), False
+            winner = existing_call_memo_id(supabase, user_id, cid)
+            if winner:
+                return winner, False
         raise
     if not ins.data:
         return None, False
@@ -147,8 +168,15 @@ async def enqueue_hubspot_call_process(
     user_id: str,
     call_id: str,
     access_token: str,
+    *,
+    unanswered: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Create or reuse the memo and start processing when needed."""
+    """Create or reuse the memo and start processing when needed.
+
+    `unanswered` ("no_response" / "voicemail") keeps the call as that without transcribing it, as the rep
+    marked it; a call under SHORT_CALL_SECONDS is kept as no answer the same way. A memo that already went
+    through stays as it is.
+    """
     memo_id, created = await initiate_hubspot_call_memo(
         supabase, user_id, call_id, access_token
     )
@@ -168,6 +196,32 @@ async def enqueue_hubspot_call_process(
         .execute()
     )
     current_status = (memo_row.data or {}).get("status") if memo_row.data else "transcribing"
+
+    props: dict = {}
+    if created or current_status == "failed":
+        try:
+            props = ((await get_call_engagement(HubSpotClient(access_token), str(call_id))) or {}).get("properties") or {}
+        except Exception as e:
+            logger.warning("HubSpot call %s: duration lookup failed: %s", call_id, e)
+        if not unanswered and is_short_call(props):
+            unanswered = short_call_outcome(props)
+    else:
+        unanswered = None
+
+    if unanswered:
+        await finalize_screened_out_memo(supabase, memo_id, "", call_duration_seconds(props), unanswered)
+        logger.info(
+            "HubSpot call kept as unanswered, not transcribed",
+            extra=log_domain(DOMAIN_MEMO, "hubspot_call_unanswered", memo_id=memo_id, call_id=str(call_id),
+                             outcome=unanswered),
+        )
+        return {
+            "memo_id": memo_id,
+            "status": "pending_review",
+            "created": created,
+            "processing_started": False,
+        }
+
     should_process = created
     if not created and current_status == "failed":
         supabase.table("memos").update(
@@ -233,6 +287,12 @@ async def process_hubspot_call_background(
         url = (props.get("hs_call_recording_url") or "").strip()
         carrier_outcome = unanswered_outcome(props)
         t_dl = time.perf_counter()
+        if not audio_bytes and is_short_call(props):
+            # Under 30s nobody was reached: kept as no answer, never downloaded nor transcribed.
+            await finalize_screened_out_memo(
+                supabase, memo_id, "", call_duration_seconds(props), short_call_outcome(props)
+            )
+            return
         if not audio_bytes:
             if not url and carrier_outcome:
                 # Nobody was reached, so there is no recording to wait for: the call is kept as what it was.
