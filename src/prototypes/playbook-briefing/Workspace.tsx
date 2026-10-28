@@ -7,13 +7,13 @@
 // Opened from the real Playbook funnel. Real playbook and model (local API); the goal and orientation live in this page.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ArrowUp, ChevronDown, ChevronRight, Clock, FileUp, ListOrdered, MessagesSquare, Pencil, PencilLine, PhoneCall, Play, Plus, ShieldQuestion, Smile, Sparkles, Target, X, type LucideIcon } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronRight, Clock, Compass, FileUp, ListOrdered, MessagesSquare, Pencil, PencilLine, PhoneCall, Play, Plus, ShieldQuestion, Signpost, Smile, Sparkles, Target, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
-import { blobBase64, playbooksApi, type EditorDoc, type FillSource, type PlaybookList } from "@/features/playbooks/api";
+import { blobBase64, playbooksApi, type Conduct, type ConductSituation, type EditorDoc, type FillSource, type PlaybookList } from "@/features/playbooks/api";
 import { DocRow, ItemMenu, NumberMark, QuoteMark } from "@/features/playbooks/components/DocParts";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { WindowShell } from "@/features/playbooks/components/home/WindowShell";
@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 /** The prototype's local API (prototypes/playbook-briefing/local_api.py). */
 const LOCAL_API = "http://localhost:8888/prototype/copilot";
 
-type Area = "steps" | "info" | "answers" | "test" | "ai";
+type Area = "steps" | "info" | "answers" | "situations" | "core" | "test" | "ai";
 type Alternative = { label: string; when: string };
 type Structure = {
   goal: string;
@@ -209,6 +209,8 @@ export function Workspace({ motion }: { motion: string }) {
   const [list, setList] = useState<PlaybookList | null>(null);
   const [company, setCompany] = useState("");
   const [doc, setDoc] = useState<EditorDoc | null>(null);
+  /** «Cómo decide Vocify» of this call type, as saved in the playbook: its general criterion and its situations. */
+  const [conduct, setConduct] = useState<Conduct | null>(null);
   const [shape, setShape] = useState<Structure | null>(null);
   const [phase, setPhase] = useState<string | null>("Organizando vuestro playbook…");
   const [area, setArea] = useState<Area | null>(null);
@@ -233,6 +235,10 @@ export function Workspace({ motion }: { motion: string }) {
     void playbooksApi.list().then(setList);
     void playbooksApi.company().then((c) => setCompany(JSON.stringify(c.knowledge, null, 1)));
   }, []);
+
+  useEffect(() => {
+    void playbooksApi.conduct(motion).then((r) => setConduct(r.conduct)).catch(() => setConduct(null));
+  }, [motion]);
 
   const label = list?.details?.[motion]?.label ?? "";
   const goalKey = list?.details?.[motion]?.goal ?? "";
@@ -277,9 +283,21 @@ export function Workspace({ motion }: { motion: string }) {
     setDoc(saved);
     return saved;
   };
+  /** Saved as typed, like the playbook: it applies to the next call. */
+  const saveConduct = async (next: Conduct) => {
+    setConduct(next);
+    const { conduct: saved } = await playbooksApi.saveConduct(motion, next);
+    setConduct(saved);
+  };
+  const situations = conduct?.situations ?? [];
+  const core = conduct?.core ?? [];
+  const setSituation = (i: number, patch: Partial<ConductSituation>) =>
+    conduct && void saveConduct({ ...conduct, situations: situations.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+  const setCore = (i: number, patch: Partial<{ name: string; text: string }>) =>
+    conduct && void saveConduct({ ...conduct, core: core.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
   /** Removes at once and offers to undo, the way the rest of the app does: no confirmation to click through. */
   const remove = (name: string, run: () => void) => {
-    const before = { shape, doc };
+    const before = { shape, doc, conduct };
     setOpenRow(null);
     run();
     toast(`Quitado ${name}`, {
@@ -288,6 +306,7 @@ export function Workspace({ motion }: { motion: string }) {
         onClick: () => {
           setShape(before.shape);
           if (before.doc) void saveDoc(before.doc);
+          if (before.conduct) void saveConduct(before.conduct);
         },
       },
     });
@@ -453,13 +472,25 @@ export function Workspace({ motion }: { motion: string }) {
     const rest = answers.map((_, i) => i + 1).filter((n) => !placed.has(n));
     return [...(shape?.themes ?? []), ...(rest.length ? [{ name: "Otras", answers: rest }] : [])];
   }, [shape, answers]);
-  const titles: Record<Area, string> = { steps: "Guía de conversación", info: "Cualificación", answers: "Objeciones y respuestas", test: "Probar", ai: "Vocify" };
+  const titles: Record<Area, string> = {
+    steps: "Guía de conversación",
+    info: "Cualificación",
+    answers: "Objeciones y respuestas",
+    situations: "Situaciones",
+    core: "Criterio general",
+    test: "Probar",
+    ai: "Vocify",
+  };
   // The same icons the playbook's tabs use (Pasos, Cualificación, Objeciones).
-  const icons: Record<Area, LucideIcon> = { steps: ListOrdered, info: Target, answers: MessagesSquare, test: Play, ai: Sparkles };
+  const icons: Record<Area, LucideIcon> = { steps: ListOrdered, info: Target, answers: MessagesSquare, situations: Signpost, core: Compass, test: Play, ai: Sparkles };
   const knows: { key: Area; count: number }[] = [
     { key: "steps", count: steps.length },
     { key: "info", count: info.length },
     { key: "answers", count: answers.length },
+  ];
+  const decides: { key: Area; count: number }[] = [
+    { key: "situations", count: situations.length },
+    { key: "core", count: core.length },
   ];
   const setInfoMeta = (n: number, patch: Partial<Structure["info"][number]>) =>
     setShape((s) => (s ? { ...s, info: s.info.map((m) => (m.n === n ? { ...m, ...patch } : m)) } : s));
@@ -475,6 +506,12 @@ export function Workspace({ motion }: { motion: string }) {
     } else if (area === "info") {
       void saveDoc({ ...doc, qualification: [...info, { label: "", good: "" }] as EditorDoc["qualification"] });
       setOpenRow(info.length);
+    } else if (area === "situations" && conduct) {
+      void saveConduct({ ...conduct, situations: [...situations, { name: "", when: "", do: "", example: "", avoid: "" }] });
+      setOpenRow(situations.length);
+    } else if (area === "core" && conduct) {
+      void saveConduct({ ...conduct, core: [...core, { name: "", text: "" }] });
+      setOpenRow(core.length);
     } else if (area === "answers") {
       const taken = answers.filter((o) => o.category === "custom").map((o) => o.id ?? "");
       void saveDoc({ ...doc, objections: [...answers, { category: "custom", id: customObjectionId("nueva", taken), label: "", trigger: "", guidance: "" }] as EditorDoc["objections"] });
@@ -571,6 +608,47 @@ export function Workspace({ motion }: { motion: string }) {
             );
           })}
         </ol>
+      );
+    }
+    if (area === "situations") {
+      const text = (name: string, value: string, placeholder: string, save: (v: string) => void, quiet = false) =>
+        labelled(name, <InlineTextarea className={cn(itemBody, quiet && "italic text-muted-foreground")} defaultValue={value} placeholder={placeholder} onBlur={(e) => e.target.value !== value && save(e.target.value)} />);
+      return (
+        <ul>
+          {situations.map((item, i) =>
+            row(
+              i,
+              <Signpost size={15} strokeWidth={1.5} className="mt-0.5 text-muted-foreground" />,
+              { value: item.name, placeholder: "Nombre de la situación", save: (v) => setSituation(i, { name: v }) },
+              item.when,
+              null,
+              <>
+                {text("Cuándo aplica", item.when, "Lo que dice o hace el prospecto", (v) => setSituation(i, { when: v }))}
+                {text("Qué hacer", item.do, "Lo que Vocify ayuda a hacer", (v) => setSituation(i, { do: v }))}
+                {text("Ejemplo", item.example, "Opcional: cómo lo diría el comercial", (v) => setSituation(i, { example: v }), true)}
+                {text("Qué no hacer", item.avoid, "Opcional", (v) => setSituation(i, { avoid: v }))}
+              </>,
+              () => conduct && remove(`«${item.name || "situación"}»`, () => void saveConduct({ ...conduct, situations: situations.filter((_, j) => j !== i) })),
+            ),
+          )}
+        </ul>
+      );
+    }
+    if (area === "core") {
+      return (
+        <ul>
+          {core.map((item, i) =>
+            row(
+              i,
+              <Compass size={15} strokeWidth={1.5} className="mt-0.5 text-muted-foreground" />,
+              { value: item.name, placeholder: "Nombre", save: (v) => setCore(i, { name: v }) },
+              item.text,
+              null,
+              <InlineTextarea className={itemBody} defaultValue={item.text} placeholder="Cómo decide Vocify" onBlur={(e) => e.target.value !== item.text && setCore(i, { text: e.target.value })} />,
+              () => conduct && remove(`«${item.name || "criterio"}»`, () => void saveConduct({ ...conduct, core: core.filter((_, j) => j !== i) })),
+            ),
+          )}
+        </ul>
       );
     }
     if (area === "info") {
@@ -811,6 +889,33 @@ export function Workspace({ motion }: { motion: string }) {
     </>
   );
 
+  /** Rows that open a list on the side, with how many it holds. */
+  const areaRows = (rows: { key: Area; count: number }[]) => (
+    <ul className="divide-y divide-border/60 border-y border-border/60">
+      {rows.map((item) => {
+        const Icon = icons[item.key];
+        return (
+          <li key={item.key}>
+            <button
+              type="button"
+              onClick={() => {
+                setArea(area === item.key ? null : item.key);
+                setOpenRow(null);
+              }}
+              aria-expanded={area === item.key}
+              className={cn("flex w-full items-center gap-3 px-2 py-3 text-left", THEME_TOKENS.interaction.rowHover, area === item.key && "bg-secondary/60")}
+            >
+              <Icon size={16} strokeWidth={1.5} className="text-muted-foreground" />
+              <span className="flex-1 text-[15px] text-foreground">{titles[item.key]}</span>
+              <span className="text-[13px] tabular-nums text-muted-foreground">{item.count}</span>
+              <ChevronRight size={15} strokeWidth={1.5} className="text-muted-foreground" />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
   const pencil = (on: () => void) => (
     <button type="button" onClick={on} className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground">
       <Pencil size={12} strokeWidth={1.5} />
@@ -883,6 +988,7 @@ export function Workspace({ motion }: { motion: string }) {
               ) : (
                 <p className={cn("rounded-xl px-4 py-3 text-[15.5px] leading-relaxed text-foreground transition-colors duration-700", fresh ? "bg-beige/10" : "bg-card")}>{shape.orientation}</p>
               )}
+              {conduct ? <div className="pt-3">{areaRows(decides)}</div> : null}
               {editing !== "orientation" ? (
                 <button type="button" onClick={() => setArea("ai")} className="mt-2 inline-flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground">
                   <Sparkles size={13} strokeWidth={1.5} className="text-beige" />
@@ -892,29 +998,7 @@ export function Workspace({ motion }: { motion: string }) {
             </Block>
 
             <Block n={3} title="¿Con qué información trabaja?">
-              <ul className="divide-y divide-border/60 border-y border-border/60">
-                {knows.map((item) => {
-                  const Icon = icons[item.key];
-                  return (
-                    <li key={item.key}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setArea(area === item.key ? null : item.key);
-                          setOpenRow(null);
-                        }}
-                        aria-expanded={area === item.key}
-                        className={cn("flex w-full items-center gap-3 px-2 py-3 text-left", THEME_TOKENS.interaction.rowHover, area === item.key && "bg-secondary/60")}
-                      >
-                        <Icon size={16} strokeWidth={1.5} className="text-muted-foreground" />
-                        <span className="flex-1 text-[15px] text-foreground">{titles[item.key]}</span>
-                        <span className="text-[13px] tabular-nums text-muted-foreground">{item.count}</span>
-                        <ChevronRight size={15} strokeWidth={1.5} className="text-muted-foreground" />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+              {areaRows(knows)}
               <p className="pt-2 text-[13px] text-muted-foreground">
                 Y lo que sabe de vuestra empresa y los documentos importados.{" "}
                 <button type="button" onClick={() => setImportOpen(true)} className="text-foreground underline-offset-2 hover:underline">

@@ -82,7 +82,18 @@ export type TypeStats = { days: number; types: Record<string, { count: number; c
 const path = (key: string) => `/playbooks/${encodeURIComponent(key)}`;
 
 /** «Cómo trabajamos» of a call type: what a good call is and how the company conducts it (not versioned). */
-export type Conduct = { goal: string; also_good: string; stop_when: string; criteria: string[] };
+/** A block of how Vocify decides in any moment of these calls, kept whole as the company wrote it. */
+export type ConductBlock = { name: string; text: string };
+/** A recognisable moment and what to do in it, kept whole as the company wrote it. */
+export type ConductSituation = { name: string; when: string; do: string; example: string; avoid: string };
+export type Conduct = {
+  goal: string;
+  also_good: string;
+  stop_when: string;
+  criteria: string[];
+  core?: ConductBlock[];
+  situations?: ConductSituation[];
+};
 
 /** The `detail.code` of a 4xx, when the API sent one. */
 export function errorCode(error: unknown): string | null {

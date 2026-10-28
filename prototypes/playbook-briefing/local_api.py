@@ -4,7 +4,7 @@ then open prototypes/playbook-briefing/index.html on the dev server.
 Local API for trying «Cómo trabajamos» against Vocify's real playbook (port 8888), with no login and no writes.
 
 - Reads go to the real database (backend/.env): the playbook, the company notes.
-- «Cómo trabajamos» is kept in memory (migration 087 is not applied).
+- «Cómo trabajamos» (GET/PUT /playbooks/<key>/conduct) is the real one: it is read from and SAVED to the database.
 - «Completar» / «Dile a Vocify» on a call type (POST /playbooks/<key>/fill) runs: it writes with the model and saves
   nothing. The company's fill saves at once, so it stays refused.
 - POST /prototype/copilot/replay replays a recorded cold call (816ba4f7, exported to backend/evals/copilot/calls/) with the live brain (turns-6b, the eval) and the moments the
@@ -66,12 +66,10 @@ from fastapi.responses import JSONResponse  # noqa: E402
 from app.deps import get_membership, get_user_id  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services.company import Membership  # noqa: E402
-from app.services.playbooks.conduct import InMemoryConductStore, set_conduct_store  # noqa: E402
 
 COMPANY = "70b7ffd2-c360-4d4f-a339-4affec769f7a"
 USER = os.environ["LOCAL_OWNER_ID"]
 
-set_conduct_store(InMemoryConductStore())
 app.dependency_overrides[get_user_id] = lambda: USER
 app.dependency_overrides[get_membership] = lambda: Membership(id="local", company_id=COMPANY, user_id=USER, role="owner", status="active", sales_role=None)
 
