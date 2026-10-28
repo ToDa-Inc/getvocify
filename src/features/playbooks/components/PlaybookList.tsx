@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { CallTypePanel } from "@/features/playbooks/components/CallTypePanel";
 import { CompanyKnowledge } from "@/features/playbooks/components/CompanyKnowledge";
@@ -35,6 +35,7 @@ import { viewFromParams, type ImproveView } from "@/lib/playbook-assistant";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { otherChannel, railChannels, type LiveChannel } from "@/lib/type-channels";
 import { cn } from "@/lib/utils";
+import { PlaybookDetailContext } from "@/features/playbooks/detailOverride";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 /** The improvement views that exist today (the hub only offers these). */
@@ -49,6 +50,7 @@ const IMPROVE_VIEWS: readonly ImproveView[] = ["assistant", "trial", "improve"];
  * useIntake.
  */
 export function PlaybookList() {
+  const detailOverride = useContext(PlaybookDetailContext);
   const { t } = useLanguage();
   const copy = t.product.pb2;
   const process = usePlaybookProcess();
@@ -364,10 +366,15 @@ export function PlaybookList() {
         }}
       />
       <Dialog open={typeSheet !== null} onOpenChange={(next) => !next && setTypeSheet(null)}>
-        <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto rounded-2xl border-border/70 bg-background p-6 shadow-xl sm:rounded-2xl md:p-8">
+        <DialogContent
+          className={cn(
+            "max-h-[88vh] overflow-y-auto rounded-2xl border-border/70 bg-background p-6 shadow-xl sm:rounded-2xl md:p-8",
+            detailOverride ? "h-[88vh] max-w-6xl overflow-hidden" : "max-w-4xl",
+          )}
+        >
           <DialogTitle className="sr-only">{typeSheet ? process.name(typeSheet) : ""}</DialogTitle>
           <DialogDescription className="sr-only">{copy.sectionTitle}</DialogDescription>
-          {typeSheet ? detail() : null}
+          {typeSheet ? (detailOverride ? detailOverride(typeSheet) : detail()) : null}
         </DialogContent>
       </Dialog>
       <CompanyWindow open={companyOpen} onOpenChange={setCompanyOpen} canEdit={canEdit} />

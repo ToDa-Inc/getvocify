@@ -8,6 +8,7 @@ export const CATALOG_KEY = ["playbooks-catalog"] as const;
 export const DEAL_STAGES_KEY = ["playbooks-deal-stages"] as const;
 export const QUALIFICATION_TEMPLATES_KEY = ["playbook-qualification-templates"] as const;
 export const insightsKey = (motionKey: string) => ["playbook-insights", motionKey] as const;
+export const conductKey = (motionKey: string) => ["playbook-conduct", motionKey] as const;
 
 /** The "Vuestra empresa" row, listed next to the call types' motion keys. */
 export const COMPANY_ROW = "__company";

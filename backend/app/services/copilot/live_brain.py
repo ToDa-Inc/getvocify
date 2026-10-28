@@ -88,6 +88,8 @@ class BrainContext:
     history: Optional[str]
     today: str
     playbook_version_id: Optional[str] = None
+    # «Cómo trabajamos» of the call type (services/playbooks/conduct.py): read by the card brain only.
+    conduct: Optional[dict] = None
 
 
 # ---------- how the call and the playbook are shown ----------

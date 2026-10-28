@@ -119,10 +119,11 @@ def cache_state(reads: list[Loaded]) -> str:
 
 
 def invalidate_company(company_id: Optional[str]) -> int:
-    """A playbook of this company changed (published, paused, resumed, restored): its playbooks are read again."""
+    """A playbook of this company changed (published, paused, resumed, restored, «Cómo trabajamos» saved): its playbooks
+    are read again."""
     if not company_id:
         return 0
-    return _cache.drop(lambda key: isinstance(key, tuple) and len(key) > 1 and key[0] == "grounding" and key[1] == company_id)
+    return _cache.drop(lambda key: isinstance(key, tuple) and len(key) > 1 and key[0] in ("grounding", "conduct") and key[1] == company_id)
 
 
 def clear() -> None:

@@ -132,6 +132,20 @@ def test_the_sources_are_the_replays_and_the_calendar_names_the_days():
     assert live_card.calendar(sources).startswith("CALENDAR: lunes 26 oct (hoy), martes 27 oct")
 
 
+def test_the_companys_way_of_working_replaces_the_usual_goal_and_is_never_a_source():
+    from dataclasses import replace
+
+    conduct = {"goal": "", "also_good": "descalificar cuando no hay encaje", "stop_when": "un no claro",
+               "criteria": ["No asumir dolor: si no reconoce la necesidad, no insistir en ella."]}
+    sources = live_card.sources_text(replace(CTX, conduct=conduct), "discovery")
+    assert "USUAL GOAL" not in sources
+    assert "- Main goal: a meeting booked with the prospect" in sources  # none written: the usual one, as the company's
+    assert "- Also good outcomes: descalificar cuando no hay encaje" in sources and "1. No asumir dolor" in sources
+    assert sources.index("HOW THIS COMPANY CONDUCTS") < min(sources.index(h) for h in live_card.SOURCE_BLOCKS if h in sources)
+    card = {"say": "No te voy a insistir: ¿te llamo si crecéis?", "source": "context", "source_quote": "No asumir dolor"}
+    assert "No asumir dolor" not in live_card.authorized_text(sources, card)
+
+
 # ---------- one card on screen ----------
 
 

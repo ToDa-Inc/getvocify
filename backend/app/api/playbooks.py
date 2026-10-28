@@ -29,6 +29,7 @@ from app.services.playbooks.catalog import (
     validate_applies_to,
 )
 from app.services.playbooks import channel_types
+from app.services.playbooks.conduct import Conduct, ConductUnavailable, empty as empty_conduct, get_conduct_store, normalize as normalize_conduct
 from app.services.playbooks.imports import start_import
 from app.services.playbooks.motion import goal_for, visible_to_role
 from app.services.playbooks.repository import (
@@ -477,6 +478,40 @@ async def save_structured_playbook_draft(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
     snapshot = repository.editor_snapshot(membership.company_id, sales_motion_key, include_draft=True)
     return editor_response(sales_motion_key, snapshot)
+
+
+@router.get("/{sales_motion_key}/conduct")
+async def get_playbook_conduct(
+    sales_motion_key: str,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """«Cómo trabajamos» of the type: {conduct: {goal, also_good, stop_when, criteria}}. 409 `not_activated` before
+    migration 087."""
+    require_manager(membership)
+    try:
+        conduct = get_conduct_store(supabase).get(membership.company_id, sales_motion_key)
+    except ConductUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
+    return {"conduct": conduct or empty_conduct()}
+
+
+@router.put("/{sales_motion_key}/conduct")
+async def save_playbook_conduct(
+    sales_motion_key: str,
+    body: Conduct,
+    supabase: Client = Depends(get_supabase),
+    membership: Membership = Depends(get_membership),
+):
+    """Saves «Cómo trabajamos» (all of it; empty clears it). It applies to the next card: not drafted nor published."""
+    require_manager(membership)
+    conduct = normalize_conduct(body.model_dump())
+    try:
+        get_conduct_store(supabase).set(membership.company_id, sales_motion_key, conduct)
+    except ConductUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
+    _playbooks_changed(membership.company_id)
+    return {"conduct": conduct or empty_conduct()}
 
 
 @router.delete("/{sales_motion_key}/draft")
