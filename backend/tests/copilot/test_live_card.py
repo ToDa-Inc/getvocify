@@ -170,8 +170,8 @@ def test_silence_when_the_reading_sees_nothing_to_add(monkeypatch):
 def test_a_card_is_a_point_and_the_card_still_open_fades(monkeypatch):
     fake_model(monkeypatch, answer())
     old = {"id": "card-old", "say": "¿Cómo gestionáis hoy el CRM?", "visible_t": 1.0, "open": True}
-    # The rep spoke after the old card and they finished a new intervention: the screen is free.
-    result = run(live_card.read_card(reading(reason="turn_end", cards=[old]), CTX))
+    # The rep spoke after the old card and they finished a new intervention, a minute later: the screen is free.
+    result = run(live_card.read_card(reading(reason="turn_end", cards=[old], now_t=60.0), CTX))
     assert result["event"] == "shown"
     (card,) = result["points"]
     assert card["kind"] == "deepen" and card["answer"].startswith("Entiendo") and card["outcome"] == "open"
@@ -207,7 +207,7 @@ def test_an_approved_answer_is_a_respuesta_with_its_playbook_source(monkeypatch)
 def test_a_repeat_gets_one_more_try_and_otherwise_silence(monkeypatch):
     calls = fake_model(monkeypatch, answer(), repeats=True, retry=answer(decision="silence", line=""))
     shown = [{"id": "a", "say": "¿Qué os frena hoy?", "visible_t": 1.0, "open": False}]
-    result = run(live_card.read_card(reading(reason="turn_end", cards=shown), CTX))
+    result = run(live_card.read_card(reading(reason="turn_end", cards=shown, now_t=60.0), CTX))
     assert result["event"] == "drop:repeats→silence" and calls.count(live_card.SYSTEM) == 2
 
 
@@ -222,7 +222,7 @@ def test_an_unsupported_fact_or_a_closing_call_shows_nothing(monkeypatch):
 def test_the_card_the_rep_has_not_used_yet_stays_changes_or_goes_as_the_reading_says(monkeypatch):
     # They keep talking: a card shown during their intervention is one the rep has not had the chance to use.
     long = turns(("you", CALL[0]["text"], 0.0),
-                 ("them", " ".join(["ahora mismo tenemos otras prioridades y el precio nos preocupa bastante"] * 4), 6.0))
+                 ("them", " ".join(["ahora mismo tenemos otras prioridades y el precio nos preocupa bastante"] * 8), 6.0))
     end = live_card.ends(long)
 
     def on(age):
@@ -233,11 +233,11 @@ def test_the_card_the_rep_has_not_used_yet_stays_changes_or_goes_as_the_reading_
 
     # Shown while they were still talking: the rep has not had the chance to use it.
     fake_model(monkeypatch, answer(card_on_screen="keep", decision="silence", line=""))
-    result = run(live_card.read_card(reading_with(on(12)), CTX))
+    result = run(live_card.read_card(reading_with(on(22)), CTX))
     assert result["event"] == "keep" and result["points"] == [] and result["closed"] == []
     # A better move replaces it, once it could be read.
     fake_model(monkeypatch, answer(card_on_screen="replace"))
-    result = run(live_card.read_card(reading_with(on(12)), CTX))
+    result = run(live_card.read_card(reading_with(on(22)), CTX))
     assert result["event"] == "replace" and result["points"] and result["closed"] == [{"id": "a", "outcome": "gone"}]
     assert result["trace"]["replaces"] == "a"
     fake_model(monkeypatch, answer(card_on_screen="replace"))
@@ -250,6 +250,24 @@ def test_the_card_the_rep_has_not_used_yet_stays_changes_or_goes_as_the_reading_
     fake_model(monkeypatch, answer(card_on_screen="withdraw", decision="silence", line=""))
     result = run(live_card.read_card(reading_with(on(1)), CTX))
     assert result["event"] == "keep:card_on_screen_too_new" and result["closed"] == []
+
+
+def test_a_new_card_waits_its_turn_unless_they_asked_or_objected(monkeypatch):
+    calls = fake_model(monkeypatch, answer())
+    end = live_card.ends(CALL)
+    used = [{"id": "a", "say": "¿Qué prioridades tenéis ahora?", "visible_t": round(end[-1] - 10, 1), "open": False}]
+    result = run(live_card.read_card(reading(reason="turn_end", objection="none", cards=used), CTX))
+    assert result["event"] == "skipped:too_soon_after_last_card" and calls == []
+    # An objection is not kept waiting.
+    result = run(live_card.read_card(reading(reason="turn_end", objection="price", cards=used), CTX))
+    assert result["moment"] == "them_urgent" and result["event"] == "shown"
+
+
+def test_a_note_about_what_to_do_is_not_a_card():
+    assert not live_card.says_as_is("Con su sistema ya cubierto en el después, explorar qué pasa cuando la duda surge en directo.")
+    assert not live_card.says_as_is("Cambiar de la comparación funcional a la cobertura real: ¿qué pasa en las otras?")
+    assert live_card.says_as_is("Vale, ¿y qué os aporta Gemini en el día a día?")
+    assert live_card.says_as_is("Entiendo, te pregunto por el seguimiento: ¿quién lo lleva?")
 
 
 def test_a_card_rests_on_their_own_words(monkeypatch):
