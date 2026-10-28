@@ -38,7 +38,9 @@ def _run(props, *, transcript=""):
     finalize = AsyncMock()
     extract = AsyncMock()
     update_row = MagicMock()
-    stt = SimpleNamespace(text=transcript, confidence=0.9, diarization=True, channels=1)
+    stt = SimpleNamespace(
+        text=transcript, confidence=0.9, diarization=True, channels=1, provider="deepgram", model="nova-3", roles_known=False
+    )
     with patch("app.services.pipeline_lease.acquire_pipeline_run", return_value="run-1"), patch(
         "app.services.pipeline_lease.release_pipeline_run"
     ), patch("app.services.pipeline_lease.update_memo_row", update_row), patch(

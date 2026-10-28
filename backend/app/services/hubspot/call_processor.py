@@ -273,6 +273,9 @@ async def process_hubspot_call_background(
                 extra_terms=extra_terms,
                 diarization=True,
                 source="hubspot_call",
+                # HubSpot puts the caller on the first channel of an outbound call's recording (checked on ten
+                # recent calls of two reps); on an inbound call that is not known, so the words decide.
+                rep_channel=None if str(props.get("hs_call_direction") or "").upper() == "INBOUND" else 0,
             )
             transcript = stt.text
             memo_row = (
@@ -324,13 +327,14 @@ async def process_hubspot_call_background(
                 "screening_outcome": screening_outcome,
                 "transcript_raw": transcript,
                 "transcript_stt_meta": {
-                    "provider": "deepgram",
-                    "model": "nova-3",
+                    "provider": stt.provider,
+                    "model": stt.model,
                     "raw_speaker_count": raw_speaker_count(transcript),
                     "call_date": call_date,
                     "diarized": True,
                     "diarization": stt.diarization,
                     "channels": stt.channels,
+                    **({"speakers": "channels"} if stt.roles_known else {}),
                 },
             },
         )

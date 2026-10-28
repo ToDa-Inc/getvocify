@@ -40,6 +40,10 @@ class BatchTranscript:
     confidence: Optional[float] = None
     diarization: str = "speaker"
     channels: int = 1
+    provider: str = "deepgram"
+    model: str = "nova-3"
+    # The sides of a two-channel recording are labelled from who is on which channel (S1 the rep), not guessed.
+    roles_known: bool = False
 
 
 def wav_channel_count(audio_bytes: bytes) -> int:
@@ -277,6 +281,7 @@ async def transcribe_audio(
     extra_terms: Optional[Iterable[EntityTerm]] = None,
     diarization: bool = True,
     source: str = "",
+    rep_channel: Optional[int] = None,
 ) -> BatchTranscript:
     provider = (getattr(settings, "STT_PROVIDER", None) or "deepgram").strip().lower()
     profile_langs = resolve_profile_stt_languages(language, user_id=user_id)
@@ -297,6 +302,7 @@ async def transcribe_audio(
             diarization=diarization,
             t0=t0,
             multichannel=channel,
+            rep_channel=rep_channel,
         )
         used_lang = lang if provider != "speechmatics" else sm_lang
         if should_detect_stt_language(used_lang, profile_langs):
@@ -332,6 +338,7 @@ async def transcribe_audio(
                     diarization=diarization,
                     t0=time.perf_counter(),
                     multichannel=channel,
+                    rep_channel=rep_channel,
                 )
                 used_lang = picked
         set_batch_stt_language(used_lang)
@@ -434,6 +441,7 @@ async def _transcribe_once(
     diarization: bool,
     t0: float,
     multichannel: bool = False,
+    rep_channel: Optional[int] = None,
 ) -> BatchTranscript:
     if provider == "speechmatics":
         return await _transcribe_speechmatics(
@@ -452,12 +460,22 @@ async def _transcribe_once(
         from app.services.mai_batch import MODEL as MAI_MODEL, transcribe_mai
 
         try:
-            mai = await transcribe_mai(audio_bytes, language=lang)
+            mai = await transcribe_mai(
+                audio_bytes, language=lang, channels=2 if multichannel else 1,
+                rep_channel=rep_channel, diarization=diarization,
+            )
             record_stage(
                 "stt", t0, provider="openrouter", model=MAI_MODEL, language=lang,
-                chunks=mai.chunks, cost_usd=mai.cost_usd,
+                chunks=mai.chunks, cost_usd=mai.cost_usd, speakers=mai.speakers,
             )
-            return BatchTranscript(text=mai.text, diarization="none", channels=1)
+            return BatchTranscript(
+                text=mai.text,
+                diarization={"channels": "channel", "diarized": "speaker"}.get(mai.speakers, "none"),
+                channels=2 if mai.speakers == "channels" else 1,
+                provider="openrouter",
+                model=MAI_MODEL,
+                roles_known=mai.roles_known,
+            )
         except Exception as e:
             logger.warning("MAI STT failed; falling back to Deepgram: %s", e)
             record_stage(

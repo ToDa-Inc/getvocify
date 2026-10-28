@@ -99,6 +99,33 @@ class OpenRouterTranscriber:
         cost = (data.get("usage") or {}).get("cost")
         return str(data.get("text") or "").strip(), cost if isinstance(cost, (int, float)) else None
 
+    async def diarize(self, pcm: bytes) -> tuple[list[dict], Optional[float]]:
+        """One request for a stretch of audio: [{speaker, start, end, text}] in order, times in seconds from the start of
+        the audio. The speaker numbers hold within this request only. Raises TranscriptionError when no speakers came back."""
+        body: dict = {
+            "model": self.model,
+            "input_audio": {"data": base64.b64encode(wav_bytes(pcm)).decode(), "format": "wav"},
+            "temperature": 0,
+            "response_format": "verbose_json",
+            "diarize": True,
+        }
+        if self.language:
+            body["language"] = self.language
+        response = await self.client.post(URL, headers={"Authorization": f"Bearer {self.api_key}"}, json=body)
+        if response.status_code != 200:
+            raise TranscriptionError(f"OpenRouter {response.status_code}: {response.text[:200]}")
+        data = response.json()
+        turns = [
+            {"speaker": s["speaker"], "start": float(s["start"]), "end": float(s["end"]), "text": str(s.get("text") or "").strip()}
+            for s in data.get("segments") or []
+            if isinstance(s.get("speaker"), int) and isinstance(s.get("start"), (int, float))
+            and isinstance(s.get("end"), (int, float)) and str(s.get("text") or "").strip()
+        ]
+        if not turns:
+            raise TranscriptionError("the response carried no speaker labels")
+        cost = (data.get("usage") or {}).get("cost")
+        return turns, cost if isinstance(cost, (int, float)) else None
+
     async def transcribe(self, pcm: bytes) -> Transcription:
         """The chunk's text. Raises TranscriptionError when no request answered."""
         wav = wav_bytes(pcm)

@@ -271,6 +271,11 @@ def _rep_turn_score(text: str, roles: dict[str, str]) -> int:
     return score
 
 
+def rep_voice_score(text: str) -> int:
+    """How much a stretch of speech sounds like the sales rep (introduces themselves, pitches) and not the contact."""
+    return _rep_turn_score(text, {})
+
+
 def collapse_extra_speakers(transcript: str, max_parties: int = 2) -> str:
     """Keep the two longest speakers; fold the rest into the shorter kept side."""
     if max_parties < 2:
