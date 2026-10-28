@@ -85,7 +85,17 @@ const path = (key: string) => `/playbooks/${encodeURIComponent(key)}`;
 /** A block of how Vocify decides in any moment of these calls, kept whole as the company wrote it. */
 export type ConductBlock = { name: string; text: string };
 /** A recognisable moment and what to do in it, kept whole as the company wrote it. */
-export type ConductSituation = { name: string; when: string; do: string; example: string; avoid: string };
+export type ConductSituation = {
+  name: string;
+  when: string;
+  do: string;
+  example: string;
+  avoid: string;
+  /** The Vocify practice it was imported from; empty when it is the company's own (or was edited). */
+  practice?: string;
+};
+/** A Vocify buena práctica for a call type, imported as a situation. */
+export type Practice = { id: string; name: string; when: string; do: string; avoid: string };
 export type Conduct = {
   goal: string;
   also_good: string;
@@ -130,6 +140,8 @@ export const playbooksApi = {
   ) => api.put<EditorDoc>(`${path(key)}/draft`, body),
   discardDraft: (key: string) => api.delete<EditorDoc>(`${path(key)}/draft`),
   conduct: (key: string) => api.get<{ conduct: Conduct }>(`${path(key)}/conduct`),
+  practices: (key: string, goal?: string) =>
+    api.get<{ practices: Practice[] }>(`${path(key)}/practices${goal ? `?goal=${encodeURIComponent(goal)}` : ""}`),
   saveConduct: (key: string, conduct: Conduct) => api.put<{ conduct: Conduct }>(`${path(key)}/conduct`, conduct),
   publish: (key: string) => api.post<{ motions: Record<string, MotionStatus> }>(`${path(key)}/publish`),
   // Waits on transcription (audio) and up to two model calls, well past the default 20 s.

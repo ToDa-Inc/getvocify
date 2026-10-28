@@ -12,7 +12,8 @@ their own words, one per call type, not versioned (a change applies to the next 
     core       how Vocify decides in any moment of these calls (a principle, how to pick the next question, how to say it
                to the rep), each a named block of text kept whole
     situations what to do in a recognisable moment ("dice que ya lo tiene resuelto"): when it applies, what to do, an
-               example in the rep's words and what not to do, each kept whole
+               example in the rep's words and what not to do, each kept whole; `practice` is the id of the Vocify
+               practice it was imported from (services/playbooks/practices.py), "" for the company's own
 
 The live card brain reads it as guidance next to the playbook, never as a SOURCE: a card cannot rest on it to state a
 fact. Until the migration is applied the SQL store raises ConductUnavailable (`not_activated`) and the brain reads none.
@@ -60,6 +61,7 @@ class Situation(BaseModel):
     do: str = Field(default="", max_length=MAX_BLOCK_TEXT)
     example: str = Field(default="", max_length=MAX_BLOCK_TEXT)
     avoid: str = Field(default="", max_length=MAX_BLOCK_TEXT)
+    practice: str = Field(default="", max_length=MAX_BLOCK_NAME)
 
 
 class Conduct(BaseModel):
@@ -81,15 +83,15 @@ def _text(text: Any, limit: int) -> str:
     return "\n".join(line for i, line in enumerate(lines) if line or (i and lines[i - 1])).strip()[:limit]
 
 
-def _blocks(raw: Any, fields: tuple[str, ...], limit: int) -> list[dict]:
-    """The named blocks still written (a name or any field), in order."""
+def _blocks(raw: Any, fields: tuple[str, ...], limit: int, tags: tuple[str, ...] = ()) -> list[dict]:
+    """The named blocks still written (a name or any field), in order; `tags` are one-line fields kept alongside."""
     out = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
         block = {"name": _line(item.get("name"), MAX_BLOCK_NAME), **{f: _text(item.get(f), MAX_BLOCK_TEXT) for f in fields}}
         if any(block.values()):
-            out.append(block)
+            out.append({**block, **{t: _line(item.get(t), MAX_BLOCK_NAME) for t in tags}})
     return out[:limit]
 
 
@@ -104,7 +106,7 @@ def normalize(raw: Any) -> Optional[dict]:
         "stop_when": _line(raw.get("stop_when"), MAX_OUTCOME),
         "criteria": criteria,
         "core": _blocks(raw.get("core"), ("text",), MAX_CORE),
-        "situations": _blocks(raw.get("situations"), SITUATION_FIELDS, MAX_SITUATIONS),
+        "situations": _blocks(raw.get("situations"), SITUATION_FIELDS, MAX_SITUATIONS, tags=("practice",)),
     }
     return conduct if any(conduct.values()) else None
 

@@ -140,3 +140,15 @@ def test_a_save_without_situations_keeps_the_stored_ones():
     assert saved["goal"] == "Otra"
     assert [s["name"] for s in saved["situations"]] == ["Dice que ya lo tiene resuelto"]
     assert client.put(URL, json={**WRITTEN, "core": [], "situations": []}).json()["conduct"]["situations"] == []
+
+
+def test_an_imported_practice_keeps_its_id_and_the_page_lists_the_pack():
+    stored = conduct.normalize({"situations": [{"name": "Le quita importancia", "do": "Entender el motivo.", "practice": "le_quita_importancia"},
+                                               {"name": "Propia", "do": "Algo nuestro."}]})
+    assert [s["practice"] for s in stored["situations"]] == ["le_quita_importancia", ""]
+    assert "le_quita_importancia" not in conduct.brain_text(stored, "Agendar una demo")
+    client = make_client()
+    pack = client.get("/api/v1/playbooks/discovery/practices").json()["practices"]
+    assert pack and {"id", "name", "when", "do", "avoid"} <= set(pack[0])
+    assert client.get("/api/v1/playbooks/closing/practices").json()["practices"] == []
+    assert client.get("/api/v1/playbooks/custom_type/practices?goal=meeting_booked").json()["practices"] == pack

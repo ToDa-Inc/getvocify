@@ -497,6 +497,20 @@ async def get_playbook_conduct(
     return {"conduct": conduct or empty_conduct()}
 
 
+@router.get("/{sales_motion_key}/practices")
+async def get_playbook_practices(
+    sales_motion_key: str,
+    goal: Optional[str] = None,
+    membership: Membership = Depends(get_membership),
+):
+    """Vocify's buenas prácticas for this call type (by `goal`, else the catalog's): situations a manager can import into
+    «Cómo decide Vocify». {practices: [{id, name, when, do, avoid}]}; empty when there is no pack for that goal."""
+    from app.services.playbooks.practices import practices_for
+
+    require_manager(membership)
+    return {"practices": practices_for(sales_motion_key, goal)}
+
+
 @router.put("/{sales_motion_key}/conduct")
 async def save_playbook_conduct(
     sales_motion_key: str,

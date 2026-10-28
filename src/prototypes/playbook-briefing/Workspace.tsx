@@ -7,13 +7,13 @@
 // Opened from the real Playbook funnel. Real playbook and model (local API); the goal and orientation live in this page.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ArrowUp, ChevronDown, ChevronRight, Clock, Compass, FileUp, ListOrdered, MessagesSquare, Pencil, PencilLine, PhoneCall, Play, Plus, ShieldQuestion, Signpost, Smile, Sparkles, Target, X, type LucideIcon } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ChevronRight, Clock, Compass, FileUp, ListOrdered, MessagesSquare, Pencil, PencilLine, PhoneCall, Play, Plus, ShieldQuestion, Signpost, Smile, Sparkles, Target, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import { Input } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
-import { blobBase64, playbooksApi, type Conduct, type ConductSituation, type EditorDoc, type FillSource, type PlaybookList } from "@/features/playbooks/api";
+import { blobBase64, playbooksApi, type Conduct, type ConductSituation, type EditorDoc, type Practice, type FillSource, type PlaybookList } from "@/features/playbooks/api";
 import { DocRow, ItemMenu, NumberMark, QuoteMark } from "@/features/playbooks/components/DocParts";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { WindowShell } from "@/features/playbooks/components/home/WindowShell";
@@ -38,7 +38,7 @@ type Structure = {
   themes: { name: string; answers: number[] }[];
 };
 type Turn = { id: string; who: "you" | "them"; text: string; t: number };
-type ReviewCall = { name: string; turns: Turn[]; shown: { visible_t: number; say: string }[] };
+type ReviewCall = { name: string; turns: Turn[]; shown: { visible_t: number; say: string }[]; real?: boolean };
 /** A change Vocify proposes, shown before it is applied. */
 type Proposal = {
   summary: string;
@@ -58,6 +58,12 @@ const GOALS: Record<string, string> = {
   demo_booked: "demo agendada",
   close_date: "fecha de decisión o firma",
 };
+/** Real cold calls of Vocify, played with the playbook as it is saved (prototypes/playbook-briefing/local_api.py). */
+const REAL_CALLS = [
+  { call: "272ac057", name: "Josep" },
+  { call: "56ef086b", name: "Natalia" },
+  { call: "5723ae33", name: "Manel" },
+];
 const CHAT_HINTS = ["¿Qué le falta a este playbook?", "Que sea menos insistente", "Que profundice más antes de presentar"];
 /** A few situations to try it in; a real call last, only when there is one. */
 const TRIES: { key: string; label: string; icon: LucideIcon; scenario?: string }[] = [
@@ -152,7 +158,22 @@ function ProposalBox({ proposal, onSettle }: { proposal: Proposal; onSettle: (st
 }
 
 /** One suggestion of the call being tried, and what the manager thinks of it; a correction goes to the chat with Vocify. */
-function Moment({ them, say, at, label, onCorrect }: { them: string; say: string; at: number; label: string; onCorrect: (feedback: string) => Promise<void> }) {
+function Moment({
+  them,
+  say,
+  then,
+  at,
+  label,
+  onCorrect,
+}: {
+  them: string;
+  say: string;
+  /** What the rep really said next, in a real call. */
+  then?: string;
+  at: number;
+  label: string;
+  onCorrect: (feedback: string) => Promise<void>;
+}) {
   const [mode, setMode] = useState<"idle" | "good" | "bad">("idle");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -163,6 +184,7 @@ function Moment({ them, say, at, label, onCorrect }: { them: string; say: string
         <span className="font-medium text-beige">{label}</span> «{them}»
       </p>
       <p className="rounded-lg bg-secondary/50 px-3 py-2 text-[14px] leading-snug text-foreground">{say}</p>
+      {then ? <p className="text-[12.5px] leading-snug text-muted-foreground">El comercial dijo: «{then}»</p> : null}
       {mode === "good" ? (
         <p className="text-[12.5px] text-muted-foreground">Anotado.</p>
       ) : mode === "bad" ? (
@@ -211,6 +233,10 @@ export function Workspace({ motion }: { motion: string }) {
   const [doc, setDoc] = useState<EditorDoc | null>(null);
   /** «Cómo decide Vocify» of this call type, as saved in the playbook: its general criterion and its situations. */
   const [conduct, setConduct] = useState<Conduct | null>(null);
+  /** Vocify's buenas prácticas for this type of call, and the window that shows them. */
+  const [practices, setPractices] = useState<Practice[]>([]);
+  const [practicesOpen, setPracticesOpen] = useState(false);
+  const [openPractice, setOpenPractice] = useState<string | null>(null);
   const [shape, setShape] = useState<Structure | null>(null);
   const [phase, setPhase] = useState<string | null>("Organizando vuestro playbook…");
   const [area, setArea] = useState<Area | null>(null);
@@ -242,6 +268,11 @@ export function Workspace({ motion }: { motion: string }) {
 
   const label = list?.details?.[motion]?.label ?? "";
   const goalKey = list?.details?.[motion]?.goal ?? "";
+
+  useEffect(() => {
+    if (!list) return;
+    void playbooksApi.practices(motion, goalKey || undefined).then((r) => setPractices(r.practices)).catch(() => setPractices([]));
+  }, [list, motion, goalKey]);
 
   /** Vocify reads the playbook and organises it; the goal and orientation are kept when only the rest changed. */
   const organise = async (next: EditorDoc, keep?: Pick<Structure, "goal" | "alternatives" | "orientation">) => {
@@ -291,8 +322,17 @@ export function Workspace({ motion }: { motion: string }) {
   };
   const situations = conduct?.situations ?? [];
   const core = conduct?.core ?? [];
+  // An edited practice is the company's own from then on: it no longer follows Vocify's.
   const setSituation = (i: number, patch: Partial<ConductSituation>) =>
-    conduct && void saveConduct({ ...conduct, situations: situations.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+    conduct && void saveConduct({ ...conduct, situations: situations.map((x, j) => (j === i ? { ...x, ...patch, practice: "" } : x)) });
+  const imported = new Set(situations.map((x) => x.practice).filter(Boolean));
+  const missing = practices.filter((p) => !imported.has(p.id));
+  const addPractices = (picked: Practice[]) =>
+    conduct &&
+    void saveConduct({
+      ...conduct,
+      situations: [...situations, ...picked.map((p) => ({ name: p.name, when: p.when, do: p.do, example: "", avoid: p.avoid, practice: p.id }))],
+    });
   const setCore = (i: number, patch: Partial<{ name: string; text: string }>) =>
     conduct && void saveConduct({ ...conduct, core: core.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
   /** Removes at once and offers to undo, the way the rest of the app does: no confirmation to click through. */
@@ -401,18 +441,20 @@ export function Workspace({ motion }: { motion: string }) {
   const settle = (i: number, state: "applied" | "discarded") =>
     setMessages((all) => all.map((m, j) => (j === i && m.proposal ? { ...m, proposal: { ...m.proposal, state } } : m)));
 
-  /** «Probar»: Vocify plays a situation (or listens to a real call) with the orientation as it is now. */
+  /** «Probar»: Vocify plays a situation with the orientation as it is now, or a real call with the playbook as it is saved. */
   const tryIt = async (key: string, scenario?: string) => {
     setTrying(key);
     setReview("loading");
     try {
-      let call: { id: string; kind: string; buyer: { name: string; role: string; company: string; situation: string }; turns: Turn[] } | undefined;
-      if (key === "unai") {
-        const data = await fetch("/prototypes/playbook-page/data.json.local").then((r) => r.json());
-        call = { id: "unai-816ba4f7", kind: "real", buyer: { name: "Unai", role: "Head of Sales", company: "Dilkar", situation: "" }, turns: data.turns };
+      const real = REAL_CALLS.find((r) => `real:${r.call}` === key);
+      if (real) {
+        const out = await post<{ name: string; turns: Turn[]; shown: { visible_t: number; say: string }[] }>("real-call", { call: real.call, motion });
+        setReview({ name: out.name, turns: out.turns, shown: [...out.shown].sort((a, b) => a.visible_t - b.visible_t), real: true });
+        return;
       }
       const out = await post<{ call: { buyer: { name: string }; turns: Turn[] }; shown: { visible_t: number; say: string }[] }>("sample-call", {
-        ...(call ? { call } : { kind: key, scenario }),
+        kind: key,
+        scenario,
         motion,
         title: label,
         rules: shape?.orientation ? [shape.orientation] : [],
@@ -621,7 +663,7 @@ export function Workspace({ motion }: { motion: string }) {
               <Signpost size={15} strokeWidth={1.5} className="mt-0.5 text-muted-foreground" />,
               { value: item.name, placeholder: "Nombre de la situación", save: (v) => setSituation(i, { name: v }) },
               item.when,
-              null,
+              item.practice ? "Vocify" : null,
               <>
                 {text("Cuándo aplica", item.when, "Lo que dice o hace el prospecto", (v) => setSituation(i, { when: v }))}
                 {text("Qué hacer", item.do, "Lo que Vocify ayuda a hacer", (v) => setSituation(i, { do: v }))}
@@ -753,7 +795,7 @@ export function Workspace({ motion }: { motion: string }) {
     const options = [
       ...TRIES,
       { key: "custom", label: "Tu situación", icon: PencilLine },
-      ...(motion === "discovery" ? [{ key: "unai", label: "Una llamada real", icon: PhoneCall }] : []),
+      ...(motion === "discovery" ? REAL_CALLS.map((r) => ({ key: `real:${r.call}`, label: `Llamada con ${r.name}`, icon: PhoneCall })) : []),
     ];
     return (
       <div className="space-y-4">
@@ -793,7 +835,7 @@ export function Workspace({ motion }: { motion: string }) {
           </form>
         ) : null}
         {review === "loading" ? (
-          <p className="text-[13px] text-muted-foreground">{trying === "unai" ? "Escuchando la llamada con Unai, hasta 3 minutos…" : "Vocify juega la situación, unos 30 s…"}</p>
+          <p className="text-[13px] text-muted-foreground">{trying?.startsWith("real:") ? `Escuchando la llamada con ${REAL_CALLS.find((r) => `real:${r.call}` === trying)?.name}, hasta 2 minutos…` : "Vocify juega la situación, unos 30 s…"}</p>
         ) : review === "error" ? (
           <p className="text-[13px] text-destructive">No se pudo. Prueba otra vez.</p>
         ) : review ? (
@@ -802,11 +844,13 @@ export function Workspace({ motion }: { motion: string }) {
               {review.shown.map((card) => {
                 const turns = review.turns.filter((turn) => turn.t <= card.visible_t);
                 const them = [...turns].reverse().find((turn) => turn.who === "them" && turn.text.split(" ").length >= 3)?.text ?? "";
+                const then = review.real ? review.turns.find((turn) => turn.t > card.visible_t && turn.who === "you" && turn.text.split(" ").length >= 3)?.text : undefined;
                 return (
                   <Moment
                     key={`${card.visible_t}-${card.say}`}
                     them={them}
                     say={card.say}
+                    then={then}
                     at={card.visible_t}
                     label={review.name}
                     onCorrect={(feedback) => send(feedback, { them, say: card.say })}
@@ -1029,9 +1073,76 @@ export function Workspace({ motion }: { motion: string }) {
             </IconAction>
           </div>
           {area === "steps" ? <p className="pt-1 text-[13px] text-muted-foreground">Orientativa: Vocify no obliga a seguir el orden ni a pasar por todos.</p> : null}
+          {area === "situations" && practices.length ? (
+            <p className="pt-1 text-[13px] text-muted-foreground">
+              {missing.length ? `Vocify tiene ${missing.length} buenas prácticas que aún no tenéis.` : "Tenéis todas las buenas prácticas de Vocify."}{" "}
+              <button type="button" onClick={() => setPracticesOpen(true)} className="text-foreground underline-offset-2 hover:underline">
+                Ver buenas prácticas
+              </button>
+            </p>
+          ) : null}
           {area === "ai" ? chatPanel : <div className="app-scroll mt-4 min-h-0 flex-1 overflow-y-auto pb-6 pr-2">{area === "test" ? testPanel : panel}</div>}
         </aside>
       ) : null}
+
+      <WindowShell
+        open={practicesOpen}
+        onOpenChange={setPracticesOpen}
+        title="Buenas prácticas"
+        lead="Situaciones que Vocify ha visto en llamadas reales de este tipo. Añade las que quieras: quedan en vuestro playbook y podéis editarlas o quitarlas."
+        footer={
+          <>
+            <span className="text-[13px] text-muted-foreground">{missing.length ? `${missing.length} sin añadir` : "Todas añadidas"}</span>
+            <Button type="button" size="sm" disabled={!missing.length || !conduct} onClick={() => addPractices(missing)}>
+              {missing.length > 1 ? `Añadir las ${missing.length}` : "Añadir"}
+            </Button>
+          </>
+        }
+      >
+        <ul>
+          {practices.map((p) => {
+            const added = imported.has(p.id);
+            const open = openPractice === p.id;
+            return (
+              <DocRow
+                key={p.id}
+                lead={<Signpost size={15} strokeWidth={1.5} className="mt-0.5 text-muted-foreground" />}
+                title={
+                  <button type="button" onClick={() => setOpenPractice(open ? null : p.id)} aria-expanded={open} className="block w-full rounded-md text-left">
+                    <span className={cn(itemTitle, "block")}>{p.name}</span>
+                    <span className={cn(itemBody, "mt-0.5 block", !open && "line-clamp-1")}>{p.when}</span>
+                  </button>
+                }
+                side={
+                  added ? (
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
+                      <Check size={13} strokeWidth={1.5} />
+                      Añadida
+                    </span>
+                  ) : (
+                    <Button type="button" size="sm" variant="outline" disabled={!conduct} onClick={() => addPractices([p])}>
+                      Añadir
+                    </Button>
+                  )
+                }
+              >
+                {open ? (
+                  <div className="space-y-3 pb-1">
+                    <div>
+                      <p className={THEME_TOKENS.typography.fieldLabel}>Qué hacer</p>
+                      <p className={itemBody}>{p.do}</p>
+                    </div>
+                    <div>
+                      <p className={THEME_TOKENS.typography.fieldLabel}>Qué no hacer</p>
+                      <p className={itemBody}>{p.avoid}</p>
+                    </div>
+                  </div>
+                ) : null}
+              </DocRow>
+            );
+          })}
+        </ul>
+      </WindowShell>
 
       <WindowShell
         open={importOpen}
