@@ -16,6 +16,8 @@ answers and the examples as ways to say things. Anything about selling lives in 
 - The small gate, in parallel: facts (only against the approved text and the conversation), the call closing, and a
   repeat of a move already made (one more try for a different move, or silence).
 - The fact check also stops a question or proposal that goes against what they set or asks again what they answered.
+- Pace: a new card not within MIN_GAP_S of the last one (a question, an objection or Responder skip it), and the
+  reading keeps the direction of the cards before until what they say contradicts or answers it.
 - The screen holds one card. Until the rep could use it (REP_WORDS words of substance since it appeared, a new
   intervention of theirs begun and finished, or the rep closed it) each reading says whether it stays, is updated,
   replaced, made wrong by what they said (closed at once) or no longer the best (closed once it could be read). Never
@@ -76,11 +78,13 @@ How to decide (your answer follows this order):
    presupposes them as facts: no question that takes for granted a failure, a loss or a gap they did not mention.
 4. "unknown": the most important thing still not known that could change the next commercial decision, or "nada
    relevante ahora".
-5. "situation": which of the company's SITUATIONS fits this moment, from everything they have said (its number and
-   name), or "none" (often none fits, or there are no situations). When one fits, your action does what it says to do
-   and nothing it says not to do.
+5. "situation": which of the company's SITUATIONS fits this moment, decided again now from what they have said, above
+   all their latest words (its number and name), or "none" (often none fits, or there are no situations). When one
+   fits, your action does what it says to do and nothing it says not to do.
 6. "their_latest", then "last_move": the last card or the rep's own move on this and what they answered. A move already
-   made is not made again, not even reworded; respond to their answer.
+   made is not made again, not even reworded; respond to their answer. THE THREAD shows the direction followed so far:
+   keep it, each card building on the last, until what they said since contradicts it or has already answered it; then
+   change direction. The same angle at most twice.
 7. "action", the move that helps most now:
    - clarify: what they just said is ambiguous and the ambiguity changes how you read the opportunity;
    - deepen: understand how something works, what it gives them, what it costs when it happens or whether it is a
@@ -91,7 +95,7 @@ How to decide (your answer follows this order):
      steers toward what the offer does is add_value too, and needs that need;
    - next_step: there is interest; a concrete next step that respects what they already set;
    - listen: the rep is handling it, they are mid-explanation, or nothing is worth saying now.
-   Persist while finding out still has value and they are receptive; change angle when a line stops giving anything new;
+   Persist while finding out still has value and they are receptive; change angle when one stops giving anything new;
    respect a clear no. When one of the company's situations describes this moment, act as it says. No checklist: a
    qualification question only when its answer matters for a decision now.
 8. "card_on_screen": when a CARD ON SCREEN is listed, what happens to it given what was said since: "keep" (still the
@@ -100,10 +104,12 @@ How to decide (your answer follows this order):
    "withdraw" (no longer the best move and there is nothing better). "no_card" when none is listed.
 9. "because": for a card, their words that make it the move now, copied exactly from what they said (at least three
    words); "" for silence. A card with no such words is not shown.
-10. "decision": "card" only with a line to show (a new card, an update or a replacement); otherwise "silence".
+10. "decision": "card" only when there is something to show (a new card, an update or a replacement); otherwise
+   "silence". "line" is then the card itself: the words the rep says, nothing else.
 
 The card: one sentence the rep can say as is, in the language of the call, at most 20 words, natural and respectful,
-built from their words.
+built from their words. It is the rep's own words to them, never an instruction or a note about what to do («explorar
+qué pasa…», «cambiar de la comparación a…»): the playbook's guidance tells you what to do, the card says it.
 
 Notes on the data: a fact about the product, prices, customers or results only when the SOURCES say it ("source": the
 entry id as written before " · ", "offer" or "knowledge"; "source_quote": the verbatim text of the SOURCES); otherwise
@@ -239,6 +245,8 @@ Each kind of content has its own source:
 - Stating as done what the seller has not done («te acaba de llegar la invitación», «ya te lo he mandado») is a
   statement about the conversation: unsupported unless THE CONVERSATION shows it happened. Confirming a detail (a day,
   an hour, a name) that differs from what the other side said («lunes a las 10» when they said «11») contradicts it.
+"unsupported" is also true when THE LINE is not words the salesperson can say as is to the other side: a note about
+what to do («explorar qué pasa…», «ahora toca saber por qué…»), a label or a fragment.
 "unsupported" is true when the line states something of the first two kinds that its source does not say, states
 something about the other side that THE CONVERSATION contradicts, or contradicts what the seller said. Answer JSON
 {"unsupported": true|false, "what": "at most 8 words"}."""
@@ -267,13 +275,17 @@ MIN_SUBSTANCE = 4  # an intervention with fewer words of substance («sí, claro
 MID_GAP_S = 40.0  # a long intervention is also read every this long while it goes on
 REP_FLOOR_S = 45.0  # the rep holding the floor this long is a moment to read
 REP_WORDS = 15  # the rep has had the chance to use the card on screen once they said this many words of substance
-# A card on screen is not changed before the rep could read and use it, unless what they said made it wrong. At 4 s a
-# replay changed one card four times in 38 s while the prospect kept talking.
-MIN_READ_S = 10.0
+# A card on screen stays at least this long, unless what they said made it wrong: the rep reads it, says it and hears
+# the answer. At 4 s a replay changed one card four times in 38 s while the prospect kept talking.
+MIN_READ_S = 20.0
+# A new card does not come within this long of the last one, unless they asked a question, raised an objection or the
+# rep pressed Responder: five cards came in two minutes in a replay, more than a rep can use.
+MIN_GAP_S = 30.0
 TOKENS = 700  # the reading also writes what it observed, its hypotheses, what is unknown and the situation
 # The reading is asked for at most 20 words; only a clearly excessive card is refused (half the cards cut at 25 words
 # were good ones of 26 to 31 words).
 MAX_CARD_WORDS = 35
+MIN_CARD_WORDS = 4  # «card», «their_latest» or a playbook id in the line is not a card
 SOURCE_QUOTE_WORDS, SAME_TEXT = 6, 0.7
 FACT_TURNS, FACT_CHARS = 400, 12000
 CLOSING_TURNS, CLOSING_RECENT_S = 8, 30.0
@@ -571,9 +583,24 @@ def offered(line: str) -> str:
     return " / ".join(f.strip() for f in found)
 
 
+# A card that starts with one of these is a note to the rep, not words to say: the playbook's guidance is written as
+# instructions and a replay showed «…explorar qué pasa cuando la duda surge en directo…» on screen.
+NOTE_VERBS = {"explorar", "preguntar", "entender", "cambiar", "profundizar", "confirmar", "proponer", "agradecer",
+              "conseguir", "presentar", "aclarar", "responder", "contestar", "ofrecer", "investigar", "indagar", "mantener",
+              "evitar", "escuchar", "dejar", "explore", "ask", "understand", "confirm", "propose", "clarify", "offer"}
+
+
+def says_as_is(say: str) -> bool:
+    """The card reads as words to say, not as a note about what to do: no clause starts with an instruction verb."""
+    clauses = re.split(r"[,:;.]\s*", say.strip().lstrip("¿¡«\"'("))
+    return not any(c.split(" ", 1)[0].lower() in NOTE_VERBS for c in clauses if c)
+
+
 def basic_checks(card: dict, turns: list[dict], shown: list[dict], sources: str) -> Optional[str]:
     if not card["say"].strip():
         return "no_evidence"
+    if len(card["say"].split()) < MIN_CARD_WORDS or not says_as_is(card["say"]):
+        return "not_a_line"
     if len(card["say"].split()) > MAX_CARD_WORDS:
         return "too_long"
     quote = " ".join((card.get("source_quote") or "").split())
@@ -831,6 +858,9 @@ async def read_card(body: Any, ctx: Any) -> dict:
     result.update(moment=moment, read_t=round(now, 1))
     if moment is None:
         result["event"] = "skipped:not_a_moment"
+        return result
+    if not pending and moment not in ("them_urgent", "asked") and shown and now - shown[-1]["visible_t"] < MIN_GAP_S:
+        result["event"] = "skipped:too_soon_after_last_card"
         return result
     motion = (body.sales_motion_key or "").strip() or None
     sources = sources_text(ctx, motion)
