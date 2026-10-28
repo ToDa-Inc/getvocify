@@ -265,8 +265,8 @@ async def process_vocify_call_background(
                         "screening_outcome": screening_outcome,
                         "transcript_raw": transcript,
                         "transcript_stt_meta": {
-                            "provider": "deepgram",
-                            "model": "nova-3",
+                            "provider": stt.provider,
+                            "model": stt.model,
                             "raw_speaker_count": raw_speaker_count(transcript),
                             "diarized": True,
                             "diarization": stt.diarization,
