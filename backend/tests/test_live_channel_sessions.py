@@ -755,3 +755,120 @@ def test_mai_chunks_run_when_forced_and_openrouter_has_a_key_and_the_language_hi
     # No OpenRouter key: the profile's own rule is used, as for the other forced providers.
     monkeypatch.setattr(live.settings, "OPENROUTER_API_KEY", None)
     assert make(["es"]).provider == "deepgram"
+
+
+class _AngleEmbedder:
+    """Stands in for the speaker model: the first sample of a piece is the voice's angle in degrees."""
+
+    path = "fake.onnx"
+
+    def available(self):
+        return True
+
+    def embed(self, pcm):
+        import numpy as np
+
+        if len(pcm) < 1.5 * 16000 * 2:
+            return None
+        angle = np.radians(int(np.frombuffer(pcm[:2], dtype=np.int16)[0]))
+        return np.array([np.cos(angle), np.sin(angle)])
+
+
+def _voice_sessions(monkeypatch):
+    live, sessions, client = _sessions(monkeypatch)
+    monkeypatch.setattr(live, "_voice_embedder", _AngleEmbedder())
+    monkeypatch.setattr(live.settings, "LIVE_VOICES_ENABLED", True)
+    return live, live.ChannelSessions(client, labels=["prospect", "rep"], language="multi", profile_languages=["es"], glossary=[], detect=False), client
+
+
+def _voices_heard(client):
+    return [(m["start"], m["voice"], m["sure"]) for m in client.sent if m.get("type") == "Voice"]
+
+
+def test_voices_are_not_told_apart_unless_the_setting_is_on_and_the_model_is_there(monkeypatch):
+    live, sessions, _ = _sessions(monkeypatch)
+    assert sessions.voices is None
+    monkeypatch.setattr(live.settings, "LIVE_VOICES_ENABLED", True)
+    monkeypatch.setattr(live, "_voice_embedder", _AngleEmbedder())
+    assert live.ChannelSessions(_FakeClient(), labels=["prospect", "rep"], language="multi", profile_languages=["es"], glossary=[], detect=False).voices is not None
+    assert live.ChannelSessions(_FakeClient(), labels=["rep"], language="multi", profile_languages=["es"], glossary=[], detect=False).voices is None
+    missing = _AngleEmbedder()
+    missing.available = lambda: False
+    monkeypatch.setattr(live, "_voice_embedder", missing)
+    assert live.ChannelSessions(_FakeClient(), labels=["prospect", "rep"], language="multi", profile_languages=["es"], glossary=[], detect=False).voices is None
+
+
+def test_each_final_of_the_call_side_is_followed_by_whose_voice_it_is_and_short_ones_say_nothing(monkeypatch):
+    import asyncio
+
+    import numpy as np
+
+    live, sessions, client = _voice_sessions(monkeypatch)
+
+    def speech(angle, seconds):
+        return np.full(int(seconds * 16000), angle, dtype=np.int16).tobytes()
+
+    async def scenario():
+        stream = sessions._open("prospect", "es", None, offset_s=0.0)
+        sessions.active["prospect"] = stream
+        rep = sessions._open("rep", "es", None, offset_s=0.0)
+        sessions.active["rep"] = rep
+        for angle, seconds in ((0, 3), (90, 3), (0, 1), (5, 3)):
+            sessions.buffers["prospect"].append(speech(angle, seconds))
+        for start, end in ((0, 3), (3, 6), (6, 7), (7, 10)):
+            await sessions._on_stream(stream, {"kind": "final", "transcript": "hola", "start": start, "end": end})
+        await sessions._on_stream(rep, {"kind": "final", "transcript": "hola", "start": 0, "end": 3})
+        await asyncio.gather(*list(sessions.checks))
+
+    asyncio.run(scenario())
+    assert _voices_heard(client) == [(0, 1, True), (3, 2, True), (7, 1, True)]
+    # The text went out first, and nothing about the rep's voice.
+    kinds = [m["type"] for m in client.sent]
+    assert kinds.index("Results") < kinds.index("Voice")
+    assert all(m["audio_channel"] == "prospect" for m in client.sent if m["type"] == "Voice")
+
+
+def test_merging_two_voices_or_moving_a_line_in_the_client_teaches_the_call(monkeypatch):
+    import asyncio
+
+    import numpy as np
+
+    live, sessions, client = _voice_sessions(monkeypatch)
+
+    async def scenario():
+        stream = sessions._open("prospect", "es", None, offset_s=0.0)
+        sessions.active["prospect"] = stream
+        for angle in (0, 90, 5):
+            sessions.buffers["prospect"].append(np.full(3 * 16000, angle, dtype=np.int16).tobytes())
+        for start in (0, 3, 6):
+            await sessions._on_stream(stream, {"kind": "final", "transcript": "hola", "start": start, "end": start + 3})
+        await asyncio.gather(*list(sessions.checks))
+        await sessions._correct_voices({"type": "VoiceMove", "start": 6, "voice": 2})
+        await sessions._correct_voices({"type": "VoiceMove", "start": 6, "voice": 9})
+        await sessions._correct_voices({"type": "VoiceMerge", "keep": 1, "drop": 2})
+
+    asyncio.run(scenario())
+    assert _voices_heard(client) == [(0, 1, True), (3, 2, True), (6, 1, True), (6, 2, True)]
+    assert list(sessions.voices.voices) == [1]
+
+
+def test_a_speaker_model_that_fails_is_turned_off_for_the_call_and_the_text_still_goes_out(monkeypatch):
+    import asyncio
+
+    live, sessions, client = _voice_sessions(monkeypatch)
+
+    def broken(pcm):
+        raise RuntimeError("no model")
+
+    monkeypatch.setattr(live._voice_embedder, "embed", broken)
+
+    async def scenario():
+        stream = sessions._open("prospect", "es", None, offset_s=0.0)
+        sessions.active["prospect"] = stream
+        sessions.buffers["prospect"].append(bytes(4 * live.BYTES_PER_SECOND))
+        await sessions._on_stream(stream, {"kind": "final", "transcript": "hola", "start": 0, "end": 3})
+        await asyncio.gather(*list(sessions.checks))
+
+    asyncio.run(scenario())
+    assert sessions.voices is None
+    assert [m["type"] for m in client.sent] == ["Results"]

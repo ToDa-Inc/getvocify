@@ -27,3 +27,6 @@ stripe>=11.0.0
 # Echo cancellation for meetings heard through speakers (WebRTC AEC3 through LiveKit's audio processing).
 numpy>=2.0
 livekit==1.1.20
+
+# Tells the voices of a live call apart (speaker model run on CPU, see services/live_voices.py).
+onnxruntime>=1.20

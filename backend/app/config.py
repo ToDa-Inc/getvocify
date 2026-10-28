@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     # Tries one provider (speechmatics, deepgram, mai, mai_chunks) on every live call instead of the profile's rule.
     # mai_chunks = MAI-Transcribe-2 through OpenRouter (OPENROUTER_API_KEY), a request per chunk of speech.
     LIVE_STT_PROVIDER: Optional[str] = None
+    # Live calls tell the voices of the call side apart (services/live_voices.py). Off until tried on a real meeting.
+    LIVE_VOICES_ENABLED: bool = False
+    LIVE_VOICES_MODEL_PATH: Optional[str] = None
     # Vercel AI Gateway: MAI-Transcribe-2-Streaming for live calls.
     AI_GATEWAY_API_KEY: Optional[str] = None
 
