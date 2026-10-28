@@ -1238,10 +1238,17 @@ class ChannelSessions:
                 if isinstance(keep, int) and isinstance(drop, int):
                     self.voices.merge(keep, drop)
                 return
-            start, voice = data.get("start"), data.get("voice")
-            if isinstance(start, (int, float)) and (voice is None or isinstance(voice, int)):
+            # The lines of one paragraph, all to voice `voice`, or all to one new voice when it is None.
+            starts = data.get("starts") if isinstance(data.get("starts"), list) else [data.get("start")]
+            voice = data.get("voice")
+            if voice is not None and not isinstance(voice, int):
+                return
+            for start in starts:
+                if not isinstance(start, (int, float)) or isinstance(start, bool):
+                    continue
                 now = self.voices.move(float(start), voice)
                 if now is not None:
+                    voice = now
                     await self._send({"type": "Voice", "audio_channel": "prospect", "start": start, "voice": now, "sure": True})
 
     def _after_final(self, label: str, start: float, end: float) -> None:

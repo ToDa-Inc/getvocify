@@ -33,6 +33,9 @@ import {
 } from "@/lib/copilot-channel-stt";
 import {
   applyChannelResult,
+  applyVoice,
+  meetingVoices,
+  type MeetingVoice,
   resetChannel,
   normalizeMeetingTranscript,
   EMPTY_MEETING_TRANSCRIPT,
@@ -50,6 +53,7 @@ import {
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
 import { SpeakerTimeline } from "@/lib/speaker-timeline";
+import { applyVoiceAction, parseVoiceCommand, voiceMessage, type VoiceAction } from "@/lib/voice-actions";
 import { CALL_UPLOAD_RETRY_DELAYS_MS, withTransientRetries } from "@/lib/transient-retry";
 import { addJob, dropJob, forIsland, patchJob, stateOfMemo, stopAutoOpen, type AfterCallJob } from "@/lib/after-call-jobs";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
@@ -142,6 +146,9 @@ export type DesktopMeeting = {
   error: string | null;
   warning: string | null;
   turns: MeetingDisplayTurn[];
+  /** The voices heard on the other side (when the backend tells them apart), and what the rep can do to them. */
+  voices: MeetingVoice[];
+  changeVoices: (action: VoiceAction) => void;
   notes: string;
   setNotes: (notes: string) => void;
   /** Meetings that could not be sent yet, oldest first. */
@@ -601,6 +608,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         start?: unknown;
         end?: unknown;
         from?: unknown;
+        voice?: unknown;
         active?: unknown;
         error?: unknown;
         channel?: { alternatives?: Array<{ transcript?: string }> };
@@ -647,6 +655,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             sendOverlay(transcriptRef.current);
           }
         }
+      } else if (data.type === "Voice") {
+        // Whose voice a line of the other side is, a moment after its text.
+        const next = applyVoice(transcriptRef.current, data.start, data.voice);
+        if (next !== transcriptRef.current) updateTranscript(next);
       } else if (data.type === "ChannelReset") {
         const next = resetChannel(transcriptRef.current, data.audio_channel, data.from);
         if (next !== transcriptRef.current) updateTranscript(next);
@@ -1787,6 +1799,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const bridge = getDesktopBridge();
     if (!bridge) return;
     return bridge.shell.onCommand((name) => {
+      // The island's rename / merge / move of the other side's voices.
+      const voiceAction = parseVoiceCommand(name);
+      if (voiceAction) {
+        changeVoicesRef.current(voiceAction);
+        return;
+      }
       const current = phaseRef.current;
       if (isCallUp(callEngine.getState())) {
         // During a Vocify call the island's Stop hangs up; nothing else may start a second recording.
@@ -1935,6 +1953,21 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   );
 
   const turns = useMemo(() => meetingDisplayTurns(transcript), [transcript]);
+  const voices = useMemo(() => meetingVoices(transcript), [transcript]);
+
+  // The rep renames a voice, merges two or moves a paragraph: seen at once, and the backend learns from merges and moves.
+  const changeVoices = useCallback(
+    (action: VoiceAction) => {
+      const next = applyVoiceAction(transcriptRef.current, action);
+      if (next !== transcriptRef.current) updateTranscript(next);
+      const message = voiceMessage(action);
+      const ws = wsRef.current;
+      if (message && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+    },
+    [updateTranscript],
+  );
+  const changeVoicesRef = useRef(changeVoices);
+  changeVoicesRef.current = changeVoices;
 
   // One model proposal once the conversation says enough, a second only if it was unsure.
   useEffect(() => {
@@ -2010,6 +2043,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       error,
       warning,
       turns,
+      voices,
+      changeVoices,
       notes,
       setNotes,
       pending,
@@ -2031,7 +2066,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallType, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, voices, changeVoices, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallType, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

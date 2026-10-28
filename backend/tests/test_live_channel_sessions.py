@@ -872,3 +872,25 @@ def test_a_speaker_model_that_fails_is_turned_off_for_the_call_and_the_text_stil
     asyncio.run(scenario())
     assert sessions.voices is None
     assert [m["type"] for m in client.sent] == ["Results"]
+
+
+def test_a_paragraph_moved_to_a_new_voice_moves_all_its_lines_to_the_same_one(monkeypatch):
+    import asyncio
+
+    import numpy as np
+
+    live, sessions, client = _voice_sessions(monkeypatch)
+
+    async def scenario():
+        stream = sessions._open("prospect", "es", None, offset_s=0.0)
+        sessions.active["prospect"] = stream
+        for angle in (0, 5, 8):
+            sessions.buffers["prospect"].append(np.full(3 * 16000, angle, dtype=np.int16).tobytes())
+        for start in (0, 3, 6):
+            await sessions._on_stream(stream, {"kind": "final", "transcript": "hola", "start": start, "end": start + 3})
+        await asyncio.gather(*list(sessions.checks))
+        await sessions._correct_voices({"type": "VoiceMove", "starts": [3, 6, "x", True], "voice": None})
+
+    asyncio.run(scenario())
+    assert _voices_heard(client) == [(0, 1, True), (3, 1, True), (6, 1, True), (3, 2, True), (6, 2, True)]
+    assert sorted(sessions.voices.voices) == [1, 2]
