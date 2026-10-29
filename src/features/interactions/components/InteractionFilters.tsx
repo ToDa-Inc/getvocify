@@ -2,6 +2,7 @@ import { activityFilterChips, type ActivityAuthor } from "@/lib/activity-authors
 import { CHANNELS, type Channel, type TypeOption } from "@/lib/interactions";
 import { useLanguage } from "@/lib/i18n";
 import { FilterMenu } from "./FilterMenu";
+import { InteractionSearch } from "./InteractionSearch";
 
 const ALL = "all";
 
@@ -20,10 +21,12 @@ export function ChannelFilter({ channel, onChannel }: { channel: Channel | "all"
 }
 
 /**
- * The list's filters, side by side as menus: channel, type and — for a manager — who recorded it.
+ * The list's filters, side by side: a name search, then menus for channel, type and — for a manager — who recorded it.
  * `authors` is null for a rep, who only ever sees their own interactions.
  */
 export function InteractionFilters({
+  search,
+  onSearch,
   channel,
   onChannel,
   typeKey,
@@ -34,6 +37,8 @@ export function InteractionFilters({
   onAuthor,
   currentUserId,
 }: {
+  search: string;
+  onSearch: (next: string) => void;
   channel: Channel | "all";
   onChannel: (next: Channel | "all") => void;
   typeKey: string;
@@ -54,6 +59,7 @@ export function InteractionFilters({
 
   return (
     <div role="group" aria-label={copy.filters} className="flex flex-wrap items-center gap-2">
+      <InteractionSearch value={search} onChange={onSearch} />
       <ChannelFilter channel={channel} onChannel={onChannel} />
       <FilterMenu
         label={copy.typeFilter}

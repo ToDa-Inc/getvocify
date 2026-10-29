@@ -1182,6 +1182,7 @@ async def list_memos(
     reached_only: bool = False,
     interaction_kind: Optional[str] = Query(None),
     sales_motion_key: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, max_length=100),
 ):
     """
     List memos.
@@ -1204,6 +1205,8 @@ async def list_memos(
 
     Optional interaction_kind (call, meeting, visit, voice_note) and sales_motion_key (the
     memo's type): rows from before interaction_kind was stamped are matched by their origin.
+
+    Optional search: part of the contact's name, any case (the name the extraction read from the call).
     """
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -1295,6 +1298,10 @@ async def list_memos(
         q = q.or_(interaction_kind_filter(kind_value))
     if motion_value:
         q = q.eq("sales_motion_key", motion_value)
+    search_value = (search or "").strip()
+    if search_value:
+        literal = search_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        q = q.ilike("extraction->>contactName", f"%{literal}%")
     if reached_only is True:
         # Repeated `or` params are ANDed by PostgREST, so this composes with the deal filter.
         unreached = ",".join(sorted(SKIPPED_SCREENING))

@@ -88,7 +88,7 @@ export function typeChip(
 
 /** One row more than the page is asked for, so the feed knows whether there is a next page. */
 export function feedQuery(
-  state: { channel: Channel | "all"; typeKey: string | "all"; authorUserId?: string; page: number },
+  state: { channel: Channel | "all"; typeKey: string | "all"; authorUserId?: string; search?: string; page: number },
   pageSize: number,
 ): MemoFilters {
   return {
@@ -97,6 +97,7 @@ export function feedQuery(
     ...(state.channel !== "all" && { interactionKind: state.channel }),
     ...(state.typeKey !== "all" && { salesMotionKey: state.typeKey }),
     ...(state.authorUserId && { authorUserId: state.authorUserId }),
+    ...(state.search?.trim() && { search: state.search.trim() }),
   };
 }
 
