@@ -255,6 +255,8 @@ export interface MemoFilters {
   interactionKind?: Channel;
   /** Limit to one interaction type */
   salesMotionKey?: string;
+  /** Part of the contact's name */
+  search?: string;
 }
 
 /**

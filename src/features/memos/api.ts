@@ -54,6 +54,7 @@ export const memosApi = {
     if (filters?.authorUserId) params.set('author_user_id', filters.authorUserId);
     if (filters?.interactionKind) params.set('interaction_kind', filters.interactionKind);
     if (filters?.salesMotionKey) params.set('sales_motion_key', filters.salesMotionKey);
+    if (filters?.search) params.set('search', filters.search);
     
     const query = params.toString();
     return api.get<Memo[]>(`/memos${query ? `?${query}` : ''}`);

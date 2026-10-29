@@ -47,11 +47,15 @@ const InteractionsPage = () => {
   });
   const { options, labelOf } = useTypeOptions();
   // Calls the CRM logged that Vocify has not read yet are listed with the conversations, where calls are.
-  const showCrmCalls = feed.typeKey === "all" && (feed.channel === "all" || feed.channel === "call");
+  // A search is by the name Vocify read from a call, which these have not been through.
+  const showCrmCalls = feed.typeKey === "all" && !feed.searched && (feed.channel === "all" || feed.channel === "call");
   const crm = useCrmCalls({ authorUserId: feed.authorUserId, enabled: showCrmCalls });
   // Your own list with nothing in it is an empty account, not a filter: offer to record.
   const filtered =
-    feed.channel !== "all" || feed.typeKey !== "all" || Boolean(feed.authorUserId && feed.authorUserId !== user?.id);
+    feed.channel !== "all" ||
+    feed.typeKey !== "all" ||
+    Boolean(feed.searched) ||
+    Boolean(feed.authorUserId && feed.authorUserId !== user?.id);
 
   const listRef = useRef<HTMLDivElement>(null);
   const goTo = (page: number) => {
@@ -65,6 +69,7 @@ const InteractionsPage = () => {
     feed.setChannel("all");
     feed.setTypeKey("all");
     feed.setAuthorUserId(null);
+    feed.setSearch("");
   };
   // Who recorded it, for a manager looking at more than one person; a single author is already the filter.
   const authorOf = (memo: Memo) =>
@@ -75,6 +80,8 @@ const InteractionsPage = () => {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <h1 className={THEME_TOKENS.typography.pageTitle}>{copy.title}</h1>
         <InteractionFilters
+          search={feed.search}
+          onSearch={feed.setSearch}
           channel={feed.channel}
           onChannel={feed.setChannel}
           typeKey={feed.typeKey}

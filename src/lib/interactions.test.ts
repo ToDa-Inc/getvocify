@@ -141,6 +141,12 @@ describe("feedQuery", () => {
       authorUserId: "u1",
     });
   });
+
+  it("sends the name search trimmed, and nothing for a blank one", () => {
+    assert.equal(feedQuery({ channel: "all", typeKey: "all", search: "  vega ", page: 0 }, 20).search, "vega");
+    assert.equal("search" in feedQuery({ channel: "all", typeKey: "all", search: "   ", page: 0 }, 20), false);
+    assert.equal("search" in feedQuery({ channel: "all", typeKey: "all", page: 0 }, 20), false);
+  });
 });
 
 describe("pageOf", () => {

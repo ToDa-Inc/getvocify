@@ -4,6 +4,7 @@ type; the web voice-memo upload can store a voice note."""
 from __future__ import annotations
 
 import os
+import re
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
@@ -38,6 +39,14 @@ def _row(n: int, **extra) -> dict:
     }
 
 
+def _like_regex(pattern: str) -> "re.Pattern[str]":
+    """A SQL ILIKE pattern as a regex: `%` is any run, a backslash makes the next character literal."""
+    out, chars = [], iter(pattern)
+    for c in chars:
+        out.append(re.escape(next(chars, "")) if c == "\\" else ".*" if c == "%" else "." if c == "_" else re.escape(c))
+    return re.compile("^" + "".join(out) + "$", re.IGNORECASE)
+
+
 class _Result:
     def __init__(self, data):
         self.data = data
@@ -61,6 +70,13 @@ class _Query:
 
     def or_(self, expression):
         self.filters.append(lambda row: matches(expression, row))
+        return self
+
+    def ilike(self, column, pattern):
+        # Only the JSON text path the list uses: extraction->>key. `\x` escapes a literal, `%` is any run.
+        key = column.split("->>")[1]
+        regex = _like_regex(pattern)
+        self.filters.append(lambda row: bool(regex.match(str((row.get("extraction") or {}).get(key) or ""))))
         return self
 
     def order(self, *_a, **_k):
@@ -154,6 +170,33 @@ def test_list_memos_channel_and_type_compose():
     )
     response = _client(store).get("/api/v1/memos?interaction_kind=visit&sales_motion_key=internal")
     assert _ids(response) == [_uuid(2)]
+
+
+def _named_store() -> _Store:
+    return _Store(
+        _row(1, extraction={"contactName": "Jonathan Vega Díaz"}),
+        _row(2, extraction={"contactName": "Carlos Sanz"}),
+        _row(3, extraction={"contactName": "100% Vega"}),
+        _row(4),  # no name read from the call
+    )
+
+
+def test_list_memos_searches_the_contact_name_by_any_part_in_any_case():
+    client = _client(_named_store())
+    assert _ids(client.get("/api/v1/memos?search=vega")) == [_uuid(1), _uuid(3)]
+    assert _ids(client.get("/api/v1/memos?search=%20SANZ%20")) == [_uuid(2)]
+    assert _ids(client.get("/api/v1/memos?search=nobody")) == []
+
+
+def test_list_memos_search_treats_percent_and_underscore_as_text():
+    client = _client(_named_store())
+    assert _ids(client.get("/api/v1/memos?search=100%25")) == [_uuid(3)]
+    assert _ids(client.get("/api/v1/memos?search=%25")) == [_uuid(3)]
+    assert _ids(client.get("/api/v1/memos?search=_")) == []
+
+
+def test_list_memos_blank_search_is_no_filter():
+    assert len(_ids(_client(_named_store()).get("/api/v1/memos?search=%20"))) == 4
 
 
 def test_memo_exposes_sales_motion_key():

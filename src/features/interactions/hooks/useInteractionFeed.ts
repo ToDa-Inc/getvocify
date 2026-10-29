@@ -6,6 +6,8 @@ import { feedBusy, feedQuery, pageOf, type Channel } from "@/lib/interactions";
 const POLL_MS = 10_000;
 // The app caches forever by default; a capture made elsewhere should show when the list is reopened.
 const STALE_MS = 30_000;
+// Typing asks the server once the typist pauses, not once per key.
+const SEARCH_DEBOUNCE_MS = 300;
 
 /**
  * One page of the interactions feed, server-paginated: it asks for one row more than the page to
@@ -33,10 +35,12 @@ export function useInteractionFeed({
   const [channel, setChannelState] = useState<Channel | "all">(initialChannel);
   const [typeKey, setTypeKeyState] = useState<string | "all">("all");
   const [pickedAuthor, setPickedAuthor] = useState<string | null | undefined>(undefined);
+  const [search, setSearchState] = useState("");
+  const [searched, setSearched] = useState("");
   const authorUserId = scope === "company" ? (pickedAuthor !== undefined ? pickedAuthor : defaultAuthorUserId) : null;
 
   const filters = {
-    ...feedQuery({ channel, typeKey, authorUserId: authorUserId ?? undefined, page }, pageSize),
+    ...feedQuery({ channel, typeKey, authorUserId: authorUserId ?? undefined, search: searched, page }, pageSize),
     scope,
   };
   const query = useQuery({
@@ -48,6 +52,14 @@ export function useInteractionFeed({
     refetchInterval: (current) => (feedBusy(current.state.data ?? []) ? POLL_MS : false),
   });
   const { items, hasMore } = pageOf(query.data ?? [], pageSize);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearched(search.trim());
+      setPage(0);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   // A retag or a delete can empty the last page: step back rather than show "nothing here".
   const emptiedPage = query.isSuccess && !query.isPlaceholderData && page > 0 && items.length === 0;
@@ -70,6 +82,10 @@ export function useInteractionFeed({
       setTypeKeyState(next);
       setPage(0);
     },
+    search,
+    // What the server was asked, once typing paused: the list is for this, the box shows `search`.
+    searched,
+    setSearch: setSearchState,
     authorUserId,
     setAuthorUserId: (next: string | null) => {
       setPickedAuthor(next);
