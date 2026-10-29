@@ -34,6 +34,7 @@ from app.services.handoff_visibility import (
     sdr_ids_for_contact,
 )
 from app.services.followup import schedule_followup
+from app.services.crm_identity import crm_identity, with_crm_identity
 from app.services.pipeline_lease import update_memo_row
 from app.services.preview_cache import PreviewCache, memo_fingerprint
 from app.services.followup_logic import SKIPPED_SCREENING
@@ -419,7 +420,7 @@ async def extract_memo_async(
 
         fetched = (
             supabase.table("memos")
-            .select("transcript_stt_meta,created_at,source,source_type")
+            .select("transcript_stt_meta,created_at,source,source_type,hubspot_contact_id")
             .eq("id", memo_id)
             .limit(1)
             .execute()
@@ -489,6 +490,11 @@ async def extract_memo_async(
                 update_memo_row(supabase, memo_id, {"transcript": transcript})
             extraction_data = fix_outputs(extraction.model_dump(), edits)
             call_reading = fix_outputs(call_reading, edits)
+            # A call on a CRM contact is named after the contact and its company in the CRM, not as heard.
+            extraction_data = with_crm_identity(
+                extraction_data,
+                await crm_identity(supabase, user_id, (memo_row or {}).get("hubspot_contact_id")),
+            )
 
         t_finish = time.perf_counter()
         stored_extraction = dict(extraction_data)
@@ -1298,7 +1304,7 @@ async def list_memos(
         q = q.or_(interaction_kind_filter(kind_value))
     if motion_value:
         q = q.eq("sales_motion_key", motion_value)
-    search_value = (search or "").strip()
+    search_value = (search if isinstance(search, str) else "").strip()
     if search_value:
         literal = search_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         q = q.ilike("extraction->>contactName", f"%{literal}%")
