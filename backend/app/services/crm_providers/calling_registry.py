@@ -6,9 +6,11 @@ from typing import Optional
 
 from app.services.crm_providers.calling import CRMCallingAdapter
 from app.services.hubspot.calling_adapter import HubSpotCallingAdapter
+from app.services.pipedrive.calling_adapter import PipedriveCallingAdapter
 
 CALLING_ADAPTERS: dict[str, CRMCallingAdapter] = {
     "hubspot": HubSpotCallingAdapter(),
+    "pipedrive": PipedriveCallingAdapter(),
 }
 
 

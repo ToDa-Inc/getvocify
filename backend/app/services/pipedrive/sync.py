@@ -352,23 +352,31 @@ class PipedriveSyncService:
                 )
 
             if create_note and (deal_id or person_id or org_id):
-                content = format_note_content(summary=extraction.summary, transcript=transcript or "")
-                note_id = await self.notes.create(
-                    content, deal_id=deal_id, person_id=person_id, org_id=org_id
-                )
-                if not note_id:
-                    result.success = False
-                    result.error = "Pipedrive note was not created."
-                    result.error_code = "PIPEDRIVE_NOTE_FAILED"
-                    return result
+                # One memo, one note: a retry after a later step failed must not write it again.
+                if CRMUpdatesService.is_action_already_done(await self._previous_updates(memo_id), ("create_note",)):
+                    logger.info(
+                        "Skipping duplicate transcript note",
+                        extra=log_domain(DOMAIN_PIPEDRIVE, "note_skipped_duplicate", memo_id=str(memo_id)),
+                    )
+                else:
+                    content = format_note_content(summary=extraction.summary, transcript=transcript or "")
+                    async with self.crm_updates.track(
+                        memo_id=str(memo_id),
+                        user_id=user_id,
+                        crm_connection_id=str(connection_id),
+                        action_type="create_note",
+                        resource_type="note",
+                    ) as tracked:
+                        note_id = await self.notes.create(content, deal_id=deal_id, person_id=person_id, org_id=org_id)
+                        if not note_id:
+                            raise PipedriveError("Pipedrive note was not created.", error_code="PIPEDRIVE_NOTE_FAILED")
+                        tracked.data = {"note_id": note_id}
+                        tracked.resource_id = note_id
                 landed.append("note")
-                await self.crm_updates.create_update(
-                    memo_id=str(memo_id),
-                    user_id=user_id,
-                    crm_connection_id=str(connection_id),
-                    action_type="create_note",
-                    resource_type="note",
-                    data={"note_id": note_id},
+            elif create_note:
+                logger.warning(
+                    "Pipedrive note skipped - the memo has no deal, person or organization to attach it to",
+                    extra=log_domain(DOMAIN_PIPEDRIVE, "note_without_target", memo_id=str(memo_id)),
                 )
 
             steps = [s.strip() for s in (extraction.nextSteps or []) if str(s).strip()]
@@ -423,6 +431,13 @@ class PipedriveSyncService:
             record_sync_duration(time.perf_counter() - t0, "failure")
             logger.exception("Pipedrive sync failed: %s", e)
             return result
+
+    async def _previous_updates(self, memo_id: Union[UUID, str]) -> list[dict[str, Any]]:
+        try:
+            return await self.crm_updates.get_memo_updates(str(memo_id))
+        except Exception:
+            logger.warning("Could not read the CRM updates of memo %s", memo_id, exc_info=True)
+            return []
 
     async def _stage_change(self, confirmed_stage: Optional[str], current: dict[str, Any]) -> Optional[str]:
         if not confirmed_stage:

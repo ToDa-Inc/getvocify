@@ -101,7 +101,7 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
           if (!contactId) return;
           // What happened with them lately; a slow answer for a contact the rep has left is dropped.
           api
-            .get<Parameters<typeof islandBrief>[0]>(`/contacts/${encodeURIComponent(contactId)}/recent-activity?connection_id=hubspot`)
+            .get<Parameters<typeof islandBrief>[0]>(`/contacts/${encodeURIComponent(contactId)}/recent-activity?connection_id=${preview.provider ?? "hubspot"}`)
             .then((activity) => islandBrief(activity))
             .catch(() => null)
             .then((brief) => {

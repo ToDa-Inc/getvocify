@@ -8,9 +8,32 @@ from app.services.crm_providers.pipedrive_provider import PipedriveCRMProvider
 from app.services.pipedrive.sync import PipedriveSyncService
 
 
+class _Tracked:
+    data: dict = {}
+    resource_id = None
+
+
 class _Updates:
+    def __init__(self, previous=()):
+        self.previous = list(previous)
+        self.tracked = []
+
     async def create_update(self, **k):
         return "u1"
+
+    async def get_memo_updates(self, memo_id):
+        return self.previous
+
+    def track(self, **k):
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def tracking():
+            tracked = _Tracked()
+            yield tracked
+            self.tracked.append((k["action_type"], tracked.resource_id))
+
+        return tracking()
 
 
 class _FakeClient:
@@ -54,9 +77,9 @@ class _FakeClient:
         return {"data": {"id": 30}}
 
 
-def _svc(client=None):
+def _svc(client=None, previous=()):
     c = client or _FakeClient()
-    return PipedriveSyncService(c, None, _Updates()), c
+    return PipedriveSyncService(c, None, _Updates(previous)), c
 
 
 @pytest.mark.asyncio
@@ -250,3 +273,39 @@ async def test_promised_note_missing_fails_sync():
     )
     assert result.success is False
     assert result.error_code == "PIPEDRIVE_NOTE_FAILED"
+
+
+@pytest.mark.asyncio
+async def test_note_is_tracked_and_not_written_twice_on_a_retry():
+    svc, client = _svc()
+    kwargs = dict(
+        memo_id=uuid4(),
+        user_id="u1",
+        connection_id="c1",
+        extraction=MemoExtraction(contactName="Ada", summary="Hi"),
+        skip_deal=True,
+        contact_id="20",
+        transcript="hello",
+    )
+    assert (await svc.sync_memo(**kwargs)).success is True
+    assert [p[0] for p in client.posts].count("/notes") == 1
+    assert svc.crm_updates.tracked == [("create_note", "40")]
+
+    retry, retry_client = _svc(previous=[{"action_type": "create_note", "status": "success"}])
+    assert (await retry.sync_memo(**kwargs)).success is True
+    assert "/notes" not in [p[0] for p in retry_client.posts]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_note_row_does_not_block_the_retry():
+    svc, client = _svc(previous=[{"action_type": "create_note", "status": "failed"}])
+    result = await svc.sync_memo(
+        memo_id=uuid4(),
+        user_id="u1",
+        connection_id="c1",
+        extraction=MemoExtraction(contactName="Ada", summary="Hi"),
+        skip_deal=True,
+        contact_id="20",
+        transcript="hello",
+    )
+    assert result.success is True and "/notes" in [p[0] for p in client.posts]
