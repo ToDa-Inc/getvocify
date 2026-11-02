@@ -5,7 +5,6 @@ Application configuration from environment variables
 import json
 import os
 import tempfile
-from datetime import date
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 from typing import Optional
@@ -257,13 +256,6 @@ class Settings(BaseSettings):
     # Play the AEPD recording disclosure to the called party before bridging.
     # Off by default; flip on per environment. The whisper route stays mounted.
     CALLING_RECORDING_ANNOUNCEMENT_ENABLED: bool = False
-    # Spain: Orden TDF/149/2025 art. 9 bars +34 6/7 mobiles for commercial
-    # calls; +34 400 cannot receive the verification call. Global because it is
-    # law for every tenant, not a plan feature. See docs/telephony/DECISION.md.
-    CALLING_ES_CLI_GATE_ENABLED: bool = True
-    # Already-verified Spanish mobiles stop dialing from this Europe/Madrid date
-    # (Resolución SETID 14-04-2026, apartado sexto).
-    CALLING_ES_MOBILE_CALL_BLOCK_FROM: date = date(2026, 10, 17)
     # Lifetime of the signed recording URL handed to HubSpot.
     CALL_RECORDING_URL_TTL_SECONDS: int = 3600
     # Follow-up drafts; overridable per company (company_feature_flags). Off does not block
