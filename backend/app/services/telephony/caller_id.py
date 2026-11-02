@@ -14,9 +14,8 @@ must surface `verificationCode` to the user.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
-from typing import Any, Literal, Optional
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 from supabase import Client
 
@@ -39,79 +38,10 @@ class CallerIdVerificationUnsupported(RuntimeError):
     """Twilio region cannot verify personal caller IDs (IE1)."""
 
 
-class CallerIdRangeRestricted(CallerIdNotVerified):
-    """The number is in a Spanish range that cannot present commercial calls."""
-
-
 IE1_VERIFIED_CALLER_ID_MESSAGE = (
     "Twilio en Irlanda (IE1) no permite Verified Caller IDs. "
     "Usa una cuenta Twilio en US1 para verificar tu número."
 )
-
-ES_MOBILE_CALLER_ID_MESSAGE = (
-    "Los móviles españoles no pueden usarse para llamadas comerciales "
-    "(Orden TDF/149/2025, art. 9). Usa un fijo."
-)
-ES_400_CALLER_ID_MESSAGE = (
-    "Los números 400 no reciben llamadas, así que no se pueden verificar."
-)
-ES_MOBILE_CALL_BLOCKED_SPOKEN = (
-    "Tu identificador es un móvil español y no se puede usar para llamadas "
-    "comerciales. Elige un fijo en Ajustes."
-)
-
-SpanishCliRestriction = Literal["es_mobile", "es_400"]
-
-_ES_MOBILE_PREFIXES = ("+346", "+347")
-_ES_400_PREFIX = "+34400"
-_MADRID = ZoneInfo("Europe/Madrid")
-
-
-def spanish_cli_restriction(phone_number: str) -> Optional[SpanishCliRestriction]:
-    """Classify an E.164 number against the Spanish commercial-CLI rules."""
-    if phone_number.startswith(_ES_400_PREFIX):
-        return "es_400"
-    if phone_number.startswith(_ES_MOBILE_PREFIXES):
-        return "es_mobile"
-    return None
-
-
-def _today_madrid() -> date:
-    return datetime.now(_MADRID).date()
-
-
-def _gate_enabled() -> bool:
-    return bool(settings.CALLING_ES_CLI_GATE_ENABLED)
-
-
-def _mobile_call_blocked(phone_number: str, today: date) -> bool:
-    return (
-        _gate_enabled()
-        and spanish_cli_restriction(phone_number) == "es_mobile"
-        and today >= settings.CALLING_ES_MOBILE_CALL_BLOCK_FROM
-    )
-
-
-def _ensure_verifiable(phone_number: str) -> None:
-    if not _gate_enabled():
-        return
-    restriction = spanish_cli_restriction(phone_number)
-    if restriction == "es_mobile":
-        raise CallerIdRangeRestricted(ES_MOBILE_CALLER_ID_MESSAGE)
-    if restriction == "es_400":
-        raise CallerIdRangeRestricted(ES_400_CALLER_ID_MESSAGE)
-
-
-def _caller_id_notice(phone_number: str, today: date) -> Optional[str]:
-    if not _gate_enabled() or spanish_cli_restriction(phone_number) != "es_mobile":
-        return None
-    if _mobile_call_blocked(phone_number, today):
-        return ES_MOBILE_CALLER_ID_MESSAGE
-    block_from = settings.CALLING_ES_MOBILE_CALL_BLOCK_FROM
-    return (
-        f"Móvil español: dejará de poder llamar el {block_from:%d/%m/%Y}. "
-        "Añade un fijo."
-    )
 
 
 def _status_callback_url() -> str:
@@ -136,7 +66,6 @@ def start_caller_id_verification(
     phone_number = normalize_e164(
         raw_number, default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE
     )
-    _ensure_verifiable(phone_number)
 
     existing_rows = (
         supabase.table("user_caller_ids")
@@ -230,7 +159,6 @@ def confirm_caller_id_verification(
     phone_number = normalize_e164(
         raw_number, default_country_code=settings.CALLING_DEFAULT_COUNTRY_CODE
     )
-    _ensure_verifiable(phone_number)
     existing = (
         supabase.table("user_caller_ids")
         .select("phone_number")
@@ -297,11 +225,7 @@ def mark_caller_id_failed(
     return _set_status(supabase, verification_sid, "failed")
 
 
-def _serialize_caller_id(
-    row: dict[str, Any], today: Optional[date] = None
-) -> dict[str, Any]:
-    phone_number = str(row.get("phone_number") or "")
-    today = today or _today_madrid()
+def _serialize_caller_id(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "phoneNumber": row.get("phone_number"),
         "status": row.get("status"),
@@ -309,14 +233,10 @@ def _serialize_caller_id(
         "isDefault": bool(row.get("is_default")),
         "verifiedAt": row.get("verified_at"),
         "source": "user",
-        "callBlocked": _mobile_call_blocked(phone_number, today),
-        "notice": _caller_id_notice(phone_number, today),
     }
 
 
-def list_caller_ids(
-    supabase: Client, user_id: str, today: Optional[date] = None
-) -> list[dict[str, Any]]:
+def list_caller_ids(supabase: Client, user_id: str) -> list[dict[str, Any]]:
     res = (
         supabase.table("user_caller_ids")
         .select("phone_number,status,label,is_default,verified_at")
@@ -324,8 +244,7 @@ def list_caller_ids(
         .order("created_at")
         .execute()
     )
-    today = today or _today_madrid()
-    return [_serialize_caller_id(row, today) for row in (res.data or [])]
+    return [_serialize_caller_id(row) for row in (res.data or [])]
 
 
 def get_caller_id(
@@ -471,14 +390,11 @@ def resolve_caller_id(
     supabase: Client,
     user_id: str,
     requested: Optional[str],
-    today: Optional[date] = None,
 ) -> str:
     """Authorize a caller ID for this user, or raise.
 
     The browser client sends a preference; this is the only place that decides.
     A client must never be able to present a number it does not own.
-    A Spanish mobile past the block date raises `CallerIdRangeRestricted`
-    (the row is kept); with no preference, the next verified number is used.
     """
     query = (
         supabase.table("user_caller_ids")
@@ -495,12 +411,8 @@ def resolve_caller_id(
     verified = [
         str(r["phone_number"]) for r in rows if r.get("status") == "verified"
     ]
-    today = today or _today_madrid()
-    allowed = [n for n in verified if not _mobile_call_blocked(n, today)]
-    if allowed:
-        return allowed[0]
     if verified:
-        raise CallerIdRangeRestricted(ES_MOBILE_CALLER_ID_MESSAGE)
+        return verified[0]
     raise CallerIdNotVerified(
         f"no verified caller ID for user {user_id} (requested={requested!r})"
     )

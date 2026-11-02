@@ -75,7 +75,7 @@ export const DashboardDialer = ({
   const { user } = useAuth();
   const callCopy = t.product;
   const verified = callerIds.filter(
-    (c) => c.status === "verified" && c.source !== "twilio" && !c.callBlocked,
+    (c) => c.status === "verified" && c.source !== "twilio",
   );
   const defaultFrom =
     verified.find((c) => c.isDefault)?.phoneNumber || verified[0]?.phoneNumber || "";

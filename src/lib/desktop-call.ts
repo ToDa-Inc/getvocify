@@ -212,12 +212,11 @@ type CallerIdRow = {
   status?: string | null;
   source?: string | null;
   isDefault?: boolean | null;
-  callBlocked?: boolean | null;
 };
 
 /** The verified number a call goes out from: the default one, else the first (same rule as the dock). */
 export function outgoingCallerId(callerIds: CallerIdRow[] | null | undefined): string | null {
-  const verified = (callerIds ?? []).filter((c) => c.status === "verified" && c.source !== "twilio" && !c.callBlocked);
+  const verified = (callerIds ?? []).filter((c) => c.status === "verified" && c.source !== "twilio");
   return (verified.find((c) => c.isDefault) ?? verified[0])?.phoneNumber || null;
 }
 

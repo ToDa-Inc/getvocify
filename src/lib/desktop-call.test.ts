@@ -186,12 +186,11 @@ describe("outgoingCallerId", () => {
     assert.equal(outgoingCallerId([ids[0]]), "+34911111111");
   });
 
-  it("never uses an unverified, blocked or Twilio-owned number", () => {
+  it("never uses an unverified or Twilio-owned number", () => {
     assert.equal(
       outgoingCallerId([
         { phoneNumber: "+1", status: "pending", source: "user", isDefault: true },
         { phoneNumber: "+2", status: "verified", source: "twilio" },
-        { phoneNumber: "+3", status: "verified", source: "user", callBlocked: true },
       ]),
       null,
     );

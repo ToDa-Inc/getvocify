@@ -85,7 +85,7 @@ export const CallerIdSettings = () => {
     Boolean(whatsappPhone) &&
     !ES_RESTRICTED_CLI.test(whatsappPhone) &&
     !ids.some((c) => c.phoneNumber === whatsappPhone);
-  const callableCount = ids.filter((c) => c.status === "verified" && !c.callBlocked).length;
+  const callableCount = ids.filter((c) => c.status === "verified").length;
 
   const handleVerify = async () => {
     const raw = number.trim();
@@ -267,7 +267,7 @@ export const CallerIdSettings = () => {
       {ids.length > 0 && (
         <ul className="space-y-3">
           {ids.map((row) => {
-            const ready = row.status === "verified" && !row.callBlocked;
+            const ready = row.status === "verified";
             // Only what the rep acts on: which number is the default (when there is a choice), and a code still due.
             const statusLabel =
               row.status !== "verified" ? "Waiting for the code" : row.isDefault && callableCount > 1 ? "Default" : null;

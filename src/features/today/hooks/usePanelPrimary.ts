@@ -34,9 +34,9 @@ export function panelCrmHref(
   return openUrl || contactRecordUrl(provider, portalId, row.contactId);
 }
 
-function verifiedCallerIds(callerIds: { status?: string; source?: string; callBlocked?: boolean }[]) {
+function verifiedCallerIds(callerIds: { status?: string; source?: string }[]) {
   return callerIds.filter(
-    (entry) => entry.status === "verified" && entry.source !== "twilio" && !entry.callBlocked,
+    (entry) => entry.status === "verified" && entry.source !== "twilio",
   );
 }
 
