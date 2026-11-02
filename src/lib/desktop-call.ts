@@ -7,8 +7,8 @@
 import { isCallEnded, isCallUp, type CallEngineState, type DialTarget } from "./call-engine-state.ts";
 import type { CallPreview } from "./call-contact.ts";
 
-/** CRMs the island can call, with the name it shows. HubSpot only for now. */
-const CALLABLE_CRMS: Record<string, string> = { hubspot: "HubSpot" };
+/** CRMs the island can call, with the name it shows. */
+const CALLABLE_CRMS: Record<string, string> = { hubspot: "HubSpot", pipedrive: "Pipedrive" };
 
 export type OnScreenState = "callable" | "no_phone" | "needs_contact" | "no_caller_id";
 
@@ -223,6 +223,7 @@ export function outgoingCallerId(callerIds: CallerIdRow[] | null | undefined): s
 const HUBSPOT_RECORD = /^https:\/\/app(?:-[a-z0-9]+)?\.hubspot\.com\/contacts\/(\d+)\/record\/(0-\d+)\/(\d+)/i;
 const HUBSPOT_LEGACY = /^https:\/\/app(?:-[a-z0-9]+)?\.hubspot\.com\/contacts\/(\d+)\/(contact|company|deal)\/(\d+)/i;
 const LEGACY_TYPES: Record<string, string> = { contact: "0-1", company: "0-2", deal: "0-3" };
+const PIPEDRIVE_RECORD = /^https:\/\/(?!(?:api|oauth|www|developers|app)\.)([a-z0-9-]+)\.pipedrive\.com\/(deal|person|organization)\/(\d+)/i;
 
 /**
  * Which CRM record a page is, as a key: the same for every view of one record (tabs, query strings), so the island's
@@ -234,5 +235,7 @@ export function crmRecordKey(url: string): string | null {
   if (record) return `hubspot:${record[1]}:${record[2]}:${record[3]}`;
   const legacy = HUBSPOT_LEGACY.exec(url);
   if (legacy) return `hubspot:${legacy[1]}:${LEGACY_TYPES[legacy[2].toLowerCase()]}:${legacy[3]}`;
+  const pipedrive = PIPEDRIVE_RECORD.exec(url);
+  if (pipedrive) return `pipedrive:${pipedrive[1].toLowerCase()}:${pipedrive[2].toLowerCase()}:${pipedrive[3]}`;
   return null;
 }

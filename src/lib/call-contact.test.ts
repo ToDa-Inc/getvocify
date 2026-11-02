@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { islandCallContact, islandRecordContact, latestOnly, type CallPreview } from "./call-contact.ts";
+import { detectedCallContact, islandCallContact, islandRecordContact, latestOnly, type CallPreview } from "./call-contact.ts";
 
 const preview = (over: Partial<CallPreview> = {}): CallPreview => ({
   provider: "hubspot",
@@ -42,11 +42,27 @@ describe("islandRecordContact", () => {
     assert.deepEqual(islandRecordContact(null, onScreen({ callee: { contact_id: "123", name: null, phone: null } })), { hubspotId: "123", name: null });
   });
 
-  it("has no contact when the offer is not HubSpot, has no single contact, or is gone", () => {
-    assert.equal(islandRecordContact(null, onScreen({ provider: "pipedrive" })), null);
+  it("takes the Pipedrive person the island offers", () => {
+    assert.deepEqual(islandRecordContact(null, onScreen({ provider: "pipedrive" })), { hubspotId: "123", name: "Ana Pérez" });
+  });
+
+  it("has no contact when the offer is not a CRM the island calls, has no single contact, or is gone", () => {
+    assert.equal(islandRecordContact(null, onScreen({ provider: null })), null);
     assert.equal(islandRecordContact(null, onScreen({ callee: null, needs_contact: true })), null);
     assert.equal(islandRecordContact(null, preview({ contact_id: null, contact_name: null, needs_contact: true })), null);
     assert.equal(islandRecordContact(null, null), null);
+  });
+});
+
+describe("detectedCallContact", () => {
+  it("is the HubSpot contact or the Pipedrive person of the page the call was detected on", () => {
+    assert.deepEqual(detectedCallContact(preview({ provider: "hubspot", contact_id: "9", contact_name: " Ana " })), { hubspotId: "9", name: "Ana" });
+    assert.deepEqual(detectedCallContact(preview({ provider: "pipedrive", contact_id: "9", contact_name: null })), { hubspotId: "9", name: null });
+  });
+
+  it("is nobody without a contact or a CRM", () => {
+    assert.equal(detectedCallContact(preview({ contact_id: null, contact_name: null, needs_contact: true })), null);
+    assert.equal(detectedCallContact(preview({ provider: null })), null);
   });
 });
 

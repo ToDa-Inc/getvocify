@@ -1,8 +1,8 @@
 """What a CRM must answer for Vocify to call the record on screen.
 
 Each CRM that can be called from the desktop island implements
-`CRMCallingAdapter` and is registered in `calling_registry.py`. HubSpot is the
-only one today; a new CRM adds its URL shapes to `live_calls/crm_url.py`, an
+`CRMCallingAdapter` and is registered in `calling_registry.py`. HubSpot and
+Pipedrive today; a new CRM adds its URL shapes to `live_calls/crm_url.py`, an
 adapter here, and its fixture URLs to `tests/crm_providers/test_calling_contract.py`.
 """
 

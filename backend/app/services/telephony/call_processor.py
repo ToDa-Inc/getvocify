@@ -463,6 +463,23 @@ async def _hubspot_owner_id_for_caller(
     )
 
 
+async def _log_in_pipedrive(
+    supabase: Client,
+    row: dict[str, Any],
+    duration: float,
+    disposition: str,
+) -> bool:
+    """True when the company's CRM is Pipedrive: the call is logged there, or nowhere, never in HubSpot."""
+    from app.services.pipedrive import call_log
+
+    connection = call_log.pipedrive_only_connection(supabase, row["user_id"])
+    if not connection:
+        return False
+    if not call_log.already_logged(row):
+        await call_log.log_call(supabase, connection, row, duration=duration, disposition=disposition)
+    return True
+
+
 async def log_missed_call_activity(
     supabase: Client,
     call_sid: str,
@@ -502,6 +519,9 @@ async def log_missed_call_activity(
                 exc_info=True,
             )
         if row.get("hubspot_engagement_id") or row.get("memo_id"):
+            return
+
+        if await _log_in_pipedrive(supabase, row, 0.0, disposition):
             return
 
         row = await attach_hubspot_contact_by_phone(supabase, row)
@@ -642,6 +662,8 @@ async def log_call_engagement(
         if not row:
             return
         if row.get("hubspot_engagement_id"):
+            return
+        if await _log_in_pipedrive(supabase, row, duration, screening_outcome):
             return
         row = await attach_hubspot_contact_by_phone(supabase, row)
         if not row.get("hubspot_contact_id"):

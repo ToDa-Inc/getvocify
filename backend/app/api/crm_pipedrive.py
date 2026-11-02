@@ -33,11 +33,15 @@ from app.services.pipedrive.schema import PipedriveSchemaService, expand_schema_
 from app.services.pipedrive.page_context import assoc_id, contact_from_person, deal_raw_extraction, person_names
 from app.services.pipedrive.search import PipedriveSearchService, primary_email, primary_phone
 from app.services.pipedrive.validation import PipedriveValidationService
+from app.services.request_coalesce import CoalesceCache
 from app.services.session_entities import load_stt_profile, vocab_for_hubspot_context
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pipedrive", tags=["crm", "pipedrive"])
+
+# The island and the extension ask for the record on screen again on every page change: 30 s of the same answer.
+_CONTEXT_CACHE = CoalesceCache(ttl_seconds=30)
 
 
 def _get_pipedrive_connection_row(supabase: Client, user_id: str) -> dict[str, Any]:
@@ -513,6 +517,12 @@ async def get_pipedrive_deal_context(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
+    return await _CONTEXT_CACHE.get_or_set(
+        f"pd:deal:{user_id}:{deal_id}", lambda: _load_deal_context(deal_id, supabase, user_id)
+    )
+
+
+async def _load_deal_context(deal_id: str, supabase: Client, user_id: str) -> dict:
     empty = {
         "companyName": None,
         "companyId": None,
@@ -584,6 +594,12 @@ async def get_pipedrive_person_context(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
+    return await _CONTEXT_CACHE.get_or_set(
+        f"pd:person:{user_id}:{person_id}", lambda: _load_person_context(person_id, supabase, user_id)
+    )
+
+
+async def _load_person_context(person_id: str, supabase: Client, user_id: str) -> dict:
     empty = {
         "contactId": person_id,
         "contactName": None,
@@ -634,6 +650,12 @@ async def get_pipedrive_org_context(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
+    return await _CONTEXT_CACHE.get_or_set(
+        f"pd:org:{user_id}:{org_id}", lambda: _load_org_context(org_id, supabase, user_id)
+    )
+
+
+async def _load_org_context(org_id: str, supabase: Client, user_id: str) -> dict:
     empty = {
         "companyId": org_id,
         "companyName": None,

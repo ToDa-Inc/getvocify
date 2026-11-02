@@ -60,7 +60,7 @@ describe("onScreenFromPreview", () => {
     assert.equal(onScreenFromPreview(CONTACT_PAGE, { canDial: false, callerId: "+34910000000" }), null);
     assert.equal(onScreenFromPreview(null, ACCESS), null);
     assert.equal(onScreenFromPreview({ ...CONTACT_PAGE, record: null, callee: null, contacts_count: 0 }, ACCESS), null);
-    assert.equal(onScreenFromPreview({ ...CONTACT_PAGE, provider: "pipedrive" }, ACCESS), null);
+    assert.equal(onScreenFromPreview({ ...CONTACT_PAGE, provider: "salesforce" }, ACCESS), null);
     assert.equal(onScreenFromPreview({ ...DEAL_PAGE, callee: null, contacts_count: 0 }, ACCESS), null);
   });
 });
@@ -204,6 +204,14 @@ describe("crmRecordKey", () => {
     assert.equal(crmRecordKey(base), "hubspot:147506535:0-1:901");
     assert.equal(crmRecordKey(`${base}/view/2?eschref=x`), "hubspot:147506535:0-1:901");
     assert.equal(crmRecordKey("https://app.hubspot.com/contacts/147506535/contact/901"), "hubspot:147506535:0-1:901");
+  });
+
+  it("keys a Pipedrive record by company, kind and id, whatever tab of it is open", () => {
+    assert.equal(crmRecordKey("https://Acme.pipedrive.com/person/901"), "pipedrive:acme:person:901");
+    assert.equal(crmRecordKey("https://acme.pipedrive.com/deal/55/?foo=1#notes"), "pipedrive:acme:deal:55");
+    assert.notEqual(crmRecordKey("https://acme.pipedrive.com/person/901"), crmRecordKey("https://acme.pipedrive.com/deal/901"));
+    assert.equal(crmRecordKey("https://acme.pipedrive.com/deals/list/1"), null);
+    assert.equal(crmRecordKey("https://oauth.pipedrive.com/deal/1"), null);
   });
 
   it("tells records apart: another contact, a deal, another portal", () => {

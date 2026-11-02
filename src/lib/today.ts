@@ -283,12 +283,16 @@ export function contactRecordUrl(
   provider: string | null,
   portalId: string | null,
   contactId: string | null,
-  account?: { uiDomain?: string | null; region?: string | null },
+  account?: { uiDomain?: string | null; region?: string | null; companyDomain?: string | null },
 ): string | null {
   if (!contactId) return null;
   const name = (provider || "").trim().toLowerCase();
   if (name === "hubspot" && portalId) {
     return `https://${hubspotHost(account)}/contacts/${portalId}/record/0-1/${contactId}`;
+  }
+  const domain = (account?.companyDomain || "").trim().toLowerCase();
+  if (name === "pipedrive" && /^[a-z0-9-]+$/.test(domain)) {
+    return `https://${domain}.pipedrive.com/person/${contactId}`;
   }
   return null;
 }

@@ -15,6 +15,11 @@ PAGE_FIXTURES = {
         ("https://app-eu1.hubspot.com/contacts/147506535/record/0-3/55", "deal"),
         ("https://app.hubspot.com/contacts/147506535/record/0-2/12", "company"),
     ],
+    "pipedrive": [
+        ("https://acme.pipedrive.com/person/901", "contact"),
+        ("https://acme.pipedrive.com/deal/55", "deal"),
+        ("https://acme.pipedrive.com/organization/12", "company"),
+    ],
 }
 
 

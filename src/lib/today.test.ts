@@ -317,4 +317,9 @@ describe("contactRecordUrl", () => {
     assert.equal(contactRecordUrl("hubspot", "147", null), null);
     assert.equal(contactRecordUrl("pipedrive", "147", "9"), null);
   });
+  it("opens a Pipedrive person on the company's own domain", () => {
+    assert.equal(contactRecordUrl("pipedrive", null, "9", { companyDomain: "Acme" }), "https://acme.pipedrive.com/person/9");
+    assert.equal(contactRecordUrl("pipedrive", null, "9", { companyDomain: "a.b/c" }), null);
+    assert.equal(contactRecordUrl("pipedrive", null, null, { companyDomain: "acme" }), null);
+  });
 });

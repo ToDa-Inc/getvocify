@@ -53,7 +53,7 @@ import { CALL_UPLOAD_RETRY_DELAYS_MS, withTransientRetries } from "@/lib/transie
 import { addJob, dropJob, forIsland, patchJob, stateOfMemo, stopAutoOpen, type AfterCallJob } from "@/lib/after-call-jobs";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, desktopPlatform, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
-import { islandCallContact, islandRecordContact, latestOnly, type CallPreview } from "@/lib/call-contact";
+import { detectedCallContact, islandCallContact, islandRecordContact, latestOnly, type CallPreview } from "@/lib/call-contact";
 import { contactRecordUrl } from "@/lib/today";
 import {
   POST_CALL_GIVE_UP_MS,
@@ -232,11 +232,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   crmNameRef.current = connected ? CRM_PROVIDER_CONFIGS[connected as CRMProvider]?.name ?? null : null;
   const hubspotConnectedRef = useRef(false);
   hubspotConnectedRef.current = connected === "hubspot";
-  /** Where a contact's record lives in the connected CRM (HubSpot only): the card links to it once it is updated. */
-  const hubspot = integrations.data?.find((connection) => connection.provider === "hubspot" && connection.status === "connected");
+  /** Where a contact's record lives in the connected CRM (HubSpot or Pipedrive): the card links to it once it is updated. */
+  const recordCrm = integrations.data?.find(
+    (connection) => (connection.provider === "hubspot" || connection.provider === "pipedrive") && connection.status === "connected",
+  );
   const contactUrlRef = useRef<(contactId: string | null | undefined) => string | null>(() => null);
   contactUrlRef.current = (contactId) =>
-    contactRecordUrl(hubspot ? "hubspot" : null, hubspot?.metadata?.portalId ?? null, contactId ?? null);
+    contactRecordUrl(recordCrm?.provider ?? null, recordCrm?.metadata?.portalId ?? null, contactId ?? null, recordCrm?.metadata);
   /** A type's name as the memo page shows it: the company's label, else the catalog's. */
   const typeName = useCallback(
     (key: string, label?: string | null) => label || t.product.pb2.typeLabels[key] || motionLabel(key, t.product.motions),
@@ -1752,11 +1754,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         .post<CallPreview>("/live-calls/preview", { page_urls: urls })
         .then((preview) => {
           if (!lookups.isLatest(ticket)) return;
-          // Memos store HubSpot contacts; the next recording takes this one.
-          callContactRef.current =
-            preview.provider === "hubspot" && preview.contact_id
-              ? { hubspotId: preview.contact_id, name: preview.contact_name?.trim() || null }
-              : null;
+          // The next recording takes this contact (a HubSpot contact or a Pipedrive person).
+          callContactRef.current = detectedCallContact(preview);
           bridge.shell.setState({ callContact: islandCallContact(preview) });
           // The rep may have pressed Record before the page was read: the recording takes it too.
           const draft = draftRef.current;

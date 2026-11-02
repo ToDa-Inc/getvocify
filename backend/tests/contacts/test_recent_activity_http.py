@@ -70,7 +70,7 @@ def world(monkeypatch):
     state = {"hubspot": FakeHubSpot({"notes": [NOTE], "calls": [CALL], "meetings": [MEETING], "tasks": [TASK]}, forbidden={"emails"}, company=COMPANY), "memos": [MEMO], "llm": None, "llm_calls": 0}
 
     monkeypatch.setattr(api, "hubspot_client_for", lambda _supabase, _user_id: state["hubspot"])
-    monkeypatch.setattr(api, "read_contact_memos", lambda _supabase, _membership, _contact_id: state["memos"])
+    monkeypatch.setattr(api, "read_contact_memos", lambda _supabase, _membership, _contact_id, *_: state["memos"])
     monkeypatch.setattr(api, "read_colleague_memos", lambda _supabase, _membership, _contact_ids: [])
     monkeypatch.setattr(api, "vocify_pushed_ids", lambda _supabase, _company_id, _memo_ids: set())
 
@@ -258,3 +258,29 @@ def test_the_model_is_asked_for_short_lines_that_do_not_repeat_the_contact(clien
     rules = world["last_prompt"][0]["content"]
     assert "12 words" in rules
     assert "Never write people's names or dates" in rules
+
+
+def test_pipedrive_contact_is_briefed_from_vocify_and_says_pipedrive_was_not_read(client, world, monkeypatch):
+    seen = []
+
+    def memos(_supabase, _membership, contact_id, connection_id="hubspot"):
+        seen.append((contact_id, connection_id))
+        return world["memos"]
+
+    def no_hubspot(_supabase, _user_id):
+        raise AssertionError("Pipedrive must never touch HubSpot")
+
+    monkeypatch.setattr(api, "read_contact_memos", memos)
+    monkeypatch.setattr(api, "hubspot_client_for", no_hubspot)
+    response = client.get(f"/api/v1/contacts/{CONTACT}/recent-activity", params={"connection_id": "pipedrive", "summary": "false"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert seen == [(CONTACT, "pipedrive")]
+    assert [i["id"] for i in body["interactions"]] == ["vocify:memo:memo-1"]
+    assert body["sources"] == {"pipedrive": "not_read", "vocify": "read"}
+    assert body["company"] is None
+
+
+def test_other_crms_are_refused(client):
+    response = client.get(f"/api/v1/contacts/{CONTACT}/recent-activity", params={"connection_id": "salesforce"})
+    assert response.status_code == 400

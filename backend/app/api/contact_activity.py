@@ -47,11 +47,11 @@ def hubspot_client_for(supabase, user_id: str):
     return get_hubspot_client_from_connection(user_id, supabase)
 
 
-def read_contact_memos(supabase, membership: Membership, contact_id: str) -> list[dict]:
+def read_contact_memos(supabase, membership: Membership, contact_id: str, connection_id: str = "hubspot") -> list[dict]:
     """The contact's Vocify memos this rep may see (the same scope as the contact brief)."""
     from app.api.briefs import _handoff_restricted_user_ids, _read_memos
 
-    allowed = _handoff_restricted_user_ids(supabase, membership, connection_id="hubspot", contact_id=contact_id)
+    allowed = _handoff_restricted_user_ids(supabase, membership, connection_id=connection_id, contact_id=contact_id)
     rows, coverage = _read_memos(supabase, membership.company_id, contact_id, allowed_user_ids=allowed)
     if coverage == "unavailable":
         raise RuntimeError("memos unavailable")
@@ -139,16 +139,22 @@ async def get_recent_activity(
     membership: Membership = Depends(get_membership),
     supabase=Depends(get_supabase),
 ):
-    if connection_id != "hubspot":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only HubSpot contacts for now")
+    if connection_id not in ("hubspot", "pipedrive"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only HubSpot and Pipedrive contacts for now")
 
     hubspot_sources: dict[str, str]
     company = None
+    # Pipedrive: what Vocify itself recorded with the person. Its own notes and activities are not read yet, and the
+    # answer says so ("not_read") instead of passing a quiet history off as a complete one.
+    pipedrive = connection_id == "pipedrive"
     try:
-        client = hubspot_client_for(supabase, membership.user_id)
+        client = None if pipedrive else hubspot_client_for(supabase, membership.user_id)
     except Exception:
         client = None
-    if client is None:
+    if pipedrive:
+        hubspot_interactions, hubspot_sources = [], {}
+        company_source = "not_read"
+    elif client is None:
         hubspot_interactions, hubspot_sources = [], {k: "failed" for k in ("emails", "notes", "calls", "meetings", "tasks")}
         company_source = "failed"
     else:
@@ -157,7 +163,7 @@ async def get_recent_activity(
         )
 
     try:
-        vocify = memo_interactions(read_contact_memos(supabase, membership, contact_id))
+        vocify = memo_interactions(read_contact_memos(supabase, membership, contact_id, connection_id))
         vocify_source = "read"
     except Exception:
         logger.warning("Recent activity: memos for contact %s could not be read", contact_id, exc_info=True)
@@ -204,9 +210,13 @@ async def get_recent_activity(
         "company": company,
         "company_interactions": company_interactions,
         "summary": brief,
-        "sources": {
-            "hubspot": {**hubspot_sources, "company": company_source},
-            "hubspot_company": company_sources,
-            "vocify": vocify_source,
-        },
+        "sources": (
+            {"pipedrive": "not_read", "vocify": vocify_source}
+            if pipedrive
+            else {
+                "hubspot": {**hubspot_sources, "company": company_source},
+                "hubspot_company": company_sources,
+                "vocify": vocify_source,
+            }
+        ),
     }

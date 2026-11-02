@@ -70,6 +70,25 @@ def contexts(monkeypatch):
 
 
 @pytest.fixture
+def pipedrive_contexts(monkeypatch):
+    """Pipedrive record context, at the boundary that reads Pipedrive (app.api.crm_pipedrive)."""
+    from app.api import crm_pipedrive
+
+    rows = {"persons": {}, "deals": {}, "organizations": {}}
+
+    def loader(kind):
+        async def load(record_id, *, supabase, user_id):
+            return rows[kind].get(record_id) or {}
+
+        return load
+
+    monkeypatch.setattr(crm_pipedrive, "get_pipedrive_person_context", loader("persons"))
+    monkeypatch.setattr(crm_pipedrive, "get_pipedrive_deal_context", loader("deals"))
+    monkeypatch.setattr(crm_pipedrive, "get_pipedrive_org_context", loader("organizations"))
+    return rows
+
+
+@pytest.fixture
 def client(hub, connections, names, contexts):
     app = FastAPI()
     app.include_router(api.router)
@@ -241,10 +260,33 @@ def test_preview_other_portal_offers_nobody(client, contexts):
     assert (preview["callee"], preview["contacts_count"]) == (None, 0)
 
 
-def test_preview_pipedrive_is_not_dialable_yet(client, connections):
+def test_preview_pipedrive_person_is_dialable(client, connections, pipedrive_contexts):
     connections["pipedrive"] = {"metadata": {"company_domain": "acme"}}
+    pipedrive_contexts["persons"]["42"] = {"contactId": "42", "contactName": "Ana Pérez", "contactPhone": "+34 611 222 333"}
     preview = _preview(client, "https://acme.pipedrive.com/person/42")
-    assert preview["contact_name"] == "Ana Pérez" and preview["callee"] is None
+    assert preview["provider"] == "pipedrive" and preview["contact_name"] == "Ana Pérez"
+    assert preview["callee"] == {"contact_id": "42", "name": "Ana Pérez", "phone": "+34611222333"}
+    assert preview["contacts_count"] == 1
+
+
+def test_preview_pipedrive_deal_uses_its_person(client, connections, pipedrive_contexts):
+    connections["pipedrive"] = {"metadata": {"company_domain": "acme"}}
+    pipedrive_contexts["deals"]["7"] = {
+        "contactId": "42",
+        "contactName": "Ana Pérez",
+        "contactPhone": "+34611222333",
+        "contacts": [{"contact_id": "42"}],
+    }
+    preview = _preview(client, "https://acme.pipedrive.com/deal/7")
+    assert preview["needs_contact"] is True
+    assert preview["callee"] == {"contact_id": "42", "name": "Ana Pérez", "phone": "+34611222333"}
+
+
+def test_preview_pipedrive_other_account_offers_nobody(client, connections, pipedrive_contexts):
+    connections["pipedrive"] = {"metadata": {"company_domain": "acme"}}
+    pipedrive_contexts["persons"]["42"] = {"contactId": "42", "contactName": "x", "contactPhone": "+34611222333"}
+    preview = _preview(client, "https://other.pipedrive.com/person/42")
+    assert (preview["callee"], preview["contacts_count"]) == (None, 0)
 
 
 def test_preview_unreadable_phone_is_dropped(client, contexts):

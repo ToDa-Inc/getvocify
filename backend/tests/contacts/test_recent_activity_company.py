@@ -121,7 +121,7 @@ def world(monkeypatch):
         "colleague_reads": [],
     }
     monkeypatch.setattr(api, "hubspot_client_for", lambda _supabase, _user_id: state["hubspot"])
-    monkeypatch.setattr(api, "read_contact_memos", lambda _supabase, _membership, _contact_id: state["memos"])
+    monkeypatch.setattr(api, "read_contact_memos", lambda _supabase, _membership, _contact_id, *_: state["memos"])
 
     def colleague_memos(_supabase, _membership, contact_ids):
         state["colleague_reads"].append(sorted(contact_ids))
