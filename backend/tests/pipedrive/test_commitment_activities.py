@@ -39,7 +39,10 @@ async def test_review_rows_come_from_the_commitments():
     rows = _task_rows(preview)
     assert [r.field_name for r in rows] == ["next_step_task_0", "next_step_task_1"]
     assert [r.new_value for r in rows] == [TIMED.text, UNDATED.text]
-    assert [r.due_date for r in rows] == ["2026-09-29", None]
+    assert rows[0].due_date == "2026-09-29" and rows[0].due_at.startswith("2026-09-29T18:00")
+    assert rows[0].due_date_inferred is False
+    # A commitment without a day shows the default day it will be written with, flagged as suggested.
+    assert rows[1].due_date and rows[1].due_at and rows[1].due_date_inferred is True
     assert {r.field_label for r in rows} == {"Next step"}
     assert [r.commitment_id for r in rows] == ["com-1", "com-3"]
 
@@ -78,7 +81,8 @@ async def test_activities_carry_the_commitment_date_and_time_in_utc():
     assert [p["subject"] for p in posts] == [TIMED.text, LATE.text, UNDATED.text]
     assert (posts[0]["due_date"], posts[0]["due_time"]) == ("2026-09-29", "16:00")
     assert (posts[1]["due_date"], posts[1]["due_time"]) == ("2026-09-28", "23:30")
-    assert "due_date" not in posts[2] and "due_time" not in posts[2]
+    # No day on the commitment: it is written with the default the review showed, never without a date.
+    assert posts[2]["due_date"] and posts[2]["due_time"]
     assert result.commitment_task_ids == {"com-1": "101", "com-2": "102", "com-3": "103"}
     assert result.tasks_requested_count == 3
     assert result.tasks_created_count == 3
@@ -88,7 +92,7 @@ async def test_activities_carry_the_commitment_date_and_time_in_utc():
 async def test_an_edited_row_is_still_written_as_a_next_step():
     result, posts = await _sync(MemoExtraction(nextSteps=["Llamar a Ana el viernes"]), commitment_tasks=[TIMED])
     assert [p["subject"] for p in posts] == [TIMED.text, "Llamar a Ana el viernes"]
-    assert "due_date" not in posts[1]
+    assert posts[1]["due_date"] and posts[1]["due_time"]
     assert result.commitment_task_ids == {"com-1": "101"}
     assert result.tasks_created_count == 2
 
@@ -97,5 +101,15 @@ async def test_an_edited_row_is_still_written_as_a_next_step():
 async def test_without_commitment_tasks_next_steps_are_written_as_before():
     result, posts = await _sync(MemoExtraction(nextSteps=["Llamar a Ana"]))
     assert [p["subject"] for p in posts] == ["Llamar a Ana"]
-    assert "due_date" not in posts[0]
+    assert posts[0]["due_date"] and posts[0]["due_time"]
     assert result.commitment_task_ids == {}
+
+
+@pytest.mark.asyncio
+async def test_the_date_the_review_shows_is_the_date_that_is_written():
+    extraction = MemoExtraction(nextSteps=["Llamar a Ana el viernes", "Mandar la propuesta"])
+    preview = await _preview(extraction, deal_id="7")
+    rows = _task_rows(preview)
+    _, posts = await _sync(extraction)
+    assert [r.due_date for r in rows] == [p["due_date"] for p in posts]
+    assert [r.due_date_inferred for r in rows] == [False, True]

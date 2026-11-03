@@ -11,7 +11,7 @@ export interface CallPreview {
   contact_name: string | null;
   needs_contact: boolean;
   /** The CRM record on screen, when it is one (null for lists and other accounts). */
-  record?: { provider: string; object_type: "contact" | "company" | "deal"; record_id: string; account_id: string | null } | null;
+  record?: { provider: string; object_type: "contact" | "company" | "deal" | "lead"; record_id: string; account_id: string | null } | null;
   /** Who the record can be called at (CRMs Vocify can call: HubSpot and Pipedrive). */
   callee?: { contact_id: string; name: string | null; phone: string | null } | null;
   contacts_count?: number;

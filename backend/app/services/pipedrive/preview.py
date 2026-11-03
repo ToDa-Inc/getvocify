@@ -11,6 +11,7 @@ from app.services.deal_stage_confirm import suggested_stage
 from app.services.extraction_confidence import field_extraction_confidence
 from app.services.hubspot.contact_identity import real_contact_email_or_none
 
+from .task_dates import commitment_due, next_step_due
 from .object_properties import (
     company_properties_from_extraction,
     contact_properties_from_extraction,
@@ -307,10 +308,13 @@ class PipedrivePreviewService:
             )
 
         if commitment_tasks is not None:
-            task_rows = [(task.text, task.due_date, task.commitment_id) for task in commitment_tasks]
+            task_rows = [(task.text, *commitment_due(task.due_at), task.commitment_id) for task in commitment_tasks]
         else:
-            task_rows = [(str(step).strip(), None, None) for step in extraction.nextSteps or []]
-        for i, (text, due_date, commitment_id) in enumerate(task_rows):
+            task_rows = [
+                (str(step).strip(), *next_step_due(extraction, i, str(step).strip()), None)
+                for i, step in enumerate(extraction.nextSteps or [])
+            ]
+        for i, (text, due, inferred, commitment_id) in enumerate(task_rows):
             if not text:
                 continue
             proposed_updates.append(
@@ -321,7 +325,9 @@ class PipedrivePreviewService:
                     new_value=text,
                     extraction_confidence=field_extraction_confidence(extraction, "nextSteps"),
                     object_type="task",
-                    due_date=due_date,
+                    due_date=due.date().isoformat(),
+                    due_at=due.isoformat(),
+                    due_date_inferred=inferred,
                     commitment_id=commitment_id,
                 )
             )

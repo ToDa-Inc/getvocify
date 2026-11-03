@@ -19,6 +19,7 @@ PAGE_FIXTURES = {
         ("https://acme.pipedrive.com/person/901", "contact"),
         ("https://acme.pipedrive.com/deal/55", "deal"),
         ("https://acme.pipedrive.com/organization/12", "company"),
+        ("https://acme.pipedrive.com/leads/inbox/c94d8a70-d700-11f1-8ec0-61be409adeba", "lead"),
     ],
 }
 

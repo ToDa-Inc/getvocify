@@ -26,6 +26,7 @@ class PipedriveCallingAdapter:
             "contact": pipedrive_api.get_pipedrive_person_context,
             "deal": pipedrive_api.get_pipedrive_deal_context,
             "company": pipedrive_api.get_pipedrive_org_context,
+            "lead": pipedrive_api.get_pipedrive_lead_context,
         }
         try:
             context = await loaders[record.object_type](record.record_id, supabase=supabase, user_id=user_id) or {}
@@ -42,6 +43,6 @@ class PipedriveCallingAdapter:
             if contact_id
             else None
         )
-        if record.object_type == "contact":
+        if record.object_type in ("contact", "lead"):
             return RecordContext(callee=callee, contacts_count=1 if callee else 0)
         return RecordContext(callee=callee, contacts_count=len(context.get("contacts") or []))
