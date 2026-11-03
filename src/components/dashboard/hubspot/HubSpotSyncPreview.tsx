@@ -115,6 +115,10 @@ function summaryForApprove(
   return baseSummary || String(desc?.new_value ?? "").trim();
 }
 
+function isTaskUpdate(u: { object_type?: string; field_name?: string } | null | undefined): boolean {
+  return u?.object_type === "task" || String(u?.field_name || "").startsWith("next_step_task_");
+}
+
 /** The task rows the rep kept, in order: what each says and the day it is due. */
 function taskRowsForApprove(
   updates: Array<{ field_name?: string; new_value?: unknown; due_date?: string | null }>,
@@ -133,9 +137,12 @@ function taskRowsForApprove(
 function nextStepsForApprove(
   base: Record<string, unknown>,
   updates: Array<{ field_name?: string; new_value?: unknown }>,
+  hadTaskRows: boolean,
 ): string[] {
   const tasks = taskRowsForApprove(updates).map((row) => row.step);
   if (tasks.length) return tasks;
+  // The rep removed every task row: the call's own next steps must not bring them back.
+  if (hadTaskRows) return [];
   const hs = updates.find((u) => u.field_name === "hs_next_step");
   if (hs?.new_value) return [String(hs.new_value).trim()].filter(Boolean);
   return Array.isArray(base.nextSteps) ? (base.nextSteps as string[]) : [];
@@ -655,8 +662,7 @@ export const HubSpotSyncPreview = ({
       return (ao < 0 ? 99 : ao) - (bo < 0 ? 99 : bo);
     });
   const tabbed = activeTab != null;
-  const isTaskEntry = ({ u }: { u: any }) =>
-    (u?.object_type || "deals") === "task" || String(u?.field_name || "").startsWith("next_step_task_");
+  const isTaskEntry = ({ u }: { u: any }) => isTaskUpdate(u);
   const fieldEntries = tabbed ? sortedUpdateEntries.filter((entry) => !isTaskEntry(entry)) : sortedUpdateEntries;
   const taskEntries = tabbed ? sortedUpdateEntries.filter(isTaskEntry) : [];
   useEffect(() => {
@@ -675,7 +681,11 @@ export const HubSpotSyncPreview = ({
       updates: effectiveUpdates,
       omittedKeys: omitted,
       summary: summaryForApprove(base as Record<string, unknown>, effectiveUpdates, editedUpdates),
-      nextSteps: nextStepsForApprove(base as Record<string, unknown>, effectiveUpdates),
+      nextSteps: nextStepsForApprove(
+        base as Record<string, unknown>,
+        effectiveUpdates,
+        taskRowsForApprove(originalUpdates).length > 0,
+      ),
       // One day per kept row, so a removed task cannot shift the dates of the ones after it.
       nextStepSchedules: taskRowsForApprove(effectiveUpdates).map((row) => row.due),
     });
@@ -824,6 +834,8 @@ export const HubSpotSyncPreview = ({
       // Extracted with middling confidence: the rep should check it before it is written.
       const isUncertain = !alreadyApplied && isUncertainExtractionConfidence(update.extraction_confidence);
       const canEditRow = canEditOrRemoveProposedField(update);
+      // A task row the call proposed can be taken out, as any proposed field can.
+      const canRemoveRow = canEditRow || isTaskUpdate(update);
       const isEditing = editingIdx === idx;
       const options: Array<{ value: string; label?: string }> = (update.options ?? []).filter(
         (o: { value: unknown }) => o.value != null && String(o.value) !== "",
@@ -959,9 +971,9 @@ export const HubSpotSyncPreview = ({
               )}
             </div>
 
-            {canEditRow && !isEditing && !readOnly && (
+            {canRemoveRow && !isEditing && !readOnly && (
               <div className="flex items-center gap-0.5 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
-                {inlineSelect ? null : (
+                {inlineSelect || !canEditRow ? null : (
                 <Button
                   variant="ghost"
                   size="icon"
