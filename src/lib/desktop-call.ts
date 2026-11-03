@@ -223,6 +223,7 @@ export function outgoingCallerId(callerIds: CallerIdRow[] | null | undefined): s
 const HUBSPOT_RECORD = /^https:\/\/app(?:-[a-z0-9]+)?\.hubspot\.com\/contacts\/(\d+)\/record\/(0-\d+)\/(\d+)/i;
 const HUBSPOT_LEGACY = /^https:\/\/app(?:-[a-z0-9]+)?\.hubspot\.com\/contacts\/(\d+)\/(contact|company|deal)\/(\d+)/i;
 const LEGACY_TYPES: Record<string, string> = { contact: "0-1", company: "0-2", deal: "0-3" };
+const PIPEDRIVE_LEAD = /^https:\/\/(?!(?:api|oauth|www|developers|app)\.)([a-z0-9-]+)\.pipedrive\.com\/leads\/(?:inbox|archive)\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/i;
 const PIPEDRIVE_RECORD = /^https:\/\/(?!(?:api|oauth|www|developers|app)\.)([a-z0-9-]+)\.pipedrive\.com\/(deal|person|organization)\/(\d+)/i;
 
 /**
@@ -237,5 +238,7 @@ export function crmRecordKey(url: string): string | null {
   if (legacy) return `hubspot:${legacy[1]}:${LEGACY_TYPES[legacy[2].toLowerCase()]}:${legacy[3]}`;
   const pipedrive = PIPEDRIVE_RECORD.exec(url);
   if (pipedrive) return `pipedrive:${pipedrive[1].toLowerCase()}:${pipedrive[2].toLowerCase()}:${pipedrive[3]}`;
+  const lead = PIPEDRIVE_LEAD.exec(url);
+  if (lead) return `pipedrive:${lead[1].toLowerCase()}:lead:${lead[2].toLowerCase()}`;
   return null;
 }

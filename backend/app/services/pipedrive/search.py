@@ -73,6 +73,11 @@ class PipedriveSearchService:
         data = unwrap_data(await self.client.get(f"/deals/{deal_id}"))
         return data if isinstance(data, dict) else {}
 
+    async def get_lead(self, lead_id: str) -> dict[str, Any]:
+        """Leads are v1 only."""
+        data = unwrap_data(await self.client.get(f"/leads/{lead_id}", version="v1"))
+        return data if isinstance(data, dict) else {}
+
     async def get_person(self, person_id: str) -> dict[str, Any]:
         data = unwrap_data(await self.client.get(f"/persons/{person_id}"))
         return data if isinstance(data, dict) else {}

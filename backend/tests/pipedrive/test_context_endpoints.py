@@ -25,6 +25,9 @@ class Search:
     async def get_deal(self, did):
         return {"id": 7, "title": "Deal", "person_id": {"value": 42}, "org_id": {"value": 10, "name": "Acme"}} if did == "7" else {}
 
+    async def get_lead(self, lid):
+        return {"id": lid, "person_id": 42} if lid == "c94d8a70-d700-11f1-8ec0-61be409adeba" else {"id": lid, "person_id": None, "organization_id": None}
+
     async def persons_for_org(self, oid, limit=5):
         return [PEOPLE["42"]]
 
@@ -64,3 +67,19 @@ async def test_second_look_within_30s_does_not_hit_pipedrive():
 async def test_unknown_person_has_no_phone():
     ctx = await calling_adapter("pipedrive").record_context(parse_crm_url("https://acme.pipedrive.com/person/99"), supabase=None, user_id="u")
     assert ctx.callee.phone is None
+
+
+LEAD = "https://acme.pipedrive.com/leads/inbox/c94d8a70-d700-11f1-8ec0-61be409adeba"
+
+
+@pytest.mark.asyncio
+async def test_a_leads_inbox_page_is_called_through_the_leads_person():
+    ctx = await calling_adapter("pipedrive").record_context(parse_crm_url(LEAD), supabase=None, user_id="u")
+    assert (ctx.callee.contact_id, ctx.callee.phone, ctx.contacts_count) == ("42", "+34611222333", 1)
+
+
+@pytest.mark.asyncio
+async def test_a_lead_without_a_person_offers_nobody():
+    other = LEAD.replace("c94d8a70", "00000000")
+    ctx = await calling_adapter("pipedrive").record_context(parse_crm_url(other), supabase=None, user_id="u")
+    assert ctx.callee is None

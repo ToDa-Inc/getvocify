@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Iterable, Literal, Optional, Union
 
 Provider = Literal["hubspot", "pipedrive"]
-ObjectType = Literal["contact", "company", "deal"]
+ObjectType = Literal["contact", "company", "deal", "lead"]
 
 
 @dataclass(frozen=True)
@@ -43,6 +43,8 @@ _HUBSPOT_TYPES = {"0-1": "contact", "0-2": "company", "0-3": "deal"}
 _PIPEDRIVE_APP = re.compile(r"^https://(?!(?:api|oauth|www|developers|app)\.)([a-z0-9-]+)\.pipedrive\.com/", re.I)
 _PIPEDRIVE_RECORD = re.compile(r"\.pipedrive\.com/(deal|person|organization)/(\d+)", re.I)
 _PIPEDRIVE_TYPES = {"deal": "deal", "person": "contact", "organization": "company"}
+# A lead of Pipedrive's Leads inbox: its id is a UUID, and the person to call is the one it is linked to.
+_PIPEDRIVE_LEAD = re.compile(r"\.pipedrive\.com/leads/(?:inbox|archive)/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})", re.I)
 
 
 def parse_crm_url(url: str) -> Union[CrmRecord, CrmPage, None]:
@@ -64,6 +66,9 @@ def parse_crm_url(url: str) -> Union[CrmRecord, CrmPage, None]:
         m = _PIPEDRIVE_RECORD.search(url)
         if m:
             return CrmRecord("pipedrive", _PIPEDRIVE_TYPES[m.group(1).lower()], m.group(2), app.group(1).lower())  # type: ignore[arg-type]
+        m = _PIPEDRIVE_LEAD.search(url)
+        if m:
+            return CrmRecord("pipedrive", "lead", m.group(1).lower(), app.group(1).lower())
         return CrmPage("pipedrive")
     return None
 

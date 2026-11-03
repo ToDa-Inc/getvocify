@@ -29,6 +29,7 @@ from .object_properties import (
 )
 from .schema import PipedriveSchemaService, company_write_props, contact_write_props, flatten_record, props_changed_from_record
 from .search import PipedriveSearchService, primary_email
+from .task_dates import commitment_due, next_step_due
 
 logger = logging.getLogger(__name__)
 
@@ -308,6 +309,10 @@ class PipedriveSyncService:
                 }
                 if creating:
                     payload = self.schema.split_write_payload(filtered)
+                    # v2 deals: person_id is read-only, the person goes in as the primary participant.
+                    linked = payload.pop("person_id", None)
+                    if linked is not None:
+                        payload["participants"] = [{"person_id": int(linked), "primary": True}]
                     if owner_id:
                         payload["owner_id"] = int(owner_id)
                     created = unwrap_data(await self.client.post("/deals", json_body=payload))
@@ -318,8 +323,10 @@ class PipedriveSyncService:
                     existing_title = (current.get("title") or "").strip().lower()
                     if existing_title not in ("", "new deal", "nuevo deal", "deal"):
                         filtered.pop("title", None)
+                    # person_id is read-only on v2 deals: a person is linked below, as a participant.
+                    link_person = filtered.get("person_id") or person_id
                     update_fields = {
-                        k: v for k, v in filtered.items() if k in allowed_fields or k in ("org_id", "person_id")
+                        k: v for k, v in filtered.items() if (k in allowed_fields or k == "org_id") and k != "person_id"
                     }
                     if stage_confirm:
                         update_fields.pop("stage_id", None)
@@ -329,6 +336,8 @@ class PipedriveSyncService:
                     payload = self.schema.split_write_payload(update_fields)
                     if payload:
                         await self.client.patch(f"/deals/{deal_id}", json_body=payload)
+                    if link_person and not current.get("person_id"):
+                        await self._add_participant(deal_id, link_person)
                     result.deal_name = current.get("title") or title
 
                 if not deal_id:
@@ -379,9 +388,12 @@ class PipedriveSyncService:
                     extra=log_domain(DOMAIN_PIPEDRIVE, "note_without_target", memo_id=str(memo_id)),
                 )
 
-            steps = [s.strip() for s in (extraction.nextSteps or []) if str(s).strip()]
-            planned = [(task, task.text, _utc_due(task.due_at)) for task in commitment_tasks or []]
-            planned += [(None, step, {}) for step in steps]
+            planned = [(task, task.text, _utc_due(commitment_due(task.due_at)[0])) for task in commitment_tasks or []]
+            planned += [
+                (None, str(step).strip(), _utc_due(next_step_due(extraction, i, str(step).strip())[0]))
+                for i, step in enumerate(extraction.nextSteps or [])
+                if str(step).strip()
+            ]
             result.tasks_requested_count = len(planned)
             if planned:
                 task_type = await self.activities.resolve_task_type()
@@ -431,6 +443,13 @@ class PipedriveSyncService:
             record_sync_duration(time.perf_counter() - t0, "failure")
             logger.exception("Pipedrive sync failed: %s", e)
             return result
+
+    async def _add_participant(self, deal_id: str, person_id: Any) -> None:
+        """A deal that has no person gets this one. Best-effort: the note and tasks still go to the person."""
+        try:
+            await self.client.post(f"/deals/{deal_id}/participants", json_body={"person_id": int(person_id)})
+        except Exception:
+            logger.warning("Could not add person %s to Pipedrive deal %s", person_id, deal_id, exc_info=True)
 
     async def _previous_updates(self, memo_id: Union[UUID, str]) -> list[dict[str, Any]]:
         try:

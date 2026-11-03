@@ -210,6 +210,11 @@ describe("crmRecordKey", () => {
     assert.equal(crmRecordKey("https://Acme.pipedrive.com/person/901"), "pipedrive:acme:person:901");
     assert.equal(crmRecordKey("https://acme.pipedrive.com/deal/55/?foo=1#notes"), "pipedrive:acme:deal:55");
     assert.notEqual(crmRecordKey("https://acme.pipedrive.com/person/901"), crmRecordKey("https://acme.pipedrive.com/deal/901"));
+    assert.equal(
+      crmRecordKey("https://vocify-sandbox.pipedrive.com/leads/inbox/C94D8A70-d700-11f1-8ec0-61be409adeba?x=1"),
+      "pipedrive:vocify-sandbox:lead:c94d8a70-d700-11f1-8ec0-61be409adeba",
+    );
+    assert.equal(crmRecordKey("https://acme.pipedrive.com/leads/inbox"), null);
     assert.equal(crmRecordKey("https://acme.pipedrive.com/deals/list/1"), null);
     assert.equal(crmRecordKey("https://oauth.pipedrive.com/deal/1"), null);
   });

@@ -309,3 +309,67 @@ async def test_a_failed_note_row_does_not_block_the_retry():
         transcript="hello",
     )
     assert result.success is True and "/notes" in [p[0] for p in client.posts]
+
+
+@pytest.mark.asyncio
+async def test_new_deal_links_its_person_as_primary_participant_never_person_id():
+    svc, client = _svc()
+    result = await svc.sync_memo(
+        memo_id=uuid4(),
+        user_id="u1",
+        connection_id="c1",
+        extraction=MemoExtraction(contactName="Ada", companyName="Acme", summary="Hi"),
+        is_new_deal=True,
+        default_stage_id="5",
+        contact_id="20",
+        allowed_fields=["title", "value", "stage_id", "person_id"],
+        create_note=False,
+    )
+    assert result.success is True
+    body = next(p[1] for p in client.posts if p[0] == "/deals")
+    assert "person_id" not in body
+    assert body["participants"] == [{"person_id": 20, "primary": True}]
+
+
+@pytest.mark.asyncio
+async def test_existing_deal_without_a_person_gets_one_as_participant():
+    svc, client = _svc()
+    result = await svc.sync_memo(
+        memo_id=uuid4(),
+        user_id="u1",
+        connection_id="c1",
+        extraction=MemoExtraction(contactName="Ada", summary="Hi", dealAmount=10),
+        deal_id="1",
+        contact_id="20",
+        allowed_fields=["title", "value", "person_id"],
+        create_note=False,
+    )
+    assert result.success is True
+    assert all("person_id" not in p[1] for p in client.patches)
+    assert ("/deals/1/participants", {"person_id": 20}, "v2") in client.posts
+
+
+@pytest.mark.asyncio
+async def test_existing_deal_that_has_a_person_is_left_alone():
+    client = _FakeClient()
+    base_get = client.get
+
+    async def get(path, *, version="v2", params=None):
+        if path == "/deals/1":
+            return {"data": {"id": 1, "title": "Acme", "person_id": 7}}
+        return await base_get(path, version=version, params=params)
+
+    client.get = get
+    svc, _ = _svc(client)
+    result = await svc.sync_memo(
+        memo_id=uuid4(),
+        user_id="u1",
+        connection_id="c1",
+        extraction=MemoExtraction(contactName="Ada", summary="Hi", dealAmount=10),
+        deal_id="1",
+        contact_id="20",
+        allowed_fields=["value", "person_id"],
+        create_note=False,
+    )
+    assert result.success is True
+    assert not any(p[0].endswith("/participants") for p in client.posts)

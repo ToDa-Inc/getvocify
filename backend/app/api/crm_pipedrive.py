@@ -644,6 +644,33 @@ async def _load_person_context(person_id: str, supabase: Client, user_id: str) -
         return empty
 
 
+@router.get("/leads/{lead_id}/context")
+async def get_pipedrive_lead_context(
+    lead_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """A lead of the Leads inbox: the context of the person it is linked to (its own organization when it has none)."""
+    return await _CONTEXT_CACHE.get_or_set(f"pd:lead:{user_id}:{lead_id}", lambda: _load_lead_context(lead_id, supabase, user_id))
+
+
+async def _load_lead_context(lead_id: str, supabase: Client, user_id: str) -> dict:
+    try:
+        row = _get_pipedrive_connection_row(supabase, user_id)
+        lead = await PipedriveSearchService(_pd_client_from_row(row, supabase)).get_lead(lead_id)
+    except HTTPException:
+        raise
+    except Exception:
+        return {"contactId": None, "contactName": None, "contactPhone": None, "contacts": []}
+    person_id = assoc_id(lead.get("person_id"))
+    if person_id:
+        return await get_pipedrive_person_context(person_id, supabase=supabase, user_id=user_id)
+    org_id = assoc_id(lead.get("organization_id"))
+    if org_id:
+        return await get_pipedrive_org_context(org_id, supabase=supabase, user_id=user_id)
+    return {"contactId": None, "contactName": None, "contactPhone": None, "contacts": []}
+
+
 @router.get("/organizations/{org_id}/context")
 async def get_pipedrive_org_context(
     org_id: str,
