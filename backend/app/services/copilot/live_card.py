@@ -46,7 +46,7 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "strategic_engine_20261028"
+PROMPT_VERSION = "strategic_engine_20261105_demo"
 
 # ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
 
@@ -69,6 +69,12 @@ What you read has four levels. When they disagree, the higher level wins:
 4. APPROVED ANSWERS and every example (of the steps, of the situations): ways to say things well. Use one when it fits
    this moment. Its facts count as a source; its tactic (pitching a capability, asking for a meeting now) is only a
    suggestion and never overrides levels 1 to 3. Never recite an example as is.
+
+A DEMO: when the rep is showing Vocify to the other side and asks them to play an objection or a question so it can be
+seen working («ponme una objeción», «suéltame una para que lo veas»), what they say next is the moment the demo is about.
+Read it as a real objection or question and answer it like one, from the SOURCES and the approved answers: never
+silence because it is staged or because the one who said it is a colleague and not a buyer. Say in "what_is_happening"
+that it is a demo. Outside a demo this changes nothing.
 
 How to decide (your answer follows this order):
 1. "what_is_happening"; "understanding_confidence" is "low" when the words are garbled, the meaning is ambiguous or it
