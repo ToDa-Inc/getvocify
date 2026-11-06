@@ -9,7 +9,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { crmApi } from "@/lib/api/crm";
+import { useQuery } from "@tanstack/react-query";
+import { crmApi, crmKeys, SESSION_QUERY_STALE_MS } from "@/lib/api/crm";
+import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
+import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
 import { useAuth } from "@/features/auth";
 import { memosApi } from "@/features/memos/api";
 import { toast } from "sonner";
@@ -187,6 +190,12 @@ export const HubSpotSyncPreview = ({
 }: HubSpotSyncPreviewProps) => {
   const { user } = useAuth();
   const loggedAs = user?.fullName || user?.email;
+  // The CRM this review writes to: the only connected one, else the primary one.
+  const integrations = useIntegrations();
+  const { data: crmPrefs } = useQuery({ queryKey: crmKeys.preferences(), queryFn: () => crmApi.getCrmPreferences(), staleTime: SESSION_QUERY_STALE_MS });
+  const connectedCrms = (integrations.data ?? []).filter((c) => c.status === "connected" && c.provider in CRM_PROVIDER_CONFIGS);
+  const writtenTo = connectedCrms.length === 1 ? connectedCrms[0] : connectedCrms.find((c) => c.id === crmPrefs?.primary_crm_connection_id);
+  const crmName = writtenTo ? CRM_PROVIDER_CONFIGS[writtenTo.provider as CRMProvider].name : "the CRM";
   const [loading, setLoading] = useState(true);
   const [isSwitchingTarget, setIsSwitchingTarget] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -1101,7 +1110,7 @@ export const HubSpotSyncPreview = ({
           </p>
         ) : loggedAs ? (
           <p className="text-[10px] text-muted-foreground text-center mt-2">
-            Calls, notes, and tasks log in HubSpot as {loggedAs}. Existing contact owners stay put.
+            Calls, notes, and tasks log in {crmName} as {loggedAs}. Existing contact owners stay put.
           </p>
         ) : null}
           </>
