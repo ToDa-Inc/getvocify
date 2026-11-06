@@ -150,7 +150,16 @@ export function CompactLiveView({
         <div className="relative min-h-0 flex-1 overflow-hidden">
           {/* Both stay mounted, so the transcript keeps its place and the steps their scroll when the rep switches. */}
           <div role="tabpanel" aria-label={copy.compact.steps} hidden={tab !== "steps"} className="absolute inset-0">
-            <StepsPane view={view} copy={copy} helpOn={helpOn} typeName={typeName} onTick={brain.tick} onUntick={brain.untick} />
+            <StepsPane
+              view={view}
+              copy={copy}
+              helpOn={helpOn}
+              typeName={typeName}
+              ask={brain.asks.step}
+              onAsk={(kind, id) => void brain.askStep(kind, id)}
+              onTick={brain.tick}
+              onUntick={brain.untick}
+            />
           </div>
           {/* The transcript's own box takes the height of this one: it scrolls and keeps the newest line in view. */}
           <div role="tabpanel" aria-label={copy.compact.transcript} hidden={tab !== "transcript"} className="absolute inset-0 [&>div]:h-full">
