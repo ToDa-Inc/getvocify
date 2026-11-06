@@ -139,6 +139,65 @@ async def read_hubspot_activity(client: Any, contact_id: str) -> tuple[list[dict
     return interactions, sources
 
 
+_PIPEDRIVE_ACTIVITY_TYPES = {"call": "call", "meeting": "meeting", "email": "email"}
+
+
+def _pipedrive_iso(value: Any) -> Optional[str]:
+    """Pipedrive writes UTC times as "2026-11-05 14:03:22" (v1) or RFC 3339 (v2)."""
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00").replace(" ", "T"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _pipedrive_note(row: dict) -> Optional[dict]:
+    text = _join(row.get("content"))
+    occurred = _pipedrive_iso(row.get("update_time") or row.get("add_time"))
+    if not text or not occurred:
+        return None
+    return {"id": f"pipedrive:note:{row.get('id')}", "type": "note", "occurred_at": occurred, "text": text, "source": "pipedrive"}
+
+
+def _pipedrive_activity(row: dict) -> Optional[dict]:
+    kind = _PIPEDRIVE_ACTIVITY_TYPES.get(str(row.get("type") or "").lower(), "task")
+    state = "done" if row.get("done") else "open"
+    text = _join(row.get("subject"), row.get("note"), state if kind == "task" else "")
+    occurred = _pipedrive_iso(row.get("add_time") or row.get("update_time"))
+    if not text or not occurred:
+        return None
+    return {"id": f"pipedrive:{kind}:{row.get('id')}", "type": kind, "occurred_at": occurred, "text": text, "source": "pipedrive"}
+
+
+async def read_pipedrive_activity(client: Any, person_id: str) -> tuple[list[dict], dict[str, str]]:
+    """The person's Pipedrive notes and activities (calls, meetings, emails, tasks), newest 50 each; and, per kind,
+    whether it could be read."""
+
+    async def notes() -> list[dict]:
+        payload = await client.get("/notes", version="v1", params={"person_id": person_id, "sort": "add_time DESC", "limit": 50})
+        rows = payload.get("data") if isinstance(payload, dict) else None
+        return [item for item in (_pipedrive_note(row) for row in rows or [] if isinstance(row, dict)) if item]
+
+    async def activities() -> list[dict]:
+        payload = await client.get("/activities", params={"person_id": person_id, "sort_by": "add_time", "sort_direction": "desc", "limit": 50})
+        rows = payload.get("data") if isinstance(payload, dict) else None
+        return [item for item in (_pipedrive_activity(row) for row in rows or [] if isinstance(row, dict)) if item]
+
+    results = await asyncio.gather(notes(), activities(), return_exceptions=True)
+    interactions: list[dict] = []
+    sources: dict[str, str] = {}
+    for kind, result in zip(("notes", "activities"), results):
+        if isinstance(result, Exception):
+            logger.warning("Pipedrive %s for person %s could not be read", kind, person_id, exc_info=result)
+            sources[kind] = _status_of(result)
+        else:
+            sources[kind] = "read"
+            interactions += result
+    return interactions, sources
+
+
 async def read_hubspot_company(client: Any, contact_id: str) -> tuple[Optional[dict], str]:
     """The contact's company in HubSpot: its primary one, or its only one. Several and none primary is not guessed
     ("ambiguous"). Only its name: the rep sees the rest in the CRM."""
@@ -326,7 +385,7 @@ def grounded_lines(answer: Any, interactions: list[dict], limit: int = SUMMARY_L
     return lines[:limit]
 
 
-_CITED_ID = re.compile(r"(?:hubspot|vocify):[a-z_]+:[A-Za-z0-9-]+")
+_CITED_ID = re.compile(r"(?:hubspot|pipedrive|vocify):[a-z_]+:[A-Za-z0-9-]+")
 
 
 def _resolve(source: str, known: set[str]) -> str:

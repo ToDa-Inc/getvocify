@@ -186,6 +186,9 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
                 if (s) {
                   setConfig((prev) => ({
                     ...prev,
+                    // The pipeline shown above is the one the stage belongs to, even if it was never picked itself.
+                    default_pipeline_id: selectedPipeline?.id ?? prev.default_pipeline_id,
+                    default_pipeline_name: selectedPipeline?.label ?? prev.default_pipeline_name,
                     default_stage_id: s.id,
                     default_stage_name: s.label,
                   }));
@@ -193,7 +196,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
               }}
             >
               <SelectTrigger className="w-full">
-                <SelectValue />
+                <SelectValue placeholder="Pick a stage" />
               </SelectTrigger>
               <SelectContent>
                 {selectedPipeline?.stages.map((s) => (
@@ -203,6 +206,11 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
                 ))}
               </SelectContent>
             </Select>
+            {!data?.config?.default_stage_id && (
+              <p className="text-xs text-muted-foreground">
+                {config.default_stage_id ? "Not saved yet. Save to use it for new deals." : "No default stage saved: new deals cannot be created until you pick one and save."}
+              </p>
+            )}
           </div>
           <div className="space-y-2">
             <label className={THEME_TOKENS.typography.capsLabel}>{t.product.meetingBookedStage}</label>
