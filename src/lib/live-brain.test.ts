@@ -20,6 +20,7 @@ import {
   pointSays,
   pointsView,
   progressView,
+  stepsView,
   repReadingDue,
   repWords,
   spottedDraft,
@@ -261,6 +262,55 @@ describe("the points the views draw", () => {
     assert.equal(pointSays({ answer: "Sí.", fallback: null }), "Sí.");
     assert.equal(pointSays({ answer: null, fallback: " Lo confirmo. " }), "Lo confirmo.");
     assert.equal(pointSays({ answer: null, fallback: null }), "");
+  });
+});
+
+describe("Pasos from the state", () => {
+  const read = () => applyProgress(emptyLiveState("c1"), example.progress_result).progress;
+
+  it("lists the live steps in the playbook's order, done, current or pending, and what to find out as chips", () => {
+    const view = stepsView(read(), playbook, "Objetivo");
+    assert.deepEqual(view.rows.map((r) => [r.id, r.state]), [["apertura_con_marco", "done"], ["plantear_el_problema", "current"]]);
+    assert.equal(view.rows[0].quote, "soy Toni, fundador de Vocify");
+    assert.equal(view.rows[0].concept, "Preséntate y di que será breve");
+    assert.equal(view.rows[1].concept, "Nombra el dolor"); // no concept from the producer: the criterion
+    assert.deepEqual(view.data.map((c) => [c.id, c.state, c.detail]), [["crm_que_usan", "done", "Salesforce"], ["volumen_de_interacciones", "pending", "Cifra por semana"]]);
+    assert.equal(view.suggestion, "Lo que vemos en los equipos de campo es que el CRM se deja para luego.");
+  });
+
+  it("never shows the playbook's example as what to say: with no question from the brain there is none", () => {
+    const view = stepsView({ ...read(), now: null }, playbook, "Objetivo");
+    assert.equal(view.rows.find((r) => r.state === "current")?.id, "plantear_el_problema");
+    assert.equal(view.suggestion, null);
+  });
+
+  it("when the brain picks a data point, that chip is current and its question is the suggestion", () => {
+    const progress = { ...emptyLiveState("c").progress, has_playbook: true, now: { kind: "data", id: "crm_que_usan", say: "" } } as any;
+    const view = stepsView(progress, playbook, "Objetivo");
+    assert.equal(view.data.find((c) => c.state === "current")?.id, "crm_que_usan");
+    assert.equal(view.rows.some((r) => r.state === "current"), false);
+    assert.equal(view.suggestion, "¿Qué CRM usáis?");
+  });
+
+  it("a tick by hand moves the current step on and shows no quote; the goal comes last once named", () => {
+    let state = applyProgress(emptyLiveState("c1"), example.progress_result);
+    state = tick(state, "plantear_el_problema", "step");
+    const named = { ...state.progress, now: null, missing: ["goal"] };
+    const view = stepsView(named, playbook, "Objetivo");
+    assert.deepEqual(view.rows.map((r) => [r.id, r.state, r.by]), [["apertura_con_marco", "done", "brain"], ["plantear_el_problema", "done", "rep"], ["goal", "current", null]]);
+    assert.equal(view.rows[1].quote, null);
+  });
+
+  it("a step that lists parts shows each part as heard and how many are enough", () => {
+    const state = applyProgress(emptyLiveState("c1"), example.progress_result);
+    const withParts = playbookView({
+      key: "discovery", name: "Llamada en frío", hasPlaybook: true,
+      editor: { steps: [{ step_id: "cualificar_el_encaje", label: "Cualificar el encaje", criterion: "Al menos tres de estos datos: CRM, visitas, quién decide" }] },
+      aids: null, partLists: state.progress.part_lists,
+    });
+    const row = stepsView(state.progress, withParts, "Objetivo").rows[0];
+    assert.deepEqual(row.parts.map((p) => [p.id, p.done]), [["crm_que_usan", true], ["visitas_al_dia", false], ["quien_decide", false]]);
+    assert.equal(row.need, 3);
   });
 });
 

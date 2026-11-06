@@ -466,6 +466,110 @@ export function progressView(progress: Progress, playbook: PlaybookView | null, 
   };
 }
 
+export type StepState = "done" | "current" | "pending";
+export type StepRow = {
+  kind: "step" | "goal";
+  id: string;
+  label: string;
+  /** What the step asks of the rep in a few words: the producer's concept, else the playbook's criterion. */
+  concept: string | null;
+  state: StepState;
+  by: "brain" | "rep" | null;
+  /** The words that ticked it, when the brain did. */
+  quote: string | null;
+  /** A step whose criterion lists parts: each part, heard or not, and how many are enough. */
+  parts: { id: string; label: string; done: boolean }[];
+  need: number | null;
+};
+export type DataChip = {
+  id: string;
+  label: string;
+  state: StepState;
+  by: "brain" | "rep" | null;
+  /** What they said, when found; else what a good answer is. */
+  detail: string | null;
+};
+export type StepsView = {
+  hasPlaybook: boolean;
+  rows: StepRow[];
+  data: DataChip[];
+  /** The brain's question for the current item, from this call. Never the playbook's example: that is another prospect's
+   * sentence, and read out word for word it is a script. For a data item, the question written from its good answer. */
+  suggestion: string | null;
+};
+
+/**
+ * Pasos: the playbook's steps in their order, each done, current or pending, with what to find out under them. One item is
+ * current: the brain's pick while it is pending, else the first pending step, else the goal.
+ */
+export function stepsView(progress: Progress, playbook: PlaybookView | null, goalLabel: string): StepsView {
+  const steps = (playbook?.steps ?? []).filter((step) => step.live);
+  const data = playbook?.data ?? [];
+  const goalKnown = Boolean(progress.goal) || progress.now?.kind === "goal" || progress.missing.includes("goal");
+  const heard = (progress as { parts?: Record<string, Record<string, unknown>> }).parts ?? {};
+
+  const pendingStep = (id: string) => steps.some((step) => step.id === id) && !progress.steps[id];
+  const pendingDatum = (id: string) => data.some((item) => item.id === id) && !progress.data[id];
+  const now = progress.now;
+  let current: { kind: ItemKind; id: string } | null = null;
+  if (now && (now.kind === "step" ? pendingStep(now.id) : now.kind === "data" ? pendingDatum(now.id) : goalKnown && !progress.goal)) {
+    current = { kind: now.kind, id: now.id };
+  } else {
+    const first = steps.find((step) => !progress.steps[step.id]);
+    if (first) current = { kind: "step", id: first.id };
+    else if (goalKnown && !progress.goal) current = { kind: "goal", id: "goal" };
+  }
+  const stateOf = (kind: ItemKind, id: string, done: boolean): StepState =>
+    done ? "done" : current?.kind === kind && current.id === id ? "current" : "pending";
+
+  const rows: StepRow[] = steps.map((step) => {
+    const found = progress.steps[step.id];
+    return {
+      kind: "step",
+      id: step.id,
+      label: step.label,
+      concept: step.concept || step.criterion || null,
+      state: stateOf("step", step.id, Boolean(found)),
+      by: found?.by ?? null,
+      quote: found && found.by !== "rep" ? found.quote ?? null : null,
+      parts: (step.parts ?? []).map((part) => ({ ...part, done: Boolean(heard[step.id]?.[part.id]) })),
+      need: step.parts?.length ? step.need ?? step.parts.length : null,
+    };
+  });
+  if (goalKnown) {
+    rows.push({
+      kind: "goal",
+      id: "goal",
+      label: goalLabel,
+      concept: null,
+      state: stateOf("goal", "goal", Boolean(progress.goal)),
+      by: progress.goal?.by ?? null,
+      quote: progress.goal && progress.goal.by !== "rep" ? progress.goal.value ?? progress.goal.quote ?? null : null,
+      parts: [],
+      need: null,
+    });
+  }
+  const chips: DataChip[] = data.map((item) => {
+    const found = progress.data[item.id];
+    return {
+      id: item.id,
+      label: item.label,
+      state: stateOf("data", item.id, Boolean(found)),
+      by: found?.by ?? null,
+      detail: found ? (found.by === "rep" ? null : found.value ?? found.quote ?? null) : item.good,
+    };
+  });
+
+  const fromBrain = now && current && now.kind === current.kind && now.id === current.id ? now.say?.trim() || null : null;
+  const datumQuestion = current?.kind === "data" ? data.find((item) => item.id === current!.id)?.question ?? null : null;
+  return {
+    hasPlaybook: Boolean(progress.has_playbook || playbook?.has_playbook),
+    rows,
+    data: chips,
+    suggestion: fromBrain ?? datumQuestion,
+  };
+}
+
 export type PointsView = {
   /** Open points, oldest first. The newest OPEN_IN_FULL show in full, the rest as one line. */
   open: Point[];
