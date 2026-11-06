@@ -306,7 +306,7 @@ export const VoiceRecorderWidget = ({
           Extracting CRM fields...
         </h3>
         <p className="text-xs text-muted-foreground mb-6">
-          Turning your recording into HubSpot-ready fields
+          Turning your recording into CRM-ready fields
         </p>
         <div className="max-w-md mx-auto">
           <UploadProgress progress={progress} className="mb-3" />

@@ -31,7 +31,7 @@ export const AutoAcceptCrmToggle = ({
               — or correct it later. No one has to sit on Approve.
             </p>
             <ul className="text-xs text-muted-foreground leading-relaxed space-y-1 pt-1">
-              <li>Applies to HubSpot recordings, Salesforce, the Vocify dialer, and memos already locked to a contact or deal.</li>
+              <li>Applies to CRM recordings, the Vocify dialer, and memos already locked to a contact or deal.</li>
               <li>Does not change lead status, create deals, or write voicemail / no-answer stubs.</li>
             </ul>
             {checked ? (

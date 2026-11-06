@@ -260,7 +260,7 @@ export const CallerIdSettings = () => {
 
       {config?.enabled && config.hubspotLogging === false && (
         <p className="text-xs text-muted-foreground">
-          Calls stay in Vocify until HubSpot call logging is configured.
+          Calls stay in Vocify until CRM call logging is configured.
         </p>
       )}
 

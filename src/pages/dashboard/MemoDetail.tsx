@@ -280,7 +280,7 @@ const MemoDetail = () => {
       clearCachedPreview(id);
       const updated = await memosApi.reTranscribe(id);
       setMemo(updated);
-      toast.success("Re-transcribing from the HubSpot recording…");
+      toast.success("Re-transcribing from the CRM recording…");
     } catch (err: any) {
       toast.error(err?.data?.detail || "Re-transcribe failed");
     } finally {

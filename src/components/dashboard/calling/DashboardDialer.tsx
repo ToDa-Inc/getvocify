@@ -504,7 +504,7 @@ export const DashboardDialer = ({
 
         {query.trim().length < 2 ? (
           <p className="px-1 py-6 text-center text-xs text-muted-foreground">
-            Busca un contacto de HubSpot y llama.
+            Busca un contacto de tu CRM y llama.
           </p>
         ) : null}
       </div>
