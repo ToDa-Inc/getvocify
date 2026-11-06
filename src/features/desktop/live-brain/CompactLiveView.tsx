@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Info, ListChecks, Maximize2, MessageCircleQuestion, MessageSquareReply, Pause, Play, Reply, ScrollText, Square, X } from "lucide-react";
+import { ChevronDown, Info, Maximize2, MessageCircleQuestion, MessageSquareReply, Pause, Play, Reply, ScrollText, Square, X } from "lucide-react";
 import { IconAction } from "@/components/ui/icon-action";
 import {
   DropdownMenu,
@@ -11,21 +11,24 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { LiveTranscript } from "@/features/recording/components";
-import { clockSeconds, pointSays, progressView } from "@/lib/live-brain";
+import { clockSeconds, pointSays, stepsView } from "@/lib/live-brain";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import type { DesktopMeeting } from "../DesktopMeetingProvider";
 import type { LiveBrain } from "../assist/useLiveBrain";
-import { ConversacionPane } from "./ConversacionPane";
 import { clock, type LiveCopy } from "./copy";
 import { Dots } from "./PointCard";
+import { StepsPane } from "./StepsPane";
 import type { LivePoint } from "./types";
 
-/** What covers the transcript, one at a time: the steps, the recap or who the call is with. */
-type Pane = "steps" | "recap" | "contact" | null;
+/** What opens over the tabs, one at a time: the recap or who the call is with. */
+type Pane = "recap" | "contact" | null;
+/** Under what to say: the steps (the default: they are what the window is for) or the conversation. */
+type Tab = "steps" | "transcript";
 
 /** How long Responder's "nothing to answer" stays. */
 const NOTHING_MS = 6000;
@@ -34,8 +37,8 @@ const JUST_CAME_S = 5;
 const FLASH_MS = 1200;
 
 /**
- * The live view in the dashboard's compact window (desktop app): what to say at the top, the conversation under it, and
- * the rep's asks on a rail at the right. The steps, the recap and the contact open over the conversation, one at a time.
+ * The live view in the dashboard's compact window (desktop app): what to say at the top, then two tabs, Pasos (open by
+ * default) and Transcripción, and the rep's asks in a bar at the bottom. The recap and the contact open over the tabs.
  * The window itself goes back to the whole dashboard with the button in its header.
  */
 export function CompactLiveView({
@@ -56,7 +59,8 @@ export function CompactLiveView({
   onExpand: () => void;
 }) {
   const [pane, setPane] = useState<Pane>(null);
-  const view = useMemo(() => progressView(brain.state.progress, brain.playbook, copy.goal), [brain.state.progress, brain.playbook, copy.goal]);
+  const [tab, setTab] = useState<Tab>("steps");
+  const view = useMemo(() => stepsView(brain.state.progress, brain.playbook, copy.goal), [brain.state.progress, brain.playbook, copy.goal]);
   const recap = brain.asks.recap;
   const responder = brain.asks.responder;
   const toggle = (next: Exclude<Pane, null>) => setPane((current) => (current === next ? null : next));
@@ -132,9 +136,24 @@ export function CompactLiveView({
           {helpOn ? <SayList brain={brain} copy={copy} responder={responder} flashId={flash} /> : <p className="px-3.5 py-3 text-[12px] text-muted-foreground">{copy.off}</p>}
         </section>
 
+        <Tabs value={tab} onValueChange={(next) => setTab(next as Tab)} className="shrink-0 px-2.5 pt-2">
+          <TabsList className={cn(THEME_TOKENS.interaction.segmentList, "grid w-full grid-cols-2 flex-nowrap gap-0.5 rounded-full border-b-0 p-0.5")}>
+            <TabsTrigger value="steps" className={cn(THEME_TOKENS.interaction.segmentTab, "h-7 justify-center border-b-0 px-2 text-[12px]")}>
+              {copy.compact.steps}
+            </TabsTrigger>
+            <TabsTrigger value="transcript" className={cn(THEME_TOKENS.interaction.segmentTab, "h-7 justify-center border-b-0 px-2 text-[12px]")}>
+              {copy.compact.transcript}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
         <div className="relative min-h-0 flex-1 overflow-hidden">
+          {/* Both stay mounted, so the transcript keeps its place and the steps their scroll when the rep switches. */}
+          <div role="tabpanel" aria-label={copy.compact.steps} hidden={tab !== "steps"} className="absolute inset-0">
+            <StepsPane view={view} copy={copy} helpOn={helpOn} typeName={typeName} onTick={brain.tick} onUntick={brain.untick} />
+          </div>
           {/* The transcript's own box takes the height of this one: it scrolls and keeps the newest line in view. */}
-          <div className="absolute inset-0 [&>div]:h-full">
+          <div role="tabpanel" aria-label={copy.compact.transcript} hidden={tab !== "transcript"} className="absolute inset-0 [&>div]:h-full">
             <LiveTranscript
               finalTranscript=""
               interimTranscript=""
@@ -146,33 +165,14 @@ export function CompactLiveView({
             />
           </div>
           {pane ? (
-            <Over
-              title={pane === "steps" ? copy.compact.steps : pane === "recap" ? copy.bar.recap : copy.compact.contact}
-              copy={copy}
-              onClose={() => setPane(null)}
-            >
-              {pane === "steps" ? (
-                <ConversacionPane
-                  view={view}
-                  copy={copy}
-                  helpOn={helpOn}
-                  typeName={typeName}
-                  pulseNow={false}
-                  onTick={brain.tick}
-                  onUntick={brain.untick}
-                  offline={null}
-                />
-              ) : pane === "recap" ? (
-                <Recap recap={recap} copy={copy} />
-              ) : (
-                <Contact contact={brain.contact} copy={copy} />
-              )}
+            <Over title={pane === "recap" ? copy.bar.recap : copy.compact.contact} copy={copy} onClose={() => setPane(null)}>
+              {pane === "recap" ? <Recap recap={recap} copy={copy} /> : <Contact contact={brain.contact} copy={copy} />}
             </Over>
           ) : null}
         </div>
 
-        {/* The island's bar, in its order: Responder, Resumen, Pasos (no count: a live "2/6" reads as a score of the
-            rep), and who the call is with at the right. Each opens over the transcript; a second tap closes it. */}
+        {/* The island's bar, in its order: Responder, Resumen, and who the call is with at the right. Resumen and the contact
+            open over the tabs; a second tap closes them. The steps are a tab now, not a button. */}
         <nav aria-label={copy.title} className="flex h-12 shrink-0 items-center gap-1.5 border-t border-border/60 px-2.5">
           <BarAction label={copy.bar.respond} tip={copy.barTips.respond} pending={responder?.status === "reading"} disabled={!helpOn} onClick={respond}>
             <MessageSquareReply />
@@ -180,11 +180,6 @@ export function CompactLiveView({
           <BarAction label={copy.bar.recap} tip={copy.barTips.recap} on={pane === "recap"} disabled={!helpOn} onClick={askRecap}>
             <ScrollText />
           </BarAction>
-          {view.hasPlaybook ? (
-            <BarAction label={copy.compact.steps} tip={copy.compact.stepsTip(view.done, view.total)} on={pane === "steps"} onClick={() => toggle("steps")}>
-              <ListChecks />
-            </BarAction>
-          ) : null}
           <div className="flex-1" />
           {contactName ? (
             <BarAction label={contactName.split(" ")[0]} tip={contactName} on={pane === "contact"} onClick={() => toggle("contact")}>
