@@ -260,7 +260,14 @@ def test_the_model_is_asked_for_short_lines_that_do_not_repeat_the_contact(clien
     assert "Never write people's names or dates" in rules
 
 
-def test_pipedrive_contact_is_briefed_from_vocify_and_says_pipedrive_was_not_read(client, world, monkeypatch):
+class FakePipedrive:
+    async def get(self, path, *, version="v2", params=None):
+        if path == "/notes":
+            return {"data": [{"id": 5, "content": "Wants pricing", "add_time": "2026-10-01 10:00:00"}]}
+        return {"data": []}
+
+
+def test_pipedrive_contact_is_briefed_from_pipedrive_and_vocify(client, world, monkeypatch):
     seen = []
 
     def memos(_supabase, _membership, contact_id, connection_id="hubspot"):
@@ -272,13 +279,28 @@ def test_pipedrive_contact_is_briefed_from_vocify_and_says_pipedrive_was_not_rea
 
     monkeypatch.setattr(api, "read_contact_memos", memos)
     monkeypatch.setattr(api, "hubspot_client_for", no_hubspot)
+    monkeypatch.setattr(api, "pipedrive_client_for", lambda _supabase, _user_id: FakePipedrive())
     response = client.get(f"/api/v1/contacts/{CONTACT}/recent-activity", params={"connection_id": "pipedrive", "summary": "false"})
     assert response.status_code == 200, response.text
     body = response.json()
     assert seen == [(CONTACT, "pipedrive")]
-    assert [i["id"] for i in body["interactions"]] == ["vocify:memo:memo-1"]
-    assert body["sources"] == {"pipedrive": "not_read", "vocify": "read"}
+    assert sorted(i["id"] for i in body["interactions"]) == ["pipedrive:note:5", "vocify:memo:memo-1"]
+    assert body["sources"] == {
+        "pipedrive": {"notes": "read", "activities": "read"},
+        "pipedrive_company": {"company": "not_read"},
+        "vocify": "read",
+    }
     assert body["company"] is None
+
+
+def test_pipedrive_not_connected_is_reported_as_failed_not_as_nothing(client, world, monkeypatch):
+    def not_connected(_supabase, _user_id):
+        raise RuntimeError("no connection")
+
+    monkeypatch.setattr(api, "read_contact_memos", lambda *_a, **_k: world["memos"])
+    monkeypatch.setattr(api, "pipedrive_client_for", not_connected)
+    body = client.get(f"/api/v1/contacts/{CONTACT}/recent-activity", params={"connection_id": "pipedrive", "summary": "false"}).json()
+    assert body["sources"]["pipedrive"] == {"notes": "failed", "activities": "failed"}
 
 
 def test_other_crms_are_refused(client):

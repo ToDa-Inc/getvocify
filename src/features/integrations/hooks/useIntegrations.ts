@@ -15,7 +15,9 @@ export function useIntegrations() {
   return useQuery({
     queryKey: integrationKeys.connections(),
     queryFn: integrationsApi.listConnections,
-    staleTime: Infinity,
+    // A connection made in the browser (or by a teammate) shows up when the window is focused again, not only after a restart.
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 }
 

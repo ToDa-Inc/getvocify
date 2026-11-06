@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -103,6 +104,22 @@ const SettingsPage = () => {
     queryClient.invalidateQueries({ queryKey: integrationKeys.all });
   };
 
+  const [refreshing, setRefreshing] = useState(false);
+  /** Asks the server again which CRMs are connected, for a connection the window has not seen yet. */
+  const reloadConnections = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: integrationKeys.all }),
+        queryClient.refetchQueries({ queryKey: crmKeys.all }),
+      ]);
+    } catch {
+      toast.error("Could not reload the connections");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     const hubspotStatus = searchParams.get("hubspot");
     const salesforceStatus = searchParams.get("salesforce");
@@ -198,6 +215,12 @@ const SettingsPage = () => {
           );
         })}
       </SettingsSection>
+      <div className="flex justify-end px-1">
+        <Button type="button" variant="ghost" size="sm" className="h-8 gap-2 text-xs text-muted-foreground" disabled={refreshing} onClick={reloadConnections}>
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden />
+          Refresh connections
+        </Button>
+      </div>
       {!canManage && <p className="px-1 text-xs text-muted-foreground">Workspace CRM. Ask an admin to connect or change it.</p>}
 
       <Dialog open={connectId !== null} onOpenChange={(open) => !open && setConnectId(null)}>

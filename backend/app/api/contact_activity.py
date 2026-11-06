@@ -25,6 +25,7 @@ from app.services.contacts.recent_activity import (
     read_company_activity,
     read_hubspot_activity,
     read_hubspot_company,
+    read_pipedrive_activity,
     read_people,
     summarize,
     with_people,
@@ -45,6 +46,13 @@ def hubspot_client_for(supabase, user_id: str):
     from app.api.crm import get_hubspot_client_from_connection
 
     return get_hubspot_client_from_connection(user_id, supabase)
+
+
+def pipedrive_client_for(supabase, user_id: str):
+    """The company's Pipedrive connection (raises when there is none)."""
+    from app.api.crm_pipedrive import _get_pipedrive_connection_row, _pd_client_from_row
+
+    return _pd_client_from_row(_get_pipedrive_connection_row(supabase, user_id), supabase)
 
 
 def read_contact_memos(supabase, membership: Membership, contact_id: str, connection_id: str = "hubspot") -> list[dict]:
@@ -97,7 +105,7 @@ def vocify_pushed_ids(supabase, company_id: str, memo_ids: list[str]) -> set[str
         .eq("action_type", "create_note")
         .execute()
     )
-    pushed |= {f"hubspot:note:{row['resource_id']}" for row in notes.data or [] if row.get("resource_id")}
+    pushed |= {f"{crm}:note:{row['resource_id']}" for row in notes.data or [] for crm in ("hubspot", "pipedrive") if row.get("resource_id")}
     return pushed
 
 
@@ -144,15 +152,21 @@ async def get_recent_activity(
 
     hubspot_sources: dict[str, str]
     company = None
-    # Pipedrive: what Vocify itself recorded with the person. Its own notes and activities are not read yet, and the
-    # answer says so ("not_read") instead of passing a quiet history off as a complete one.
+    # Pipedrive: the person's notes and activities, and what Vocify recorded with them. Others at the person's
+    # organization are not read yet, and the answer says so ("not_read").
     pipedrive = connection_id == "pipedrive"
     try:
         client = None if pipedrive else hubspot_client_for(supabase, membership.user_id)
     except Exception:
         client = None
     if pipedrive:
-        hubspot_interactions, hubspot_sources = [], {}
+        try:
+            hubspot_interactions, hubspot_sources = await read_pipedrive_activity(
+                pipedrive_client_for(supabase, membership.user_id), contact_id
+            )
+        except Exception:
+            logger.warning("Recent activity: Pipedrive is not connected for user %s", membership.user_id, exc_info=True)
+            hubspot_interactions, hubspot_sources = [], {k: "failed" for k in ("notes", "activities")}
         company_source = "not_read"
     elif client is None:
         hubspot_interactions, hubspot_sources = [], {k: "failed" for k in ("emails", "notes", "calls", "meetings", "tasks")}
@@ -211,7 +225,7 @@ async def get_recent_activity(
         "company_interactions": company_interactions,
         "summary": brief,
         "sources": (
-            {"pipedrive": "not_read", "vocify": vocify_source}
+            {"pipedrive": hubspot_sources, "pipedrive_company": company_sources, "vocify": vocify_source}
             if pipedrive
             else {
                 "hubspot": {**hubspot_sources, "company": company_source},

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { playbooksApi } from "@/features/playbooks/api";
 import { getDesktopBridge } from "@/lib/desktop-host";
+import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { api } from "@/shared/lib/api-client";
 import { assistContext, BACKSTOP_MS, turnCheck } from "@/lib/live-assist";
 import {
@@ -761,9 +762,11 @@ export function useLiveBrain(
 
   // ---- the contact: who they are before this call (only what the CRM and earlier calls say) ----
   const contactId = call.contactId ?? null;
+  const integrations = useIntegrations();
+  const crm = integrations.data?.find((c) => c.status === "connected" && (c.provider === "hubspot" || c.provider === "pipedrive"))?.provider ?? "hubspot";
   const activity = useQuery({
-    queryKey: ["live-brain-contact", contactId],
-    queryFn: () => api.get<Parameters<typeof contactBrief>[1]>(`/contacts/${encodeURIComponent(contactId as string)}/recent-activity?connection_id=hubspot`),
+    queryKey: ["live-brain-contact", crm, contactId],
+    queryFn: () => api.get<Parameters<typeof contactBrief>[1]>(`/contacts/${encodeURIComponent(contactId as string)}/recent-activity?connection_id=${crm}`),
     enabled: flag && Boolean(contactId),
     staleTime: 10 * 60_000,
     retry: false,
