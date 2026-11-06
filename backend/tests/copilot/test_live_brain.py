@@ -193,7 +193,8 @@ def test_numbers_said_in_the_call_in_words_or_digits_are_not_inventions():
 
 def test_ahora_never_carries_a_figure_nobody_gave():
     out = progress_for({"now": {"kind": "step", "id": "problema", "say": "Con 45 comerciales, ¿cuánto tarda cada uno?"}})
-    assert out["now"]["say"] == "Los equipos de campo dejan el CRM para luego." and out["guards"] == {"invented_number": 1}
+    # The line is dropped and nothing replaces it: the step's example is another prospect's sentence, not a line to read.
+    assert out["now"]["say"] is None and out["guards"] == {"invented_number": 1}
 
 
 def test_a_question_the_rep_already_answered_is_not_a_new_point_unless_the_rep_asked():
@@ -375,9 +376,10 @@ def test_ahora_is_stable_unless_it_is_done_or_the_conversation_moved():
     assert out["now"] == {"kind": "data", "id": "crm", "say": "¿Qué CRM usáis?"}
     out = progress_for({"now": {"kind": "data", "id": "crm", "say": "¿Qué CRM usáis?"}}, progress={"now": base, "rep_ticked": ["problema"]})
     assert out["now"]["id"] == "crm"
-    # Nothing valid: the first pending item in the playbook's order, with the step's own example.
+    # Nothing valid: the first pending item in the playbook's order, with no line (never the step's own example: it is
+    # another prospect's sentence).
     out = progress_for({"now": {"kind": "step", "id": "no-existe"}}, progress={"done_steps": ["apertura"]})
-    assert out["now"] == {"kind": "step", "id": "problema", "say": "Los equipos de campo dejan el CRM para luego."}
+    assert out["now"] == {"kind": "step", "id": "problema", "say": None}
     assert out["missing"][0] == "problema" and "apertura" not in out["missing"]
 
 
@@ -591,3 +593,32 @@ def test_unanswered_points_is_none_when_everything_was_answered_and_caps_the_lis
     assert events.unanswered_points(None) is None
     many = [{"is_update": False, "answer": None, "title": f"pregunta {i}", "kind": "question"} for i in range(6)]
     assert len(events.unanswered_points(many)) == events.UNANSWERED_MAX
+
+
+def test_a_step_the_conversation_went_past_lets_go_of_ahora():
+    base = {"kind": "step", "id": "apertura", "say": "Hola, soy Toni, será breve."}
+    # The model keeps the same pick but says the call went past it: Ahora moves to the step the call is on.
+    out = progress_for({"skipped": ["apertura"], "now": {"kind": "step", "id": "problema", "say": "¿Y cómo lo hacéis hoy?"}}, progress={"now": base})
+    assert out["now"] == {"kind": "step", "id": "problema", "say": "¿Y cómo lo hacéis hoy?"}
+    assert out["skipped_steps"] == ["apertura"] and out["guards"] == {"now_skipped": 1}
+    assert "apertura" not in out["missing"]
+    # A skipped step is never picked, not even as the fallback; it stays pending (not done).
+    out = progress_for({"skipped": ["apertura"], "now": {"kind": "step", "id": "apertura", "say": "x"}})
+    assert out["now"]["id"] == "problema" and out["steps"] == []
+    # Only real, pending steps can be skipped.
+    out = progress_for({"skipped": ["no-existe", "apertura"]}, progress={"done_steps": ["apertura"]})
+    assert out["skipped_steps"] == []
+
+
+def test_the_step_the_call_is_on_moves_ahora_past_the_steps_before_it():
+    base = {"kind": "step", "id": "apertura", "say": "Hola, soy Toni, será breve."}
+    # The model keeps the opening as its pick, but the last minutes are about the problem: Ahora follows the call.
+    out = progress_for({"on": "problema", "now": {"kind": "step", "id": "apertura", "say": "Hola", "moved_on": False}}, progress={"now": base})
+    assert out["now"] == {"kind": "step", "id": "problema", "say": None}
+    assert out["skipped_steps"] == ["apertura"] and out["steps"] == []  # gone past, still not done
+    # With a line of its own for that step, the line comes along.
+    out = progress_for({"on": "problema", "now": {"kind": "step", "id": "problema", "say": "¿Y cómo lo hacéis hoy?"}}, progress={"now": base})
+    assert out["now"] == {"kind": "step", "id": "problema", "say": "¿Y cómo lo hacéis hoy?"}
+    # On the first step, or on something that is not a step: nothing is gone past.
+    assert progress_for({"on": "apertura"}, progress={"now": base})["now"] == base
+    assert progress_for({"on": "inventado"}, progress={"now": base})["now"] == base

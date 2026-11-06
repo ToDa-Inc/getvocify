@@ -34,6 +34,7 @@
     "goal": null,
     "now": {"kind": "step", "id": "plantear_el_problema", "say": "Lo que vemos en los equipos de campo es que el CRM se deja para luego."},
     "missing": ["plantear_el_problema", "volumen_de_interacciones"],
+    "skipped_steps": [],
     "aids": {"steps": {"apertura_con_marco": {"concept": "Preséntate y di que será breve", "live": true}}, "data": {"crm_que_usan": {"question": "¿Qué CRM usáis?"}}},
     "guards": {}, "model": "direct:deepseek-ai/DeepSeek-V4.1-Flash", "latency_ms": 1800
   },

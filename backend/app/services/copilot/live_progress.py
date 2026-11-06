@@ -45,10 +45,18 @@ RULES FOR PROGRESS
 - Read the whole CALL, not just the window: something may have been done earlier.
 - List only what is NEW in this reading. Never list an item CALL STATE already has as done or found, nor one the rep ticked or
   unticked by hand: those are the rep's.
+- "on" is the step of the playbook the LAST MINUTES of the conversation are about, done or not (the rep is showing the
+  product: the demo step; they talk about trying it, who decides or a date: the step for that), or null when none fits.
+  Read it from the last turns only. The playbook's steps are a guide, not a rail: the call may be on a later step than the
+  ones still pending.
+- SKIPPED: a pending step the conversation has clearly gone past without the rep doing it goes in "skipped" (an opening
+  question when the prospect is already explaining their business). Never skip a step only because it has not happened yet,
+  nor the step the conversation is on.
 - "now" is the one item that matters most now AND has something to say: a pending step, a piece of data to find out, or the goal.
-  The playbook's order is the default; what the goal needs first comes first. Keep PREVIOUS NOW unless it is done, the rep
-  ticked it, or the conversation has clearly moved to another step: then set "moved_on" to true. Never change it between two
-  readings for no reason.
+  The playbook's order is the default; what the goal needs first comes first; the step the conversation is on comes before
+  an earlier one it went past. A skipped step is never "now". Keep PREVIOUS NOW unless it is done, skipped, the rep ticked it,
+  or the conversation has clearly moved to another item: then set "moved_on" to true. Never change it between two readings
+  for no reason.
 - "say" is the words the rep says next, in the prospect's language, at most 30 words: for a step, its example adapted to what
   this prospect just said; for data, a question that finds it out from their own words; for the goal, the concrete next step.
   Use only what they said and the playbook; no new facts about the company, no hour the call did not give. A step's example is
@@ -67,6 +75,8 @@ OUTPUT: only valid JSON, keys in this order:
 "parts": [{{"step": step id, "id": part id, "turns": [turn ids], "quote": verbatim}}],
 "data": [{{"id": criterion id, "turns": [turn ids], "value": string, "quote": verbatim}}],
 "goal": {{"reached": boolean, "turns": [turn ids], "value": string, "quote": verbatim}} or null,
+"on": step id or null,
+"skipped": [step ids],
 "now": {{"kind": "step"|"data"|"goal", "id": string, "moved_on": boolean, "say": string}} or null,
 "missing": [ids]}}"""
 
@@ -239,6 +249,23 @@ def finalize_progress(raw: Optional[dict], req: LiveReading, ctx: brain.BrainCon
     goal_now = bool(goal) or bool(progress and progress.goal_reached) or "goal" in rep
     has_goal = brain.goal_for(req.sales_motion_key) is not None
 
+    # Steps the conversation went past without the rep doing them: still not done, but never "now" (the steps are a guide,
+    # and a rep who skipped one is not held on it).
+    skipped: list[str] = []
+    for ident in (raw or {}).get("skipped") or []:
+        ident = str(ident or "")
+        if ident in steps_all and ident not in done_now and ident not in skipped:
+            skipped.append(ident)
+
+    # The step the last minutes are about. A pending step before it is behind the conversation: the rep went past it.
+    raw_on = str((raw or {}).get("on") or "")
+    on = raw_on if raw_on in steps_all else None
+    if on:
+        for ident in steps_all[: steps_all.index(on)]:
+            if ident not in done_now and ident not in skipped:
+                skipped.append(ident)
+    previous = progress.now if progress else None
+
     def pending(kind: str, ident: str) -> bool:
         if kind == "step":
             return ident in steps_all and ident not in done_now
@@ -248,37 +275,40 @@ def finalize_progress(raw: Optional[dict], req: LiveReading, ctx: brain.BrainCon
 
     now = None
     raw_now = (raw or {}).get("now")
-    previous = progress.now if progress else None
-    if previous and pending(previous.kind, previous.id) and not (isinstance(raw_now, dict) and raw_now.get("moved_on") is True):
+    def open_now(kind: str, ident: str) -> bool:
+        return pending(kind, ident) and not (kind == "step" and ident in skipped)
+
+    if previous and open_now(previous.kind, previous.id) and not (isinstance(raw_now, dict) and raw_now.get("moved_on") is True):
         # Ahora is stable: it changes only when it is done, ticked, or the conversation clearly moved.
         now = {"kind": previous.kind, "id": previous.id, "say": previous.say}
         if isinstance(raw_now, dict) and raw_now.get("id") != previous.id:
             drop("now_kept")
-    if now is None and isinstance(raw_now, dict) and raw_now.get("kind") in NOW_KINDS and pending(raw_now["kind"], str(raw_now.get("id") or "")):
+    if previous and previous.kind == "step" and previous.id in skipped:
+        drop("now_skipped")
+    if now is None and isinstance(raw_now, dict) and raw_now.get("kind") in NOW_KINDS and open_now(raw_now["kind"], str(raw_now.get("id") or "")):
         say = " ".join(str(raw_now.get("say") or "").split())[:300]
         if say and brain.invented_numbers(say, brain.allowed_numbers(req, ctx)):
             drop("invented_number")
             say = ""
         now = {"kind": raw_now["kind"], "id": str(raw_now["id"]), "say": say or None}
+    if now is None and on and open_now("step", on):
+        # The model's pick was behind the conversation (or none): the step the call is on, with no line of its own.
+        now = {"kind": "step", "id": on, "say": None}
     if now is None:
-        first_step = next((i for i in steps_all if pending("step", i)), None)
+        first_step = next((i for i in steps_all if open_now("step", i)), None)
         first_data = next((i for i in data_all if pending("data", i)), None)
         pick = ("step", first_step) if first_step else ("data", first_data) if first_data else ("goal", "goal") if pending("goal", "goal") else None
         if pick:
             now = {"kind": pick[0], "id": pick[1], "say": None}
-    if now and not now.get("say") and now["kind"] == "step":
-        example = next((s.get("example") for s in snapshot.get("steps") or [] if s.get("step_id") == now["id"]), None)
-        # The step's own sentence, unless it carries another prospect's figures: then the step's name is all there is.
-        if example and not brain.invented_numbers(example, brain.allowed_numbers(req, ctx)):
-            now["say"] = brain._clip(example, 300)
+    # No line from the model: none. The step's example is another prospect's sentence; read out as it is, it is a script.
 
     missing: list[str] = []
     for ident in ([now["id"]] if now else []) + [str(i) for i in (raw or {}).get("missing") or []]:
         kind = "step" if ident in steps_all else "data" if ident in data_all else "goal" if ident == "goal" else None
-        if kind and pending(kind, ident) and ident not in missing:
+        if kind and open_now(kind, ident) and ident not in missing:
             missing.append(ident)
     return {
-        "has_playbook": True, "steps": steps, "data": data, "goal": goal, "now": now, "missing": missing[:MISSING_MAX],
+        "has_playbook": True, "steps": steps, "data": data, "goal": goal, "now": now, "missing": missing[:MISSING_MAX], "skipped_steps": skipped,
         "guards": guards, "playbook_version_id": ctx.playbook_version_id,
     }
 
