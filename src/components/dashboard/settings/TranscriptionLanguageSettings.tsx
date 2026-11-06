@@ -53,7 +53,7 @@ export const TranscriptionLanguageSettings = () => {
       <SettingsRow
         icon={Languages}
         title="Main language"
-        description="Used for live calls, HubSpot recordings, uploads and WhatsApp."
+        description="Used for live calls, CRM recordings, uploads and WhatsApp."
       >
         <Select value={primary} disabled={saving} onValueChange={(next) => void save(next, extras.filter((c) => c !== next))}>
           <SelectTrigger size="sm" className="w-auto min-w-32" aria-label="Main language">

@@ -9,12 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
 import { memosApi, memoKeys } from "@/features/memos/api";
 import { isProcessing } from "@/features/memos/types";
-import { crmApi } from "@/lib/api/crm";
+import { crmApi, crmKeys, SESSION_QUERY_STALE_MS } from "@/lib/api/crm";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
 import { api } from "@/shared/lib/api-client";
@@ -234,16 +234,19 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const { t } = useLanguage();
   const integrations = useIntegrations();
-  const connected = integrations.data?.find((connection) => connection.status === "connected")?.provider;
+  const { data: crmPrefs } = useQuery({ queryKey: crmKeys.preferences(), queryFn: () => crmApi.getCrmPreferences(), staleTime: SESSION_QUERY_STALE_MS });
+  // With two CRMs connected, the one memos are written to (the primary), else the first connected.
+  const connectedCrms = integrations.data?.filter((connection) => connection.status === "connected") ?? [];
+  const connected = (connectedCrms.find((connection) => connection.id === crmPrefs?.primary_crm_connection_id) ?? connectedCrms[0])?.provider;
   /** The CRM the island names in its card; read when a call ends. */
   const crmNameRef = useRef<string | null>(null);
   crmNameRef.current = connected ? CRM_PROVIDER_CONFIGS[connected as CRMProvider]?.name ?? null : null;
   const hubspotConnectedRef = useRef(false);
   hubspotConnectedRef.current = connected === "hubspot";
   /** Where a contact's record lives in the connected CRM (HubSpot or Pipedrive): the card links to it once it is updated. */
-  const recordCrm = integrations.data?.find(
-    (connection) => (connection.provider === "hubspot" || connection.provider === "pipedrive") && connection.status === "connected",
-  );
+  const recordCrm =
+    connectedCrms.find((connection) => connection.provider === connected && (connection.provider === "hubspot" || connection.provider === "pipedrive")) ??
+    connectedCrms.find((connection) => connection.provider === "hubspot" || connection.provider === "pipedrive");
   const contactUrlRef = useRef<(contactId: string | null | undefined) => string | null>(() => null);
   contactUrlRef.current = (contactId) =>
     contactRecordUrl(recordCrm?.provider ?? null, recordCrm?.metadata?.portalId ?? null, contactId ?? null, recordCrm?.metadata);
