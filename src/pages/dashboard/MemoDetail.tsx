@@ -589,6 +589,7 @@ const MemoDetail = () => {
                 initialDealId={dealIdFromUrl}
                 initialContactId={memo?.hubspotContactId || memo?.hubspot_contact_id}
                 fallbackContactName={extraction.contactName || extraction.contact_name}
+                callSummary={extraction.summary ?? null}
                 previewRefreshKey={previewRefreshKey}
                 alreadyWritten={memo.status === "approved"}
                 onSuccess={handleSyncSuccess}
