@@ -488,6 +488,8 @@ export type DataChip = {
   by: "brain" | "rep" | null;
   /** What they said, when found; else what a good answer is. */
   detail: string | null;
+  /** The question written from its good answer (the producer's aids), for when the brain has none from the call. */
+  question: string | null;
 };
 export type StepsView = {
   hasPlaybook: boolean;
@@ -557,6 +559,7 @@ export function stepsView(progress: Progress, playbook: PlaybookView | null, goa
       state: stateOf("data", item.id, Boolean(found)),
       by: found?.by ?? null,
       detail: found ? (found.by === "rep" ? null : found.value ?? found.quote ?? null) : item.good,
+      question: item.question,
     };
   });
 
