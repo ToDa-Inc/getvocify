@@ -212,7 +212,7 @@ export function LiveBrainPanel({
                 <TooltipTrigger asChild>
                   <TabsTrigger
                     value={item.id}
-                    className={cn(THEME_TOKENS.interaction.segmentTab, "relative h-7 justify-center gap-1.5 border-b-0 px-2 text-[12px]")}
+                    className={cn(THEME_TOKENS.interaction.segmentTab, "relative mb-0 h-7 justify-center gap-1.5 px-2 text-[12px]")}
                   >
                     {pulseTab === item.id ? (
                       <span aria-hidden className="pointer-events-none absolute -inset-x-[3px] -inset-y-[2px] rounded-full ring-2 ring-beige/50 animate-ping [animation-iteration-count:1] motion-reduce:hidden" />

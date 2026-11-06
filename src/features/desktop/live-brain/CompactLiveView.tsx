@@ -137,11 +137,11 @@ export function CompactLiveView({
         </section>
 
         <Tabs value={tab} onValueChange={(next) => setTab(next as Tab)} className="shrink-0 px-2.5 pt-2">
-          <TabsList className={cn(THEME_TOKENS.interaction.segmentList, "grid w-full grid-cols-2 flex-nowrap gap-0.5 rounded-full border-b-0 p-0.5")}>
-            <TabsTrigger value="steps" className={cn(THEME_TOKENS.interaction.segmentTab, "h-7 justify-center border-b-0 px-2 text-[12px]")}>
+          <TabsList className={cn(THEME_TOKENS.interaction.segmentList, "grid w-full grid-cols-2 flex-nowrap gap-0.5 rounded-full p-0.5")}>
+            <TabsTrigger value="steps" className={cn(THEME_TOKENS.interaction.segmentTab, "mb-0 h-7 justify-center px-2 text-[12px]")}>
               {copy.compact.steps}
             </TabsTrigger>
-            <TabsTrigger value="transcript" className={cn(THEME_TOKENS.interaction.segmentTab, "h-7 justify-center border-b-0 px-2 text-[12px]")}>
+            <TabsTrigger value="transcript" className={cn(THEME_TOKENS.interaction.segmentTab, "mb-0 h-7 justify-center px-2 text-[12px]")}>
               {copy.compact.transcript}
             </TabsTrigger>
           </TabsList>
