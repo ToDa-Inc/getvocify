@@ -355,11 +355,12 @@ class Settings(BaseSettings):
     # for all. Today's live help (/copilot/turn + /copilot/suggest) stays as the fallback.
     LIVE_BRAIN_ENABLED: bool = True
     # The live call assistant's "Qué decir" view (build contract 2026-10-20): the dashboard tells the island to draw it and the
-    # brain may suggest questions to go deeper. Off everywhere; switched on per company to test.
-    LIVE_SAY_VIEW_ENABLED: bool = False
-    # The strategic card (pilot, 2026-10-26): with the "Qué decir" view, the automatic readings write ONE card or nothing
-    # (services/copilot/live_card.py, the replay engine frozen as turns-6b). Off everywhere; switched on per company.
-    LIVE_CARD_ENABLED: bool = False
+    # brain may suggest questions to go deeper. On for everyone (Dani, 2026-11-09); a company_feature_flags row switches it off.
+    LIVE_SAY_VIEW_ENABLED: bool = True
+    # The strategic card (services/copilot/live_card.py): with the "Qué decir" view, the automatic readings and Responder write
+    # ONE card or nothing, fact-checked. On for everyone (Dani, 2026-11-09, after the Vocify pilot since 2026-10-26); a
+    # company_feature_flags row switches it off.
+    LIVE_CARD_ENABLED: bool = True
     # Playbooks v2, per company. QUALIFICATION: C04 v7 reads "what has to come out of the call"
     # criteria and the company's own objections, and the score is built from three blocks
     # (steps, qualification, objections) instead of steps alone.
