@@ -441,10 +441,15 @@ def build_server() -> MCPServer:
     @server.tool(
         title="Update company",
         description=(
-            "Edit what Vocify knows about the company, for every call type at once. knowledge: Vuestra empresa, "
-            "by section; each section sent replaces that section, the others stay. Text sections: icp, bad_fit, "
-            "value_short, value_long, pricing, notes. Lists: differentiators [text], personas [{name, cares_about}], "
-            "triggers [{signal, how_to_use}], proofs [{customer, change}], competitors [{name, how_to_talk}]. "
+            "Edit what Vocify knows about the company, for every call type at once. It is context for live help, "
+            "briefs, follow-ups and Ask; it never scores a call. knowledge: Vuestra empresa, by section; each section "
+            "sent replaces that section, the others stay. Sections: icp (who the ideal customer is), bad_fit (who is "
+            "not a fit), personas [{name, cares_about}] (the roles you sell to and what each cares about), triggers "
+            "[{signal, how_to_use}] (buying signals and what to do when one appears), value_short (the value in one "
+            "sentence), value_long (the full value story), differentiators [text] (why you over the alternatives), "
+            "proofs [{customer, change}] (a customer and what changed for them), competitors [{name, how_to_talk}] "
+            "(how to talk about each one), pricing (prices and how to negotiate), notes (anything else). Write in "
+            "the company's language. "
             "base_updated_at: company_knowledge.updated_at you read (stale_knowledge if it moved). offer: the "
             "product description in Settings → Offer (up to 8000 characters). settings: name, sales_strategy, "
             "callback_after_days (1-30), followup_cadence, auto_create_contact_company. All of it applies at once, "
