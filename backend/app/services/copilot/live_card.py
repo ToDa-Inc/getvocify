@@ -46,7 +46,7 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "strategic_engine_20261109_days"
+PROMPT_VERSION = "strategic_engine_20261109_spotted"
 
 # ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
 
@@ -68,7 +68,9 @@ What you read has four levels. When they disagree, the higher level wins:
 3. HOW THE COMPANY WANTS VOCIFY TO DECIDE: its general criterion and its situations, when present.
 4. APPROVED ANSWERS and every example (of the steps, of the situations): ways to say things well. Use one when it fits
    this moment. Its facts count as a source; its tactic (pitching a capability, asking for a meeting now) is only a
-   suggestion and never overrides levels 1 to 3. Never recite an example as is.
+   suggestion and never overrides levels 1 to 3. Never recite an example as is. When THEY JUST RAISED names an objection
+   and its approved answer, the card answers that objection with it ("action" answer, "source" its id): the goal of the
+   call comes after the answer, never instead of it.
 
 A DEMO: when the rep is showing Vocify to the other side and asks them to play an objection or a question so it can be
 seen working («ponme una objeción», «suéltame una para que lo veas»), what they say next is the moment the demo is about.
@@ -432,7 +434,10 @@ def due(reason: str, objection: Optional[str], turns: list[dict], end: list[floa
         if reason == "turn_end":
             if sum(substance(turns[i]["text"]) for i in mine if end[i] > last) < MIN_SUBSTANCE:
                 return None
-            return "them_urgent" if objection and objection != "none" else "them_end"
+            # A question of theirs is urgent even when the turn check missed it: it said «es caro, ¿no?» was no objection
+            # in 2 of 3 tries, and the pace rule then left it unread.
+            asked = "?" in turns[mine[-1]]["text"]
+            return "them_urgent" if (objection and objection != "none") or asked else "them_end"
         since = max(last, turns[mine[0]]["t"])
         said = sum(substance(turns[i]["text"]) for i in mine if end[i] > since)
         return "them_mid" if now - since >= MID_GAP_S and said >= MIN_SUBSTANCE * 2 else None
@@ -544,6 +549,21 @@ def thread(turns: list[dict], end: list[float], shown: list[dict], now: float) -
         you = " ".join(said["you"][-THREAD_WORDS:]) or "(nothing yet)"
         out.append(f"- {int(s['visible_t'] // 60)}:{int(s['visible_t'] % 60):02d} card «{s['say']}»\n    then the rep: {you}\n    then they: {them}")
     return "THE THREAD (the latest moves already made and what came after each):\n" + ("\n".join(out) or "(no card yet)")
+
+
+def spotted(objection: Optional[str], snapshot: Optional[dict]) -> str:
+    """What the turn check saw in their last turn, for the reading: the objection and, when the playbook has one, its approved
+    answer. The reading was never told, and answered «vale un pastón» with the meeting instead of the price answer."""
+    if not objection or objection == "none":
+        return ""
+    entry_id = objection if objection.startswith("objection:") else f"objection:{objection}"
+    entry = next((e for e in (snapshot or {}).get("entries") or []
+                  if isinstance(e, dict) and e.get("entry_id") == entry_id and str(e.get("guidance") or "").strip()), None)
+    if not entry:
+        return f"\n\nTHEY JUST RAISED: an objection ({objection}). Answer it before anything else."
+    name = entry.get("label") or entry.get("category") or objection
+    return (f"\n\nTHEY JUST RAISED: «{name}». ITS APPROVED ANSWER ({entry_id}): {brain._clip(entry.get('guidance'), 600)}\n"
+            "Answer this objection first, with that answer in their words; the next step comes after it, never instead of it.")
 
 
 def reading_input(sources: str, turns: list[dict], end: list[float], now: float, shown: list[dict],
@@ -903,7 +923,8 @@ async def read_card(body: Any, ctx: Any) -> dict:
     motion = (body.sales_motion_key or "").strip() or None
     sources = sources_text(ctx, motion)
     started = time.perf_counter()
-    user = reading_input(sources, turns, end, now, shown, pending) + (ASKED_NOTE if moment == "asked" else "")
+    user = (reading_input(sources, turns, end, now, shown, pending) + (ASKED_NOTE if moment == "asked" else "")
+            + (spotted(body.objection, ctx.snapshot) if moment == "them_urgent" else ""))
     out, meta = await ask(SYSTEM, user, SCHEMA, max_tokens=TOKENS, temperature=0.2)
     trace: dict[str, Any] = {"reading": out, "reading_ms": meta["latency_ms"]}
     result.update(model=meta["model"], trace=trace)

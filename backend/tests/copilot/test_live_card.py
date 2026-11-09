@@ -87,6 +87,39 @@ def test_the_end_of_their_intervention_is_read_and_a_question_or_objection_is_ur
     assert live_card.due("turn_end", "none", CALL, end, end[-1], end[-1]) is None
 
 
+def test_a_question_of_theirs_is_urgent_even_when_the_turn_check_saw_nothing():
+    # «Ya, pero es que eso es caro, ¿no?»: the turn check said "none" in 2 of 3 tries (synthetic Movertis call, 2026-11-09).
+    call = CALL[:1] + [{"id": "t1", "who": "them", "text": "Ya, pero es que eso es caro, ¿no? Con veinte furgonetas no sé si me sale a cuenta.", "t": 6.0}]
+    end = live_card.ends(call)
+    assert live_card.due("turn_end", "none", call, end, end[-1], None) == "them_urgent"
+
+
+def test_the_reading_is_told_the_objection_they_raised_and_its_approved_answer(monkeypatch):
+    snapshot = {**SNAPSHOT, "entries": SNAPSHOT["entries"] + [
+        {"entry_id": "objection:custom:es_caro", "label": "Es caro", "guidance": "¿Respecto a qué te parece caro?"}]}
+    note = live_card.spotted("objection:custom:es_caro", snapshot)
+    assert "THEY JUST RAISED: «Es caro»" in note and "¿Respecto a qué te parece caro?" in note and "never instead of it" in note
+    assert "Plan desde 49 €" in live_card.spotted("price", snapshot)
+    assert live_card.spotted("none", snapshot) == "" and live_card.spotted(None, snapshot) == ""
+    assert live_card.spotted("trust", snapshot) == "\n\nTHEY JUST RAISED: an objection (trust). Answer it before anything else."
+    seen = []
+
+    async def ask(system, user, schema, *, max_tokens, temperature):
+        meta = {"model": "direct:test", "latency_ms": 10, "error": None}
+        if system == live_card.SYSTEM:
+            seen.append(user)
+            return answer(), meta
+        if system == live_card.FACT_SYSTEM:
+            return {"unsupported": False, "what": ""}, meta
+        if system == live_card.CLOSING_SYSTEM:
+            return {"closing": False, "evidence": ""}, meta
+        return {"repeats": False, "same_as": "", "why": ""}, meta
+
+    monkeypatch.setattr(live_card, "ask", ask)
+    run(live_card.read_card(reading(reason="turn_end", objection="price"), CTX))
+    assert "THEY JUST RAISED" in seen[0] and "Plan desde 49 €" in seen[0]
+
+
 def test_a_listening_sound_is_not_an_intervention():
     call = turns(("you", "Te cuento rápidamente cómo funciona la herramienta con vuestro equipo comercial.", 0.0), ("them", "Vale, sí.", 5.0))
     end = live_card.ends(call)
