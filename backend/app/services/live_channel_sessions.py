@@ -893,8 +893,13 @@ class ChannelSessions:
         service: str = "live",
         echo_cancel: bool = False,
         echo_raise: bool = True,
+        capture_id: Optional[str] = None,
     ) -> None:
         self.client = client_ws
+        # The call's own recording, for the whole-call transcription its memo gets (live_recording.py).
+        from app.services.live_recording import CallRecorder
+
+        self.recorder = CallRecorder.for_session(user_id, capture_id, labels)
         # A meeting heard through speakers: the call is taken out of the rep's mic before it is transcribed.
         self.echo: Optional[Any] = None
         if echo_cancel and "rep" in labels and "prospect" in labels:
@@ -986,6 +991,17 @@ class ChannelSessions:
                 await self._finish()
             finally:
                 live_activity.session_ended(self.user_id)
+                if self.recorder is not None:
+                    # After the client is gone: storing the call never holds up its live transcript.
+                    asyncio.create_task(self._store_recording())
+
+    async def _store_recording(self) -> None:
+        from app.deps import get_supabase
+
+        try:
+            await self.recorder.finish(get_supabase())  # type: ignore[union-attr]
+        except Exception:
+            logger.exception("Live recording: storing the call failed")
 
     async def _roll_over(self, label: str, limit: float) -> None:
         """Moves a side to a fresh session before the provider ends it, without a gap."""
@@ -1054,6 +1070,8 @@ class ChannelSessions:
                         logger.exception("Live channels: echo canceller failed, turned off for this call")
                         self.echo = None
                 self.buffers[channel].append(pcm)
+                if self.recorder is not None:
+                    self.recorder.write(channel, pcm)
                 self.active[channel].feed(pcm)
                 if channel in self.shadows:
                     self.shadows[channel].feed(pcm)

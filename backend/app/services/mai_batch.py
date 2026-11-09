@@ -166,6 +166,7 @@ async def transcribe_mai(
     channels: int = 1,
     rep_channel: Optional[int] = None,
     diarization: bool = True,
+    rep_fixed: bool = False,
 ) -> MaiTranscript:
     api_key = getattr(settings, "OPENROUTER_API_KEY", None)
     if not api_key or not str(api_key).strip():
@@ -219,7 +220,8 @@ async def transcribe_mai(
         for (a, _), (turns, _) in zip(bounds, windows):
             for channel, turn in zip(assign_channels(turns, sides[0], sides[1], a / SAMPLE_RATE), turns):
                 placed.append((channel, turn["text"]))
-        rep = pick_rep_channel(
+        # A desktop call's channels are certain (its own mic is the rep): what was said never swaps them.
+        rep = rep_channel if rep_fixed and rep_channel in (0, 1) else pick_rep_channel(
             [[text for channel, text in placed if channel == c] for c in (0, 1)], rep_channel
         )
         return MaiTranscript(

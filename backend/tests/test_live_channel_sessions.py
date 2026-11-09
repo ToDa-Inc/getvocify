@@ -755,3 +755,45 @@ def test_mai_chunks_run_when_forced_and_openrouter_has_a_key_and_the_language_hi
     # No OpenRouter key: the profile's own rule is used, as for the other forced providers.
     monkeypatch.setattr(live.settings, "OPENROUTER_API_KEY", None)
     assert make(["es"]).provider == "deepgram"
+
+
+def test_a_desktop_call_named_by_its_recording_is_kept_whole_for_its_memo(monkeypatch):
+    """With a capture_id the live session keeps both sides, as they reach the server, and stores them when it ends."""
+    import asyncio
+
+    from app.services import live_channel_sessions as live
+    from tests.test_desktop_recording import FakeSupabase, tone
+
+    monkeypatch.setattr(live.settings, "AI_GATEWAY_API_KEY", "k")
+    monkeypatch.setattr(live.settings, "LIVE_STT_PROVIDER", "mai")
+    monkeypatch.setitem(live.STREAMS, "mai", _FakeStream)
+    monkeypatch.setattr(live, "FINISH_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(_FakeStream, "billed_seconds", lambda self: 0.0, raising=False)
+    _FakeStream.made = []
+    _FakeStream.starts = True
+    db = FakeSupabase()
+    monkeypatch.setattr("app.deps.get_supabase", lambda: db)
+    client = _FakeClient()
+    rep, them = tone(4.0, 220), tone(4.0, 440)
+    frames = [(ch, pcm[i:i + 3200]) for i in range(0, len(rep), 3200) for ch, pcm in (("rep", rep), ("prospect", them))]
+    client.receive = _audio_messages(frames)
+    sessions = live.ChannelSessions(
+        client, labels=["prospect", "rep"], language="multi", profile_languages=["es"], glossary=[], detect=False,
+        user_id="rep-1", capture_id="cap-12345678",
+    )
+
+    async def scenario():
+        await sessions.run()
+        for _ in range(100):
+            if db.storage.store:
+                return
+            await asyncio.sleep(0.05)
+
+    asyncio.run(scenario())
+    [path] = db.storage.store
+    assert path.startswith("rep-1/live-cap-12345678-")
+
+
+def test_a_session_without_a_recording_id_keeps_nothing(monkeypatch):
+    live, sessions, client = _sessions(monkeypatch)
+    assert sessions.recorder is None
