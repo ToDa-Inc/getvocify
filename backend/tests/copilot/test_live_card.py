@@ -187,6 +187,13 @@ def test_a_card_never_pairs_a_weekday_with_another_days_date_nor_invents_an_hour
     assert fix("¿Fijamos el jueves a las diez y media?", sources, "") == "¿Fijamos el jueves?"
     assert fix("Llámale a partir de las diez, ¿te va el jueves a las diez?", sources, "a partir de las diez") == (
         "Llámale a partir de las diez, ¿te va el jueves a las diez?")
+    # Any number said in the call is not an hour said: the rep's opening had «a diez minutos o a 300 kilómetros».
+    assert fix("¿te llamo el miércoles a las 10 y lo vemos en 20 minutos?", sources,
+               "¿cómo sabes si está a diez minutos o a 300 kilómetros?") == "¿te llamo el miércoles y lo vemos en 20 minutos?"
+    # A date with its month it cannot vouch for keeps the month, not a weekday that would read as next week.
+    assert fix("Perfecto, te lo mando. ¿Te llamo el martes 12 de enero para retomarlo?", sources, "") == (
+        "Perfecto, te lo mando. ¿Te llamo en enero para retomarlo?")
+    assert fix("¿Te va bien el jueves 12 de noviembre?", sources, "") == "¿Te va bien el jueves 12 de noviembre?"
     # A date past the calendar cannot be checked: the weekday alone.
     assert fix("Te llamo en junio; ¿te parece el martes 2?", sources, "") == "Te llamo en junio; ¿te parece el martes?"
 

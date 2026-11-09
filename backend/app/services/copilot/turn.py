@@ -17,7 +17,7 @@ LATEST_CHARS = 1000
 CONVERSATION_CHARS = 6000
 
 OBJECTIONS: dict[str, str] = {
-    "none": "Small talk, agreement, describing their situation, agreeing on a next step or a goodbye, or anything that is not pushback or a product question. Saying they are short of time but still going on with the call («dime, pero rápido») is not pushback. Not recognising who is calling or what it is about («no te ubico», «no caigo», «¿de qué?») is none.",
+    "none": "Small talk, agreement, describing their situation, agreeing on a next step or a goodbye, or anything that is not pushback or a product question. Saying they are short of time but still going on with the call («dime, pero rápido») is not pushback. Not recognising who is calling or what it is about («no te ubico», «no caigo», «¿de qué?») is none. A complaint about the provider or tool they have today («nos sale a precio de oro para lo que da», «nadie lo mira») is none: it is about what they have, not pushback against the seller. Being happy with it and not wanting to change is pushback.",
     "price": "Too expensive, budget, cost.",
     "timing": "Pushback on the moment: not now, not buying anything at the moment, cannot talk now (in a meeting, travelling or away for a period), call me in a few months. Not recognising the caller is not timing.",
     "authority": "Someone else decides or must approve.",

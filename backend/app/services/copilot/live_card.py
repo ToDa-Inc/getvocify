@@ -499,10 +499,17 @@ def calendar(sources: str, days: int = CALENDAR_DAYS) -> str:
                                     for d in (today + timedelta(k) for k in range(days)))
 
 
-_DAY_NUMBER = re.compile(r"\b(" + "|".join(DAYS) + r")\s+(\d{1,2})\b(?!\s*(?:minutos|min|horas|h)\b)", re.IGNORECASE)
+_MONTHS_FULL = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre",
+                "diciembre"]
+_DAY_NUMBER = re.compile(r"\b(" + "|".join(DAYS) + r")\s+(\d{1,2})\b(?!\s*(?:minutos|min|horas|h)\b)(\s+de\s+(" + "|".join(_MONTHS_FULL)
+                         + r"))?", re.IGNORECASE)
 _HOUR_WORDS = "una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce"
 _HOUR = re.compile(r"\s*\b(?:a las|a la)\s+(\d{1,2}|" + _HOUR_WORDS + r")(?:[:.](\d{2})|\s+y\s+(?:media|cuarto))?(?:\s*(?:h|horas)\b)?"
                    r"|\s*\b(\d{1,2}):(\d{2})(?:\s*(?:h|horas)\b)?", re.IGNORECASE)
+
+
+# An hour as said in the call: «a las diez», «a partir de las 10», «las 10:30».
+_HOUR_SAID = re.compile(r"\blas?\s+(\d{1,2}|" + _HOUR_WORDS + r")\b|\b(\d{1,2}):\d{2}\b", re.IGNORECASE)
 
 
 def fixed_days(say: str, sources: str, said: str) -> str:
@@ -513,15 +520,20 @@ def fixed_days(say: str, sources: str, said: str) -> str:
     today = date(int(m[1]), int(m[2]), int(m[3])) if m else None
 
     def day(match: re.Match) -> str:
-        weekday, number = match[1], int(match[2])
+        weekday, number, month = match[1], int(match[2]), (match[4] or "").lower()
         if today and any(d.day == number and DAYS[d.weekday()] == weekday.lower()
+                         and (not month or _MONTHS_FULL[d.month - 1] == month)
                          for d in (today + timedelta(k) for k in range(CALENDAR_DAYS))):
             return match[0]
-        return weekday
+        # A date it cannot vouch for: the month it named stays («el martes 2 de junio» → «en junio»), else the weekday.
+        return f"en {month}" if month else weekday
 
     out = _DAY_NUMBER.sub(day, say)
-    heard = brain.numbers_in(said)
-    out = _HOUR.sub(lambda h: h[0] if brain.numbers_in(h[1] or h[3]) <= heard else "", out)
+    out = re.sub(r"\b(?:el|la)\s+en\s+(" + "|".join(_MONTHS_FULL) + r")\b", r"en \1", out, flags=re.IGNORECASE)
+    # An hour counts as said only when it was said as an hour («a las diez», «10:30»), not any number in the call: the rep's
+    # «a diez minutos o a 300 kilómetros» let an invented «a las 10» through.
+    hours = {n for h in _HOUR_SAID.finditer(said) for n in brain.numbers_in(h[1] or h[2])}
+    out = _HOUR.sub(lambda h: h[0] if brain.numbers_in(h[1] or h[3]) <= hours else "", out)
     return re.sub(r"\s+([,.?!])", r"\1", " ".join(out.split()))
 
 
