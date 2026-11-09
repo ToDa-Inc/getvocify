@@ -21,6 +21,8 @@ export type McpCreatedKey = McpKeyStatus & { key: string };
 export type OAuthGrant = {
   client: { client_id: string; client_name?: string | null; client_uri?: string | null };
   granted_at?: string | null;
+  /** The user let this app edit the company's setup when they signed in. */
+  can_write?: boolean;
 };
 
 /** The app asking to sign in. `known` is false for any app that is not Claude, ChatGPT, Cursor or VS Code. */
@@ -29,6 +31,8 @@ export type OAuthAuthorization = {
   redirect_uri: string;
   known: boolean;
   client: { client_id: string; client_name?: string | null };
+  /** Owners and admins may also let the app edit the company's setup. */
+  can_allow_write?: boolean;
 };
 
 export const mcpKeys = {
@@ -46,6 +50,9 @@ export const mcpApi = {
   grants: () => api.get<{ grants: OAuthGrant[] }>("/oauth/grants"),
   revokeGrant: (clientId: string) => api.delete(`/oauth/grants?client_id=${encodeURIComponent(clientId)}`),
   authorization: (id: string) => api.get<OAuthAuthorization>(`/oauth/authorizations/${encodeURIComponent(id)}`),
-  consent: (id: string, action: "approve" | "deny") =>
-    api.post<{ redirect_url: string }>(`/oauth/authorizations/${encodeURIComponent(id)}/consent`, { action }),
+  consent: (id: string, action: "approve" | "deny", allowWrite = false) =>
+    api.post<{ redirect_url: string }>(`/oauth/authorizations/${encodeURIComponent(id)}/consent`, {
+      action,
+      allow_write: action === "approve" && allowWrite,
+    }),
 };

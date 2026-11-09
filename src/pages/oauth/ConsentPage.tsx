@@ -3,6 +3,7 @@ import { Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { useAuth } from "@/features/auth";
 import { ApiError } from "@/shared/lib/api-client";
@@ -33,6 +34,7 @@ const ConsentPage = () => {
   const gate = sessionGateView({ isLoading, hasStoredSession, isAuthenticated });
   const [sending, setSending] = useState<"approve" | "deny" | null>(null);
   const [failed, setFailed] = useState<"invalid" | "off" | null>(null);
+  const [allowEdits, setAllowEdits] = useState(false);
 
   const details = useQuery({
     queryKey: ["oauth-authorization", authorizationId],
@@ -49,7 +51,7 @@ const ConsentPage = () => {
   const answer = async (action: "approve" | "deny") => {
     setSending(action);
     try {
-      const { redirect_url } = await mcpApi.consent(authorizationId, action);
+      const { redirect_url } = await mcpApi.consent(authorizationId, action, allowEdits && Boolean(details.data?.can_allow_write));
       window.location.assign(redirect_url);
     } catch (error) {
       // 409: the workspace has AI agents off. Anything else: the request expired or was never ours.
@@ -86,7 +88,9 @@ const ConsentPage = () => {
                 <h1 className={THEME_TOKENS.typography.sectionTitle}>
                   {appName} {t.product.consentTitle}
                 </h1>
-                <p className="text-sm text-muted-foreground">{t.product.consentBody}</p>
+                <p className="text-sm text-muted-foreground">
+                  {t.product.consentBody} {allowEdits ? null : t.product.consentReadOnly}
+                </p>
                 {returnHost && (
                   <p className="text-xs text-muted-foreground">
                     {t.product.consentReturnTo} <span className="font-medium text-foreground">{returnHost}</span>
@@ -96,6 +100,21 @@ const ConsentPage = () => {
                   <p className="text-xs text-warning" role="status">{t.product.consentUnrecognised}</p>
                 )}
               </div>
+              {request.can_allow_write && (
+                <label htmlFor="consent-allow-edits" className="flex items-start gap-3 cursor-pointer">
+                  <Checkbox
+                    id="consent-allow-edits"
+                    className="mt-0.5"
+                    checked={allowEdits}
+                    disabled={sending !== null}
+                    onCheckedChange={(value) => setAllowEdits(value === true)}
+                  />
+                  <span className="space-y-1">
+                    <span className="block text-sm font-medium text-foreground">{t.product.consentAllowEdits}</span>
+                    <span className="block text-xs text-muted-foreground">{t.product.consentAllowEditsHint}</span>
+                  </span>
+                </label>
+              )}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" className="rounded-full" disabled={sending !== null} onClick={() => void answer("deny")}>
                   {sending === "deny" ? <VocifySpinner size={14} /> : t.product.consentDeny}

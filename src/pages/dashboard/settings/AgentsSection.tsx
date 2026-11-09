@@ -179,7 +179,8 @@ const AgentsSection = () => {
                         <div className="min-w-0">
                           <p className="truncate text-sm text-foreground">{grant.client.client_name || grant.client.client_uri}</p>
                           <p className="text-xs text-muted-foreground">
-                            {t.product.agentsAppsConnectedOn} {formatDate(grant.granted_at, language)}
+                            {t.product.agentsAppsConnectedOn} {formatDate(grant.granted_at, language)} ·{" "}
+                            {grant.can_write ? t.product.agentsAppsCanEdit : t.product.agentsAppsReadOnly}
                           </p>
                         </div>
                         <Button
