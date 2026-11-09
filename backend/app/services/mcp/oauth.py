@@ -161,6 +161,18 @@ def list_grants(supabase: Any, user_id: str) -> list[dict]:
     return sorted(items, key=lambda item: str(item["granted_at"] or ""), reverse=True)
 
 
+def set_grant_write(supabase: Any, user_id: str, key: str, write: bool) -> bool:
+    """Let a connected app edit the company's setup, or take that away, without reconnecting it: its access tokens
+    read the grant on every call (cached 30 s). False when this user has no such app connected."""
+    grants = dict(_read_grants(supabase, user_id, fresh=True))
+    grant = grants.get(key)
+    if not isinstance(grant, dict):
+        return False
+    grants[key] = {**grant, "write": bool(write)}
+    _write_grants(supabase, user_id, grants)
+    return True
+
+
 def revoke_grant(supabase: Any, user_id: str, key: str) -> None:
     grants = dict(_read_grants(supabase, user_id, fresh=True))
     if grants.pop(key, None) is not None:

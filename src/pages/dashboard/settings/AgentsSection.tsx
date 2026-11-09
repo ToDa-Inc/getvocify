@@ -125,6 +125,11 @@ const AgentsSection = () => {
     },
     onError: failed,
   });
+  const setGrantWrite = useMutation({
+    mutationFn: ({ clientId, canWrite }: { clientId: string; canWrite: boolean }) => mcpApi.setGrantWrite(clientId, canWrite),
+    onSuccess: (next) => queryClient.setQueryData(mcpKeys.grants(), next),
+    onError: failed,
+  });
   const revokeGrant = useMutation({
     mutationFn: (clientId: string) => mcpApi.revokeGrant(clientId),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: mcpKeys.grants() }),
@@ -183,15 +188,28 @@ const AgentsSection = () => {
                             {grant.can_write ? t.product.agentsAppsCanEdit : t.product.agentsAppsReadOnly}
                           </p>
                         </div>
-                        <Button
-                          type="button"
-                          variant="dangerGhost"
-                          size="text"
-                          disabled={revokeGrant.isPending}
-                          onClick={() => revokeGrant.mutate(grant.client.client_id)}
-                        >
-                          {t.product.agentsAppsDisconnect}
-                        </Button>
+                        <div className="flex shrink-0 items-center gap-4">
+                          {(data.can_grant_write || grant.can_write) && (
+                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                              {t.product.agentsAppsAllowEdits}
+                              <Switch
+                                checked={Boolean(grant.can_write)}
+                                disabled={setGrantWrite.isPending}
+                                onCheckedChange={(canWrite) => setGrantWrite.mutate({ clientId: grant.client.client_id, canWrite })}
+                                aria-label={`${t.product.agentsAppsAllowEdits}: ${grant.client.client_name || grant.client.client_uri}`}
+                              />
+                            </label>
+                          )}
+                          <Button
+                            type="button"
+                            variant="dangerGhost"
+                            size="text"
+                            disabled={revokeGrant.isPending}
+                            onClick={() => revokeGrant.mutate(grant.client.client_id)}
+                          >
+                            {t.product.agentsAppsDisconnect}
+                          </Button>
+                        </div>
                       </li>
                     ))}
                   </ul>

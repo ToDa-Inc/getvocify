@@ -111,13 +111,13 @@ def test_a_read_only_key_reads_the_setup_but_cannot_edit_it(mcp_client, key_for,
     body = ok(mcp_client, key, "get_setup")
     assert body["can_edit"] is True and body["connection_can_edit"] is False
     text = refused(mcp_client, key, "save_playbook_draft", {"sales_motion_key": "discovery", "steps": STEPS})
-    assert "can only read" in text and "Settings → AI agents" in text
+    assert "read-only" in text and "Settings → AI agents" in text
     assert stores.list_types(COMPANY) == {}
 
 
 def test_a_write_key_of_a_rep_is_refused_with_the_apis_code(mcp_client, write_key_for, stores):
     text = refused(mcp_client, write_key_for(REP), "save_playbook_draft", {"sales_motion_key": "discovery", "steps": STEPS})
-    assert text.startswith("forbidden:")
+    assert "Only owners and admins" in text  # told plainly, not sent to reconnect
     assert stores.list_types(COMPANY) == {}
 
 
@@ -259,7 +259,7 @@ def test_the_offer_and_settings_are_written_where_the_dashboard_writes_them(mcp_
 
 def test_a_rep_with_a_write_key_changes_nothing_of_the_company(mcp_client, write_key_for, company_settings, db):
     text = refused(mcp_client, write_key_for(REP), "update_company", {"offer": "x", "knowledge": {"icp": "y"}})
-    assert text.startswith("forbidden:")
+    assert "Only owners and admins" in text
     assert db.tables["companies"][0]["product_context"] == ""
 
 
@@ -309,7 +309,7 @@ def _sign_in(server, *, user, allow_write):
 def test_an_app_signed_in_without_edits_reads_only(server, mcp_client):
     asked, _, token = _sign_in(server, user=MANAGER, allow_write=False)
     assert asked["can_allow_write"] is True
-    assert "can only read" in refused(mcp_client, token, "save_call_type", {"sales_motion_key": "discovery"})
+    assert "read-only" in refused(mcp_client, token, "save_call_type", {"sales_motion_key": "discovery"})
 
 
 def test_an_app_the_manager_allowed_to_edit_can_and_the_grant_says_so(server, mcp_client):
@@ -323,6 +323,33 @@ def test_a_rep_cannot_let_an_app_edit(server):
     assert asked["can_allow_write"] is False and consent.status_code == 403
 
 
-def test_an_app_connected_before_edit_access_existed_stays_read_only(mcp_client, oauth_token_for):
+def test_an_app_connected_before_edit_access_existed_stays_read_only_and_says_where_to_allow_edits(mcp_client, oauth_token_for):
     token = oauth_token_for(MANAGER)  # a grant with no `write`
-    assert "can only read" in refused(mcp_client, token, "save_call_type", {"sales_motion_key": "discovery"})
+    text = refused(mcp_client, token, "save_call_type", {"sales_motion_key": "discovery"})
+    assert "Claude is connected to Vocify read-only" in text and "Allow edits" in text
+    assert "/dashboard/settings/agents" in text and "No need to reconnect" in text
+
+
+def test_a_manager_allows_edits_on_an_app_already_connected_without_reconnecting(server, mcp_client, oauth_token_for, db):
+    from app.services.mcp import oauth
+
+    token = oauth_token_for(MANAGER)
+    server.who["id"] = MANAGER
+    client_id = server.get("/api/v1/oauth/grants").json()["grants"][0]["client"]["client_id"]
+    turned_on = server.patch(f"/api/v1/oauth/grants?client_id={client_id}", json={"can_write": True})
+    assert turned_on.status_code == 200 and turned_on.json()["grants"][0]["can_write"] is True
+    oauth._grants_cache.clear()  # the instance that serves /mcp sees it within the cache's 30 s
+    assert ok(mcp_client, token, "save_call_type", {"sales_motion_key": "discovery"})["created"] is True
+    server.patch(f"/api/v1/oauth/grants?client_id={client_id}", json={"can_write": False})
+    oauth._grants_cache.clear()
+    assert "read-only" in refused(mcp_client, token, "save_call_type", {"sales_motion_key": "demo"})
+
+
+def test_a_rep_cannot_allow_edits_on_their_app_and_an_unknown_app_is_404(server, oauth_token_for):
+    oauth_token_for(REP)
+    server.who["id"] = REP
+    client_id = server.get("/api/v1/oauth/grants").json()["grants"][0]["client"]["client_id"]
+    assert server.patch(f"/api/v1/oauth/grants?client_id={client_id}", json={"can_write": True}).status_code == 403
+    assert server.patch(f"/api/v1/oauth/grants?client_id={client_id}", json={"can_write": False}).status_code == 200
+    server.who["id"] = MANAGER
+    assert server.patch("/api/v1/oauth/grants?client_id=nope", json={"can_write": True}).status_code == 404

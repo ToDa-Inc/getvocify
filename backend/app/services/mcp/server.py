@@ -35,7 +35,9 @@ from app.services.crm_copilot.actor import ScopeError
 from app.services.mcp import access, ask_runs, interactions, setup
 from app.services.mcp.access import AccessDenied
 from app.api.playbooks import StructuredCriterion, StructuredObjection, StructuredStep
+from app.config import settings as app_settings
 from app.services.playbooks.conduct import CoreBlock, Situation
+from app.services.playbooks.versions import can_publish
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +62,25 @@ _LIFECYCLE = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempo
 _LIVE = (
     " It changes the setup Vocify coaches, scores and assists every rep's calls with."
 )
-_READ_ONLY_CONNECTION = (
-    "This connection can only read. To let an AI agent edit Vocify's setup, an owner or admin creates an API key "
-    "with edit access in Vocify (Settings → AI agents), or reconnects the app and allows edits on the sign-in screen."
+def _read_only_message(credential: Optional[str]) -> str:
+    """What the agent tells the user when a setup tool is refused for a read-only connection: one step, no reinstall."""
+    page = app_settings.FRONTEND_URL.rstrip("/") + "/dashboard/settings/agents"
+    if credential and credential.startswith("oauth:"):
+        app = credential.split(":", 1)[1] or "this app"
+        return (
+            f"{app} is connected to Vocify read-only, so it cannot edit the setup yet. Turn on \"Allow edits\" for "
+            f"{app} in Vocify → Settings → AI agents ({page}). No need to reconnect: it works within a minute. "
+            "Then ask again."
+        )
+    return (
+        "This Vocify API key is read-only, so it cannot edit the setup. An owner or admin can make a key with edit "
+        f"access in Vocify → Settings → AI agents ({page}); the old key stops working when the new one is made."
+    )
+
+
+_NOT_AN_EDITOR = (
+    "Only owners and admins of this Vocify workspace can change its setup (playbooks, company, offer, settings). "
+    "Ask one of them to make the change, or to give you that role."
 )
 
 
@@ -90,8 +108,10 @@ async def _call(tool: str, work: Callable[[Any, Any, Any], Awaitable[Any]], *, w
         supabase = _supabase()
         membership = await anyio.to_thread.run_sync(access.require_membership, supabase, user_id)
         company_id = membership.company_id
+        if write and not can_publish(membership.role):
+            raise AccessDenied(_NOT_AN_EDITOR)
         if write and not access.may_write(token):
-            raise AccessDenied(_READ_ONLY_CONNECTION)
+            raise AccessDenied(_read_only_message(getattr(token, "client_id", None)))
         access.check_rate(user_id)
         actor = await anyio.to_thread.run_sync(access.actor_for, supabase, membership)
         return _json(await work(supabase, membership, actor))

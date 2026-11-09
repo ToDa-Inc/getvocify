@@ -517,6 +517,7 @@ export const productCatalog = {
     consentReadOnly: "It cannot change anything.",
     agentsAppsCanEdit: "Can read and edit setup",
     agentsAppsReadOnly: "Read only",
+    agentsAppsAllowEdits: "Allow edits",
     consentAllowEdits: "Also let it set up Vocify for your team",
     consentAllowEditsHint:
       "It can edit playbooks, «Cómo trabajamos», your company, the offer and settings. Playbook changes stay as a draft until you ask it to publish.",
@@ -2495,6 +2496,7 @@ export const productCatalog = {
     consentReadOnly: "No puede cambiar nada.",
     agentsAppsCanEdit: "Puede leer y editar la configuración",
     agentsAppsReadOnly: "Solo lectura",
+    agentsAppsAllowEdits: "Permitir editar",
     consentAllowEdits: "Permitir también que configure Vocify para tu equipo",
     consentAllowEditsHint:
       "Podrá editar playbooks, «Cómo trabajamos», vuestra empresa, la oferta y los ajustes. Los cambios en un playbook quedan en borrador hasta que le pidas publicarlo.",

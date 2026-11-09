@@ -11,6 +11,8 @@ export type McpSettings = {
   enabled: boolean;
   transcripts_enabled: boolean;
   can_manage: boolean;
+  /** Owners and admins: may let an app or a key edit the company's setup. */
+  can_grant_write?: boolean;
   key: McpKeyStatus;
   members?: McpMemberKey[];
 };
@@ -48,6 +50,8 @@ export const mcpApi = {
   revokeKey: () => api.delete("/mcp/key"),
   revokeMemberKey: (userId: string) => api.delete(`/mcp/members/${encodeURIComponent(userId)}/key`),
   grants: () => api.get<{ grants: OAuthGrant[] }>("/oauth/grants"),
+  setGrantWrite: (clientId: string, canWrite: boolean) =>
+    api.patch<{ grants: OAuthGrant[] }>(`/oauth/grants?client_id=${encodeURIComponent(clientId)}`, { can_write: canWrite }),
   revokeGrant: (clientId: string) => api.delete(`/oauth/grants?client_id=${encodeURIComponent(clientId)}`),
   authorization: (id: string) => api.get<OAuthAuthorization>(`/oauth/authorizations/${encodeURIComponent(id)}`),
   consent: (id: string, action: "approve" | "deny", allowWrite = false) =>

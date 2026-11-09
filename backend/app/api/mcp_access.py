@@ -35,6 +35,10 @@ class ConsentRequest(BaseModel):
     allow_write: bool = False
 
 
+class GrantRequest(BaseModel):
+    can_write: bool
+
+
 class KeyRequest(BaseModel):
     # The key may also edit the company's setup. Owners and admins only.
     write: bool = False
@@ -188,6 +192,22 @@ def consent(
 @oauth_router.get("/grants")
 def list_grants(membership: Membership = Depends(get_membership), supabase=Depends(get_supabase)):
     """The apps this user connected by signing in."""
+    return {"grants": oauth.list_grants(supabase, membership.user_id)}
+
+
+@oauth_router.patch("/grants")
+def update_grant(
+    payload: GrantRequest,
+    client_id: str = Query(..., min_length=1),
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    """Let an app this user connected edit the company's setup (owners and admins), or make it read-only again
+    (anyone). No reconnect: it applies within 30 seconds."""
+    if payload.can_write:
+        _require_editor(membership)
+    if not oauth.set_grant_write(supabase, membership.user_id, client_id, payload.can_write):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="App not connected")
     return {"grants": oauth.list_grants(supabase, membership.user_id)}
 
 
