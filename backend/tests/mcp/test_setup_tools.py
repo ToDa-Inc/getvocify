@@ -353,3 +353,8 @@ def test_a_rep_cannot_allow_edits_on_their_app_and_an_unknown_app_is_404(server,
     assert server.patch(f"/api/v1/oauth/grants?client_id={client_id}", json={"can_write": False}).status_code == 200
     server.who["id"] = MANAGER
     assert server.patch("/api/v1/oauth/grants?client_id=nope", json={"can_write": True}).status_code == 404
+
+
+def test_a_new_type_without_a_rule_keeps_its_name(mcp_client, write_key_for):
+    created = ok(mcp_client, write_key_for(MANAGER), "save_call_type", {"sales_motion_key": "demo", "name": "Demo comercial"})
+    assert created["type"]["label"] == "Demo comercial"
