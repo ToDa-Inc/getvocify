@@ -396,3 +396,52 @@ async def test_no_default_stage_still_writes_the_note_and_says_no_deal_was_made(
     assert "No deal was created" in (result.deal_warning or "")
     assert not any(p[0] == "/deals" for p in client.posts)
     assert any(p[0] == "/notes" and p[1].get("person_id") == 20 for p in client.posts)
+
+
+@pytest.mark.asyncio
+async def test_a_call_is_also_logged_as_a_done_call_activity_with_the_summary():
+    svc, client = _svc()
+
+    async def get(path, *, version="v2", params=None):
+        if path == "/activityTypes":
+            return {"data": [{"key_string": "call", "icon_key": "call"}, {"key_string": "task", "icon_key": "task"}]}
+        return await base_get(path, version=version, params=params)
+
+    base_get = client.get
+    client.get = get
+    result = await svc.sync_memo(
+        memo_id=uuid4(),
+        user_id="u1",
+        connection_id="c1",
+        extraction=MemoExtraction(contactName="Ada", summary="## Contexto de la llamada\n- Pide un follow-up el lunes."),
+        deal_id="1",
+        contact_id="20",
+        allowed_fields=["value"],
+        create_note=True,
+        transcript="SPEAKER: S2\nSí, llámame el lunes por la mañana.",
+        conversation={"kind": "call", "occurred_at": "2026-11-06T19:12:14+00:00", "duration_seconds": 46, "activity_id": None},
+    )
+    assert result.success is True
+    body = next(p[1] for p in client.posts if p[0] == "/activities" and p[1].get("type") == "call")
+    assert body["done"] is True and body["subject"] == "Llamada con Ada"
+    assert body["participants"] == [{"person_id": 20, "primary": True}] and body["deal_id"] == 1
+    assert body["due_date"] == "2026-11-06" and body["due_time"] == "19:12" and body["duration"] == "00:01"
+    assert "Contexto de la llamada" in body["note"]
+
+
+@pytest.mark.asyncio
+async def test_a_call_vocify_dialed_puts_the_summary_on_its_own_call_activity():
+    svc, client = _svc()
+    await svc.sync_memo(
+        memo_id=uuid4(),
+        user_id="u1",
+        connection_id="c1",
+        extraction=MemoExtraction(contactName="Ada", summary="- Pide un follow-up."),
+        deal_id="1",
+        contact_id="20",
+        allowed_fields=["value"],
+        create_note=True,
+        conversation={"kind": "call", "occurred_at": None, "duration_seconds": 0, "activity_id": "901"},
+    )
+    assert any(p[0] == "/activities/901" and "follow-up" in p[1]["note"] for p in client.patches)
+    assert not any(p[0] == "/activities" and p[1].get("done") for p in client.posts)

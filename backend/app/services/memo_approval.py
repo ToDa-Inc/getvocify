@@ -347,6 +347,7 @@ async def approve_memo_core(
         on_hold_lead_status_value=on_hold_lead_status_value,
         **stage_kwargs,
         **commitment_kwargs,
+        **({"conversation": conversation_for_crm(supabase, memo_data)} if crm_connection.get("provider") == "pipedrive" else {}),
     )
 
     if not sync_result.success:
@@ -374,6 +375,26 @@ async def approve_memo_core(
     }).eq("id", memo_id).execute()
 
     return sync_result
+
+
+def conversation_for_crm(supabase: Client, memo: dict) -> Optional[dict]:
+    """What the CRM logs the call or meeting as (Pipedrive: a done activity carrying the summary). None for a
+    dictated note. A call Vocify dialed names its own call activity, so the summary goes there, not to a second one."""
+    kind = {"call": "call", "meeting": "meeting", "visit": "meeting"}.get(str(memo.get("interaction_kind") or ""))
+    if not kind or memo.get("screening_outcome") in SKIPPED_SCREENING:
+        return None
+    activity_id = None
+    try:
+        rows = supabase.table("outbound_calls").select("provider_state").eq("memo_id", memo["id"]).limit(1).execute().data or []
+        activity_id = ((rows[0].get("provider_state") or {}) if rows else {}).get("pipedrive_activity_id")
+    except Exception:
+        logger.warning("Could not read the dialed call of memo %s", memo.get("id"), exc_info=True)
+    return {
+        "kind": kind,
+        "occurred_at": memo.get("capture_started_at") or memo.get("created_at"),
+        "duration_seconds": memo.get("audio_duration") or 0,
+        "activity_id": activity_id,
+    }
 
 
 def crm_links_update(memo: dict, sync_result) -> dict:
