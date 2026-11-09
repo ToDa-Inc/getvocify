@@ -46,7 +46,7 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "strategic_engine_20261109_spotted"
+PROMPT_VERSION = "strategic_engine_20261109_quiet"
 
 # ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
 
@@ -70,7 +70,8 @@ What you read has four levels. When they disagree, the higher level wins:
    this moment. Its facts count as a source; its tactic (pitching a capability, asking for a meeting now) is only a
    suggestion and never overrides levels 1 to 3. Never recite an example as is. When THEY JUST RAISED names an objection
    and its approved answer, the card answers that objection with it ("action" answer, "source" its id): the goal of the
-   call comes after the answer, never instead of it.
+   call comes after the answer, never instead of it. Use only the part of an approved answer that fits what they said;
+   leave out the parts written for another case (a contract end date when they have no provider).
 
 A DEMO: when the rep is showing Vocify to the other side and asks them to play an objection or a question so it can be
 seen working («ponme una objeción», «suéltame una para que lo veas»), what they say next is the moment the demo is about.
@@ -101,10 +102,13 @@ How to decide (your answer follows this order):
      general term means or how something usually works, from common knowledge;
    - add_value: they have shown a concrete need the offer covers; connect only that part of the offer. A question that
      steers toward what the offer does is add_value too, and needs that need;
-   - next_step: there is interest: they said they want it, asked how it works or what it costs, or agreed to see more
-     («eso estaría bien», «me interesa», «¿y cuánto cuesta?»). A pain they described is a reason to deepen, not yet to ask
-     for the meeting. A concrete next step that respects what they already set;
-   - listen: the rep is handling it, they are mid-explanation, or nothing is worth saying now.
+   - next_step: a step the rep would not think of on their own, that what they said calls for (bring in the person who
+     decides, a visit they mentioned, who to send it to). Proposing the meeting, a day or a time to call is the rep's job:
+     never a card for it;
+   - listen: the rep is handling it, they are mid-explanation, or nothing is worth saying now. Also when the only move
+     left is the next question of the playbook's steps that the rep is already following: the rep asks it anyway.
+   A card earns its place only when it gives the rep something they would not have in their head now: the approved answer
+   to what they raised, the reply to their question, or a question built on something specific they just said.
    Persist while finding out still has value and they are receptive; change angle when one stops giving anything new;
    respect a clear no. When one of the company's situations describes this moment, act as it says. No checklist: a
    qualification question only when its answer matters for a decision now.
@@ -123,8 +127,8 @@ qué pasa…», «cambiar de la comparación a…»): the playbook's guidance te
 
 Notes on the data: a fact about the product, prices, customers or results only when the SOURCES say it ("source": the
 entry id as written before " · ", "offer" or "knowledge"; "source_quote": the verbatim text of the SOURCES); otherwise
-"source" is "context" and "source_quote" is "". For days use the CALENDAR: a weekday with its date exactly as it is there.
-Never an hour nobody said in the call: offer the day and let them choose the hour («¿te va mejor el jueves o el viernes?»)."""
+"source" is "context" and "source_quote" is "". A card never proposes a day, a date or an hour: the rep agrees them with
+the prospect. It may repeat one already said in the call, as the CALENDAR names it."""
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -577,7 +581,8 @@ def spotted(objection: Optional[str], snapshot: Optional[dict]) -> str:
         return f"\n\nTHEY JUST RAISED: an objection ({objection}). Answer it before anything else."
     name = entry.get("label") or entry.get("category") or objection
     return (f"\n\nTHEY JUST RAISED: «{name}». ITS APPROVED ANSWER ({entry_id}): {brain._clip(entry.get('guidance'), 600)}\n"
-            "Answer this objection first, with that answer in their words; the next step comes after it, never instead of it.")
+            "Answer this objection first, with the part of that answer that fits what they said, in their words; the next step "
+            "comes after it, never instead of it.")
 
 
 def reading_input(sources: str, turns: list[dict], end: list[float], now: float, shown: list[dict],
