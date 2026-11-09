@@ -915,6 +915,8 @@ class ChannelSessions:
         # LIVE_STT_PROVIDER tries a provider on every call; the profile's rule is the comparison.
         forced = (settings.LIVE_STT_PROVIDER or "").strip().lower()
         self.provider = forced if forced in STREAMS and self.keys.get(forced) else rule
+        if forced and self.provider != forced:
+            logger.error("Live STT: %s is set but cannot run (unknown or no key); this call uses %s", forced, self.provider)
         start_language, start_domain = session_language(language, self.profile)
         self.detect = (
             detect

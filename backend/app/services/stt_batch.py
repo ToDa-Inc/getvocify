@@ -10,6 +10,8 @@ still runs after STT in the memo pipeline.
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 import time
 from dataclasses import dataclass
@@ -428,6 +430,53 @@ async def _transcribe_speechmatics(
     )
 
 
+
+# MAI-2 only (Dani, 2026-11-09): a failed MAI request is tried again, never sent to another provider. Every MAI
+# failure seen in Oct-Nov 2026 was OpenRouter's 429 asking for a 1 s wait, so a short backoff clears them.
+MAI_RETRY_WAITS_S = (2.0, 5.0, 15.0)
+
+
+async def _transcribe_mai_only(
+    audio_bytes: bytes,
+    *,
+    lang: str,
+    multichannel: bool,
+    rep_channel: Optional[int],
+    diarization: bool,
+    t0: float,
+) -> BatchTranscript:
+    from app.services.mai_batch import MODEL as MAI_MODEL, transcribe_mai
+
+    waits = list(MAI_RETRY_WAITS_S)
+    while True:
+        try:
+            mai = await transcribe_mai(
+                audio_bytes, language=lang, channels=2 if multichannel else 1,
+                rep_channel=rep_channel, diarization=diarization,
+            )
+        except Exception as e:
+            if not waits:
+                record_stage("stt", t0, provider="openrouter", model=MAI_MODEL, language=lang, error=str(e)[:500])
+                raise
+            wait = waits.pop(0)
+            logger.warning("MAI STT failed, trying MAI again in %.0fs: %s", wait, e)
+            await asyncio.sleep(wait)
+            continue
+        record_stage(
+            "stt", t0, provider="openrouter", model=MAI_MODEL, language=lang,
+            chunks=mai.chunks, cost_usd=mai.cost_usd, speakers=mai.speakers,
+            retries=len(MAI_RETRY_WAITS_S) - len(waits),
+        )
+        return BatchTranscript(
+            text=mai.text,
+            diarization={"channels": "channel", "diarized": "speaker"}.get(mai.speakers, "none"),
+            channels=2 if mai.speakers == "channels" else 1,
+            provider="openrouter",
+            model=MAI_MODEL,
+            roles_known=mai.roles_known,
+        )
+
+
 async def _transcribe_once(
     audio_bytes: bytes,
     *,
@@ -457,32 +506,9 @@ async def _transcribe_once(
         )
 
     if provider == "mai":
-        from app.services.mai_batch import MODEL as MAI_MODEL, transcribe_mai
-
-        try:
-            mai = await transcribe_mai(
-                audio_bytes, language=lang, channels=2 if multichannel else 1,
-                rep_channel=rep_channel, diarization=diarization,
-            )
-            record_stage(
-                "stt", t0, provider="openrouter", model=MAI_MODEL, language=lang,
-                chunks=mai.chunks, cost_usd=mai.cost_usd, speakers=mai.speakers,
-            )
-            return BatchTranscript(
-                text=mai.text,
-                diarization={"channels": "channel", "diarized": "speaker"}.get(mai.speakers, "none"),
-                channels=2 if mai.speakers == "channels" else 1,
-                provider="openrouter",
-                model=MAI_MODEL,
-                roles_known=mai.roles_known,
-            )
-        except Exception as e:
-            logger.warning("MAI STT failed; falling back to Deepgram: %s", e)
-            record_stage(
-                "stt", t0, provider="openrouter", model=MAI_MODEL, language=lang,
-                error=str(e)[:500], fallback="deepgram",
-            )
-            t0 = time.perf_counter()
+        return await _transcribe_mai_only(
+            audio_bytes, lang=lang, multichannel=multichannel, rep_channel=rep_channel, diarization=diarization, t0=t0
+        )
 
     from app.services.deepgram_batch import DEEPGRAM_MODEL, DeepgramBatchService
 
