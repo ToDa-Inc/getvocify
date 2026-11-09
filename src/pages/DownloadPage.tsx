@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Download } from "lucide-react";
+import { ChevronRight, Download, Settings } from "lucide-react";
 import Header from "@/components/landing/Header";
 import Footer from "@/components/landing/Footer";
 import { AppleMark, WindowsMark } from "@/components/landing/brand-icons";
@@ -99,7 +99,11 @@ const DownloadPage = () => {
 
 /** After the Mac download: macOS blocks the first open (no Apple Developer ID yet); the two clicks past it. */
 function MacOpenSteps({ copy }: { copy: (typeof downloadCopy)["EN"]["macSteps"] }) {
-  const images = ["/download/mac-step-1.png", "/download/mac-step-2.png"];
+  // The real macOS screens, with a ring on the one button to click (in % of each image).
+  const images = [
+    { src: "/download/mac-step-1.png", ring: { left: "5%", top: "79.5%", width: "45%", height: "14%" } },
+    { src: "/download/mac-step-2.png", ring: { left: "74%", top: "48%", width: "24.5%", height: "19%" } },
+  ];
   return (
     <motion.section
       id="mac-steps"
@@ -120,9 +124,35 @@ function MacOpenSteps({ copy }: { copy: (typeof downloadCopy)["EN"]["macSteps"] 
               <p className="text-base font-medium tracking-[-0.02em]">{step.title}</p>
             </div>
             <p className="mt-3 text-sm leading-relaxed text-cream/60">{step.body}</p>
+            {i === 1 ? (
+              <div className="mt-4 flex flex-wrap items-center gap-x-1 gap-y-2 text-xs font-medium">
+                {copy.path.map((part, j) => (
+                  <span key={part} className="inline-flex items-center gap-1">
+                    {j > 0 ? <ChevronRight className="h-3 w-3 text-cream/35" /> : null}
+                    <span className="rounded-full border border-white/15 bg-white/[0.06] px-2.5 py-1 text-cream/80">{part}</span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <div className="mt-5 flex flex-1 items-center justify-center rounded-2xl bg-black/30 p-4">
-              <img src={images[i]} alt={step.alt} loading="lazy" className="max-h-56 w-auto max-w-full rounded-xl" />
+              <div className="relative">
+                <img src={images[i].src} alt={step.alt} loading="lazy" className="block max-h-56 w-auto max-w-full rounded-xl" />
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute rounded-xl ring-2 ring-amber-300 ring-offset-2 ring-offset-transparent motion-safe:animate-pulse"
+                  style={images[i].ring}
+                />
+              </div>
             </div>
+            {i === 1 ? (
+              <a
+                href="x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension"
+                className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-white/15 px-4 text-sm font-medium text-cream transition-colors hover:bg-white/[0.06]"
+              >
+                <Settings className="h-4 w-4" />
+                {copy.openSettings}
+              </a>
+            ) : null}
           </li>
         ))}
       </ol>

@@ -12,6 +12,10 @@ export interface DownloadCopy {
     title: string;
     wink: string;
     steps: { title: string; body: string; alt: string }[];
+    /** Where step 2 happens in System Settings, as the menus read. */
+    path: string[];
+    /** Opens System Settings on Privacy & Security. */
+    openSettings: string;
     after: string;
   };
   help: string;
@@ -50,6 +54,8 @@ export const downloadCopy: Record<Language, DownloadCopy> = {
           alt: 'System Settings, Privacy & Security: "Vocify" was blocked to protect your Mac, with the Open Anyway button',
         },
       ],
+      path: ['System Settings', 'Privacy & Security', 'Security'],
+      openSettings: 'Open Privacy & Security',
       after: 'Vocify opens. Allow the microphone and the call audio, and from then on it opens normally and updates itself.',
     },
     help: 'Need help installing it? Write to',
@@ -86,6 +92,8 @@ export const downloadCopy: Record<Language, DownloadCopy> = {
           alt: 'Ajustes del Sistema, Privacidad y seguridad: "Vocify" se ha bloqueado, con el botón Abrir igualmente',
         },
       ],
+      path: ['Ajustes del Sistema', 'Privacidad y seguridad', 'Seguridad'],
+      openSettings: 'Abrir Privacidad y seguridad',
       after: 'Vocify se abre. Permite el micrófono y el audio de la llamada, y a partir de ahí se abre sola y se actualiza sola.',
     },
     help: '¿Ayuda para instalarla? Escribe a',
