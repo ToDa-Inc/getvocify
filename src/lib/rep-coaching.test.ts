@@ -10,6 +10,8 @@ import {
   focusTitle,
   formatPercent,
   noObjectionsKey,
+  afterTone,
+  readByAfter,
   peerMedianLabel,
   stateView,
   summarizeCalls,
@@ -191,5 +193,20 @@ describe("earlier action wording", () => {
     assert.equal(earlierKey(2), "coachShowEarlier");
     assert.equal(ES.coachShowEarlierOne, "Ver la anterior");
     assert.equal(EN.coachShowEarlierOne, "Show the earlier one");
+  });
+});
+
+
+describe("objections by what followed the reply (C04 v10)", () => {
+  it("colours a moment by what followed, and by whether it was resolved on calls read before", () => {
+    assert.equal(afterTone("advanced", "open"), "good");
+    assert.equal(afterTone("stalled", "open"), "half");
+    assert.equal(afterTone("ended", "resolved"), "bad");
+    assert.equal(afterTone(null, "resolved"), "good");
+    assert.equal(afterTone(undefined, "open"), "bad");
+  });
+  it("reads a row by what followed only when it has it", () => {
+    assert.equal(readByAfter({ advanced: 0, stalled: 1, ended: 0 }), true);
+    assert.equal(readByAfter({}), false);
   });
 });

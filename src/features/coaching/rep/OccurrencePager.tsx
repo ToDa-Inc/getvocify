@@ -6,7 +6,7 @@ import { IconAction } from "@/components/ui/icon-action";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useDismissed } from "@/features/playbooks/hooks/useDismissed";
 import { useLanguage } from "@/lib/i18n";
-import { earlierKey, visibleMomentCount } from "@/lib/rep-coaching";
+import { earlierKey, visibleMomentCount, type CoachAfter } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { useBetterReply, type BetterReplyRequest } from "./useBetterReply";
@@ -27,6 +27,9 @@ export type Moment = {
   advice: string | null;
   /** C04 v9: the line already written for this objection with the whole call read; shown as is, nothing asked. */
   line?: string | null;
+  /** C04 v10: what happened right after the reply to an objection, and the prospect's words that show it. */
+  after?: CoachAfter | null;
+  afterQuote?: string | null;
 };
 
 /** The state as a small tag: green when it went well, amber halfway, red not. */
@@ -204,7 +207,8 @@ export function OccurrencePager({ type, kind, itemKey, how, moments, eager = tru
   const moment = moments[index];
   if (!moment) return null;
   const objection = kind === "objection";
-  const stateWord = { bad: objection ? p.coachObjectionOpen : p.coachStateMissing, half: p.coachStateImprovable, good: objection ? p.coachObjectionResolved : p.coachStateDone, unknown: p.coachObjectionUnknown }[moment.tone];
+  const afterWord = moment.after ? { advanced: p.coachAfterAdvanced, stalled: p.coachAfterStalled, ended: p.coachAfterEnded, unknown: p.coachAfterUnknown }[moment.after] : null;
+  const stateWord = afterWord ?? { bad: objection ? p.coachObjectionOpen : p.coachStateMissing, half: p.coachStateImprovable, good: objection ? p.coachObjectionResolved : p.coachStateDone, unknown: p.coachObjectionUnknown }[moment.tone];
   const day = new Date(moment.observed_at).toLocaleDateString(language === "EN" ? "en-GB" : "es-ES", { day: "numeric", month: "short" });
   const request: BetterReplyRequest = { type, kind, key: itemKey, memo_id: moment.memo_id, quote: moment.quote, response: moment.response, reason: moment.reason };
   const href = `/dashboard/coach?tab=playbook&type=${encodeURIComponent(type)}`;
@@ -236,6 +240,7 @@ export function OccurrencePager({ type, kind, itemKey, how, moments, eager = tru
           <>
             <Bubble kind="prospect" caption={p.coachProspectSaid}>{moment.quote ?? "—"}</Bubble>
             {moment.response ? <Bubble kind="you" caption={p.coachYouReplied}>{moment.response}</Bubble> : <Bubble kind="none" caption={p.coachYouReplied}>{p.coachNoReply}</Bubble>}
+            {moment.afterQuote ? <Bubble kind="prospect" caption={p.coachTheyThenSaid}>{moment.afterQuote}</Bubble> : null}
           </>
         ) : moment.quote ? (
           <Bubble kind="you" caption={p.coachYouSaid}>{moment.quote}</Bubble>

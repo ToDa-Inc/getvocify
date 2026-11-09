@@ -10,7 +10,7 @@ import { CHANNEL_ICON, CHANNEL_TILE } from "@/features/interactions/components/I
 import { formatCallDuration } from "@/lib/call-duration";
 import { channelOf, groupByDay, scrolledToEnd, timeLabel } from "@/lib/interactions";
 import { useLanguage } from "@/lib/i18n";
-import { cleanSummaryLine, type CoachCall, type CoachCallReading } from "@/lib/rep-coaching";
+import { afterTone, cleanSummaryLine, UNANSWERED_KEY, type CoachCall, type CoachCallReading } from "@/lib/rep-coaching";
 import { cn } from "@/lib/utils";
 import { Bubble, OccurrencePager, type Moment } from "./OccurrencePager";
 
@@ -128,14 +128,15 @@ function CallDetail({ call, type }: { call: CoachCall; type: string }) {
       {call.reading ? <CallReading reading={call.reading} /> : null}
       {objections.map((objection, index) => {
         const moment: Moment = {
-          memo_id: call.memo_id, observed_at: at, tone: objection.resolution === "resolved" ? "good" : objection.resolution === "open" ? "bad" : "unknown",
+          memo_id: call.memo_id, observed_at: at, tone: afterTone(objection.after, objection.resolution),
           quote: objection.quote, response: objection.response, reason: null, advice: objection.advice ?? null, line: objection.line ?? null,
+          after: objection.after ?? null, afterQuote: objection.after_quote ?? null,
         };
         const nature = objection.nature ? natures[objection.nature] : null;
         return (
           <section key={`${objection.key}-${index}`} className="space-y-2">
             <h4 className="text-[15px] font-medium text-foreground">
-              {objection.label || categories[objection.category] || objection.category}
+              {objection.key === UNANSWERED_KEY ? p.coachUnanswered : objection.label || categories[objection.category] || objection.category}
               {nature ? <span className="ml-2 text-[12px] font-normal text-muted-foreground">· {nature}</span> : null}
             </h4>
             <OccurrencePager type={type} kind="objection" itemKey={objection.key} how={objection.how} moments={[moment]} eager={index === 0} />

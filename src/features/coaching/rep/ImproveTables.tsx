@@ -2,10 +2,10 @@ import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/i18n";
-import { noObjectionsKey, tableObjections, type CoachObjectionBreakdown, type CoachSlippedStep } from "@/lib/rep-coaching";
+import { afterTone, noObjectionsKey, readByAfter, tableObjections, UNANSWERED_KEY, type CoachObjectionBreakdown, type CoachSlippedStep } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
-import { OccurrencePager, type Moment } from "./OccurrencePager";
+import { Bubble, OccurrencePager, type Moment } from "./OccurrencePager";
 
 // One row of either table: how many of the times it came up went well, half way, unclear or badly.
 type Row = { id: string; title: string; good: number; half: number; unknown: number; bad: number; of: number };
@@ -115,11 +115,36 @@ function StepDetail({ step, type }: { step: CoachSlippedStep; type: string }) {
   return <OccurrencePager key={step.step_id} type={type} kind="step" itemKey={step.step_id} how={step.example} moments={moments} />;
 }
 
+/** What colleagues replied to this objection when the call moved on: their words, to learn from (no link to their call). */
+function Worked({ worked }: { worked: NonNullable<CoachObjectionBreakdown["worked"]> }) {
+  const { t } = useLanguage();
+  const p = t.product;
+  if (!worked.length) return null;
+  return (
+    <section className="space-y-3 border-t border-border/60 pt-4">
+      <h4 className="text-[13px] font-medium text-muted-foreground">{p.coachWorkedTitle}</h4>
+      {worked.map((example, index) => (
+        <div key={index} className="space-y-2">
+          {example.quote ? <Bubble kind="prospect" caption={p.coachProspectSaid}>{example.quote}</Bubble> : null}
+          {example.response ? <Bubble kind="better" caption={p.coachColleagueReplied}>{example.response}</Bubble> : null}
+          {example.after_quote ? <Bubble kind="prospect" caption={p.coachTheyThenSaid}>{example.after_quote}</Bubble> : null}
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function ObjectionDetail({ objection, type }: { objection: CoachObjectionBreakdown; type: string }) {
   const moments: Moment[] = objection.occurrences.map((o) => ({
-    memo_id: o.memo_id, observed_at: o.observed_at, tone: o.resolution === "resolved" ? "good" : o.resolution === "open" ? "bad" : "unknown", quote: o.quote, response: o.response, reason: null, advice: null,
+    memo_id: o.memo_id, observed_at: o.observed_at, tone: afterTone(o.after, o.resolution), quote: o.quote, response: o.response, reason: null, advice: null,
+    after: o.after ?? null, afterQuote: o.after_quote ?? null,
   }));
-  return <OccurrencePager key={objection.key} type={type} kind="objection" itemKey={objection.key} how={objection.how} moments={moments} />;
+  return (
+    <>
+      <OccurrencePager key={objection.key} type={type} kind="objection" itemKey={objection.key} how={objection.how} moments={moments} />
+      <Worked worked={objection.worked ?? []} />
+    </>
+  );
 }
 
 /** "En qué mejorar": every step slipped on and every objection given in the last weeks, as two tables
@@ -139,15 +164,24 @@ export function ImproveTables({ type, steps, objections }: { type: string; steps
     of: step.applicable,
   }));
   const listed = tableObjections(objections);
-  const objectionRows: Row[] = listed.map((objection) => ({
-    id: objection.key,
-    title: objection.label || categories[objection.category] || objection.category,
-    good: objection.resolved,
-    half: 0,
-    unknown: Math.max(0, objection.total - objection.open - objection.resolved),
-    bad: objection.open,
-    of: objection.total,
-  }));
+  // Read by what followed each reply (C04 v10) once any row has it; calls read before keep "resolved".
+  const byAfter = listed.some(readByAfter);
+  const objectionRows: Row[] = listed.map((objection) => {
+    const title = objection.key === UNANSWERED_KEY ? p.coachUnanswered : objection.label || categories[objection.category] || objection.category;
+    if (byAfter) {
+      const advanced = objection.advanced ?? 0, stalled = objection.stalled ?? 0, ended = objection.ended ?? 0;
+      return { id: objection.key, title, good: advanced, half: stalled, unknown: Math.max(0, objection.total - advanced - stalled - ended), bad: ended, of: objection.total };
+    }
+    return {
+      id: objection.key,
+      title,
+      good: objection.resolved,
+      half: 0,
+      unknown: Math.max(0, objection.total - objection.open - objection.resolved),
+      bad: objection.open,
+      of: objection.total,
+    };
+  });
   return (
     <div className="-mx-3 grid gap-10 lg:grid-cols-2 lg:gap-8">
       <Table
@@ -164,7 +198,7 @@ export function ImproveTables({ type, steps, objections }: { type: string; steps
       <Table
         id="coach-improve-objections"
         title={p.coachTableObjections}
-        column={p.coachColResolved}
+        column={byAfter ? p.coachColAdvanced : p.coachColResolved}
         rows={objectionRows}
         empty={p[noObjectionsKey(objections.length, listed.length)]}
         detail={(id) => {

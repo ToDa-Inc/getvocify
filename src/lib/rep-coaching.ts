@@ -47,6 +47,9 @@ export type CoachCallObjection = {
   label: string | null;
   how: string | null;
   resolution: "open" | "resolved" | "unknown";
+  /** C04 v10: what happened right after the rep's reply, and the prospect's words that show it; absent on older calls. */
+  after?: CoachAfter | null;
+  after_quote?: string | null;
   quote: string | null;
   response: string | null;
   /** C04 v9: what it really was (no need, another tool, the idea itself...); absent on older calls. */
@@ -57,6 +60,10 @@ export type CoachCallObjection = {
   line?: string | null;
 };
 export type CoachObjectionNature = "sin_dolor" | "alternativa" | "fondo" | "objecion" | "duda";
+/** C04 v10: what happened right after the rep's reply to an objection, a fact of the call. */
+export type CoachAfter = "advanced" | "stalled" | "ended" | "unknown";
+/** An objection the company has no playbook answer for yet (read with C04 v10). */
+export const UNANSWERED_KEY = "unanswered";
 /** C04 v9: the call as a whole, shown before its objections and steps. Absent on calls read before it. */
 export type CoachCallReading = {
   verdict: string | null;
@@ -107,7 +114,13 @@ export type CoachObjectionBreakdown = {
   total: number;
   open: number;
   resolved: number;
-  occurrences: { memo_id: string; observed_at: string; resolution: "open" | "resolved" | "unknown"; quote: string | null; response: string | null }[];
+  /** C04 v10: how many times the call moved on, stalled or ended right after the reply. Absent from an older backend. */
+  advanced?: number;
+  stalled?: number;
+  ended?: number;
+  occurrences: { memo_id: string; observed_at: string; resolution: "open" | "resolved" | "unknown"; after?: CoachAfter | null; after_quote?: string | null; quote: string | null; response: string | null }[];
+  /** What colleagues replied to this objection when the call moved on (only for a rep who may read the team's calls). */
+  worked?: { quote: string | null; response: string | null; after_quote: string | null }[];
 };
 export type CoachCalls = {
   types: { key: string; label: string | null; conversations: number }[];
@@ -249,6 +262,20 @@ export function visibleMomentCount(total: number, expanded: boolean, cap = 5): n
 /** The objections the table lists: the catch-all "Otra" is left out (the summary totals still count it). */
 export function tableObjections(objections: CoachObjectionBreakdown[]): CoachObjectionBreakdown[] {
   return objections.filter((objection) => objection.category !== "other");
+}
+
+/** Whether a row is read by what followed each reply (C04 v10) rather than by whether the prospect gave in. */
+export function readByAfter(objection: Pick<CoachObjectionBreakdown, "advanced" | "stalled" | "ended">): boolean {
+  return (objection.advanced ?? 0) + (objection.stalled ?? 0) + (objection.ended ?? 0) > 0;
+}
+
+/** A moment's tone from what followed the reply: moved on green, stalled amber, ended red; without it, as resolved. */
+export function afterTone(after: CoachAfter | null | undefined, resolution: "open" | "resolved" | "unknown"): "good" | "half" | "bad" | "unknown" {
+  if (after === "advanced") return "good";
+  if (after === "stalled") return "half";
+  if (after === "ended") return "bad";
+  if (after === "unknown") return "unknown";
+  return resolution === "resolved" ? "good" : resolution === "open" ? "bad" : "unknown";
 }
 
 /** The empty text of the objections table: nothing given at all, or only the untyped ones it leaves out. */
