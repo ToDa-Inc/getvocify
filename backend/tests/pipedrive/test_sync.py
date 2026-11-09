@@ -312,7 +312,8 @@ async def test_a_failed_note_row_does_not_block_the_retry():
 
 
 @pytest.mark.asyncio
-async def test_new_deal_links_its_person_as_primary_participant_never_person_id():
+async def test_new_deal_links_its_person_by_person_id_even_when_person_id_is_not_an_allowed_field():
+    # Live v2 API (2026-11-09): POST /deals takes person_id and refuses "participants".
     svc, client = _svc()
     result = await svc.sync_memo(
         memo_id=uuid4(),
@@ -322,17 +323,18 @@ async def test_new_deal_links_its_person_as_primary_participant_never_person_id(
         is_new_deal=True,
         default_stage_id="5",
         contact_id="20",
-        allowed_fields=["title", "value", "stage_id", "person_id"],
+        allowed_fields=["title", "value", "stage_id"],
         create_note=False,
     )
     assert result.success is True
     body = next(p[1] for p in client.posts if p[0] == "/deals")
-    assert "person_id" not in body
-    assert body["participants"] == [{"person_id": 20, "primary": True}]
+    assert body["person_id"] == 20
+    assert "participants" not in body
 
 
 @pytest.mark.asyncio
-async def test_existing_deal_without_a_person_gets_one_as_participant():
+async def test_existing_deal_without_a_person_gets_one():
+    # Live v2 API (2026-11-09): no /deals/{id}/participants route; PATCH person_id sets it.
     svc, client = _svc()
     result = await svc.sync_memo(
         memo_id=uuid4(),
@@ -345,8 +347,8 @@ async def test_existing_deal_without_a_person_gets_one_as_participant():
         create_note=False,
     )
     assert result.success is True
-    assert all("person_id" not in p[1] for p in client.patches)
-    assert ("/deals/1/participants", {"person_id": 20}, "v2") in client.posts
+    assert any(p[0] == "/deals/1" and p[1] == {"person_id": 20} for p in client.patches)
+    assert not any(p[0].endswith("/participants") for p in client.posts)
 
 
 @pytest.mark.asyncio
@@ -373,3 +375,4 @@ async def test_existing_deal_that_has_a_person_is_left_alone():
     )
     assert result.success is True
     assert not any(p[0].endswith("/participants") for p in client.posts)
+    assert not any(p[1].get("person_id") for p in client.patches)

@@ -6,6 +6,8 @@ export type PipedriveSetup = {
   pipelines: Pipeline[];
   schemas: Partial<Record<PipedriveObjectTab, CRMSchema>>;
   config: CRMConfiguration;
+  /** Whether Vocify has these settings saved. Unsaved, the first pipeline and stage are only proposed: nothing reaches Pipedrive's deals until Save. */
+  saved: boolean;
 };
 
 export const DEFAULT_PIPEDRIVE_CONFIG: CRMConfiguration = {
@@ -53,5 +55,6 @@ export async function loadPipedriveSetup(refresh = false): Promise<PipedriveSetu
       ...(companySchema ? { companies: companySchema } : {}),
     },
     config,
+    saved: Boolean(currentConfig),
   };
 }

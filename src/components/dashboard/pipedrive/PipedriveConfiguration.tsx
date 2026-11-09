@@ -93,7 +93,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
     try {
       await crmApi.savePipedriveConfiguration(config);
       queryClient.setQueryData(crmKeys.pipedriveSetup(), (prev) =>
-        prev ? { ...prev, config } : prev,
+        prev ? { ...prev, config, saved: true } : prev,
       );
       setDraft(null);
       toast.success("Configuration saved!");
@@ -206,9 +206,11 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
                 ))}
               </SelectContent>
             </Select>
-            {!data?.config?.default_stage_id && (
-              <p className="text-xs text-muted-foreground">
-                {config.default_stage_id ? "Not saved yet. Save to use it for new deals." : "No default stage saved: new deals cannot be created until you pick one and save."}
+            {(!data?.saved || !data.config.default_stage_id) && (
+              <p className="text-xs text-warning">
+                {config.default_stage_id
+                  ? "Not saved yet. Click Save, or Vocify cannot create deals in Pipedrive."
+                  : "No default stage saved: new deals cannot be created until you pick one and save."}
               </p>
             )}
           </div>

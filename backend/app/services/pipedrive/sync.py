@@ -27,7 +27,7 @@ from .object_properties import (
     contact_properties_from_extraction,
     deal_properties_from_extraction,
 )
-from .schema import PipedriveSchemaService, company_write_props, contact_write_props, flatten_record, props_changed_from_record
+from .schema import PipedriveSchemaService, company_write_props, contact_write_props, flatten_record, merged_contact_list, props_changed_from_record
 from .search import PipedriveSearchService, primary_email
 from .task_dates import commitment_due, next_step_due
 
@@ -205,7 +205,7 @@ class PipedriveSyncService:
                     )
                 if creating and not stage_id:
                     result.success = False
-                    result.error = "Pipedrive default pipeline stage is required before creating a deal."
+                    result.error = "No default Pipedrive stage is saved for new deals. Pick one in Settings > CRM > Pipedrive and click Save."
                     result.error_code = "PIPEDRIVE_STAGE_REQUIRED"
                     return result
 
@@ -307,12 +307,13 @@ class PipedriveSyncService:
                     for k, v in deal_props.items()
                     if k in allowed_fields or (creating and k in ("title", "stage_id", "pipeline_id", "org_id", "person_id"))
                 }
+                filtered = await self.schema.coerce_for_write("deals", filtered)
                 if creating:
                     payload = self.schema.split_write_payload(filtered)
-                    # v2 deals: person_id is read-only, the person goes in as the primary participant.
-                    linked = payload.pop("person_id", None)
-                    if linked is not None:
-                        payload["participants"] = [{"person_id": int(linked), "primary": True}]
+                    # A new deal is always the call's person's (whatever fields the rep allows). v2 deals take
+                    # person_id itself; "participants" is refused there (live API, 2026-11-09).
+                    if person_id:
+                        payload["person_id"] = int(person_id)
                     if owner_id:
                         payload["owner_id"] = int(owner_id)
                     created = unwrap_data(await self.client.post("/deals", json_body=payload))
@@ -323,7 +324,7 @@ class PipedriveSyncService:
                     existing_title = (current.get("title") or "").strip().lower()
                     if existing_title not in ("", "new deal", "nuevo deal", "deal"):
                         filtered.pop("title", None)
-                    # person_id is read-only on v2 deals: a person is linked below, as a participant.
+                    # A deal with no person gets this one, below.
                     link_person = filtered.get("person_id") or person_id
                     update_fields = {
                         k: v for k, v in filtered.items() if (k in allowed_fields or k == "org_id") and k != "person_id"
@@ -445,9 +446,10 @@ class PipedriveSyncService:
             return result
 
     async def _add_participant(self, deal_id: str, person_id: Any) -> None:
-        """A deal that has no person gets this one. Best-effort: the note and tasks still go to the person."""
+        """A deal that has no person gets this one (v2 PATCH person_id; v2 has no participants route). Best-effort:
+        the note and tasks still go to the person."""
         try:
-            await self.client.post(f"/deals/{deal_id}/participants", json_body={"person_id": int(person_id)})
+            await self.client.patch(f"/deals/{deal_id}", json_body={"person_id": int(person_id)})
         except Exception:
             logger.warning("Could not add person %s to Pipedrive deal %s", person_id, deal_id, exc_info=True)
 
@@ -490,6 +492,11 @@ class PipedriveSyncService:
             body = company_write_props(changed, allowed)
         else:
             body = contact_write_props(changed, allowed)
+        body = await self.schema.coerce_for_write("companies" if resource == "organizations" else "contacts", body)
+        # v2 replaces a person's whole email / phone list: what it already has is kept, the new one added as primary.
+        for key in ("emails", "phones"):
+            if key in body:
+                body[key] = merged_contact_list(current.get(key), body[key])
         if not body:
             return
         payload = self.schema.split_write_payload(body)
