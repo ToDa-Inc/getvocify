@@ -16,15 +16,21 @@ conversation to have gone on. Spec: docs/superpowers/specs/2026-10-16-live-call-
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import logging
 import re
 from typing import Any, AsyncIterator, Optional
 
 from app.services.copilot import live_brain as brain
 from app.services.copilot import live_progress
+from app.services.copilot import turn as turn_check
+from app.services.copilot.playbook_objections import custom_entries
 from app.services.copilot.live_models import ASKED, LiveReading, LiveTurn, PointIn
 from app.services.copilot.turn import OBJECTIONS
 from app.services.llm.shared import extract_json
+
+logger = logging.getLogger(__name__)
 
 FIXED_TYPES = set(OBJECTIONS) - {"none"}
 DECISIONS = {"responder", "reconducir", "aplazar", "cerrar"}
@@ -33,6 +39,10 @@ CLOSINGS = {"answered", "promised", "unanswered", "gone"}
 ANSWER_MAX_WORDS = 20
 ANSWER_MAX_SENTENCES = 2
 QUOTE_WORDS = 5
+FILLER_OPENINGS = frozenset({
+    "perfecto", "entendido", "entiendo", "claro", "vale", "genial", "de acuerdo", "ok", "okay", "vale perfecto", "claro que si",
+    "perfect", "got it", "understood", "sure", "great",
+})
 # The conversation "clearly moved on": another topic for this many prospect turns, or this long.
 MOVED_ON_TURNS = 2
 MOVED_ON_SECONDS = 90.0
@@ -67,6 +77,11 @@ WHAT IS A POINT
   questions, describing their situation and anything the rep said are NOT points{{deepen_exception}}. When they ANSWER the rep's question or give
   information about themselves (their team, tools, volumes, an email address, a name), that is not a point even if a competitor,
   a price or a figure appears in it: a point is something they ask or push back on.
+- A fact about themselves given as a reason not to go on, not to change or not to meet IS an objection, not their situation:
+  «somos pocos vehículos, no nos compensa», «ya tenemos proveedor», «ahora no nos hace falta». When it is what an APPROVED
+  ANSWER is for (its name or what they say), it is that point: "type" and "source_id" are that answer's id and "say" is its
+  guidance, shortened to the limit and tied to their words. A guidance's blanks ([día], [hora]) are never written: say real
+  days from TODAY, and no hour unless one was said in the call.
 - A question or objection the rep already dealt with in a later "You:" line is not a point to write now (list it in "closed" as
   answered if it is in OPEN AND RECENT POINTS). Never write a "say" from what the rep said later in the call than the point. When unsure, no point: a missed moment
   costs less than a wrong interruption.
@@ -135,6 +150,10 @@ REASON_TEXT = {
     "turn_end": "AUTOMATIC READING: the other side just finished a turn. Write a point only if something NEW in the reading window needs handling.",
     "long_turn": "AUTOMATIC READING: the other side is in a long turn. Write a point only for a complete thing already said that needs handling now.",
     "rep_turn": "AUTOMATIC READING after the rep spoke: write NO new points; only fill \"closed\" for open points the rep's lines settled.",
+    "flagged": (
+        "AUTOMATIC READING: the other side just finished a turn. THE TURN CHECK flagged [{turn}] as the objection «{label}»{entry}. "
+        "Write its point unless the rep already dealt with it in a later \"You:\" line or it is in OPEN AND RECENT POINTS."
+    ),
     "responder": (
         "THE REP TAPPED RESPONDER. The reading window is the last minute up to the tap. The rep asked: prefer a point over silence "
         "when anything in it could be handled (a question, an objection, a doubt, a request), even a mild one. If an open or recent "
@@ -219,14 +238,16 @@ def _steps_line(snapshot: dict) -> str:
     return "STEPS (source id · label — what it is about)\n" + "\n".join(rows)
 
 
-def build_prompt(req: LiveReading, ctx: brain.BrainContext, by_id: dict[str, LiveTurn], item: Optional[dict] = None) -> str:
+def build_prompt(
+    req: LiveReading, ctx: brain.BrainContext, by_id: dict[str, LiveTurn], item: Optional[dict] = None, ask: Optional[str] = None,
+) -> str:
     call_text = "\n".join(t.text for t in req.turns[-30:])
     snapshot = ctx.snapshot
     context = brain.context_blocks(
         product_context=ctx.product_context, knowledge=ctx.knowledge, history=ctx.history, call_text=call_text,
     )
     steps = f"\n\n{_steps_line(snapshot)}" if deepen_on(req, ctx) else ""
-    ask = REASON_TEXT.get(req.reason, REASON_TEXT["turn_end"])
+    ask = ask or REASON_TEXT.get(req.reason, REASON_TEXT["turn_end"])
     if req.reason == "responder":
         ask += NEXT_TEXT.format(item=_item_line(item)) if item else NEXT_SAID_TEXT
     # Stable first, so the provider reuses the prompt up to the call; what changes every reading comes after it.
@@ -303,6 +324,19 @@ def _item_line(item: dict) -> str:
 # ---------- checks on what the model wrote ----------
 
 
+PLACEHOLDER = re.compile(r"\[[^\]]{1,30}\]")
+# What a blank leaves behind when the model drops only the blank: «el jueves a las o el viernes».
+_DANGLING = re.compile(r"\s+(?:a las|a la)(?=\s+(?:o|y)\s|\s*[?,.!]|$)", re.IGNORECASE)
+_PLACEHOLDER_PHRASE = re.compile(r"\s+(?:a las|a la|el|la|los|las|de|at|on)\s+\[[^\]]{1,30}\]", re.IGNORECASE)
+
+
+def without_placeholders(text: str) -> str:
+    """A playbook line's blanks («[día]», «[hora]») never reach the rep: the blank goes with its little word, and what is
+    left reads on its own («el jueves a las [hora]» → «el jueves»)."""
+    out = _DANGLING.sub("", PLACEHOLDER.sub("", _PLACEHOLDER_PHRASE.sub("", text)))
+    return re.sub(r"\s+([,.?!])", r"\1", " ".join(out.split()))
+
+
 def short(text: Any) -> tuple[str, bool]:
     """(the line as it appears on its own, whether it was cut): whole sentences while they fit in ANSWER_MAX_WORDS, at most
     ANSWER_MAX_SENTENCES; a first sentence too long on its own is cut at its last pause inside the limit."""
@@ -310,6 +344,9 @@ def short(text: Any) -> tuple[str, bool]:
     if not line:
         return "", False
     sentences = re.split(r"(?<=[.?!…])\s+", line)
+    # A bare acknowledgement opening («Perfecto.», «Entendido.») says nothing and would take the place of the answer.
+    while len(sentences) > 1 and brain.normalize(sentences[0]).strip() in FILLER_OPENINGS:
+        sentences = sentences[1:]
     kept: list[str] = []
     for sentence in sentences[:ANSWER_MAX_SENTENCES]:
         if len(" ".join(kept + [sentence]).split()) > ANSWER_MAX_WORDS:
@@ -321,7 +358,9 @@ def short(text: Any) -> tuple[str, bool]:
     head = " ".join(sentences[0].split()[:ANSWER_MAX_WORDS])
     pause = max(head.rfind(","), head.rfind(";"), head.rfind(":"))
     if pause > 0 and len(head[:pause].split()) >= ANSWER_MAX_WORDS // 3:
-        head = head[:pause]
+        head = head[:pause].rstrip(" ,;:")
+        if head.startswith("¿"):
+            return head + "?", True  # a question cut at its pause still asks: «¿Os avisa antes de que haya un problema?»
     return head.rstrip(" ,;:") + "…", True
 
 
@@ -627,6 +666,10 @@ def _next(raw: Optional[dict], req: LiveReading, ctx: brain.BrainContext, allowe
 def _content(item: dict, snapshot: Optional[dict], sources: dict[str, str], allowed: set[str], drop) -> dict[str, Any]:
     """decision, what to say and its source: the part of a point that is the brain's judgement, after the checks."""
     said = " ".join(str(item.get("say") or "").split())
+    clean = without_placeholders(said)
+    if clean != said:
+        said = clean
+        drop("placeholder_removed")
     say, cut = short(said)
     if cut:
         drop("answer_cut")
@@ -852,19 +895,110 @@ async def read_points(req: LiveReading, ctx: brain.BrainContext) -> AsyncIterato
     item = pending_item(req, ctx) if req.reason == "responder" else None
     prompt = build_prompt(req, ctx, by_id, item)
     system = SYSTEM_SAY if deepen_on(req, ctx) else SYSTEM
+    # The turn check (~0.3 s) reads the same turn alongside: when it names an objection the brain let pass, the brain looks again.
+    check = asyncio.create_task(_turn_check(req, ctx)) if req.reason in AUTOMATIC_NEW else None
+    try:
+        async for event in brain.stream_json(system, prompt, kind="points"):
+            if event["type"] == "token":
+                yield event
+            elif event["type"] == "error":
+                yield event
+                return
+            else:
+                try:
+                    raw = extract_json(event["text"])
+                except ValueError:
+                    yield {"type": "error", "message": "the model did not write JSON"}
+                    return
+                result = finalize(raw if isinstance(raw, dict) else None, req, ctx)
+                latency = event["latency_ms"]
+                flagged = _missed_objection(await check, result, req, ctx) if check else None
+                if flagged is not None:
+                    again = await _second_look(req, ctx, by_id, system, flagged)
+                    if again is not None and again[0]["points"]:
+                        result, latency = again[0], latency + again[1]
+                        result["guards"] = {**result["guards"], "second_look": 1}
+                    else:
+                        result["guards"] = {**result["guards"], "second_look_empty": 1}
+                yield {"type": "result", **base, **result, "model": event["model"], "latency_ms": latency}
+    finally:
+        if check and not check.done():
+            check.cancel()
+
+
+# ---------- the turn check as a second opinion ----------
+
+# Readings that may find a new point on their own (the rep's turn writes none; asked readings are already explicit).
+AUTOMATIC_NEW = frozenset({"turn_end", "long_turn"})
+TURN_CHECK_TIMEOUT_S = 1.2
+TURN_CHECK_TURNS = 12
+
+
+async def _turn_check(req: LiveReading, ctx: brain.BrainContext) -> Optional[dict]:
+    """The turn check on their last turn, with this playbook's own objections; None when it cannot answer in time."""
+    latest = next((t for t in reversed(req.turns) if t.who == "them" and t.text.strip()), None)
+    if latest is None:
+        return None
+    conversation = "\n".join(f"{'Them' if t.who == 'them' else 'You'}: {t.text}" for t in req.turns[-TURN_CHECK_TURNS:])
+    try:
+        reading = await asyncio.wait_for(
+            turn_check.read_turn(conversation, latest.text, custom_entries(ctx.snapshot) or None), TURN_CHECK_TIMEOUT_S,
+        )
+    except Exception:  # a second opinion must never get in the way of the reading
+        logger.info("live points: turn check unavailable", exc_info=True)
+        return None
+    return {**reading, "turn": latest}
+
+
+def _guidance_of(snapshot: Optional[dict], entry_id: str) -> str:
+    return next(
+        (
+            str(e.get("guidance") or "").strip() for e in (snapshot or {}).get("entries") or []
+            if isinstance(e, dict) and e.get("entry_id") == entry_id
+        ),
+        "",
+    )
+
+
+def _missed_objection(check: Optional[dict], result: dict, req: LiveReading, ctx: brain.BrainContext) -> Optional[dict]:
+    """{turn, label, entry_id} when the turn check names an objection in their last turn and nothing covers that turn: no
+    point in this result, no earlier point, and the rep has not answered it since. None otherwise."""
+    if not check or check.get("finished") is not True:
+        return None
+    kind = str(check.get("objection") or "")
+    if kind in ("", "none", "question"):
+        return None
+    latest: LiveTurn = check["turn"]
+    if any(latest.id in (p.get("turn_ids") or []) for p in result.get("points") or []):
+        return None
+    if any(latest.id in p.turn_ids for p in req.points):
+        return None
+    at = next((i for i, t in enumerate(req.turns) if t.id == latest.id), len(req.turns) - 1)
+    if sum(len(t.text.split()) for t in req.turns[at + 1:] if t.who == "you") >= REP_ANSWERED_WORDS:
+        return None
+    if kind == "custom":
+        entry_id, label = str(check.get("entry_id") or ""), str(check.get("label") or "")
+    else:
+        entry_id, label = f"objection:{kind}", kind
+    if not _guidance_of(ctx.snapshot, entry_id):
+        entry_id = ""
+    return {"turn": latest.id, "label": label or kind, "entry_id": entry_id}
+
+
+async def _second_look(
+    req: LiveReading, ctx: brain.BrainContext, by_id: dict[str, LiveTurn], system: str, flagged: dict,
+) -> Optional[tuple[dict, int]]:
+    """The same reading again, told what the turn check found: (result, latency_ms), or None when the model fails."""
+    entry = f" (approved answer {flagged['entry_id']})" if flagged["entry_id"] else ""
+    ask = REASON_TEXT["flagged"].format(turn=flagged["turn"], label=flagged["label"], entry=entry)
+    prompt = build_prompt(req, ctx, by_id, None, ask=ask)
     async for event in brain.stream_json(system, prompt, kind="points"):
-        if event["type"] == "token":
-            yield event
-        elif event["type"] == "error":
-            yield event
-            return
-        else:
+        if event["type"] == "error":
+            return None
+        if event["type"] == "text":
             try:
                 raw = extract_json(event["text"])
             except ValueError:
-                yield {"type": "error", "message": "the model did not write JSON"}
-                return
-            yield {
-                "type": "result", **base, **finalize(raw if isinstance(raw, dict) else None, req, ctx),
-                "model": event["model"], "latency_ms": event["latency_ms"],
-            }
+                return None
+            return finalize(raw if isinstance(raw, dict) else None, req, ctx), int(event["latency_ms"] or 0)
+    return None

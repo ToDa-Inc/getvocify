@@ -76,6 +76,15 @@ def run(coro):
     return asyncio.run(coro)
 
 
+@pytest.fixture(autouse=True)
+def no_turn_check(monkeypatch):
+    """The turn check is a network call: off unless a test sets what it answers."""
+    async def silent(_req, _ctx):
+        return None
+
+    monkeypatch.setattr(live_points, "_turn_check", silent)
+
+
 # ---------- points ----------
 
 
@@ -169,6 +178,12 @@ def test_what_appears_on_its_own_is_one_or_two_sentences_capped_in_words():
     long = "Lo que hacemos es que el comercial habla al salir de la visita, y Vocify rellena el CRM con los datos, las tareas y el siguiente paso acordado."
     line, cut = live_points.short(long)
     assert cut and len(line.split()) <= live_points.ANSWER_MAX_WORDS and line == "Lo que hacemos es que el comercial habla al salir de la visita…"
+    # A bare acknowledgement never takes the answer's place, and a question cut at its pause still asks.
+    guidance = ("Perfecto. ¿Os avisa antes de que haya un problema, por ejemplo si un vehículo se acerca a una frontera o no va a llegar "
+                "a la devolución? ¿O lo usáis sobre todo para mirar dónde está?")
+    assert live_points.short(guidance) == ("¿Os avisa antes de que haya un problema?", True)
+    assert live_points.short("Entendido. ¿Qué os falta hoy?") == ("¿Qué os falta hoy?", True)
+    assert live_points.short("Perfecto.") == ("Perfecto.", False)
     # In a point: the answer shown is the short one, and the cut is counted.
     (p,) = live_points.finalize({"points": [point(say="Sí, se integra con HubSpot. Y con Salesforce también según lo escrito. ¿Cuál usáis?")]}, reading(), CTX)["points"]
     assert p["answer"] == "Sí, se integra con HubSpot. Y con Salesforce también según lo escrito."
@@ -622,3 +637,87 @@ def test_the_step_the_call_is_on_moves_ahora_past_the_steps_before_it():
     # On the first step, or on something that is not a step: nothing is gone past.
     assert progress_for({"on": "apertura"}, progress={"now": base})["now"] == base
     assert progress_for({"on": "inventado"}, progress={"now": base})["now"] == base
+
+
+# ---------- the turn check as a second opinion ----------
+
+FEW = turns(
+    ("you", "¿Tenéis algún sistema de localización?"),
+    ("them", "Tengo muy poca flota, somos pocos vehículos, no nos compensa."),
+)
+
+
+def checked(monkeypatch, answer):
+    async def check(req, _ctx):
+        latest = next(t for t in reversed(req.turns) if t.who == "them")
+        return {**answer, "turn": latest} if answer else None
+
+    monkeypatch.setattr(live_points, "_turn_check", check)
+
+
+def sequenced_model(monkeypatch, answers, prompts):
+    async def fake_stream(system, user, *, kind):
+        prompts.append(user)
+        text = json.dumps(answers[len(prompts) - 1], ensure_ascii=False)
+        yield {"type": "token", "text": text[:10]}
+        yield {"type": "text", "text": text, "model": "direct:test", "latency_ms": 100}
+
+    monkeypatch.setattr(live_brain, "stream_json", fake_stream)
+
+
+def test_an_objection_the_brain_let_pass_gets_a_second_look_told_what_the_check_found(monkeypatch):
+    checked(monkeypatch, {"finished": True, "objection": "custom", "entry_id": "objection:custom:email", "label": "Mándame un email"})
+    written = point(turns=["t1"], objection_type="objection:custom:email", source_id="objection:custom:email", quote="somos pocos vehículos",
+                    say="Precisamente en flotas pequeñas se nota mucho. ¿Cuántos tenéis?")
+    prompts: list = []
+    sequenced_model(monkeypatch, [{"points": [], "closed": []}, {"points": [written], "closed": []}], prompts)
+    events_out = read(reading(call=FEW))
+    result = events_out[-1]
+    assert len(prompts) == 2 and "THE TURN CHECK flagged [t1]" in prompts[1] and "objection:custom:email" in prompts[1]
+    assert [e["type"] for e in events_out] == ["token", "result"]  # the second look streams nothing: only its result lands
+    assert result["points"] and result["points"][0]["tag_key"] == "objection:custom:email"
+    assert result["guards"]["second_look"] == 1 and result["latency_ms"] == 200
+
+
+def test_no_second_look_when_the_check_sees_nothing_or_the_brain_already_wrote_it(monkeypatch):
+    for answer in (None, {"finished": True, "objection": "none"}, {"finished": True, "objection": "question"}, {"finished": False, "objection": "price"}):
+        checked(monkeypatch, answer)
+        prompts: list = []
+        sequenced_model(monkeypatch, [{"points": [], "closed": []}], prompts)
+        assert read(reading(call=FEW))[-1]["nothing"] and len(prompts) == 1
+    checked(monkeypatch, {"finished": True, "objection": "status_quo"})
+    prompts = []
+    sequenced_model(monkeypatch, [{"points": [point(turns=["t1"], objection_type="status_quo", quote="no nos compensa", say="¿Qué os haría falta?")], "closed": []}], prompts)
+    assert read(reading(call=FEW))[-1]["points"] and len(prompts) == 1
+
+
+def test_no_second_look_once_the_rep_answered_or_after_a_rep_turn(monkeypatch):
+    checked(monkeypatch, {"finished": True, "objection": "status_quo"})
+    answered = FEW + [{"id": "t2", "who": "you", "text": "Precisamente en flotas pequeñas un coche que no vuelve se nota mucho.", "t": 30.0}]
+    for req in (reading(call=answered), reading(call=FEW, reason="rep_turn")):
+        prompts: list = []
+        sequenced_model(monkeypatch, [{"points": [], "closed": []}], prompts)
+        read(req)
+        assert len(prompts) == 1
+
+
+def test_a_second_look_that_still_finds_nothing_keeps_the_first_reading(monkeypatch):
+    checked(monkeypatch, {"finished": True, "objection": "status_quo"})
+    prompts: list = []
+    sequenced_model(monkeypatch, [{"points": [], "closed": []}, {"points": [], "closed": []}], prompts)
+    result = read(reading(call=FEW))[-1]
+    assert len(prompts) == 2 and result["nothing"] and result["guards"]["second_look_empty"] == 1
+    # The playbook's answer for that kind is named to the brain; a kind with no answer is named alone.
+    assert "(approved answer objection:status_quo)" in prompts[1]
+
+
+def test_a_playbook_blank_never_reaches_the_rep():
+    assert live_points.without_placeholders("¿Te viene mejor que te llame el jueves a las [hora] o el viernes a las [hora]?") == (
+        "¿Te viene mejor que te llame el jueves o el viernes?"
+    )
+    assert live_points.without_placeholders("¿Te viene mejor que te llame el jueves a las o el viernes?") == (
+        "¿Te viene mejor que te llame el jueves o el viernes?"
+    )
+    assert live_points.without_placeholders("Te llamo el jueves a las 10.") == "Te llamo el jueves a las 10."
+    (p,) = live_points.finalize({"points": [point(say="Claro. ¿Te llamo el [día] a las [hora]?")]}, reading(), CTX)["points"]
+    assert "[" not in p["answer"] and p["answer"] == "¿Te llamo?"
