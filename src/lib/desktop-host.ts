@@ -138,7 +138,7 @@ export type VocifyDesktopBridge = {
    */
   window?: {
     get(): Promise<{ compact: boolean }>;
-    /** `callEnded`: the call is over, so a window that was hidden before the call goes back out of sight. */
+    /** `callEnded`: the call is over (stopped or deleted), so the window goes back to its size out of sight. */
     setCompact(compact: boolean, options?: { callEnded?: boolean }): Promise<{ compact: boolean }>;
     onCompact(cb: (payload: { compact: boolean }) => void): () => void;
   };

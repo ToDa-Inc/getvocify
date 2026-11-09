@@ -12,8 +12,8 @@ import { useCompactWindow } from "./useCompactWindow";
  * The dashboard in the desktop app's compact window. When a recording starts the window turns compact and comes forward
  * by itself, once per call: during a call the app is that small window, and its button opens the whole dashboard (which
  * then stays open for the rest of the call). While it is compact the live view covers the whole page (the dashboard stays
- * mounted underneath, so going back loses nothing). When the call ends the window goes back to its size by itself: out of
- * sight when it was hidden before the call (the island has the call's card), in view when the rep had it open.
+ * mounted underneath, so going back loses nothing). When the call ends (stopped or deleted) the window goes back to its
+ * size out of sight: the island has the call's card, and the dashboard opens from the Dock, the menu or ↗.
  */
 export function CompactCallWindow() {
   const meeting = useDesktopMeeting();
