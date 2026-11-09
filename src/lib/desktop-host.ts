@@ -138,7 +138,8 @@ export type VocifyDesktopBridge = {
    */
   window?: {
     get(): Promise<{ compact: boolean }>;
-    setCompact(compact: boolean): Promise<{ compact: boolean }>;
+    /** `callEnded`: the call is over, so a window that was hidden before the call goes back out of sight. */
+    setCompact(compact: boolean, options?: { callEnded?: boolean }): Promise<{ compact: boolean }>;
     onCompact(cb: (payload: { compact: boolean }) => void): () => void;
   };
   /** Vocify calling on this computer; off, the island's Call opens on the rep's own phone. Missing in older builds. */
