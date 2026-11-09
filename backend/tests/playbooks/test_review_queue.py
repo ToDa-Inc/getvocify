@@ -219,3 +219,16 @@ def test_a_fix_to_one_answer_leaves_the_other_answers_and_call_types_alone():
     store.add_moment(COMPANY, {"source": "real", "sales_motion_key": "discovery", "entry_id": "objection:price", "client_text": "x", "outcome": {}, "status": "corrected", "resolved_at": day(5)})
     left = {(g["sales_motion_key"], g["answer_key"]) for g in failing_by_answer(recent_outcomes(store, COMPANY, now=NOW, after_fixes=True), now=NOW)}
     assert left == {("discovery", "objection:timing"), ("closing", "objection:price")}
+
+
+def test_the_live_brains_cards_are_judged_too_and_a_missed_objection_is_not():
+    db = make_db(2)
+    rows = db.tables["live_assist_events"] if hasattr(db, "tables") else None
+    assert rows is not None
+    for row in rows:
+        row["kind"] = "points"  # the live brain writes its cards as 'points' rows (events.card_rows)
+    rows.append({**rows[0], "id": "missed", "say_this": None, "source_id": None})
+    rows.append({**rows[0], "id": "reading", "is_objection": None})  # an ordinary reading row: not a card
+    store = InMemoryAssistantStore()
+    assert refresh(db, store) == 2
+    assert sorted(r["event_id"] for r in store.list_outcomes(COMPANY, since=day(30))) == ["e0", "e1"]

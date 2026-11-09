@@ -904,6 +904,8 @@ async def read_points(req: LiveReading, ctx: brain.BrainContext) -> AsyncIterato
                         result["guards"] = {**result["guards"], "second_look": 1}
                     else:
                         result["guards"] = {**result["guards"], "second_look_empty": 1}
+                        # Logged for the improvement step: an objection they raised that got no card.
+                        result["missed"] = [{"turn": flagged["turn"], "objection": flagged["kind"], "entry_id": flagged["entry_id"] or None}]
                 yield {"type": "result", **base, **result, "model": event["model"], "latency_ms": latency}
     finally:
         if check and not check.done():
@@ -966,7 +968,7 @@ def _missed_objection(check: Optional[dict], result: dict, req: LiveReading, ctx
         entry_id, label = f"objection:{kind}", kind
     if not _guidance_of(ctx.snapshot, entry_id):
         entry_id = ""
-    return {"turn": latest.id, "label": label or kind, "entry_id": entry_id}
+    return {"turn": latest.id, "label": label or kind, "entry_id": entry_id, "kind": kind}
 
 
 async def _second_look(

@@ -131,17 +131,19 @@ def refresh_moments(store: AssistantStore, company_id: str, groups: list[dict]) 
 
 
 def _candidate_events(supabase: Any, company_id: str, since: str) -> list[dict]:
-    """The company's live-help cards about an objection or a doubt since `since` that belong to a call, newest first."""
+    """The company's live-help cards about an objection or a doubt since `since` that belong to a call and showed a line
+    (old live help and live brain), newest first."""
     try:
         result = (
             supabase.table("live_assist_events").select(_EVENT_COLUMNS)
-            .eq("company_id", company_id).eq("kind", "suggest").eq("is_objection", True).gte("created_at", since)
+            .eq("company_id", company_id).in_("kind", ["suggest", "points"]).eq("is_objection", True).gte("created_at", since)
             .order("created_at", desc=True).limit(EVENT_SCAN).execute()
         )
     except Exception as exc:
         logger.warning("live-help log not read for outcomes: %s", type(exc).__name__)
         return []
-    return [e for e in (getattr(result, "data", None) or []) if e.get("capture_id")]
+    # Only a card that showed something can be judged (a missed objection counts for the gaps, not here).
+    return [e for e in (getattr(result, "data", None) or []) if e.get("capture_id") and str(e.get("say_this") or "").strip()]
 
 
 def _is_uuid(value: str) -> bool:

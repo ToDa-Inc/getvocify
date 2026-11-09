@@ -10,7 +10,8 @@ from tests.playbooks.live_double import TablesWithLiveView
 def _matches_or(row: dict, clause: str) -> bool:
     for part in clause.split(","):
         column, op, value = part.split(".", 2)
-        if op == "eq" and str(row.get(column)) == value:
+        current = row.get(column)
+        if op == "eq" and (str(current).lower() if isinstance(current, bool) else str(current)) == value:
             return True
         if op == "is" and value == "null" and row.get(column) is None:
             return True

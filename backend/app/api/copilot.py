@@ -468,6 +468,13 @@ def _brain_log(
         sales_motion_key=(body.sales_motion_key or "").strip() or None, call_id=body.call_id, latest_turn=them,
         result=result or None, error=trail.get("error"), detail={k: v for k, v in detail.items() if v is not None},
     ))
+    if kind == "points":
+        # What the improvement step learns from (the gaps to fill, the answers that keep failing).
+        events.record_ui(supabase, events.card_rows(
+            user_id=membership.user_id, company_id=membership.company_id, call_mode=body.call_mode,
+            sales_motion_key=(body.sales_motion_key or "").strip() or None, call_id=body.call_id, turns=body.turns,
+            result=result or None,
+        ))
 
 
 @router.post("/live/points")

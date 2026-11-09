@@ -507,6 +507,7 @@ def client_for(db, monkeypatch, enabled=True):
 
     monkeypatch.setattr(copilot_api, "_brain_context", fake_context)
     monkeypatch.setattr(events, "_brain_paused_until", 0.0)
+    monkeypatch.setattr(events, "_ui_paused_until", 0.0)
     app = FastAPI()
     app.include_router(copilot_api.router)
     app.dependency_overrides[get_supabase] = lambda: db
@@ -532,10 +533,15 @@ def test_points_stream_and_the_reading_is_logged_against_the_call(monkeypatch):
     frames = [json.loads(block[6:]) for block in response.text.split("\n\n") if block.startswith("data: ")]
     assert [f["type"] for f in frames] == ["token", "result", "done"]
     assert frames[1]["state_version"] == 2 and frames[1]["points"][0]["answer"]
-    (row,) = db.inserted
+    # The reading's row, then the cards in one batch insert.
+    row, card = [r for batch in db.inserted for r in (batch if isinstance(batch, list) else [batch])]
     assert row["kind"] == "points" and row["capture_id"] == "draft-1" and row["company_id"] == "co-1" and row["latency_ms"] == 123
     assert row["detail"]["reason"] == "turn_end" and row["detail"]["points"] == 1 and row["detail"]["state_version"] == 2
     assert row["latest_turn"].startswith("Y se lo reenviaré") and "turns" in row["detail"]
+    # The card itself, as the playbook's improvement step reads it: their whole turn, its kind, its source, what was shown.
+    assert card["kind"] == "points" and card["is_objection"] is True and card["detail"]["card"] == "shown"
+    assert card["latest_turn"] == "Dime, pero rápido. ¿Se integra con HubSpot?" and card["objection_type"] == "question"
+    assert card["source_id"] == "knowledge" and card["say_this"] == "Sí, se integra con HubSpot." and card["capture_id"] == "draft-1"
 
 
 def test_progress_and_recap_return_json_and_log(monkeypatch):
@@ -700,6 +706,7 @@ def test_a_second_look_that_still_finds_nothing_keeps_the_first_reading(monkeypa
     sequenced_model(monkeypatch, [{"points": [], "closed": []}, {"points": [], "closed": []}], prompts)
     result = read(reading(call=FEW))[-1]
     assert len(prompts) == 2 and result["nothing"] and result["guards"]["second_look_empty"] == 1
+    assert result["missed"] == [{"turn": "t1", "objection": "status_quo", "entry_id": "objection:status_quo"}]
     # The playbook's answer for that kind is named to the brain; a kind with no answer is named alone.
     assert "(approved answer objection:status_quo)" in prompts[1]
 
@@ -714,3 +721,28 @@ def test_a_playbook_blank_never_reaches_the_rep():
     assert live_points.without_placeholders("Te llamo el jueves a las 10.") == "Te llamo el jueves a las 10."
     (p,) = live_points.finalize({"points": [point(say="Claro. ¿Te llamo el [día] a las [hora]?")]}, reading(), CTX)["points"]
     assert p["answer"] == "¿Te llamo?"
+
+
+def test_a_card_row_per_new_objection_or_question_and_one_per_missed_objection():
+    from app.services.copilot import events as ev
+    req = reading(call=FEW)
+    result = {
+        "playbook_version_id": "pv-1",
+        "points": [
+            {"id": "pt-1", "is_update": False, "kind": "objection", "tag_key": "objection:custom:email", "title": "pocos vehículos",
+             "turn_ids": ["t1"], "answer": "En flotas pequeñas se nota mucho.", "fallback": None, "source": {"id": "objection:custom:email"}},
+            {"id": "pt-2", "is_update": True, "kind": "objection", "tag_key": "price", "turn_ids": ["t1"]},
+            {"id": "pt-3", "is_update": False, "kind": "deepen", "tag_key": "deepen", "turn_ids": ["t1"], "answer": "¿Por qué?"},
+            {"id": "pt-4", "is_update": False, "kind": "question", "tag_key": "question", "title": "¿Rent Manager?", "turn_ids": ["t1"],
+             "answer": None, "fallback": "Te lo confirmo hoy.", "source": None},
+        ],
+        "missed": [{"turn": "t1", "objection": "status_quo", "entry_id": None}],
+    }
+    rows = ev.card_rows(user_id="u", company_id="co-1", call_mode="meeting", sales_motion_key="discovery", call_id="c1", turns=req.turns, result=result)
+    shown = [r for r in rows if r["detail"]["card"] == "shown"]
+    assert [r["detail"]["point_id"] for r in shown] == ["pt-1", "pt-4"]  # no update, no deepen
+    assert shown[0]["objection_type"] == "custom" and shown[0]["entry_id"] == "objection:custom:email" and shown[0]["source_id"] == "objection:custom:email"
+    assert shown[1]["source_id"] is None and shown[1]["say_this"] == "Te lo confirmo hoy."  # no playbook answer: a gap
+    (missed,) = [r for r in rows if r["detail"]["card"] == "missed"]
+    assert missed["say_this"] is None and missed["source_id"] is None and missed["objection_type"] == "status_quo"
+    assert missed["latest_turn"].startswith("Tengo muy poca flota") and all(r["is_objection"] is True for r in rows)

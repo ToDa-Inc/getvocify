@@ -106,3 +106,15 @@ def test_recent_events_are_this_companys_cards_from_the_last_weeks():
 
 def test_a_failing_read_gives_no_events():
     assert recent_suggest_events(FakeDB(fail_tables=["live_assist_events"]), COMPANY) == []
+
+
+def test_the_live_brains_cards_and_missed_objections_are_gaps_too():
+    now = datetime.now(timezone.utc)
+    at = (now - timedelta(days=1)).isoformat()
+    rows = [
+        {"id": "card", "company_id": COMPANY, "kind": "points", "is_objection": True, "created_at": at, "latest_turn": "¿Os integráis con Rent Manager?"},
+        {"id": "missed", "company_id": COMPANY, "kind": "points", "is_objection": True, "created_at": at, "latest_turn": "Somos pocos, no nos compensa."},
+        {"id": "reading", "company_id": COMPANY, "kind": "points", "created_at": at, "latest_turn": "x"},
+    ]
+    db = FakeDB({"live_assist_events": rows})
+    assert sorted(r["id"] for r in recent_suggest_events(db, COMPANY, days=28)) == ["card", "missed"]
