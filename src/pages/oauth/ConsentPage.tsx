@@ -34,7 +34,8 @@ const ConsentPage = () => {
   const gate = sessionGateView({ isLoading, hasStoredSession, isAuthenticated });
   const [sending, setSending] = useState<"approve" | "deny" | null>(null);
   const [failed, setFailed] = useState<"invalid" | "off" | null>(null);
-  const [allowEdits, setAllowEdits] = useState(false);
+  // Ticked by default for owners and admins (Dani, 2026-11-09); reps never see it and the server refuses it for them.
+  const [allowEdits, setAllowEdits] = useState(true);
 
   const details = useQuery({
     queryKey: ["oauth-authorization", authorizationId],
@@ -51,7 +52,7 @@ const ConsentPage = () => {
   const answer = async (action: "approve" | "deny") => {
     setSending(action);
     try {
-      const { redirect_url } = await mcpApi.consent(authorizationId, action, allowEdits && Boolean(details.data?.can_allow_write));
+      const { redirect_url } = await mcpApi.consent(authorizationId, action, edits);
       window.location.assign(redirect_url);
     } catch (error) {
       // 409: the workspace has AI agents off. Anything else: the request expired or was never ours.
@@ -60,6 +61,7 @@ const ConsentPage = () => {
     }
   };
 
+  const edits = allowEdits && Boolean(details.data?.can_allow_write);
   const invalid = !authorizationId || details.isError || failed === "invalid";
   const request = details.data ?? null;
   const appName = request?.client.client_name || t.product.consentUnknownApp;
@@ -89,7 +91,7 @@ const ConsentPage = () => {
                   {appName} {t.product.consentTitle}
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  {t.product.consentBody} {allowEdits ? null : t.product.consentReadOnly}
+                  {t.product.consentBody} {edits ? null : t.product.consentReadOnly}
                 </p>
                 {returnHost && (
                   <p className="text-xs text-muted-foreground">
