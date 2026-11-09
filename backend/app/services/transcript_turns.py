@@ -236,4 +236,36 @@ def speaker_prompt_legend(transcript: str, prospect_name: Optional[str] = None) 
         f"- **S2** and any named speaker that is not S1 = {prospect}.\n"
         "Extract contactName from the prospect side, never from the rep. "
         "Do not treat the rep's company as companyName.\n"
+        "Never write the labels S1 or S2 in any field: they are transcript marks. Write the person's name, "
+        "or the rep / the contact.\n"
     )
+
+
+_LABEL = re.compile(r"\b(?:(?i:the|el|la)\s+)?(S[12])\b")
+
+
+def without_speaker_labels(text: str, transcript: str, prospect_name: Optional[str], spanish: bool) -> str:
+    """A note or field that still says S1 / S2 (the transcript's marks) says who they are instead: S1 is the rep,
+    S2 the contact, by name when it is known. Only when the transcript itself used those marks."""
+    if not text or not re.search(r"\bS[12]\b", text):
+        return text
+    if not any(normalize_speaker(t.get("speaker")) in ("S1", "S2") for t in parse_transcript_turns(transcript)):
+        return text
+    contact = (prospect_name or "").strip() or ("el contacto" if spanish else "the contact")
+    rep = "el comercial" if spanish else "the rep"
+
+    def name(match: re.Match) -> str:
+        who = rep if match.group(1) == "S1" else contact
+        before = match.string[: match.start()].rstrip()
+        if not before or before[-1] in ".!?-*•\n":
+            who = who[:1].upper() + who[1:]
+        return who
+
+    # "Jaime Moro (S2)", "(S1, Dani)": a label in brackets beside the name is dropped, not spelled out.
+    text = re.sub(r"\s*\((?:S[12])\)", "", text)
+    text = re.sub(r"\((?:S[12]),\s*", "(", text)
+    out = _LABEL.sub(name, text)
+    if spanish:
+        out = re.sub(r"\b([Dd])e el (comercial|contacto)\b", r"\1el \2", out)
+        out = re.sub(r"\b([Aa]) el (comercial|contacto)\b", r"\1l \2", out)
+    return out

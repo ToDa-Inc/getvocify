@@ -949,6 +949,17 @@ Add one more top-level key: "evidence": {{"field path": "the prospect's exact wo
 9. **Confidence**: Provide overall (0-1) and per-field scores."""
 
 
+
+def _named_speakers(summary: Any, transcript: str, contact: Optional[str], existing_values: Optional[dict]) -> str:
+    """The note never says S1 / S2: the model sometimes copies the transcript's marks (12 of 300 notes, Nov 2026)."""
+    from app.services.hubspot.note_format import looks_spanish
+    from app.services.transcript_turns import without_speaker_labels
+
+    text = str(summary or "")
+    return without_speaker_labels(
+        text, transcript, contact or prospect_name_from_existing(existing_values), looks_spanish(f"{text}\n{transcript}")
+    )
+
 class ExtractionService:
     """Service for extracting structured CRM data from transcripts via LLM."""
 
@@ -1563,7 +1574,7 @@ Return ONLY valid JSON. No preamble, no conversational text."""
                 dealCurrency=extracted.get("deal_currency_code", "EUR"),
                 dealStage=extracted.get("dealstage"),
                 closeDate=extracted.get("closedate"),
-                summary=extracted.get("summary", ""),
+                summary=_named_speakers(extracted.get("summary", ""), transcript, contact, existing_values),
                 painPoints=extracted.get("painPoints", []),
                 nextSteps=extracted.get("nextSteps", []),
                 competitors=extracted.get("competitors", []),

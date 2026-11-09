@@ -169,6 +169,7 @@ class PipedriveSyncService:
         skip_deal: bool = False,
         stage_confirm: bool = False,
         commitment_tasks: Optional[list] = None,
+        conversation: Optional[dict] = None,
     ) -> SyncResult:
         """stage_confirm: the stage is the one the rep confirmed (raw_extraction.stage_id);
         an existing deal's stage is written only when it differs from the current one.
@@ -389,6 +390,9 @@ class PipedriveSyncService:
                             raise PipedriveError("Pipedrive note was not created.", error_code="PIPEDRIVE_NOTE_FAILED")
                         tracked.data = {"note_id": note_id}
                         tracked.resource_id = note_id
+                    # Written with the note (so a retry never logs it twice): the call itself, with the summary.
+                    if conversation and extraction.summary:
+                        await self._log_conversation(conversation, extraction, deal_id, person_id, org_id, owner_id, memo_id, transcript)
                 landed.append("note")
             elif create_note:
                 logger.warning(
@@ -451,6 +455,63 @@ class PipedriveSyncService:
             record_sync_duration(time.perf_counter() - t0, "failure")
             logger.exception("Pipedrive sync failed: %s", e)
             return result
+
+    async def _log_conversation(
+        self,
+        conversation: dict,
+        extraction: MemoExtraction,
+        deal_id: Optional[str],
+        person_id: Optional[str],
+        org_id: Optional[str],
+        owner_id: Optional[str],
+        memo_id: Any,
+        transcript: Optional[str] = None,
+    ) -> None:
+        """conversation: {"kind": "call"|"meeting", "occurred_at": ISO, "duration_seconds": float,
+        "activity_id": the dialer's own call activity, when Vocify placed the call}. Best-effort."""
+        from app.services.hubspot.note_format import format_summary_html, looks_spanish
+
+        from .activities import log_conversation
+        from .call_log import _duration
+
+        kind = "meeting" if conversation.get("kind") == "meeting" else "call"
+        spanish = looks_spanish(f"{extraction.summary or ''}\n{transcript or ''}")
+        name = (extraction.contactName or "").strip()
+        if not name and person_id:
+            try:
+                name = str((await self.search.get_person(str(person_id))).get("name") or "").strip()
+            except Exception:
+                name = ""
+        label = ("Reunión" if kind == "meeting" else "Llamada") if spanish else ("Meeting" if kind == "meeting" else "Call")
+        subject = f"{label} {'con' if spanish else 'with'} {name}" if name else f"{label} Vocify"
+        due_date = due_time = None
+        try:
+            at = datetime.fromisoformat(str(conversation.get("occurred_at")).replace("Z", "+00:00")).astimezone(timezone.utc)
+            due_date, due_time = at.date().isoformat(), at.strftime("%H:%M")
+        except (TypeError, ValueError):
+            pass
+        seconds = float(conversation.get("duration_seconds") or 0)
+        try:
+            await log_conversation(
+                self.client,
+                kind=kind,
+                subject=subject,
+                note_html=format_summary_html(extraction.summary or ""),
+                deal_id=deal_id,
+                person_id=person_id,
+                org_id=org_id,
+                owner_id=owner_id,
+                due_date=due_date,
+                due_time=due_time,
+                duration=_duration(seconds) if seconds > 0 else None,
+                existing_activity_id=conversation.get("activity_id"),
+            )
+        except Exception:
+            logger.warning(
+                "Pipedrive call activity was not written",
+                extra=log_domain(DOMAIN_PIPEDRIVE, "conversation_activity_failed", memo_id=str(memo_id)),
+                exc_info=True,
+            )
 
     async def _add_participant(self, deal_id: str, person_id: Any) -> None:
         """A deal that has no person gets this one (v2 PATCH person_id; v2 has no participants route). Best-effort:
