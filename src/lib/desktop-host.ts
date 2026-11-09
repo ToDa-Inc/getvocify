@@ -14,6 +14,17 @@ export type IslandPlacement = "notch" | "side";
 /** What the island's settings report; each app reports only the settings it has. */
 export type IslandState = { appearance?: IslandAppearance; visible?: boolean; placement?: IslandPlacement };
 
+/**
+ * Where the desktop app's self-update stands. `ready`: downloaded, the app restarts into it as soon as nothing is being
+ * recorded. `unavailable`: this copy never updates itself (run from source).
+ */
+export type DesktopUpdateStatus = { version: string } & (
+  | { state: "unavailable" | "idle" | "checking" }
+  | { state: "current"; checkedAt: number }
+  | { state: "downloading" | "ready"; next: string }
+  | { state: "failed"; reason: string; checkedAt: number }
+);
+
 export type VocifyDesktopBridge = {
   platform: "darwin" | "win32";
   systemAudio: {
@@ -169,6 +180,13 @@ export type VocifyDesktopBridge = {
     onTranscript(cb: (transcript: unknown) => void): () => void;
     onLevels(cb: (levels: { you: number; them: number }) => void): () => void;
     onWarning(cb: (payload: { text: string | null }) => void): () => void;
+  };
+  /** The app's version and self-update. Missing in older builds. */
+  updates?: {
+    status(): Promise<DesktopUpdateStatus | null>;
+    /** Asks now; answers the state right after asking (changes follow on `onChanged`). */
+    check(): Promise<DesktopUpdateStatus | null>;
+    onChanged(cb: (status: DesktopUpdateStatus) => void): () => void;
   };
   /** Meeting drafts on disk. Missing in builds older than local recovery. */
   drafts?: {
