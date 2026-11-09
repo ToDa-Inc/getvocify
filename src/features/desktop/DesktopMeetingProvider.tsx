@@ -23,6 +23,7 @@ import { ROUTES } from "@/shared/lib/constants";
 import { overlayWithSpeaking } from "@/lib/typing-bubbles";
 import { SteadyTails } from "@/lib/steady-tail";
 import { openRepMic, serverEchoCancel, type EchoCancellation } from "@/lib/rep-mic";
+import { findChosen, isUnusual, loadChoice, loadUsual, micDevices, micName, saveChoice, saveUsual, type MicChoice, type MicDevice } from "@/lib/desktop-mic";
 import {
   encodeChannelAudio,
   hookMicPcm,
@@ -32,6 +33,9 @@ import {
 } from "@/lib/copilot-channel-stt";
 import {
   applyChannelResult,
+  applyVoice,
+  meetingVoices,
+  type MeetingVoice,
   resetChannel,
   normalizeMeetingTranscript,
   EMPTY_MEETING_TRANSCRIPT,
@@ -49,6 +53,7 @@ import {
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
 import { SpeakerTimeline } from "@/lib/speaker-timeline";
+import { applyVoiceAction, parseVoiceCommand, voiceMessage, type VoiceAction } from "@/lib/voice-actions";
 import { CALL_UPLOAD_RETRY_DELAYS_MS, withTransientRetries } from "@/lib/transient-retry";
 import { addJob, dropJob, forIsland, patchJob, stateOfMemo, stopAutoOpen, type AfterCallJob } from "@/lib/after-call-jobs";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
@@ -141,6 +146,9 @@ export type DesktopMeeting = {
   error: string | null;
   warning: string | null;
   turns: MeetingDisplayTurn[];
+  /** The voices heard on the other side (when the backend tells them apart), and what the rep can do to them. */
+  voices: MeetingVoice[];
+  changeVoices: (action: VoiceAction) => void;
   notes: string;
   setNotes: (notes: string) => void;
   /** Meetings that could not be sent yet, oldest first. */
@@ -350,6 +358,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   /** What the page's mic applied (null until it is open). "all" already took the call's echo out, so the server leaves the mic alone. */
   const micEchoRef = useRef<EchoCancellation | null>(null);
   const releaseAudioRef = useRef<Array<() => void>>([]);
+  /** The mic picked in the island or the app's menu (null: the system's default), and the mics the page can see. */
+  const micChoiceRef = useRef<MicChoice | null>(loadChoice());
+  const micListRef = useRef<{ devices: MicDevice[]; defaultLabel: string | null }>({ devices: [], defaultLabel: null });
+  /** The mic recording now, and whether the island says it is not the rep's usual one. */
+  const micUseRef = useRef<{ inUse: string | null; notice: boolean }>({ inUse: null, notice: false });
+  /** While the page's mic records the rep: moves the recording onto the picked mic without stopping it. */
+  const switchMicRef = useRef<(() => Promise<void>) | null>(null);
   const timerRef = useRef<number | null>(null);
   const reconnectsRef = useRef(0);
   /** Set while the recording is a Vocify call: the server records it, so nothing is uploaded or kept on disk. */
@@ -364,6 +379,21 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     phaseRef.current = next;
     setPhaseState(next);
   }, []);
+
+  /** The island and the app's menu: the mics, the picked one, and which one records now. */
+  const pushMic = useCallback(() => {
+    const list = micListRef.current;
+    getDesktopBridge()?.shell.setState({
+      mic: { devices: list.devices, defaultLabel: list.defaultLabel, chosen: micChoiceRef.current, ...micUseRef.current },
+    });
+  }, []);
+
+  const listMics = useCallback(async () => {
+    const all = await navigator.mediaDevices?.enumerateDevices?.().catch(() => null);
+    if (!all) return;
+    micListRef.current = micDevices(all);
+    pushMic();
+  }, [pushMic]);
 
   /** `fixInSettings`: a permission is what's missing, so the toast takes the rep to where it is turned on. */
   const fail = useCallback(
@@ -555,10 +585,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     speakersRef.current = null;
     micRef.current?.getTracks().forEach((track) => track.stop());
     micRef.current = null;
+    micUseRef.current = { inUse: null, notice: false };
+    pushMic();
     await getDesktopBridge()?.systemAudio.stop();
     await ctxRef.current?.close().catch(() => {});
     ctxRef.current = null;
-  }, []);
+  }, [pushMic]);
 
   const openSocket = useCallback(() => {
     // A new session times its audio from zero again: who spoke is timed from its first audio too.
@@ -582,6 +614,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         start?: unknown;
         end?: unknown;
         from?: unknown;
+        voice?: unknown;
         active?: unknown;
         error?: unknown;
         channel?: { alternatives?: Array<{ transcript?: string }> };
@@ -628,6 +661,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             sendOverlay(transcriptRef.current);
           }
         }
+      } else if (data.type === "Voice") {
+        // Whose voice a line of the other side is, a moment after its text.
+        const next = applyVoice(transcriptRef.current, data.start, data.voice);
+        if (next !== transcriptRef.current) updateTranscript(next);
       } else if (data.type === "ChannelReset") {
         const next = resetChannel(transcriptRef.current, data.audio_channel, data.from);
         if (next !== transcriptRef.current) updateTranscript(next);
@@ -1345,9 +1382,19 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       let ctx: AudioContext | null = null;
       let micStream: MediaStream | null = null;
       const openMic = async () => {
-        const mic = await openRepMic((constraints) => navigator.mediaDevices.getUserMedia(constraints)).catch(() => {
+        const getUserMedia = (constraints: MediaStreamConstraints) => navigator.mediaDevices.getUserMedia(constraints);
+        // The picked mic when it is connected; otherwise (or when it will not open) the system's default.
+        const choice = micChoiceRef.current;
+        const found = findChosen(micListRef.current.devices, choice);
+        const mic = await (found ? openRepMic(getUserMedia, found.id).catch(() => openRepMic(getUserMedia)) : openRepMic(getUserMedia)).catch(() => {
           throw new PermissionMissing("Could not open the microphone. Check it in Settings › System.");
         });
+        const track = mic.stream.getAudioTracks()[0];
+        const opened = track?.getSettings().deviceId;
+        const inUse = track ? micName(track.label, opened, micListRef.current) : null;
+        micUseRef.current = { inUse, notice: inUse !== null && isUnusual(inUse, choice, found && found.id === opened ? found : null, loadUsual()) };
+        // Allowed now: the mics have their names, and the list the island shows is complete.
+        void listMics();
         micStream = mic.stream;
         micRef.current = micStream;
         micEchoRef.current = mic.echoCancellation;
@@ -1553,11 +1600,31 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             fallback?.();
           };
         };
+        /** The page's mic to the rep's channel; picking another mic moves it there, the recording carries on. */
+        const switchableRep = (audioContext: AudioContext, toRep: (pcm: ArrayBuffer) => void) => {
+          let release = hookMicPcm(audioContext, micStream as MediaStream, toRep);
+          switchMicRef.current = async () => {
+            const previous = micStream;
+            await openMic();
+            // Picked by the rep just now: nothing left to point out.
+            micUseRef.current = { ...micUseRef.current, notice: false };
+            pushMic();
+            if (micStream === previous) return;
+            release();
+            release = hookMicPcm(audioContext, micStream as MediaStream, toRep);
+            previous?.getTracks().forEach((track) => track.stop());
+            reportCallStep("microphone", { native: false, switched: true, echoCancellation: micEchoRef.current });
+          };
+          return () => {
+            switchMicRef.current = null;
+            release();
+          };
+        };
         releaseAudioRef.current = call
           ? // The call's own two sides: nothing else on the Mac reaches the prospect's channel.
             [hookMicPcm(ctx, call.streams.local, send("rep")), hookMicPcm(ctx, call.streams.remote, send("prospect"))]
           : [
-              nativeMicRef.current && bridge.nativeMic ? nativeRep(bridge.nativeMic, ctx) : hookMicPcm(ctx, micStream as MediaStream, send("rep")),
+              nativeMicRef.current && bridge.nativeMic ? nativeRep(bridge.nativeMic, ctx) : switchableRep(ctx, send("rep")),
               bridge.systemAudio.onPcm(send("prospect")),
               bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
               // Who the meeting app shows speaking (the desktop app reads Zoom, and Meet through the extension).
@@ -1584,6 +1651,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         const health = healthRef.current;
         if (health && !micHeardRef.current && health.everHeard("you")) {
           micHeardRef.current = true;
+          // The mic that heard the rep is the usual one: a recording that starts on another says so.
+          if (micUseRef.current.inUse && !nativeMicRef.current) saveUsual(micUseRef.current.inUse);
           reportMicSilent(false);
         }
         if (health && !pausedRef.current) {
@@ -1644,7 +1713,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       void bridge.shell.hideOverlay();
       bridge.shell.command("show");
     }
-  }, [applyCallType, clearNotes, endPostCall, fail, meetingClock, navigate, openSocket, releaseAudio, sendOverlay, setJobs, setPhase, t, typeName, updateTranscript, user?.id]);
+  }, [applyCallType, clearNotes, endPostCall, fail, listMics, meetingClock, navigate, openSocket, pushMic, releaseAudio, sendOverlay, setJobs, setPhase, t, typeName, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(
@@ -1710,6 +1779,27 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     })();
   }, [navigate, sendAll, user?.id]);
 
+  // The mics the island and the app's menu list, kept current as they come and go; a pick moves a live recording onto it.
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge) return;
+    void listMics();
+    const onDevices = () => void listMics();
+    navigator.mediaDevices?.addEventListener?.("devicechange", onDevices);
+    const off = bridge.microphones?.onChoose((choice) => {
+      const picked = choice && typeof choice.id === "string" && typeof choice.label === "string" ? { id: choice.id, label: choice.label } : null;
+      micChoiceRef.current = picked;
+      saveChoice(picked);
+      micUseRef.current = { ...micUseRef.current, notice: false };
+      pushMic();
+      void switchMicRef.current?.().catch(() => setWarning("Could not open that microphone. Your recording carries on with the one before."));
+    });
+    return () => {
+      navigator.mediaDevices?.removeEventListener?.("devicechange", onDevices);
+      off?.();
+    };
+  }, [listMics, pushMic]);
+
   startRef.current = start;
   pauseRef.current = pause;
   resumeRef.current = resume;
@@ -1720,6 +1810,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const bridge = getDesktopBridge();
     if (!bridge) return;
     return bridge.shell.onCommand((name) => {
+      // The island's rename / merge / move of the other side's voices.
+      const voiceAction = parseVoiceCommand(name);
+      if (voiceAction) {
+        changeVoicesRef.current(voiceAction);
+        return;
+      }
       const current = phaseRef.current;
       if (isCallUp(callEngine.getState())) {
         // During a Vocify call the island's Stop hangs up; nothing else may start a second recording.
@@ -1865,6 +1961,21 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   );
 
   const turns = useMemo(() => meetingDisplayTurns(transcript), [transcript]);
+  const voices = useMemo(() => meetingVoices(transcript), [transcript]);
+
+  // The rep renames a voice, merges two or moves a paragraph: seen at once, and the backend learns from merges and moves.
+  const changeVoices = useCallback(
+    (action: VoiceAction) => {
+      const next = applyVoiceAction(transcriptRef.current, action);
+      if (next !== transcriptRef.current) updateTranscript(next);
+      const message = voiceMessage(action);
+      const ws = wsRef.current;
+      if (message && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+    },
+    [updateTranscript],
+  );
+  const changeVoicesRef = useRef(changeVoices);
+  changeVoicesRef.current = changeVoices;
 
   // One model proposal once the conversation says enough, a second only if it was unsure.
   useEffect(() => {
@@ -1940,6 +2051,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       error,
       warning,
       turns,
+      voices,
+      changeVoices,
       notes,
       setNotes,
       pending,
@@ -1961,7 +2074,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallType, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, voices, changeVoices, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallType, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

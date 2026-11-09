@@ -37,6 +37,7 @@ from app.services import live_activity
 from app.services.live_chunker import Chunk, ChunkCutter
 from app.services.glossary import GlossaryService
 from app.services.live_report import LiveReport
+from app.services.live_voices import MAX_SPEECH_S, VoiceBook, VoiceEmbedder
 from app.services.transcript_turns import without_foreign_script
 from app.services.openrouter_stt import OpenRouterTranscriber, TranscriptionError
 from app.services.session_entities import EntityTerm, normalize_stt_languages
@@ -104,6 +105,16 @@ RECOVER_BACKOFF_S = (0.3, 1.0, 2.0, 4.0, 8.0)
 RECOVER_OVERLAP_S = 3.0
 # MAI through OpenRouter: this many chunks in a row that no request could transcribe, and the side's stream is reopened.
 MAX_CHUNK_FAILURES = 3
+
+_voice_embedder: Optional[VoiceEmbedder] = None
+
+
+def voice_embedder() -> VoiceEmbedder:
+    """The speaker model, shared by every call of this process."""
+    global _voice_embedder
+    if _voice_embedder is None:
+        _voice_embedder = VoiceEmbedder(settings.LIVE_VOICES_MODEL_PATH)
+    return _voice_embedder
 
 
 def session_language(code: str, profile: list[str]) -> tuple[str, Optional[str]]:
@@ -954,6 +965,14 @@ class ChannelSessions:
         # Streams replaced by a fresh session of the same provider: their last results still count.
         self.retiring: set[LiveStream] = set()
         self.recoveries: dict[str, int] = {label: 0 for label in labels}
+        # Who is speaking on the call side, from their voices (live_voices). Gone with the call.
+        self.voices: Optional[VoiceBook] = None
+        self.voice_lock = asyncio.Lock()
+        if settings.LIVE_VOICES_ENABLED and "prospect" in labels:
+            if voice_embedder().available():
+                self.voices = VoiceBook()
+            else:
+                logger.warning("Live voices: on, but the speaker model is not at %s", voice_embedder().path)
 
     async def run(self) -> None:
         await self._send({"type": "connected", "model": "realtime", "mode": "copilot_channels", "provider": self.provider})
@@ -1080,6 +1099,8 @@ class ChannelSessions:
                     self.active[label].force_end()
             elif kind == "ClientReport":
                 self.report.from_client(data)
+            elif kind in ("VoiceMerge", "VoiceMove"):
+                await self._correct_voices(data)
             elif kind == "CloseStream":
                 return
 
@@ -1186,6 +1207,10 @@ class ChannelSessions:
                 )
             if final and transcript.strip() and "start" in payload:
                 self._after_final(stream.label, payload["start"], payload["end"])
+                if stream.label == "prospect" and self.voices is not None:
+                    task = asyncio.create_task(self._tell_voice(payload["start"], payload["end"]))
+                    self.checks.add(task)
+                    task.add_done_callback(self.checks.discard)
         elif kind == "activity":
             await self._send({"type": "Speaking", "audio_channel": stream.label, "active": bool(event.get("active"))})
         elif kind == "utterance_end":
@@ -1210,6 +1235,48 @@ class ChannelSessions:
             await self._send({"type": "Error", "provider": stream.provider, "error": reason})
         elif kind == "warning":
             logger.warning("%s %s warning: %s", stream.provider, stream.label, event.get("reason"))
+
+    async def _tell_voice(self, start: float, end: float) -> None:
+        """Whose voice a final of the call side is, sent after the text so the text never waits for it. A piece too short to
+        hold a voice says nothing."""
+        pcm, _ = self.buffers["prospect"].slice(start, end)
+        async with self.voice_lock:
+            if self.voices is None:
+                return
+            try:
+                print_ = await asyncio.to_thread(voice_embedder().embed, pcm)
+                if print_ is None:
+                    return
+                heard = self.voices.hear(start, print_, min(len(pcm) / BYTES_PER_SECOND, MAX_SPEECH_S))
+            except Exception:
+                # Never at the cost of the call: it goes on without telling the voices apart.
+                logger.exception("Live voices: failed, turned off for this call")
+                self.voices = None
+                return
+        await self._send({"type": "Voice", "audio_channel": "prospect", "start": start, "voice": heard.voice, "sure": heard.sure})
+
+    async def _correct_voices(self, data: dict[str, Any]) -> None:
+        """The rep merged two voices or moved a line to another, in the client: the call's voices learn from it."""
+        async with self.voice_lock:
+            if self.voices is None:
+                return
+            if data.get("type") == "VoiceMerge":
+                keep, drop = data.get("keep"), data.get("drop")
+                if isinstance(keep, int) and isinstance(drop, int):
+                    self.voices.merge(keep, drop)
+                return
+            # The lines of one paragraph, all to voice `voice`, or all to one new voice when it is None.
+            starts = data.get("starts") if isinstance(data.get("starts"), list) else [data.get("start")]
+            voice = data.get("voice")
+            if voice is not None and not isinstance(voice, int):
+                return
+            for start in starts:
+                if not isinstance(start, (int, float)) or isinstance(start, bool):
+                    continue
+                now = self.voices.move(float(start), voice)
+                if now is not None:
+                    voice = now
+                    await self._send({"type": "Voice", "audio_channel": "prospect", "start": start, "voice": now, "sure": True})
 
     def _after_final(self, label: str, start: float, end: float) -> None:
         side = self.sides[label]

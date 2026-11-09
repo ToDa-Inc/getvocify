@@ -208,14 +208,16 @@ def build_gaps(
 
 
 def recent_suggest_events(supabase: Any, company_id: str, *, days: int = 28, limit: int = 500) -> list[dict]:
-    """The company's live-help cards of the last `days`, newest first. [] when the log cannot be read."""
+    """The company's live-help cards of the last `days` (old live help and live brain), newest first. [] when the log
+    cannot be read."""
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     try:
         result = (
             supabase.table(LIVE_EVENTS_TABLE)
             .select("id,created_at,sales_motion_key,latest_turn,objection_type,entry_id,is_objection,source_id,say_this,capture_id")
             .eq("company_id", company_id)
-            .eq("kind", "suggest")
+            # The old live help's cards, and the live brain's (kind 'points' rows that carry an objection: see card_rows).
+            .or_("kind.eq.suggest,is_objection.eq.true")
             .gte("created_at", since)
             .order("created_at", desc=True)
             .limit(limit)

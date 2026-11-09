@@ -288,6 +288,24 @@ async def _periodic_call_reconcile():
             logger.exception("Call reconcile sweep failed", extra={"domain": "telephony", "phase": "reconcile"})
 
 
+async def _periodic_playbook_improvement():
+    """Every hour: the playbook's improvement step (judge finished calls' cards, queue the answers that keep failing) for
+    the companies that have it on."""
+    from app.deps import get_supabase
+    from app.services.playbooks.improve_sweep import SWEEP_INTERVAL_SECONDS, sweep
+
+    logger = logging.getLogger(__name__)
+    supabase = get_supabase()
+    while True:
+        await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+        try:
+            done = await sweep(supabase)
+            if done:
+                logger.info("Playbook improvement sweep", extra={"domain": "playbooks", "phase": "improve_sweep", "companies": len(done)})
+        except Exception:
+            logger.exception("Playbook improvement sweep failed", extra={"domain": "playbooks", "phase": "improve_sweep"})
+
+
 async def _periodic_memo_recovery():
     """
     Every 5 minutes, re-queue memos stuck in 'transcribing'/'extracting' past
@@ -396,6 +414,7 @@ async def startup_event():
     asyncio.create_task(_periodic_memo_recovery())
     asyncio.create_task(_periodic_confirm_writes())
     asyncio.create_task(_periodic_call_reconcile())
+    asyncio.create_task(_periodic_playbook_improvement())
     from app.services.intelligence.worker import install_intelligence_tick, start_worker
     from app.deps import get_supabase
     from app.api.ask import set_ask_loop, set_ask_store

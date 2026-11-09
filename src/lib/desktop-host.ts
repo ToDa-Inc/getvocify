@@ -110,6 +110,10 @@ export type VocifyDesktopBridge = {
   nativeMic?: {
     onPcm(cb: (pcm: ArrayBuffer) => void): () => void;
   };
+  /** The mic the rep picked in the island or the app's menu: `null` goes back to the system's default. Missing in older builds. */
+  microphones?: {
+    onChoose(cb: (choice: { id: string; label: string } | null) => void): () => void;
+  };
   /**
    * Only in the desktop app run from source: keeps a recording's raw audio per side on the computer, to replay real
    * calls offline. Missing everywhere else.

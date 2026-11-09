@@ -11,7 +11,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { ArrowDown } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import type { MeetingDisplayTurn } from '@/lib/meeting-transcript';
+import type { MeetingDisplayTurn, MeetingVoice } from '@/lib/meeting-transcript';
+import type { VoiceAction } from '@/lib/voice-actions';
+import { VoiceLabel } from './VoiceLabel';
 import { bubblesForTurn } from '@/lib/transcript-bubbles';
 import { typingPlacement, type SpeakingSides } from '@/lib/typing-bubbles';
 import { cn } from '@/lib/utils';
@@ -26,6 +28,9 @@ interface LiveTranscriptProps {
   finalTranscript: string;
   /** Speaker-separated paragraphs; replaces final/interim text when given */
   turns?: MeetingDisplayTurn[];
+  /** The other side's voices, and what the rep can do to them: a turn's label then opens a menu to rename, merge or move it */
+  voices?: MeetingVoice[];
+  onVoice?: (action: VoiceAction) => void;
   /** Whether transcription is active */
   isActive: boolean;
   /** Highlights matches of this text and stops following the live edge while set */
@@ -44,6 +49,8 @@ export function LiveTranscript({
   finalTranscript,
   interimTranscript,
   turns,
+  voices,
+  onVoice,
   speaking,
   query,
   isActive,
@@ -124,7 +131,11 @@ export function LiveTranscript({
                   )}
                 >
                   {!you && turn.label ? (
-                    <span className="px-1 text-[11px] font-medium text-beige">{turn.label}</span>
+                    onVoice && voices && turn.voice != null ? (
+                      <VoiceLabel turn={turn} voices={voices} onChange={onVoice} />
+                    ) : (
+                      <span className="px-1 text-[11px] font-medium text-beige">{turn.label}</span>
+                    )
                   ) : null}
                   {bubbles.map((bubble, index) => (
                     <motion.div

@@ -76,6 +76,15 @@ def run(coro):
     return asyncio.run(coro)
 
 
+@pytest.fixture(autouse=True)
+def no_turn_check(monkeypatch):
+    """The turn check is a network call: off unless a test sets what it answers."""
+    async def silent(_req, _ctx):
+        return None
+
+    monkeypatch.setattr(live_points, "_turn_check", silent)
+
+
 # ---------- points ----------
 
 
@@ -158,20 +167,19 @@ def test_nothing_to_handle_is_nothing():
     assert out["points"] == [] and out["closed"] == [] and out["nothing"] is True
 
 
-def test_what_appears_on_its_own_is_one_or_two_sentences_capped_in_words():
-    assert live_points.short("Sí, se integra con HubSpot. ¿Qué CRM usáis hoy?") == ("Sí, se integra con HubSpot. ¿Qué CRM usáis hoy?", False)
-    # A third sentence, or one that would pass the cap, is left out: whole sentences only.
-    line, cut = live_points.short("Sí. Lo usan equipos de campo. ¿Cuántos sois?")
-    assert (line, cut) == ("Sí. Lo usan equipos de campo.", True)
-    line, cut = live_points.short("Se integra con HubSpot. " + "Y además registra cada visita del equipo de campo sin que tengan que escribir nada en el móvil ni después.")
-    assert (line, cut) == ("Se integra con HubSpot.", True)
-    # One sentence too long on its own: cut at its last pause inside the cap.
+def test_an_answer_is_shown_whole_never_cut():
+    three = "Sí. Lo usan equipos de campo. ¿Cuántos sois?"
+    assert live_points.short(three) == (three, False)
     long = "Lo que hacemos es que el comercial habla al salir de la visita, y Vocify rellena el CRM con los datos, las tareas y el siguiente paso acordado."
-    line, cut = live_points.short(long)
-    assert cut and len(line.split()) <= live_points.ANSWER_MAX_WORDS and line == "Lo que hacemos es que el comercial habla al salir de la visita…"
-    # In a point: the answer shown is the short one, and the cut is counted.
-    (p,) = live_points.finalize({"points": [point(say="Sí, se integra con HubSpot. Y con Salesforce también según lo escrito. ¿Cuál usáis?")]}, reading(), CTX)["points"]
-    assert p["answer"] == "Sí, se integra con HubSpot. Y con Salesforce también según lo escrito."
+    assert live_points.short(long) == (long, False)
+    # Only a bare acknowledgement opening goes: it says nothing and would stand where the answer is.
+    guidance = ("Perfecto. ¿Os avisa antes de que haya un problema, por ejemplo si un vehículo se acerca a una frontera o no va a llegar "
+                "a la devolución? ¿O lo usáis sobre todo para mirar dónde está?")
+    assert live_points.short(guidance) == (guidance.removeprefix("Perfecto. "), True)
+    assert live_points.short("Perfecto.") == ("Perfecto.", False)
+    whole = "Sí, se integra con HubSpot. Y con Salesforce también según lo escrito. ¿Cuál usáis?"
+    (p,) = live_points.finalize({"points": [point(say=whole)]}, reading(), CTX)["points"]
+    assert p["answer"] == whole
 
 
 def test_a_figure_no_source_and_nobody_in_the_call_gave_is_an_invention_and_is_not_shown():
@@ -499,6 +507,7 @@ def client_for(db, monkeypatch, enabled=True):
 
     monkeypatch.setattr(copilot_api, "_brain_context", fake_context)
     monkeypatch.setattr(events, "_brain_paused_until", 0.0)
+    monkeypatch.setattr(events, "_ui_paused_until", 0.0)
     app = FastAPI()
     app.include_router(copilot_api.router)
     app.dependency_overrides[get_supabase] = lambda: db
@@ -524,10 +533,15 @@ def test_points_stream_and_the_reading_is_logged_against_the_call(monkeypatch):
     frames = [json.loads(block[6:]) for block in response.text.split("\n\n") if block.startswith("data: ")]
     assert [f["type"] for f in frames] == ["token", "result", "done"]
     assert frames[1]["state_version"] == 2 and frames[1]["points"][0]["answer"]
-    (row,) = db.inserted
+    # The reading's row, then the cards in one batch insert.
+    row, card = [r for batch in db.inserted for r in (batch if isinstance(batch, list) else [batch])]
     assert row["kind"] == "points" and row["capture_id"] == "draft-1" and row["company_id"] == "co-1" and row["latency_ms"] == 123
     assert row["detail"]["reason"] == "turn_end" and row["detail"]["points"] == 1 and row["detail"]["state_version"] == 2
     assert row["latest_turn"].startswith("Y se lo reenviaré") and "turns" in row["detail"]
+    # The card itself, as the playbook's improvement step reads it: their whole turn, its kind, its source, what was shown.
+    assert card["kind"] == "points" and card["is_objection"] is True and card["detail"]["card"] == "shown"
+    assert card["latest_turn"] == "Dime, pero rápido. ¿Se integra con HubSpot?" and card["objection_type"] == "question"
+    assert card["source_id"] == "knowledge" and card["say_this"] == "Sí, se integra con HubSpot." and card["capture_id"] == "draft-1"
 
 
 def test_progress_and_recap_return_json_and_log(monkeypatch):
@@ -622,3 +636,113 @@ def test_the_step_the_call_is_on_moves_ahora_past_the_steps_before_it():
     # On the first step, or on something that is not a step: nothing is gone past.
     assert progress_for({"on": "apertura"}, progress={"now": base})["now"] == base
     assert progress_for({"on": "inventado"}, progress={"now": base})["now"] == base
+
+
+# ---------- the turn check as a second opinion ----------
+
+FEW = turns(
+    ("you", "¿Tenéis algún sistema de localización?"),
+    ("them", "Tengo muy poca flota, somos pocos vehículos, no nos compensa."),
+)
+
+
+def checked(monkeypatch, answer):
+    async def check(req, _ctx):
+        latest = next(t for t in reversed(req.turns) if t.who == "them")
+        return {**answer, "turn": latest} if answer else None
+
+    monkeypatch.setattr(live_points, "_turn_check", check)
+
+
+def sequenced_model(monkeypatch, answers, prompts):
+    async def fake_stream(system, user, *, kind):
+        prompts.append(user)
+        text = json.dumps(answers[len(prompts) - 1], ensure_ascii=False)
+        yield {"type": "token", "text": text[:10]}
+        yield {"type": "text", "text": text, "model": "direct:test", "latency_ms": 100}
+
+    monkeypatch.setattr(live_brain, "stream_json", fake_stream)
+
+
+def test_an_objection_the_brain_let_pass_gets_a_second_look_told_what_the_check_found(monkeypatch):
+    checked(monkeypatch, {"finished": True, "objection": "custom", "entry_id": "objection:custom:email", "label": "Mándame un email"})
+    written = point(turns=["t1"], objection_type="objection:custom:email", source_id="objection:custom:email", quote="somos pocos vehículos",
+                    say="Precisamente en flotas pequeñas se nota mucho. ¿Cuántos tenéis?")
+    prompts: list = []
+    sequenced_model(monkeypatch, [{"points": [], "closed": []}, {"points": [written], "closed": []}], prompts)
+    events_out = read(reading(call=FEW))
+    result = events_out[-1]
+    assert len(prompts) == 2 and "THE TURN CHECK flagged [t1]" in prompts[1] and "objection:custom:email" in prompts[1]
+    assert [e["type"] for e in events_out] == ["token", "result"]  # the second look streams nothing: only its result lands
+    assert result["points"] and result["points"][0]["tag_key"] == "objection:custom:email"
+    assert result["guards"]["second_look"] == 1 and result["latency_ms"] == 200
+
+
+def test_no_second_look_when_the_check_sees_nothing_or_the_brain_already_wrote_it(monkeypatch):
+    for answer in (None, {"finished": True, "objection": "none"}, {"finished": True, "objection": "question"}, {"finished": False, "objection": "price"}):
+        checked(monkeypatch, answer)
+        prompts: list = []
+        sequenced_model(monkeypatch, [{"points": [], "closed": []}], prompts)
+        assert read(reading(call=FEW))[-1]["nothing"] and len(prompts) == 1
+    checked(monkeypatch, {"finished": True, "objection": "status_quo"})
+    prompts = []
+    sequenced_model(monkeypatch, [{"points": [point(turns=["t1"], objection_type="status_quo", quote="no nos compensa", say="¿Qué os haría falta?")], "closed": []}], prompts)
+    assert read(reading(call=FEW))[-1]["points"] and len(prompts) == 1
+
+
+def test_no_second_look_once_the_rep_answered_or_after_a_rep_turn(monkeypatch):
+    checked(monkeypatch, {"finished": True, "objection": "status_quo"})
+    answered = FEW + [{"id": "t2", "who": "you", "text": "Precisamente en flotas pequeñas un coche que no vuelve se nota mucho.", "t": 30.0}]
+    for req in (reading(call=answered), reading(call=FEW, reason="rep_turn")):
+        prompts: list = []
+        sequenced_model(monkeypatch, [{"points": [], "closed": []}], prompts)
+        read(req)
+        assert len(prompts) == 1
+
+
+def test_a_second_look_that_still_finds_nothing_keeps_the_first_reading(monkeypatch):
+    checked(monkeypatch, {"finished": True, "objection": "status_quo"})
+    prompts: list = []
+    sequenced_model(monkeypatch, [{"points": [], "closed": []}, {"points": [], "closed": []}], prompts)
+    result = read(reading(call=FEW))[-1]
+    assert len(prompts) == 2 and result["nothing"] and result["guards"]["second_look_empty"] == 1
+    assert result["missed"] == [{"turn": "t1", "objection": "status_quo", "entry_id": "objection:status_quo"}]
+    # The playbook's answer for that kind is named to the brain; a kind with no answer is named alone.
+    assert "(approved answer objection:status_quo)" in prompts[1]
+
+
+def test_a_playbook_blank_never_reaches_the_rep():
+    assert live_points.without_placeholders("¿Te viene mejor que te llame el jueves a las [hora] o el viernes a las [hora]?") == (
+        "¿Te viene mejor que te llame el jueves o el viernes?"
+    )
+    assert live_points.without_placeholders("¿Te viene mejor que te llame el jueves a las o el viernes?") == (
+        "¿Te viene mejor que te llame el jueves o el viernes?"
+    )
+    assert live_points.without_placeholders("Te llamo el jueves a las 10.") == "Te llamo el jueves a las 10."
+    (p,) = live_points.finalize({"points": [point(say="Claro. ¿Te llamo el [día] a las [hora]?")]}, reading(), CTX)["points"]
+    assert p["answer"] == "¿Te llamo?"
+
+
+def test_a_card_row_per_new_objection_or_question_and_one_per_missed_objection():
+    from app.services.copilot import events as ev
+    req = reading(call=FEW)
+    result = {
+        "playbook_version_id": "pv-1",
+        "points": [
+            {"id": "pt-1", "is_update": False, "kind": "objection", "tag_key": "objection:custom:email", "title": "pocos vehículos",
+             "turn_ids": ["t1"], "answer": "En flotas pequeñas se nota mucho.", "fallback": None, "source": {"id": "objection:custom:email"}},
+            {"id": "pt-2", "is_update": True, "kind": "objection", "tag_key": "price", "turn_ids": ["t1"]},
+            {"id": "pt-3", "is_update": False, "kind": "deepen", "tag_key": "deepen", "turn_ids": ["t1"], "answer": "¿Por qué?"},
+            {"id": "pt-4", "is_update": False, "kind": "question", "tag_key": "question", "title": "¿Rent Manager?", "turn_ids": ["t1"],
+             "answer": None, "fallback": "Te lo confirmo hoy.", "source": None},
+        ],
+        "missed": [{"turn": "t1", "objection": "status_quo", "entry_id": None}],
+    }
+    rows = ev.card_rows(user_id="u", company_id="co-1", call_mode="meeting", sales_motion_key="discovery", call_id="c1", turns=req.turns, result=result)
+    shown = [r for r in rows if r["detail"]["card"] == "shown"]
+    assert [r["detail"]["point_id"] for r in shown] == ["pt-1", "pt-4"]  # no update, no deepen
+    assert shown[0]["objection_type"] == "custom" and shown[0]["entry_id"] == "objection:custom:email" and shown[0]["source_id"] == "objection:custom:email"
+    assert shown[1]["source_id"] is None and shown[1]["say_this"] == "Te lo confirmo hoy."  # no playbook answer: a gap
+    (missed,) = [r for r in rows if r["detail"]["card"] == "missed"]
+    assert missed["say_this"] is None and missed["source_id"] is None and missed["objection_type"] == "status_quo"
+    assert missed["latest_turn"].startswith("Tengo muy poca flota") and all(r["is_objection"] is True for r in rows)

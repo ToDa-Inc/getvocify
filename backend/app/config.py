@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     # Tries one provider (speechmatics, deepgram, mai, mai_chunks) on every live call instead of the profile's rule.
     # mai_chunks = MAI-Transcribe-2 through OpenRouter (OPENROUTER_API_KEY), a request per chunk of speech.
     LIVE_STT_PROVIDER: Optional[str] = None
+    # Live calls tell the voices of the call side apart (services/live_voices.py). Off until tried on a real meeting.
+    LIVE_VOICES_ENABLED: bool = False
+    LIVE_VOICES_MODEL_PATH: Optional[str] = None
     # Vercel AI Gateway: MAI-Transcribe-2-Streaming for live calls.
     AI_GATEWAY_API_KEY: Optional[str] = None
 
@@ -361,6 +364,10 @@ class Settings(BaseSettings):
     # criteria and the company's own objections, and the score is built from three blocks
     # (steps, qualification, objections) instead of steps alone.
     PLAYBOOK_QUALIFICATION_ENABLED: bool = False
+    # C04 v9 (2026-10-21): v8 plus a reading of the whole call (the error that cost it most, how to steer it,
+    # the best it could have given) that makes step advice and objections precise. Needs
+    # INTELLIGENCE_CALL_READING_ENABLED too. Off everywhere; on in an environment or per company to test.
+    COACHING_READING_ENABLED: bool = False
     # Recall.ai dashboard > API keys. Unset -> POST /meetings/bot returns 503.
     RECALL_API_KEY: Optional[str] = None
     # Recall's per-region API host (https://{region}.recall.ai). Our workspace is in the EU

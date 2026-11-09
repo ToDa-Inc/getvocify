@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { loadStripe, type Stripe } from "@stripe/stripe-js";
+// The pure module loads Stripe.js only when loadStripe is called; the web page loads it on every page itself (main.tsx).
+import { loadStripe } from "@stripe/stripe-js/pure";
+import type { Stripe } from "@stripe/stripe-js";
 import { X } from "lucide-react";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { VocifyLoader } from "@/components/ui/vocify-loader";

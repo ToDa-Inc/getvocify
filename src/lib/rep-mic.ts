@@ -18,7 +18,12 @@ function refusedTheValue(error: unknown): boolean {
 }
 
 /** TypeScript's lib types echoCancellation as a boolean; "all" (Chromium 141+) is a string. */
-type AudioConstraints = { echoCancellation: boolean | { ideal: string }; noiseSuppression: boolean; autoGainControl: boolean };
+type AudioConstraints = {
+  echoCancellation: boolean | { ideal: string };
+  noiseSuppression: boolean;
+  autoGainControl: boolean;
+  deviceId?: { exact: string };
+};
 
 function ask(getUserMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>, audio: AudioConstraints) {
   return getUserMedia({ audio: audio as MediaTrackConstraints });
@@ -27,17 +32,19 @@ function ask(getUserMedia: (constraints: MediaStreamConstraints) => Promise<Medi
 /**
  * The rep's mic, asking for the canceller that hears everything the computer plays. Chromium before 141 reads
  * `{ ideal: "all" }` as `true`, so those builds get what they always had; a browser that throws gets asked once more
- * the old way.
+ * the old way. `deviceId` opens that mic instead of the system's default.
  */
 export async function openRepMic(
   getUserMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>,
+  deviceId?: string,
 ): Promise<{ stream: MediaStream; echoCancellation: EchoCancellation }> {
+  const device = deviceId ? { deviceId: { exact: deviceId } } : {};
   let stream: MediaStream;
   try {
-    stream = await ask(getUserMedia, { echoCancellation: { ideal: "all" }, noiseSuppression: true, autoGainControl: true });
+    stream = await ask(getUserMedia, { echoCancellation: { ideal: "all" }, noiseSuppression: true, autoGainControl: true, ...device });
   } catch (error) {
-    if (!refusedTheValue(error)) throw error;
-    stream = await ask(getUserMedia, { echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+    if (!refusedTheValue(error) || (deviceId && error instanceof Error && error.name === "OverconstrainedError")) throw error;
+    stream = await ask(getUserMedia, { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...device });
   }
   return { stream, echoCancellation: appliedEchoCancellation(stream.getAudioTracks()[0].getSettings()) };
 }

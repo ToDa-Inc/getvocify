@@ -9,6 +9,13 @@ import {
   meetingOtherSideSpoke,
   meetingParticipants,
   meetingUploadText,
+  meetingVoices,
+  meetingOverlay,
+  applyVoice,
+  mergeVoices,
+  moveLines,
+  normalizeMeetingTranscript,
+  renameVoice,
   resetChannel,
   type MeetingTranscript,
 } from "./meeting-transcript.ts";
@@ -304,7 +311,7 @@ describe("meetingOverlay", () => {
 
   it("is empty before anyone speaks", async () => {
     const { meetingOverlay } = await import("./meeting-transcript.ts");
-    assert.deepEqual(meetingOverlay(EMPTY_MEETING_TRANSCRIPT), { turns: [] });
+    assert.deepEqual(meetingOverlay(EMPTY_MEETING_TRANSCRIPT), { turns: [], voices: [] });
   });
 });
 
@@ -508,5 +515,108 @@ describe("meetingOtherSideSpoke", () => {
 
   it("does not count blank results as speech", () => {
     assert.equal(meetingOtherSideSpoke(feed([["   ", true, "prospect"], ["", false, "prospect"]])), false);
+  });
+});
+
+describe("voices on the other side", () => {
+  const say = (state: MeetingTranscript, text: string, start: number, name?: string | null) =>
+    applyChannelResult(state, { text, isFinal: true, audioChannel: "prospect", start, end: start + 2, name });
+  /** Three lines from two voices; the backend names the voices a moment after the text. */
+  const meeting = () => {
+    let state = say(EMPTY_MEETING_TRANSCRIPT, "Hola, soy Ana.", 0);
+    state = say(state, "Y yo soy Luis.", 3);
+    state = say(state, "Encantada.", 6);
+    return [[0, 1], [3, 2], [6, 1]].reduce((acc, [start, voice]) => applyVoice(acc, start, voice), state);
+  };
+
+  it("keeps one voice as Them and splits paragraphs and labels once there are two", () => {
+    let state = say(EMPTY_MEETING_TRANSCRIPT, "Hola, soy Ana.", 0);
+    state = applyVoice(state, 0, 1);
+    assert.deepEqual(meetingDisplayTurns(state).map((t) => t.label), ["Them"]);
+    state = applyVoice(say(state, "Y yo soy Luis.", 3), 3, 2);
+    assert.deepEqual(meetingDisplayTurns(state).map((t) => [t.label, t.voice, t.text]), [
+      ["Voice 1", 1, "Hola, soy Ana."],
+      ["Voice 2", 2, "Y yo soy Luis."],
+    ]);
+    assert.deepEqual(meetingVoices(state), [{ id: 1, label: "Voice 1" }, { id: 2, label: "Voice 2" }]);
+  });
+
+  it("puts a short line with no voice in the paragraph of whoever was talking", () => {
+    const state = say(meeting(), "Sí.", 9);
+    assert.deepEqual(meetingDisplayTurns(state).map((t) => [t.voice, t.text]), [
+      [1, "Hola, soy Ana."],
+      [2, "Y yo soy Luis."],
+      [1, "Encantada. Sí."],
+    ]);
+  });
+
+  it("ignores a voice for a line it cannot find or a number that is not a voice", () => {
+    const state = meeting();
+    assert.equal(applyVoice(state, 99, 1), state);
+    assert.equal(applyVoice(state, 0, 0), state);
+    assert.equal(applyVoice(state, 0, "x"), state);
+    assert.equal(applyVoice(state, 0, 1), state);
+  });
+
+  it("a name the rep gives a voice replaces its label, even what the meeting app showed, and survives later lines", () => {
+    let state = renameVoice(meeting(), 2, " Luis Mora ");
+    assert.deepEqual(meetingDisplayTurns(state).map((t) => t.label), ["Voice 1", "Luis Mora", "Voice 1"]);
+    state = applyVoice(say(state, "Vamos al precio.", 12, "Otro Nombre"), 12, 2);
+    assert.deepEqual(meetingDisplayTurns(state).at(-1)?.label, "Luis Mora");
+    assert.deepEqual(meetingParticipants(state), ["Luis Mora"]);
+    assert.deepEqual(meetingVoices(state), [{ id: 1, label: "Voice 1" }, { id: 2, label: "Luis Mora" }]);
+    assert.equal(renameVoice(state, 2, "").voiceNames, undefined);
+  });
+
+  it("keeps the rep's names through the finals that follow and through a saved draft", () => {
+    const state = say(renameVoice(meeting(), 1, "Ana"), "Una más.", 12);
+    assert.deepEqual(state.voiceNames, { 1: "Ana" });
+    assert.deepEqual(normalizeMeetingTranscript(JSON.parse(JSON.stringify(state))).voiceNames, { 1: "Ana" });
+  });
+
+  it("merging two voices makes their lines one person's, with one paragraph and the name of whichever had one", () => {
+    const merged = mergeVoices(renameVoice(meeting(), 2, "Ana"), 1, 2);
+    assert.deepEqual(meetingDisplayTurns(merged).map((t) => [t.label, t.voice]), [["Ana", 1]]);
+    assert.deepEqual(merged.voiceNames, { 1: "Ana" });
+    assert.equal(mergeVoices(meeting(), 1, 1).voiceNames, undefined);
+    assert.equal(mergeVoices(meeting(), 1, 2).voiceNames, undefined);
+  });
+
+  it("moving the lines of a paragraph to another voice", () => {
+    const state = moveLines(meeting(), [6], 2);
+    assert.deepEqual(meetingDisplayTurns(state).map((t) => [t.voice, t.text]), [
+      [1, "Hola, soy Ana."],
+      [2, "Y yo soy Luis. Encantada."],
+    ]);
+    assert.equal(moveLines(state, [6], 2), state);
+    assert.equal(moveLines(state, [77], 1), state);
+  });
+
+  it("learns a voice's name from the meeting app when it was the same person nearly every time", () => {
+    let state = say(EMPTY_MEETING_TRANSCRIPT, "Uno.", 0, "Marta");
+    state = say(state, "Dos.", 3, "Marta");
+    state = say(state, "Tres.", 6);
+    state = say(state, "Cuatro.", 9, "Pablo");
+    state = [[0, 1], [3, 1], [6, 1], [9, 2]].reduce((acc, [start, voice]) => applyVoice(acc, start, voice), state);
+    // Marta twice on voice 1, so the line the app showed nobody for is Marta's; voice 2 has one line only.
+    assert.deepEqual(meetingDisplayTurns(state).map((t) => [t.voice, t.label, t.text]), [
+      [1, "Marta", "Uno. Dos. Tres."],
+      [2, "Pablo", "Cuatro."],
+    ]);
+    const unsure = applyVoice(say(applyVoice(say(EMPTY_MEETING_TRANSCRIPT, "Uno.", 0, "Marta"), 0, 1), "Dos.", 3, "Pablo"), 3, 1);
+    assert.deepEqual(meetingVoices(unsure), [{ id: 1, label: "Voice 1" }]);
+  });
+
+  it("sends the island each turn's voice and where its lines began, and the contact's name only with one voice", () => {
+    const state = meeting();
+    const { turns, voices } = meetingOverlay(state, { prospect: "Ana Ruiz" });
+    assert.deepEqual(turns.map((t) => [t.label, t.voice, t.starts]), [
+      ["Voice 1", 1, [0]],
+      ["Voice 2", 2, [3]],
+      ["Voice 1", 1, [6]],
+    ]);
+    assert.equal(voices.length, 2);
+    const single = applyVoice(say(EMPTY_MEETING_TRANSCRIPT, "Hola.", 0), 0, 1);
+    assert.deepEqual(meetingOverlay(single, { prospect: "Ana Ruiz" }).turns.map((t) => t.label), ["Ana Ruiz"]);
   });
 });

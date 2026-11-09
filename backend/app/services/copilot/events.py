@@ -165,6 +165,48 @@ def unanswered_points(points: Optional[list]) -> Optional[list[dict]]:
     return [{k: v for k, v in item.items() if v is not None} for item in out] or None
 
 
+def card_rows(
+    *, user_id: str, company_id: Optional[str], call_mode: str, sales_motion_key: Optional[str], call_id: Optional[str],
+    turns: list[Any], result: Optional[dict],
+) -> list[dict]:
+    """One row per new objection or question the live brain read (kind 'points', `detail.card`), in the shape the playbook's
+    improvement step reads (the old live help's 'suggest' rows): what they said (their whole turn), its kind, the playbook
+    answer it came from (`source_id`, none when there was none) and what was shown. A turn the turn check flagged as an
+    objection that the brain still let pass is a row too (`detail.card = "missed"`, nothing shown). Deepen points, which are
+    opportunities and not something to answer, are left out."""
+    texts = {str(getattr(t, "id", "")): str(getattr(t, "text", "") or "") for t in turns or []}
+    playbook = (result or {}).get("playbook_version_id")
+    base = {
+        "kind": "points", "user_id": user_id, "company_id": company_id, "sales_motion_key": sales_motion_key or None,
+        "call_mode": call_mode, "capture_id": _clip(call_id, 128), "playbook_version_id": playbook, "build": _build(),
+        "is_objection": True,
+    }
+    rows: list[dict] = []
+    for point in (result or {}).get("points") or []:
+        if not isinstance(point, dict) or point.get("is_update") or point.get("kind") not in ("objection", "question"):
+            continue
+        said = " ".join(texts.get(str(i), "") for i in point.get("turn_ids") or []).strip() or str(point.get("title") or "")
+        tag = str(point.get("tag_key") or "")
+        source = (point.get("source") or {}).get("id") if isinstance(point.get("source"), dict) else None
+        custom = tag.startswith("objection:custom:")
+        rows.append({
+            **base, "latest_turn": _clip(said), "objection_type": "custom" if custom else (tag or point["kind"]),
+            "entry_id": tag if custom else (source if str(source or "").startswith("objection:") else None),
+            "source_id": source if point.get("answer") is not None else None,
+            "say_this": _clip(point.get("answer") or point.get("fallback"), 2000),
+            "detail": {"card": "shown", "point_id": point.get("id")},
+        })
+    for missed in (result or {}).get("missed") or []:
+        if not isinstance(missed, dict):
+            continue
+        rows.append({
+            **base, "latest_turn": _clip(texts.get(str(missed.get("turn")), "")), "objection_type": missed.get("objection"),
+            "entry_id": missed.get("entry_id") or None, "source_id": None, "say_this": None,
+            "detail": {"card": "missed", "turn": missed.get("turn")},
+        })
+    return [row for row in rows if row.get("latest_turn")]
+
+
 def brain_row(
     *, kind: str, user_id: str, company_id: Optional[str], call_mode: str, sales_motion_key: Optional[str],
     call_id: Optional[str], latest_turn: str, result: Optional[dict], error: Optional[str], detail: dict,

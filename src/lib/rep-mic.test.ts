@@ -34,6 +34,18 @@ describe("openRepMic", () => {
     assert.equal(mic.echoCancellation, "all");
   });
 
+  it("opens the chosen mic, and does not fall back to another when that mic is gone", async () => {
+    const asked: MediaStreamConstraints[] = [];
+    const mic = await openRepMic(async (constraints) => {
+      asked.push(constraints);
+      return streamWith({ echoCancellation: "all" });
+    }, "a1");
+    assert.deepEqual((asked[0].audio as MediaTrackConstraints).deviceId, { exact: "a1" });
+    assert.equal(mic.echoCancellation, "all");
+    const gone = Object.assign(new Error("gone"), { name: "OverconstrainedError" });
+    await assert.rejects(openRepMic(async () => Promise.reject(gone), "a1"), gone);
+  });
+
   it("reports the browser's own canceller when an older Chromium read the value as true", async () => {
     const mic = await openRepMic(async () => streamWith({ echoCancellation: true }));
     assert.equal(mic.echoCancellation, "browser");

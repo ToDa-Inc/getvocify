@@ -144,6 +144,10 @@ def interaction_row(memo: dict) -> dict | None:
                 "resolution": item.get("resolution"),
                 "quote": item.get("quote") or None,
                 "response": response.get("text") or None,
+                # C04 v9: what it really was and what would have served, written with the whole call read.
+                "nature": item.get("nature") or None,
+                "advice": item.get("advice") or None,
+                "line": item.get("line") or None,
             })
     return {
         "memo_id": str(memo.get("id") or ""),
@@ -161,6 +165,8 @@ def interaction_row(memo: dict) -> dict | None:
         "summary_line": (_outcome_line(intel) or _first_plain_line(str(extraction.get("summary") or "")))[:SUMMARY_MAX_CHARS],
         "steps": steps,
         "objections": objections,
+        # C04 v9: the call as a whole (the error that cost it most, how to steer it, the best it could give).
+        "reading": intel.get("reading") if isinstance(intel.get("reading"), dict) else None,
     }
 
 
@@ -289,6 +295,9 @@ def call_objections(row: dict, entries: list[dict]) -> list[dict]:
             "resolution": item.get("resolution") or "unknown",
             "quote": item.get("quote"),
             "response": item.get("response"),
+            "nature": item.get("nature"),
+            "advice": item.get("advice"),
+            "line": item.get("line"),
         })
     return out
 

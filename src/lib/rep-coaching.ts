@@ -49,6 +49,26 @@ export type CoachCallObjection = {
   resolution: "open" | "resolved" | "unknown";
   quote: string | null;
   response: string | null;
+  /** C04 v9: what it really was (no need, another tool, the idea itself...); absent on older calls. */
+  nature?: CoachObjectionNature | null;
+  /** C04 v9: what the reply did and what would have served better. */
+  advice?: string | null;
+  /** C04 v9: what the rep could have said, written with the whole call read. */
+  line?: string | null;
+};
+export type CoachObjectionNature = "sin_dolor" | "alternativa" | "fondo" | "objecion" | "duda";
+/** C04 v9: the call as a whole, shown before its objections and steps. Absent on calls read before it. */
+export type CoachCallReading = {
+  verdict: string | null;
+  pain: "found" | "absent" | "not_reached" | "unclear" | null;
+  decisive_moment: { quote: string; meaning: string | null } | null;
+  root_cause: string | null;
+  /** The one thing that cost the call most. */
+  main_error: string | null;
+  /** What to say at the decisive moment next time, and then by the prospect's likely answer. */
+  steer: { line: string | null; branches: { if: string; then: string }[] } | null;
+  /** The realistic best this call could have given, and whether the rep got it. */
+  best_outcome: { what: string | null; got: boolean | null } | null;
 };
 export type CoachCall = {
   memo_id: string;
@@ -64,6 +84,7 @@ export type CoachCall = {
   slips: CoachSlip[];
   /** Absent from a backend older than the objections of a call. */
   objections?: CoachCallObjection[];
+  reading?: CoachCallReading | null;
 };
 /** Every step the rep slipped on, with the calls it slipped in (newest first). */
 export type CoachSlippedStep = {
