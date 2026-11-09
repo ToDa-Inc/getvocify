@@ -46,7 +46,7 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "strategic_engine_20261105_demo"
+PROMPT_VERSION = "strategic_engine_20261109_days"
 
 # ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
 
@@ -99,7 +99,9 @@ How to decide (your answer follows this order):
      general term means or how something usually works, from common knowledge;
    - add_value: they have shown a concrete need the offer covers; connect only that part of the offer. A question that
      steers toward what the offer does is add_value too, and needs that need;
-   - next_step: there is interest; a concrete next step that respects what they already set;
+   - next_step: there is interest: they said they want it, asked how it works or what it costs, or agreed to see more
+     («eso estaría bien», «me interesa», «¿y cuánto cuesta?»). A pain they described is a reason to deepen, not yet to ask
+     for the meeting. A concrete next step that respects what they already set;
    - listen: the rep is handling it, they are mid-explanation, or nothing is worth saying now.
    Persist while finding out still has value and they are receptive; change angle when one stops giving anything new;
    respect a clear no. When one of the company's situations describes this moment, act as it says. No checklist: a
@@ -119,7 +121,8 @@ qué pasa…», «cambiar de la comparación a…»): the playbook's guidance te
 
 Notes on the data: a fact about the product, prices, customers or results only when the SOURCES say it ("source": the
 entry id as written before " · ", "offer" or "knowledge"; "source_quote": the verbatim text of the SOURCES); otherwise
-"source" is "context" and "source_quote" is "". For days use the CALENDAR."""
+"source" is "context" and "source_quote" is "". For days use the CALENDAR: a weekday with its date exactly as it is there.
+Never an hour nobody said in the call: offer the day and let them choose the hour («¿te va mejor el jueves o el viernes?»)."""
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -303,6 +306,7 @@ BACKCHANNEL_MAX_WORDS, SIGNAL_MAX_WORDS, SIGNAL_MAX_SUBSTANCE = 5, 6, 3
 TITLE_WORDS = 14
 SOURCE_BLOCKS = ("OFFER (", "COMPANY KNOWLEDGE (", "EARLIER CALLS", "APPROVED ANSWERS", "STEPS (", "WHAT TO FIND OUT")
 LINE_BLOCKS = ("APPROVED ANSWERS", "STEPS (", "WHAT TO FIND OUT")  # one entry per line: a quote points at its line
+CALENDAR_DAYS = 28  # the days the reading sees with their weekdays
 DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
 # The model turns-6b was tested with, on the direct provider; production's live help uses an older snapshot.
@@ -480,7 +484,7 @@ def sources_text(ctx: Any, motion: Optional[str]) -> str:
     ]))
 
 
-def calendar(sources: str, days: int = 28) -> str:
+def calendar(sources: str, days: int = CALENDAR_DAYS) -> str:
     """The next weeks with their weekdays, written by the code (a reading called 11 November a Tuesday)."""
     m = re.search(r"TODAY: \w+ (\d{4})-(\d{2})-(\d{2})", sources)
     if not m:
@@ -488,6 +492,30 @@ def calendar(sources: str, days: int = 28) -> str:
     today = date(int(m[1]), int(m[2]), int(m[3]))
     return "CALENDAR: " + ", ".join(f"{DAYS[d.weekday()]} {d.day} {MONTHS[d.month - 1]}" + (" (hoy)" if d == today else "")
                                     for d in (today + timedelta(k) for k in range(days)))
+
+
+_DAY_NUMBER = re.compile(r"\b(" + "|".join(DAYS) + r")\s+(\d{1,2})\b(?!\s*(?:minutos|min|horas|h)\b)", re.IGNORECASE)
+_HOUR = re.compile(r"\s*\b(?:a las|a la)\s+(\d{1,2})(?:[:.](\d{2}))?(?:\s*h\b)?|\s*\b(\d{1,2}):(\d{2})\b", re.IGNORECASE)
+
+
+def fixed_days(say: str, sources: str, said: str) -> str:
+    """The card's days as the CALENDAR has them: a weekday with a date that is not that weekday in the next weeks keeps the
+    weekday alone («el martes 12» on a Thursday 12 → «el martes»), and an hour nobody said in the call goes («el jueves
+    a las 10:00» → «el jueves»). Readings wrote «martes 12» with the calendar in front of them, and invented the slot."""
+    m = re.search(r"TODAY: \w+ (\d{4})-(\d{2})-(\d{2})", sources)
+    today = date(int(m[1]), int(m[2]), int(m[3])) if m else None
+
+    def day(match: re.Match) -> str:
+        weekday, number = match[1], int(match[2])
+        if today and any(d.day == number and DAYS[d.weekday()] == weekday.lower()
+                         for d in (today + timedelta(k) for k in range(CALENDAR_DAYS))):
+            return match[0]
+        return weekday
+
+    out = _DAY_NUMBER.sub(day, say)
+    heard = brain.numbers_in(said)
+    out = _HOUR.sub(lambda h: h[0] if {h[1] or h[3]} <= heard else "", out)
+    return re.sub(r"\s+([,.?!])", r"\1", " ".join(out.split()))
 
 
 def log_text(turns: list[dict], end: list[float], shown: list[dict]) -> str:
@@ -788,8 +816,12 @@ async def vet(out: dict, turns: list[dict], end: list[float], now: float, shown:
     """The card the reading wrote, through the protections: (card, why it is dropped or None, what each check said)."""
     source = (out.get("source") or "").strip() or "context"
     quote = "" if source == "context" else (out.get("source_quote") or "")  # a line resting on the conversation quotes nothing
-    card = {"act": "answer" if source != "context" else "move", "say": (out.get("line") or "").strip(), "source": source,
+    line = (out.get("line") or "").strip()
+    said = " ".join(t["text"] for t in turns)
+    card = {"act": "answer" if source != "context" else "move", "say": fixed_days(line, sources, said), "source": source,
             "source_quote": quote}
+    if card["say"] != line:
+        card["days_fixed"] = line
     if card["act"] == "answer" and not authorized_text(sources, card):
         card["act"] = "move"
     why = basic_checks(card, turns, shown, sources)
@@ -926,6 +958,11 @@ async def read_card(body: Any, ctx: Any) -> dict:
             trace["repeat_of"] = card.get("same_as", "")
             notes += (f"\n\nYOUR CARD «{card['say']}» REPEATS «{card.get('same_as', '')}», already shown, with nothing new from them "
                       "since. Give a different next move that responds to what they said, or silence.")
+        elif why == "unsupported_fact" and out.get("action") == "answer" and moment != "asked":
+            # They asked and no source says it: an honest line, not silence (the older brain says «Te lo confirmo»).
+            notes += (f"\n\nYOUR CARD «{card['say']}» STATES WHAT NO SOURCE SAYS. Their question is not answered in the SOURCES: "
+                      "the line says honestly that the rep will confirm it («Eso te lo confirmo con el equipo técnico»), and may "
+                      "add one question about their situation. It claims nothing about the product.")
         elif why == "unsupported_fact" and moment == "asked":
             what = ((checks.get("facts") or {}).get("what") or "").strip()
             notes += (f"\n\nYOUR CARD «{card['say']}» STATES WHAT NO SOURCE SAYS{f' ({what})' if what else ''}. Give a move that "

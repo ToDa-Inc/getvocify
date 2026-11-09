@@ -134,6 +134,24 @@ def test_the_sources_are_the_replays_and_the_calendar_names_the_days():
     assert live_card.calendar(sources).startswith("CALENDAR: lunes 26 oct (hoy), martes 27 oct")
 
 
+def test_a_card_never_pairs_a_weekday_with_another_days_date_nor_invents_an_hour():
+    # Cards a reading wrote on synthetic Movertis calls (2026-11-09: Monday 9; Thursday 12, Tuesday 10).
+    sources = "TODAY: Monday 2026-11-09 (Europe/Madrid)"
+    fix = live_card.fixed_days
+    assert fix("Perfecto, lo dejamos para después del puente; ¿te parece el martes 12 a las 10:00?", sources, "") == (
+        "Perfecto, lo dejamos para después del puente; ¿te parece el martes?"
+    )
+    assert fix("Con esto que me cuentas, ¿te encaja una reunión de 20 minutos el jueves 12 a las 10?", sources, "") == (
+        "Con esto que me cuentas, ¿te encaja una reunión de 20 minutos el jueves 12?"
+    )
+    # An hour said in the call stays; minutes are not a date.
+    said = "¿Te viene mejor el jueves a las 10 o el viernes a las 12?"
+    assert fix("Entonces el jueves 12 a las 10, ¿te lo confirmo?", sources, said) == "Entonces el jueves 12 a las 10, ¿te lo confirmo?"
+    assert fix("¿Lo vemos el martes 10 en 20 minutos?", sources, "") == "¿Lo vemos el martes 10 en 20 minutos?"
+    # A date past the calendar cannot be checked: the weekday alone.
+    assert fix("Te llamo en junio; ¿te parece el martes 2?", sources, "") == "Te llamo en junio; ¿te parece el martes?"
+
+
 def test_the_companys_way_of_working_replaces_the_usual_goal_and_is_never_a_source():
     from dataclasses import replace
 
@@ -404,6 +422,30 @@ def test_asked_a_card_with_an_unsupported_claim_gets_one_more_try_but_an_automat
     assert "STATES WHAT NO SOURCE SAYS (shows the CRM filled)" in seen[1]
     fake_model(monkeypatch, answer(), unsupported=True)
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "drop:unsupported_fact"
+
+
+def test_a_question_no_source_answers_gets_an_honest_line_not_silence(monkeypatch):
+    # «¿Hay que instalarlo en cada furgoneta? ¿Cuánto tiempo lleva?» went without a card on three synthetic Movertis calls.
+    lines = iter([answer(line="La instalación no os obliga a parar furgonetas, se hace en un rato.", action="answer"),
+                  answer(line="Eso te lo confirmo con el equipo técnico. ¿Cuántas furgonetas tendríais que equipar?", action="answer")])
+    facts = iter([True, False])
+    seen = []
+
+    async def ask(system, user, schema, *, max_tokens, temperature):
+        meta = {"model": "direct:test", "latency_ms": 10, "error": None}
+        if system == live_card.SYSTEM:
+            seen.append(user)
+            return next(lines), meta
+        if system == live_card.FACT_SYSTEM:
+            return {"unsupported": next(facts), "what": ""}, meta
+        if system == live_card.CLOSING_SYSTEM:
+            return {"closing": False, "evidence": ""}, meta
+        return {"repeats": False, "same_as": "", "why": ""}, meta
+
+    monkeypatch.setattr(live_card, "ask", ask)
+    result = run(live_card.read_card(reading(reason="turn_end"), CTX))
+    assert result["event"] == "shown" and result["points"][0]["answer"].startswith("Eso te lo confirmo")
+    assert "Their question is not answered in the SOURCES" in seen[1]
 
 
 def test_asked_again_the_same_words_are_another_try_not_nothing(monkeypatch):
