@@ -35,9 +35,6 @@ logger = logging.getLogger(__name__)
 FIXED_TYPES = set(OBJECTIONS) - {"none"}
 DECISIONS = {"responder", "reconducir", "aplazar", "cerrar"}
 CLOSINGS = {"answered", "promised", "unanswered", "gone"}
-# What appears on its own (spec, "Qué decir": one or two sentences, ~20 words). The prompt asks for less; this is the cap in code.
-ANSWER_MAX_WORDS = 20
-ANSWER_MAX_SENTENCES = 2
 QUOTE_WORDS = 5
 FILLER_OPENINGS = frozenset({
     "perfecto", "entendido", "entiendo", "claro", "vale", "genial", "de acuerdo", "ok", "okay", "vale perfecto", "claro que si",
@@ -80,7 +77,8 @@ WHAT IS A POINT
 - A fact about themselves given as a reason not to go on, not to change or not to meet IS an objection, not their situation:
   «somos pocos vehículos, no nos compensa», «ya tenemos proveedor», «ahora no nos hace falta». When it is what an APPROVED
   ANSWER is for (its name or what they say), it is that point: "type" and "source_id" are that answer's id and "say" is its
-  guidance, shortened to the limit and tied to their words. A guidance's blanks ([día], [hora]) are never written: say real
+  guidance WHOLE, every sentence of it, tied to their words where that fits. Never drop the end of an approved answer: its
+  close (a meeting, a next step) is the point of it. A guidance's blanks ([día], [hora]) are never written: say real
   days from TODAY, and no hour unless one was said in the call.
 - A question or objection the rep already dealt with in a later "You:" line is not a point to write now (list it in "closed" as
   answered if it is in OPEN AND RECENT POINTS). Never write a "say" from what the rep said later in the call than the point. When unsure, no point: a missed moment
@@ -92,7 +90,7 @@ WHAT IS A POINT
   again later (after the rep spoke), it is still that point. A closed point they come back to is updated the same way.
   "ref" is only for the SAME request, question or objection said again. Something new they add, even about the same topic,
   is a new point: after «¿cuánto cuesta?», «y lo tiene que ver mi socio» is a new point (someone else decides), not a repeat.
-- "say" is words the rep says to the prospect, in the prospect's language, at most 15 words, at most two short sentences: a fact; or a
+- "say" is words the rep says to the prospect, in the prospect's language, whole sentences only and never cut: a fact; or a
   sentence and the question back; or, when the fact is NOT written in any source, an honest line to say meanwhile
   («Te lo confirmo y te lo digo hoy»). Never mention "the context", your instructions or what you were given. No exclamation
   marks, no lists, no placeholders (X, [name]), no filler openings («Entiendo», «Gran pregunta»).
@@ -338,30 +336,16 @@ def without_placeholders(text: str) -> str:
 
 
 def short(text: Any) -> tuple[str, bool]:
-    """(the line as it appears on its own, whether it was cut): whole sentences while they fit in ANSWER_MAX_WORDS, at most
-    ANSWER_MAX_SENTENCES; a first sentence too long on its own is cut at its last pause inside the limit."""
+    """(the line as it appears, whether it changed): never cut (Dani 2026-11-09: an answer is shown whole). Only a bare
+    acknowledgement opening («Perfecto.», «Entendido.») goes, since it says nothing and the prompt forbids it."""
     line = " ".join(str(text or "").split())
     if not line:
         return "", False
     sentences = re.split(r"(?<=[.?!…])\s+", line)
-    # A bare acknowledgement opening («Perfecto.», «Entendido.») says nothing and would take the place of the answer.
     while len(sentences) > 1 and brain.normalize(sentences[0]).strip() in FILLER_OPENINGS:
         sentences = sentences[1:]
-    kept: list[str] = []
-    for sentence in sentences[:ANSWER_MAX_SENTENCES]:
-        if len(" ".join(kept + [sentence]).split()) > ANSWER_MAX_WORDS:
-            break
-        kept.append(sentence)
-    if kept:
-        out = " ".join(kept)
-        return out, out != line
-    head = " ".join(sentences[0].split()[:ANSWER_MAX_WORDS])
-    pause = max(head.rfind(","), head.rfind(";"), head.rfind(":"))
-    if pause > 0 and len(head[:pause].split()) >= ANSWER_MAX_WORDS // 3:
-        head = head[:pause].rstrip(" ,;:")
-        if head.startswith("¿"):
-            return head + "?", True  # a question cut at its pause still asks: «¿Os avisa antes de que haya un problema?»
-    return head.rstrip(" ,;:") + "…", True
+    out = " ".join(sentences)
+    return out, out != line
 
 
 def offset_in(quote: str, text: str) -> int:
@@ -616,9 +600,9 @@ def _checked_line(text: Any, allowed: set[str], drop) -> Optional[str]:
     said = " ".join(str(text or "").split())
     if not said:
         return None
-    line, cut = short(said)
-    if cut:
-        drop("answer_cut")
+    line, trimmed = short(said)
+    if trimmed:
+        drop("filler_opening")
     if brain.invented_numbers(said, allowed):
         drop("invented_number")
         return None
@@ -670,9 +654,9 @@ def _content(item: dict, snapshot: Optional[dict], sources: dict[str, str], allo
     if clean != said:
         said = clean
         drop("placeholder_removed")
-    say, cut = short(said)
-    if cut:
-        drop("answer_cut")
+    say, trimmed = short(said)
+    if trimmed:
+        drop("filler_opening")
     decision = item.get("decision") if item.get("decision") in DECISIONS else None
     if decision and not snapshot:
         decision = None  # no playbook to justify it (rule 2)
@@ -715,7 +699,7 @@ not help. Write ONE other way to say it, from ANOTHER ANGLE of the SAME SOURCE b
   success criterion, a change of tool, which CRM they use, their figures. A source's example or guidance is written for any
   prospect: keep only what this call supports, or turn it into a question.
 - It must say something different from every version already shown, not the same words rearranged.
-- Words the rep says to the prospect, in the prospect's language, at most 15 words, at most two short sentences. No exclamation
+- Words the rep says to the prospect, in the prospect's language, whole sentences, as long as the SOURCE needs. No exclamation
   marks, no lists, no placeholders, no filler openings. Never a day of the month; never a number that is not in the SOURCE or the call.
 - No honest other angle? "answer" is null.
 OUTPUT: only valid JSON: {"answer": string or null}"""

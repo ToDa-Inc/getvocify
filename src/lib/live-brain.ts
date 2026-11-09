@@ -133,7 +133,7 @@ export function buildReading(input: {
   const { call, state, reason } = input;
   const points = pointsIn(state)
     .slice(-24)
-    .map((point) => ({ ...point, say: point.say ? point.say.slice(0, 400) : null, versions: point.versions.slice(0, 8).map((v: string) => v.slice(0, 400)) }));
+    .map((point) => ({ ...point, say: point.say ? point.say.slice(0, 2000) : null, versions: point.versions.slice(0, 8).map((v: string) => v.slice(0, 2000)) }));
   const focus = input.focusTurn ?? focusFor(reason, input.turns, input.mark ?? null);
   const cursor = state.cursors[input.producer === "points" ? "points" : "progress"];
   return {

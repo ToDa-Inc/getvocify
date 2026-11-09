@@ -45,17 +45,17 @@ class PointIn(BaseModel):
     turn_ids: list[Annotated[str, Field(max_length=40)]] = Field(default_factory=list, max_length=20)
     outcome: Outcome = "open"
     # What the rep was shown for it (the answer, or the honest line), so a new one is not the same line again.
-    say: Optional[str] = Field(default=None, max_length=400)
+    say: Optional[str] = Field(default=None, max_length=2000)
     # Its source's id when it was answered from one (none: the point is not in the company's knowledge).
     source_id: Optional[str] = Field(default=None, max_length=200)
     # Every version the rep has seen, the first one first: a rewrite is never one of them again.
-    versions: list[Annotated[str, Field(max_length=400)]] = Field(default_factory=list, max_length=8)
+    versions: list[Annotated[str, Field(max_length=2000)]] = Field(default_factory=list, max_length=8)
 
 
 class NowIn(BaseModel):
     kind: Literal["step", "data", "goal"]
     id: str = Field(..., max_length=200)
-    say: Optional[str] = Field(default=None, max_length=400)
+    say: Optional[str] = Field(default=None, max_length=2000)
 
 
 class ProgressIn(BaseModel):

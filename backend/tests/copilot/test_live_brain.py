@@ -167,26 +167,19 @@ def test_nothing_to_handle_is_nothing():
     assert out["points"] == [] and out["closed"] == [] and out["nothing"] is True
 
 
-def test_what_appears_on_its_own_is_one_or_two_sentences_capped_in_words():
-    assert live_points.short("Sí, se integra con HubSpot. ¿Qué CRM usáis hoy?") == ("Sí, se integra con HubSpot. ¿Qué CRM usáis hoy?", False)
-    # A third sentence, or one that would pass the cap, is left out: whole sentences only.
-    line, cut = live_points.short("Sí. Lo usan equipos de campo. ¿Cuántos sois?")
-    assert (line, cut) == ("Sí. Lo usan equipos de campo.", True)
-    line, cut = live_points.short("Se integra con HubSpot. " + "Y además registra cada visita del equipo de campo sin que tengan que escribir nada en el móvil ni después.")
-    assert (line, cut) == ("Se integra con HubSpot.", True)
-    # One sentence too long on its own: cut at its last pause inside the cap.
+def test_an_answer_is_shown_whole_never_cut():
+    three = "Sí. Lo usan equipos de campo. ¿Cuántos sois?"
+    assert live_points.short(three) == (three, False)
     long = "Lo que hacemos es que el comercial habla al salir de la visita, y Vocify rellena el CRM con los datos, las tareas y el siguiente paso acordado."
-    line, cut = live_points.short(long)
-    assert cut and len(line.split()) <= live_points.ANSWER_MAX_WORDS and line == "Lo que hacemos es que el comercial habla al salir de la visita…"
-    # A bare acknowledgement never takes the answer's place, and a question cut at its pause still asks.
+    assert live_points.short(long) == (long, False)
+    # Only a bare acknowledgement opening goes: it says nothing and would stand where the answer is.
     guidance = ("Perfecto. ¿Os avisa antes de que haya un problema, por ejemplo si un vehículo se acerca a una frontera o no va a llegar "
                 "a la devolución? ¿O lo usáis sobre todo para mirar dónde está?")
-    assert live_points.short(guidance) == ("¿Os avisa antes de que haya un problema?", True)
-    assert live_points.short("Entendido. ¿Qué os falta hoy?") == ("¿Qué os falta hoy?", True)
+    assert live_points.short(guidance) == (guidance.removeprefix("Perfecto. "), True)
     assert live_points.short("Perfecto.") == ("Perfecto.", False)
-    # In a point: the answer shown is the short one, and the cut is counted.
-    (p,) = live_points.finalize({"points": [point(say="Sí, se integra con HubSpot. Y con Salesforce también según lo escrito. ¿Cuál usáis?")]}, reading(), CTX)["points"]
-    assert p["answer"] == "Sí, se integra con HubSpot. Y con Salesforce también según lo escrito."
+    whole = "Sí, se integra con HubSpot. Y con Salesforce también según lo escrito. ¿Cuál usáis?"
+    (p,) = live_points.finalize({"points": [point(say=whole)]}, reading(), CTX)["points"]
+    assert p["answer"] == whole
 
 
 def test_a_figure_no_source_and_nobody_in_the_call_gave_is_an_invention_and_is_not_shown():
@@ -720,4 +713,4 @@ def test_a_playbook_blank_never_reaches_the_rep():
     )
     assert live_points.without_placeholders("Te llamo el jueves a las 10.") == "Te llamo el jueves a las 10."
     (p,) = live_points.finalize({"points": [point(say="Claro. ¿Te llamo el [día] a las [hora]?")]}, reading(), CTX)["points"]
-    assert "[" not in p["answer"] and p["answer"] == "¿Te llamo?"
+    assert p["answer"] == "¿Te llamo?"
