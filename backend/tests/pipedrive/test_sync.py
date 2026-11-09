@@ -142,7 +142,7 @@ async def test_existing_person_and_org_patch_allowlisted_custom_fields():
 
 
 @pytest.mark.asyncio
-async def test_new_deal_requires_stage():
+async def test_new_deal_without_a_stage_is_skipped_not_the_whole_call():
     svc, client = _svc()
     result = await svc.sync_memo(
         memo_id=uuid4(),
@@ -152,10 +152,10 @@ async def test_new_deal_requires_stage():
         is_new_deal=True,
         auto_create_companies=True,
     )
-    assert result.success is False
-    assert result.error_code == "PIPEDRIVE_STAGE_REQUIRED"
-    assert result.deal_url is None
-    assert client.posts == []
+    assert result.success is True
+    assert result.deal_id is None and result.deal_url is None
+    assert result.deal_warning
+    assert not any(p[0] == "/deals" for p in client.posts)
 
 
 @pytest.mark.asyncio
@@ -376,3 +376,23 @@ async def test_existing_deal_that_has_a_person_is_left_alone():
     assert result.success is True
     assert not any(p[0].endswith("/participants") for p in client.posts)
     assert not any(p[1].get("person_id") for p in client.patches)
+
+
+@pytest.mark.asyncio
+async def test_no_default_stage_still_writes_the_note_and_says_no_deal_was_made():
+    svc, client = _svc()
+    result = await svc.sync_memo(
+        memo_id=uuid4(),
+        user_id="u1",
+        connection_id="c1",
+        extraction=MemoExtraction(contactName="Ada", summary="Wants a follow-up"),
+        is_new_deal=True,
+        contact_id="20",
+        allowed_fields=["title", "value"],
+        create_note=True,
+    )
+    assert result.success is True
+    assert result.deal_id is None
+    assert "No deal was created" in (result.deal_warning or "")
+    assert not any(p[0] == "/deals" for p in client.posts)
+    assert any(p[0] == "/notes" and p[1].get("person_id") == 20 for p in client.posts)

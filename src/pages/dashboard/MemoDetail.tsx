@@ -354,7 +354,8 @@ const MemoDetail = () => {
 
   const loggedAs = user?.fullName || user?.email || "you";
   const attachedContact = reviewContactName || extraction.contactName || extraction.contact_name;
-  const attachedDeal = syncResult?.deal_name || extraction.companyName || extraction.company_name;
+  // No deal was made (Pipedrive with no default stage): the company name is not a deal.
+  const attachedDeal = syncResult?.deal_warning ? null : syncResult?.deal_name || extraction.companyName || extraction.company_name;
 
   if (syncResult) {
     const viewUrl = syncResult.deal_url || syncResult.contact_url || crmViewUrl;
@@ -391,6 +392,9 @@ const MemoDetail = () => {
               to {crmName}.
               {crmName === "HubSpot" ? ` Logged as ${loggedAs}.` : ""}
             </p>
+            {syncResult.deal_warning ? (
+              <p role="status" className="text-sm text-warning">{syncResult.deal_warning}</p>
+            ) : null}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               {viewUrl ? (
                 <Button variant="hero" size="xl" asChild className="rounded-full bg-beige text-cream px-10 shadow-large hover:opacity-90 transition-opacity">
