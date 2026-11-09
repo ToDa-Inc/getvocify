@@ -723,6 +723,21 @@ def test_a_playbook_blank_never_reaches_the_rep():
     assert p["answer"] == "¿Te llamo?"
 
 
+def test_a_rep_step_from_the_playbook_is_never_shown_as_a_line_to_say():
+    # Lines the live brain wrote on synthetic Movertis calls (2026-11-09), copied from the playbook's notes for the rep.
+    assert live_points.without_rep_steps(
+        "Pido el contacto correcto y abro una secuencia nueva con él, citando quién me lo ha pasado. "
+        "¿Le pasas tú el contacto de tu socio o te lo pido a ti para escribirle directamente?"
+    ) == "¿Le pasas tú el contacto de tu socio o te lo pido a ti para escribirle directamente?"
+    assert live_points.without_rep_steps("Lo doy de baja inmediatamente en PipeDrive y no insisto.") == ""
+    # Words said to the prospect stay, even with a next step in them.
+    said = "Te lo envío, pero el correo muchas veces no llega a quien tiene que verlo. Si no puedes, te llamo a las 48 horas."
+    assert live_points.without_rep_steps(said) == said
+    assert live_points.without_rep_steps("Sí, se integra con HubSpot.") == "Sí, se integra con HubSpot."
+    (p,) = live_points.finalize({"points": [point(say="Registro la objeción. ¿Qué te haría falta ver?")]}, reading(), CTX)["points"]
+    assert p["answer"] == "¿Qué te haría falta ver?"
+
+
 def test_a_card_row_per_new_objection_or_question_and_one_per_missed_objection():
     from app.services.copilot import events as ev
     req = reading(call=FEW)

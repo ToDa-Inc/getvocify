@@ -52,6 +52,7 @@ POINTS_P90_MS, PROGRESS_P90_MS = 1100, 3000
 REWRITES_PER_CALL, SECOND_REWRITES_PER_CALL, STEP_ITEMS_PER_MOMENT = 4, 2, 2
 MIN_PROSPECT_WORDS, MIN_REP_WORDS = 4, 12
 JUDGE_MODEL = "anthropic/claude-sonnet-5.5"
+JUDGE_ATTEMPTS, JUDGE_WORKERS = 7, 3
 
 
 def js(op: str, state=None, result=None, **args):
@@ -346,7 +347,7 @@ def judge(line: dict, played: dict) -> list[str]:
 
     transcript = "\n".join(f"{'Them' if t['who'] == 'them' else 'You'}: {t['text']}" for t in played["call"]["turns"][: line["upto"] + 1])
     user = f"SOURCES:\n{played['ctx']['sources']}\n\nCALL:\n{transcript[-9000:]}\n\nLINE ({line['kind']}):\n{line['text']}"
-    for attempt in range(3):
+    for attempt in range(JUDGE_ATTEMPTS):
         try:
             response = httpx.post(
                 "https://openrouter.ai/api/v1/chat/completions",
@@ -354,14 +355,19 @@ def judge(line: dict, played: dict) -> list[str]:
                 json={"model": JUDGE_MODEL, "temperature": 0, "response_format": {"type": "json_object"},
                       "messages": [{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}]},
             )
-            content = response.json()["choices"][0]["message"]["content"]
+            body = response.json()
+            if not body.get("choices"):
+                raise RuntimeError(f"HTTP {response.status_code}: {str(body.get('error') or body)[:200]}")
+            content = body["choices"][0]["message"]["content"]
             from app.services.llm.shared import extract_json
 
             return [str(x) for x in (extract_json(content).get("invented") or [])]
         except Exception as exc:  # a judge that fails is reported, not counted as a pass
-            if attempt == 2:
+            print(f"judge attempt {attempt + 1} failed: {exc}", file=sys.stderr, flush=True)
+            if attempt == JUDGE_ATTEMPTS - 1:
                 return [f"JUDGE FAILED: {exc}"]
-            time.sleep(2)
+            # A big run hits the provider's rate limit (an answer with no "choices"): wait longer each time.
+            time.sleep(min(60, 3 * 2 ** attempt))
     return []
 
 
@@ -749,7 +755,9 @@ def main() -> int:
         print("!! COPILOT_DIRECT_* is not set: the brain would go through OpenRouter, which production only uses as a fallback.\n"
               "!! Latency is NOT what reps get. Pass --production-provider.")
     wanted = set(args.only.split(",")) if args.only else None
-    calls = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(CALLS.glob("*.local.json"))]
+    # Only the calls asked for are read (the folder also holds other exports, not all of them calls).
+    paths = [p for p in sorted(CALLS.glob("*.local.json")) if not wanted or p.name.removesuffix(".local.json") in wanted]
+    calls = [c for c in (json.loads(p.read_text(encoding="utf-8")) for p in paths) if isinstance(c, dict) and c.get("turns")]
     calls = [c for c in calls if not wanted or c["id"] in wanted]
     labels = json.loads(LABELS.read_text(encoding="utf-8"))["labels"] if LABELS.exists() else []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -766,7 +774,7 @@ def main() -> int:
         for n in numbers_invented(line, p):
             judged["number_flags"].append({"call": p["call"]["id"], "kind": line["kind"], "number": n, "line": line["text"]})
     if not args.no_judge:
-        with ThreadPoolExecutor(max_workers=8) as pool:
+        with ThreadPoolExecutor(max_workers=JUDGE_WORKERS) as pool:
             for (p, line), found in zip(work, pool.map(lambda w: judge(w[1], w[0]), work)):
                 if found:
                     judged["judge_flags"].append({"call": p["call"]["id"], "kind": line["kind"], "claims": found, "line": line["text"]})
