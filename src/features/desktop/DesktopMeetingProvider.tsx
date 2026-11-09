@@ -1055,9 +1055,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
                 summary: current.state.noAnswer ? "" : note !== null ? noteMarkdown(note, memo.extraction?.summary) : memo.extraction?.summary ?? "",
                 ...tasksForApprove(memo.extraction, current.proposed, omit, taskEditsFrom(action.taskEdits), added),
               });
-              await memosApi.approveForContact(memoId, extraction);
+              const result = (await memosApi.approveForContact(memoId, extraction)) as { deal_warning?: string | null };
               if (current.run.cancelled) return;
-              showPostCall({ stage: "done", applied: kept, undoUntil: undefined, crmUrl: contactUrlRef.current(current.contactId) });
+              if (result?.deal_warning) {
+                // Written, but without the deal (no default stage saved): the card says so instead of "Updated".
+                showPostCall({ stage: "review", canApprove: false, undoUntil: undefined, note: "Note saved, no deal: set a default stage in Settings" });
+              } else {
+                showPostCall({ stage: "done", applied: kept, undoUntil: undefined, crmUrl: contactUrlRef.current(current.contactId) });
+              }
               memoChanged(memoId);
             } catch {
               const crm = current.state.crm ?? "the CRM";

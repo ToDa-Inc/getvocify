@@ -204,10 +204,17 @@ class PipedriveSyncService:
                         default_stage_name, None, default_pipeline_id
                     )
                 if creating and not stage_id:
-                    result.success = False
-                    result.error = "No default Pipedrive stage is saved for new deals. Pick one in Settings > CRM > Pipedrive and click Save."
-                    result.error_code = "PIPEDRIVE_STAGE_REQUIRED"
-                    return result
+                    # No stage to put a new deal in: the person, the note and the tasks still go, and the rep is told
+                    # the deal was not made, instead of losing the whole call.
+                    skip_deal = True
+                    result.deal_warning = (
+                        "No deal was created: no default Pipedrive stage is saved. "
+                        "Pick one in Settings > CRM > Pipedrive and click Save."
+                    )
+                    logger.warning(
+                        "Pipedrive deal skipped: no default stage saved",
+                        extra=log_domain(DOMAIN_PIPEDRIVE, "deal_skipped_no_stage", memo_id=str(memo_id)),
+                    )
 
             if create_companies and extraction.companyName:
                 org_id = await self._find_or_create_org(extraction.companyName, org_id)
