@@ -181,6 +181,12 @@ def test_a_card_never_pairs_a_weekday_with_another_days_date_nor_invents_an_hour
     said = "¿Te viene mejor el jueves a las 10 o el viernes a las 12?"
     assert fix("Entonces el jueves 12 a las 10, ¿te lo confirmo?", sources, said) == "Entonces el jueves 12 a las 10, ¿te lo confirmo?"
     assert fix("¿Lo vemos el martes 10 en 20 minutos?", sources, "") == "¿Lo vemos el martes 10 en 20 minutos?"
+    # An hour in words or with «horas» goes whole (a reading wrote «el miércoles a las 10 horas»; another «a las diez»).
+    assert fix("¿Te llamo el miércoles a las 10 horas y lo comentamos?", sources, "") == "¿Te llamo el miércoles y lo comentamos?"
+    assert fix("¿Fijamos el jueves a las diez y lo vemos juntos?", sources, "") == "¿Fijamos el jueves y lo vemos juntos?"
+    assert fix("¿Fijamos el jueves a las diez y media?", sources, "") == "¿Fijamos el jueves?"
+    assert fix("Llámale a partir de las diez, ¿te va el jueves a las diez?", sources, "a partir de las diez") == (
+        "Llámale a partir de las diez, ¿te va el jueves a las diez?")
     # A date past the calendar cannot be checked: the weekday alone.
     assert fix("Te llamo en junio; ¿te parece el martes 2?", sources, "") == "Te llamo en junio; ¿te parece el martes?"
 

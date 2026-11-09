@@ -500,7 +500,9 @@ def calendar(sources: str, days: int = CALENDAR_DAYS) -> str:
 
 
 _DAY_NUMBER = re.compile(r"\b(" + "|".join(DAYS) + r")\s+(\d{1,2})\b(?!\s*(?:minutos|min|horas|h)\b)", re.IGNORECASE)
-_HOUR = re.compile(r"\s*\b(?:a las|a la)\s+(\d{1,2})(?:[:.](\d{2}))?(?:\s*h\b)?|\s*\b(\d{1,2}):(\d{2})\b", re.IGNORECASE)
+_HOUR_WORDS = "una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce"
+_HOUR = re.compile(r"\s*\b(?:a las|a la)\s+(\d{1,2}|" + _HOUR_WORDS + r")(?:[:.](\d{2})|\s+y\s+(?:media|cuarto))?(?:\s*(?:h|horas)\b)?"
+                   r"|\s*\b(\d{1,2}):(\d{2})(?:\s*(?:h|horas)\b)?", re.IGNORECASE)
 
 
 def fixed_days(say: str, sources: str, said: str) -> str:
@@ -519,7 +521,7 @@ def fixed_days(say: str, sources: str, said: str) -> str:
 
     out = _DAY_NUMBER.sub(day, say)
     heard = brain.numbers_in(said)
-    out = _HOUR.sub(lambda h: h[0] if {h[1] or h[3]} <= heard else "", out)
+    out = _HOUR.sub(lambda h: h[0] if brain.numbers_in(h[1] or h[3]) <= heard else "", out)
     return re.sub(r"\s+([,.?!])", r"\1", " ".join(out.split()))
 
 

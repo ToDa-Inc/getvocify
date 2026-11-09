@@ -50,7 +50,10 @@ def test_the_card_is_written_from_the_draft_and_the_turn_check_knows_its_own_obj
     result = run(spy)
     grounding = spy.suggest_kwargs["grounding"]
     assert isinstance(grounding, SuggestGrounding) and grounding.playbook_snapshot == SNAPSHOT and grounding.playbook_version_id == "draft-1"
-    assert spy.turn_args[2] == {"objection:custom:mandame_un_email": {"label": "Mándame un email", "trigger": "Mándame un email y lo vemos"}}
+    assert spy.turn_args[2] == {
+        "objection:price": {"label": "", "trigger": "", "answer": "Pregunta cuánto pierden hoy."},
+        "objection:custom:mandame_un_email": {"label": "Mándame un email", "trigger": "Mándame un email y lo vemos", "answer": "Pide cinco minutos antes."},
+    }
     assert result == {
         "detected": "price", "entry_id": None, "label": None, "grounded": True,
         "card": {"say_this": "Pregunta cuánto tiempo pierden.", "source_id": "objection:price", "objection_type": "price"},

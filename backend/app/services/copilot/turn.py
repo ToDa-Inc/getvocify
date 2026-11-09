@@ -54,18 +54,26 @@ def _sure(answer: object, allowed) -> Optional[str]:
     return answer["choice"] if confidence >= MIN_CONFIDENCE else None
 
 
+def _entry_criterion(entry: dict[str, str]) -> str:
+    said = f" They say things like: {entry['trigger']}" if entry.get("trigger") else ""
+    if entry.get("label"):
+        return (f"Only when they say this or the same thing in other words, not something related to it: the team's own "
+                f"objection «{entry['label']}».{said}")
+    return (f"Only when they push back with the objection this answer of the team is written for, not something related "
+            f"to it: «{entry.get('answer', '')}».{said}")
+
+
 def questions_for(custom: Optional[dict[str, dict[str, str]]]) -> dict:
-    """The two questions. The team's own objections join the fixed kinds as choices, described the way
-    the playbook words them, so a turn that means one of them is not filed under "none"."""
+    """The two questions. With a playbook, the choices are its answers (described the way the playbook words them),
+    plus "none" and a direct question: what they said is matched against what the company answers, never filed under a
+    kind from a list in code (Dani, 2026-11-09: «llamamos al cliente y ya está» came back as status quo). Without a
+    playbook there is nothing to answer from, and the usual kinds only say whether it is pushback."""
     if not custom:
         return QUESTIONS
     criteria = {
-        **OBJECTIONS,
-        **{
-            entry_id: f"Only when they say this or the same thing in other words, not something related to it: the team's own objection «{entry['label']}»."
-            + (f" They say things like: {entry['trigger']}" if entry["trigger"] else "")
-            for entry_id, entry in custom.items()
-        },
+        "none": OBJECTIONS["none"],
+        "question": OBJECTIONS["question"],
+        **{entry_id: _entry_criterion(entry) for entry_id, entry in custom.items()},
     }
     return {**QUESTIONS, "objection": {**QUESTIONS["objection"], "criteria": criteria}}
 
@@ -75,17 +83,17 @@ async def read_turn(
 ) -> dict[str, Optional[bool | str]]:
     """{"finished", "objection"}; both None when the classifier can't be reached. When the turn means one
     of the playbook's own objections (`custom`), objection is "custom" with that entry's id and label."""
+    questions = questions_for(custom)
     answers = await JevClient()._post_systemone(
-        {"conversation": conversation[-CONVERSATION_CHARS:], "LATEST": latest[-LATEST_CHARS:]},
-        questions_for(custom),
+        {"conversation": conversation[-CONVERSATION_CHARS:], "LATEST": latest[-LATEST_CHARS:]}, questions,
     )
     if not answers:
         return {"finished": None, "objection": None}
     reading: dict[str, Optional[bool | str]] = {
         "finished": _sure(answers.get("turn"), {"finished", "continuing"}) != "continuing",
-        "objection": _sure(answers.get("objection"), {*OBJECTIONS, *(custom or {})}) or "none",
+        "objection": _sure(answers.get("objection"), set(questions["objection"]["criteria"])) or "none",
     }
     if reading["objection"] in (custom or {}):
         entry_id = str(reading["objection"])
-        reading = {**reading, "objection": "custom", "entry_id": entry_id, "label": custom[entry_id]["label"]}
+        reading = {**reading, "objection": "custom", "entry_id": entry_id, "label": custom[entry_id]["label"] or entry_id}
     return reading
