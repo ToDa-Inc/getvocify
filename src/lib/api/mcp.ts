@@ -2,7 +2,7 @@ import { api } from "@/shared/lib/api-client";
 
 /** Settings → AI agents: the MCP server's URL, the workspace switches and each user's API key. */
 
-export type McpKeyStatus = { has_key: boolean; prefix: string | null; created_at: string | null };
+export type McpKeyStatus = { has_key: boolean; prefix: string | null; created_at: string | null; can_write?: boolean };
 
 export type McpMemberKey = McpKeyStatus & { user_id: string; name: string; email: string | null };
 
@@ -46,7 +46,8 @@ export const mcpKeys = {
 export const mcpApi = {
   settings: () => api.get<McpSettings>("/mcp/settings"),
   update: (body: { enabled?: boolean; transcripts_enabled?: boolean }) => api.patch<McpSettings>("/mcp/settings", body),
-  createKey: () => api.post<McpCreatedKey>("/mcp/key"),
+  /** `write`: the key may also edit the company's setup (owners and admins). A new key replaces the old one. */
+  createKey: (write = false) => api.post<McpCreatedKey>("/mcp/key", { write }),
   revokeKey: () => api.delete("/mcp/key"),
   revokeMemberKey: (userId: string) => api.delete(`/mcp/members/${encodeURIComponent(userId)}/key`),
   grants: () => api.get<{ grants: OAuthGrant[] }>("/oauth/grants"),
