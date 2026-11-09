@@ -37,6 +37,7 @@ from app.services import live_activity
 from app.services.live_chunker import Chunk, ChunkCutter
 from app.services.glossary import GlossaryService
 from app.services.live_report import LiveReport
+from app.services.transcript_turns import without_foreign_script
 from app.services.openrouter_stt import OpenRouterTranscriber, TranscriptionError
 from app.services.session_entities import EntityTerm, normalize_stt_languages
 from app.services.transcript_sanitize import sanitize_transcript
@@ -742,6 +743,8 @@ class MaiChunkStream(LiveStream):
         super().__init__(*args, **kwargs)
         # ISO code when the profile has one language, else MAI detects it per chunk. Set by ChannelSessions.
         self.hint: Optional[str] = None
+        # The rep's transcription languages: text in a script none of them uses is dropped. Set by ChannelSessions.
+        self.profile_languages: list[str] = []
         self.transcriber: Optional[OpenRouterTranscriber] = None
         self.cutter = ChunkCutter(offset_s=self.offset_s)
         self.sent_s = 0.0
@@ -816,11 +819,14 @@ class MaiChunkStream(LiveStream):
             result = await self.transcriber.transcribe(chunk.pcm)  # type: ignore[union-attr]
             self.sent_s += chunk.seconds * result.requests
             self.failures = 0
-            if result.text:
+            text = without_foreign_script(result.text, self.profile_languages)
+            if text != result.text:
+                logger.info("%s %s: dropped text in a script the rep does not speak: %r", self.provider, self.label, result.text[:120])
+            if text:
                 waited = time.monotonic() - closed_at + (self.cutter.pause_s if chunk.trigger == "pause" else 0.0)
                 event = {
                     "kind": "final",
-                    "transcript": result.text,
+                    "transcript": text,
                     "words": [],
                     "start": chunk.start_s,
                     "end": chunk.end_s,
@@ -1003,6 +1009,7 @@ class ChannelSessions:
         stream = STREAMS[self.provider](label, language, domain, vocab=self.vocab, offset_s=offset_s, on_event=self._on_stream)
         if isinstance(stream, MaiChunkStream):
             stream.hint = self._language_hint()
+            stream.profile_languages = list(self.profile)
         stream.start(self.keys[self.provider] or "")
         self.streams.append(stream)
         return stream
