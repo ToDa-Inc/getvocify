@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     DEEPGRAM_API_KEY: Optional[str] = None
     SPEECHMATICS_API_KEY: Optional[str] = None
     # File STT (HubSpot recordings, uploads, WhatsApp). Live copilot stays Speechmatics WS.
-    # deepgram | speechmatics | mai (MAI-Transcribe-2 through OpenRouter, no speaker labels; falls back to Deepgram).
+    # deepgram | speechmatics | mai (MAI-Transcribe-2 through OpenRouter; a failure is retried on MAI, never sent to Deepgram).
     STT_PROVIDER: str = "deepgram"
     # Realtime language when the client sends `multi`. Must be an ISO code (`es`, `en`, …).
     # `auto` is batch-only — eu2 rejects wss://…/v2/auto with HTTP 404.

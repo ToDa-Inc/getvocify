@@ -216,23 +216,28 @@ async def test_the_router_reports_the_sides_and_who_made_them(monkeypatch):
     assert r.model == mai_batch.MODEL
 
 
-async def test_router_falls_back_to_deepgram_when_mai_fails(monkeypatch):
+async def test_router_never_falls_back_to_deepgram_when_mai_fails(monkeypatch):
+    # MAI-2 only (2026-11-09): after its retries the MAI error is raised; Deepgram never transcribes.
     async def boom(*a, **k):
         raise RuntimeError("down")
 
+    async def no_sleep(_s):
+        return None
+
     monkeypatch.setattr(mai_batch, "transcribe_mai", boom)
+    monkeypatch.setattr(stt_batch.asyncio, "sleep", no_sleep)
 
     class DG:
-        async def transcribe(self, **k):
-            return "hola", 0.9
+        def __init__(self, *a, **k):
+            raise AssertionError("Deepgram must not run")
 
     import app.services.deepgram_batch as dg
     monkeypatch.setattr(dg, "DeepgramBatchService", DG)
-    r = await stt_batch._transcribe_once(
-        b"a", content_type="audio/mpeg", provider="mai", lang="es", sm_lang="es", sm_lang_id=None,
-        user_id=None, extra_terms=None, diarization=True, t0=0.0,
-    )
-    assert r.text == "hola" and r.provider == "deepgram" and not r.roles_known
+    with pytest.raises(RuntimeError, match="down"):
+        await stt_batch._transcribe_once(
+            b"a", content_type="audio/mpeg", provider="mai", lang="es", sm_lang="es", sm_lang_id=None,
+            user_id=None, extra_terms=None, diarization=True, t0=0.0,
+        )
 
 
 def _client(payload, status=200):
