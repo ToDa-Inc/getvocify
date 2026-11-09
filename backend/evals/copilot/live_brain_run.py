@@ -53,6 +53,8 @@ REWRITES_PER_CALL, SECOND_REWRITES_PER_CALL, STEP_ITEMS_PER_MOMENT = 4, 2, 2
 MIN_PROSPECT_WORDS, MIN_REP_WORDS = 4, 12
 JUDGE_MODEL = "anthropic/claude-sonnet-5.5"
 JUDGE_ATTEMPTS, JUDGE_WORKERS = 7, 3
+# Without a cap OpenRouter reserves the model's whole output (65536 tokens) and refuses with 402 when the balance is low.
+JUDGE_MAX_TOKENS = 1000
 
 
 def js(op: str, state=None, result=None, **args):
@@ -352,7 +354,7 @@ def judge(line: dict, played: dict) -> list[str]:
             response = httpx.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"}, timeout=90,
-                json={"model": JUDGE_MODEL, "temperature": 0, "response_format": {"type": "json_object"},
+                json={"model": JUDGE_MODEL, "temperature": 0, "max_tokens": JUDGE_MAX_TOKENS, "response_format": {"type": "json_object"},
                       "messages": [{"role": "system", "content": JUDGE_SYSTEM}, {"role": "user", "content": user}]},
             )
             body = response.json()
@@ -407,7 +409,7 @@ def judge_deepen(row: dict, played: dict) -> dict:
             response = httpx.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"}, timeout=90,
-                json={"model": JUDGE_MODEL, "temperature": 0, "response_format": {"type": "json_object"},
+                json={"model": JUDGE_MODEL, "temperature": 0, "max_tokens": JUDGE_MAX_TOKENS, "response_format": {"type": "json_object"},
                       "messages": [{"role": "system", "content": DEEPEN_JUDGE_SYSTEM}, {"role": "user", "content": user}]},
             )
             got = extract_json(response.json()["choices"][0]["message"]["content"])

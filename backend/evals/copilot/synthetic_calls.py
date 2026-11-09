@@ -71,7 +71,7 @@ def _post(prompt: str) -> dict:
     response = httpx.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers={"Authorization": f"Bearer {settings.OPENROUTER_API_KEY}"},
-        json={"model": MODEL, "temperature": 0.9, "response_format": {"type": "json_object"},
+        json={"model": MODEL, "temperature": 0.9, "max_tokens": 8000, "response_format": {"type": "json_object"},
               "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]},
         timeout=180,
     )
