@@ -269,3 +269,26 @@ def without_speaker_labels(text: str, transcript: str, prospect_name: Optional[s
         out = re.sub(r"\b([Dd])e el (comercial|contacto)\b", r"\1el \2", out)
         out = re.sub(r"\b([Aa]) el (comercial|contacto)\b", r"\1l \2", out)
     return out
+
+
+# Scripts a Latin-alphabet profile never speaks in: Cyrillic, Hebrew, Arabic, Indic, Thai, Hangul, kana, CJK.
+_FOREIGN_SCRIPT = re.compile(
+    r"[\u0400-\u04FF\u0590-\u05FF\u0600-\u06FF\u0900-\u0DFF\u0E00-\u0E7F\u1100-\u11FF"
+    r"\u3000-\u30FF\u3400-\u9FFF\uAC00-\uD7AF\uFF00-\uFFEF]+[\s\u3000-\u303F\uFF00-\uFFEF.,!?。、ー-]*"
+)
+_NON_LATIN_LANGUAGES = frozenset({"ru", "uk", "bg", "sr", "mk", "be", "kk", "el", "he", "ar", "fa", "ur", "hi", "bn", "ta",
+                                  "te", "mr", "gu", "kn", "ml", "pa", "th", "lo", "km", "my", "ka", "hy", "zh", "ja", "ko"})
+
+
+def without_foreign_script(text: str, profile_languages: Optional[list[str]]) -> str:
+    """Live chunks are a few seconds long; on unclear audio MAI sometimes guesses a language the rep never speaks and
+    writes it ("うーん", "ครับ", "应该是这样子": 36 of 238 desktop calls, Oct-Nov 2026; none of the whole recordings).
+    For a rep whose languages all use the Latin alphabet, those fragments are dropped. Returns "" when nothing is left."""
+    if not text or not profile_languages:
+        return text
+    if any(str(code).split("-")[0].lower() in _NON_LATIN_LANGUAGES for code in profile_languages):
+        return text
+    if not _FOREIGN_SCRIPT.search(text):
+        return text
+    cleaned = " ".join(_FOREIGN_SCRIPT.sub(" ", text).split())
+    return cleaned if re.search(r"\w", cleaned) else ""
