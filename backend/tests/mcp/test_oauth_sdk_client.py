@@ -100,7 +100,7 @@ async def test_the_sdk_client_discovers_registers_signs_in_and_reads_data(db):
     async with server.session_manager.run():
         async with Client(streamable_http_client(MCP_URL, http_client=http_client)) as client:
             tools = await client.list_tools()
-            assert {t.name for t in tools.tools} == {"list_interactions", "get_interaction", "get_coaching", "ask_vocify", "get_ask_result"}
+            assert {"list_interactions", "get_interaction", "get_coaching", "ask_vocify", "get_ask_result"} <= {t.name for t in tools.tools}
             result = await client.call_tool("list_interactions", {"limit": 5})
             rows = json.loads(result.content[0].text)["interactions"]
             assert M_PRICE in [row["id"] for row in rows]

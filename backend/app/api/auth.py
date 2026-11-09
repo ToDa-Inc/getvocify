@@ -393,6 +393,20 @@ def get_current_user(
         )
 
 
+# Fields of PATCH /me that belong to the company, not the user: the offer (Settings → Offer) and the CRM option.
+SHARED_COMPANY_FIELDS = ("auto_create_contact_company", "product_context")
+
+
+def save_shared_company_settings(supabase: Client, membership, updates: dict) -> None:
+    """Owner/admin. Writes the company-wide fields of PATCH /me (validated by UpdateProfileRequest). Also used by the
+    MCP server's update_company tool."""
+    if not updates:
+        return
+    if not membership or not membership.can_manage_team:
+        raise HTTPException(status_code=403, detail="Only workspace owners/admins can edit shared settings")
+    supabase.table("companies").update(updates).eq("id", membership.company_id).execute()
+
+
 @router.patch("/me", response_model=UserResponse)
 async def update_profile(
     request: UpdateProfileRequest,
@@ -405,18 +419,9 @@ async def update_profile(
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    company_svc = CompanyService(supabase)
-    membership = company_svc.get_membership(user_id)
-    company_updates: dict = {}
-    if "auto_create_contact_company" in updates:
-        company_updates["auto_create_contact_company"] = updates.pop("auto_create_contact_company")
-    if "product_context" in updates:
-        company_updates["product_context"] = updates.pop("product_context")
-
-    if company_updates:
-        if not membership or not membership.can_manage_team:
-            raise HTTPException(status_code=403, detail="Only workspace owners/admins can edit shared settings")
-        supabase.table("companies").update(company_updates).eq("id", membership.company_id).execute()
+    membership = CompanyService(supabase).get_membership(user_id)
+    company_updates = {key: updates.pop(key) for key in SHARED_COMPANY_FIELDS if key in updates}
+    save_shared_company_settings(supabase, membership, company_updates)
 
     if "phone" in updates:
         normalized_phone = normalize_phone_for_lookup(updates.get("phone"))

@@ -6,8 +6,10 @@ tables:
 
 - A client id, a consent request, an authorization code, an access token and a refresh token are all signed
   tokens (HS256, a key derived from JWT_SECRET, one `use` claim each so none can stand in for another).
-- The only stored state is `user_profiles.oauth_grants`, one JSON column: the apps this user connected, and for
-  each connection (Claude on the web, Claude Desktop...) the id of its current refresh token. Disconnecting an app
+- The only stored state is `user_profiles.oauth_grants`, one JSON column: the apps this user connected, whether the
+  user allowed each one to edit the company's setup (`write`, chosen on the consent screen; an app connected before
+  that existed has none, so it stays read-only), and for each connection (Claude on the web, Claude Desktop...) the
+  id of its current refresh token. Disconnecting an app
   deletes its entry, and every token it holds stops working.
 - Access tokens last an hour and are checked against that column (cached 30 s); refresh tokens last 90 days and
   rotate on every use. An old one replayed past a 60 s grace ends that one connection.
@@ -148,7 +150,11 @@ def list_grants(supabase: Any, user_id: str) -> list[dict]:
         logger.warning("oauth grants unreadable", exc_info=True)
         return []
     items = [
-        {"client": {"client_id": key, "client_name": g.get("name"), "client_uri": g.get("host")}, "granted_at": g.get("at")}
+        {
+            "client": {"client_id": key, "client_name": g.get("name"), "client_uri": g.get("host")},
+            "granted_at": g.get("at"),
+            "can_write": bool(g.get("write")),
+        }
         for key, g in grants.items()
         if isinstance(g, dict)
     ]
@@ -164,8 +170,9 @@ def revoke_grant(supabase: Any, user_id: str, key: str) -> None:
 # ----- access tokens, for /mcp -----------------------------------------------------------------------
 
 
-def verify_access_token(supabase: Any, token: str) -> Optional[tuple[str, str]]:
-    """(user_id, app name) for an access token this server issued for this MCP URL, while its connection exists."""
+def verify_access_token(supabase: Any, token: str) -> Optional[tuple[str, str, bool]]:
+    """(user_id, app name, may edit) for an access token this server issued for this MCP URL, while its connection
+    exists. Edit access is read from the grant on every call, so reconnecting read-only takes it away."""
     claims = _read("at", token, audience=access.server_url(), issuer=access.issuer_url())
     if not claims or not claims.get("sub") or not claims.get("gk") or not claims.get("ch"):
         return None
@@ -176,7 +183,7 @@ def verify_access_token(supabase: Any, token: str) -> Optional[tuple[str, str]]:
         return None
     if not isinstance(grant, dict) or claims["ch"] not in (grant.get("chains") or {}):
         return None
-    return str(claims["sub"]), str(grant.get("name") or "oauth")
+    return str(claims["sub"]), str(grant.get("name") or "oauth"), bool(grant.get("write"))
 
 
 def _issue(user_id: str, key: str, chain: str, client_id: str, jti: str) -> OAuthToken:
@@ -193,7 +200,8 @@ def _issue(user_id: str, key: str, chain: str, client_id: str, jti: str) -> OAut
 
 
 class _Client(OAuthClientInformationFull):
-    """There is one level of access (read-only), so scopes mean nothing here. The SDK would refuse a client that
+    """Access (read, or read and edit) is what the user chose on the consent screen, not a scope the app asks for, so
+    scopes mean nothing here. The SDK would refuse a client that
     asks for one it was not registered with (`offline_access` is a common one), which would fail the sign-in."""
 
     def validate_scope(self, requested_scope: Optional[str]) -> Optional[list[str]]:
@@ -281,7 +289,13 @@ class VocifyOAuthProvider:
             chains = {**(held.get("chains") or {}), chain: {"rt": jti, "at": stamp}}
             for oldest in sorted(chains, key=lambda c: str(chains[c].get("at") or ""))[: max(0, len(chains) - MAX_CONNECTIONS)]:
                 chains.pop(oldest)
-            grants[key] = {"name": claims.get("cn") or "AI app", "host": _host(claims["ru"]), "at": stamp, "chains": chains}
+            grants[key] = {
+                "name": claims.get("cn") or "AI app",
+                "host": _host(claims["ru"]),
+                "at": stamp,
+                "write": bool(claims.get("w")),  # the latest sign-in's choice applies to every connection of this app
+                "chains": chains,
+            }
             _write_grants(supabase, user_id, grants)
 
         try:
@@ -361,8 +375,9 @@ def read_request(authorization_id: str) -> Optional[dict]:
     }
 
 
-def decide(authorization_id: str, user_id: str, approve: bool) -> Optional[str]:
-    """Where to send the browser after the user answered, or None if the request is gone."""
+def decide(authorization_id: str, user_id: str, approve: bool, *, allow_write: bool = False) -> Optional[str]:
+    """Where to send the browser after the user answered, or None if the request is gone. `allow_write`: the user
+    also let the app edit the company's setup (the caller checks they may)."""
     claims = _read("authreq", authorization_id)
     if not claims:
         return None
@@ -379,6 +394,7 @@ def decide(authorization_id: str, user_id: str, approve: bool) -> Optional[str]:
             "ru": claims["ru"],
             "rue": claims["rue"],
             "cc": claims["cc"],
+            "w": bool(allow_write),
             "jti": secrets.token_urlsafe(12),
         },
         CODE_TTL,

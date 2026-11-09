@@ -53,7 +53,7 @@ def test_resource_metadata_names_the_mcp_url_and_vocify_as_the_issuer(mcp_client
 
 def test_an_api_key_lists_the_five_read_only_tools(mcp_client, key_for):
     response = rpc(mcp_client, key_for(REP), "tools/list")
-    tools = response.json()["result"]["tools"]
+    tools = [t for t in response.json()["result"]["tools"] if t["name"] in TOOLS]  # the setup tools: test_setup_tools
     assert {t["name"] for t in tools} == TOOLS
     assert all(t["annotations"]["readOnlyHint"] is True and t.get("title") for t in tools)
 
