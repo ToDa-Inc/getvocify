@@ -46,7 +46,7 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "strategic_engine_20261109_quiet"
+PROMPT_VERSION = "strategic_engine_20261109_nodates"
 
 # ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
 
@@ -105,10 +105,7 @@ How to decide (your answer follows this order):
    - next_step: a step the rep would not think of on their own, that what they said calls for (bring in the person who
      decides, a visit they mentioned, who to send it to). Proposing the meeting, a day or a time to call is the rep's job:
      never a card for it;
-   - listen: the rep is handling it, they are mid-explanation, or nothing is worth saying now. Also when the only move
-     left is the next question of the playbook's steps that the rep is already following: the rep asks it anyway.
-   A card earns its place only when it gives the rep something they would not have in their head now: the approved answer
-   to what they raised, the reply to their question, or a question built on something specific they just said.
+   - listen: the rep is handling it, they are mid-explanation, or nothing is worth saying now.
    Persist while finding out still has value and they are receptive; change angle when one stops giving anything new;
    respect a clear no. When one of the company's situations describes this moment, act as it says. No checklist: a
    qualification question only when its answer matters for a decision now.
