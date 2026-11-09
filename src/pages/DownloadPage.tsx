@@ -26,7 +26,7 @@ const DownloadPage = () => {
 
   const cards = [
     { id: "windows" as const, Icon: WindowsMark, copy: c.windows, href: "/download/windows" },
-    { id: "mac" as const, Icon: AppleMark, copy: c.mac, href: null },
+    { id: "mac" as const, Icon: AppleMark, copy: c.mac, href: "/download/mac" },
   ];
 
   return (
