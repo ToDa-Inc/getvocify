@@ -9,7 +9,10 @@ const LIVE_API_URL = import.meta.env.VITE_LIVE_API_URL || API_URL;
  * `echoCancel`: a meeting heard through the computer, so the server takes the call's echo out of the mic. "native": the
  * desktop app's own raw mic (the server also raises its level); "page": the page's mic, already leveled by the browser.
  */
-export function liveTranscriptionWsUrl(userId: string, { echoCancel }: { echoCancel?: "native" | "page" } = {}): string {
+export function liveTranscriptionWsUrl(
+  userId: string,
+  { echoCancel, captureId }: { echoCancel?: "native" | "page"; captureId?: string } = {},
+): string {
   const ws = LIVE_API_URL.replace(/^http/, "ws").replace(/\/api\/v1\/?$/, "");
   const url = new URL(`${ws}/api/v1/transcription/live`);
   url.searchParams.set("user_id", userId);
@@ -20,6 +23,8 @@ export function liveTranscriptionWsUrl(userId: string, { echoCancel }: { echoCan
   url.searchParams.set("detect", "1");
   if (echoCancel) url.searchParams.set("aec", "1");
   if (echoCancel === "page") url.searchParams.set("mic", "page");
+  // The recording this audio belongs to: the server keeps the call's audio under it, for the whole-call transcript.
+  if (captureId) url.searchParams.set("capture_id", captureId);
   return url.toString();
 }
 

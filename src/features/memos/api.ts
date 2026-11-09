@@ -131,6 +131,8 @@ export const memosApi = {
       callDurationSeconds?: number;
       /** When the desktop recording began: links the memo to its calendar meeting. */
       recordingStartedAt?: string;
+      /** The desktop recording's id, sent with its live audio too: the memo is written from the whole call. */
+      captureId?: string;
     } = {},
   ): Promise<UploadMemoResponse> => {
     return api.post<UploadMemoResponse>('/memos/upload-and-extract', {
@@ -147,6 +149,7 @@ export const memosApi = {
       call_sid: options.callSid || undefined,
       call_duration_seconds: options.callDurationSeconds,
       recording_started_at: options.recordingStartedAt || undefined,
+      capture_id: options.captureId || undefined,
     });
   },
 

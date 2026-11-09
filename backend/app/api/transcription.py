@@ -593,6 +593,7 @@ async def serve_live(websocket: WebSocket, user_id: Optional[str], *, service: s
             echo_cancel=websocket.query_params.get("aec") == "1",
             # The page's mic is leveled by the browser already; the desktop app's own raw mic is raised on the server.
             echo_raise=websocket.query_params.get("mic") != "page",
+            capture_id=websocket.query_params.get("capture_id"),
         )
         with usage_scope(
             "live_stt",

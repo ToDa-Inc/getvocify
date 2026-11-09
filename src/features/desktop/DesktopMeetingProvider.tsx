@@ -557,6 +557,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         hubspotContactId: draft.contact?.hubspotId,
         participants: meetingParticipants(draft.transcript),
         recordingStartedAt: new Date(draft.startedAt).toISOString(),
+        captureId: draft.id,
       });
       await getDesktopBridge()?.drafts?.remove(draft.id);
       queryClient.invalidateQueries({ queryKey: memoKeys.lists() });
@@ -595,7 +596,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     // A new session times its audio from zero again: who spoke is timed from its first audio too.
     if (speakersRef.current) speakersRef.current = { timeline: new SpeakerTimeline(), clockAt: null };
     const echoCancel = serverEchoCancel(echoCancelRef.current, nativeMicRef.current, micEchoRef.current);
-    const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current, { echoCancel }));
+    const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current, { echoCancel, captureId: draftRef.current?.id }));
     wsRef.current = ws;
     ws.onopen = () => {
       if (vocifyCallRef.current) reportCallStep("session-socket-open");

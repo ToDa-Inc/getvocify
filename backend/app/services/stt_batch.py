@@ -58,7 +58,7 @@ def wav_channel_count(audio_bytes: bytes) -> int:
 
 
 def use_channel_stt(audio_bytes: bytes, *, source: str = "") -> bool:
-    if (source or "").strip() == "vocify_call":
+    if (source or "").strip() in ("vocify_call", "desktop_call"):
         return True
     return wav_channel_count(audio_bytes) >= 2
 
@@ -305,6 +305,7 @@ async def transcribe_audio(
             t0=t0,
             multichannel=channel,
             rep_channel=rep_channel,
+            rep_fixed=(source or "").strip() == "desktop_call",
         )
         used_lang = lang if provider != "speechmatics" else sm_lang
         if should_detect_stt_language(used_lang, profile_langs):
@@ -341,6 +342,7 @@ async def transcribe_audio(
                     t0=time.perf_counter(),
                     multichannel=channel,
                     rep_channel=rep_channel,
+                    rep_fixed=(source or "").strip() == "desktop_call",
                 )
                 used_lang = picked
         set_batch_stt_language(used_lang)
@@ -444,6 +446,7 @@ async def _transcribe_mai_only(
     rep_channel: Optional[int],
     diarization: bool,
     t0: float,
+    rep_fixed: bool = False,
 ) -> BatchTranscript:
     from app.services.mai_batch import MODEL as MAI_MODEL, transcribe_mai
 
@@ -452,7 +455,7 @@ async def _transcribe_mai_only(
         try:
             mai = await transcribe_mai(
                 audio_bytes, language=lang, channels=2 if multichannel else 1,
-                rep_channel=rep_channel, diarization=diarization,
+                rep_channel=rep_channel, diarization=diarization, rep_fixed=rep_fixed,
             )
         except Exception as e:
             if not waits:
@@ -491,6 +494,7 @@ async def _transcribe_once(
     t0: float,
     multichannel: bool = False,
     rep_channel: Optional[int] = None,
+    rep_fixed: bool = False,
 ) -> BatchTranscript:
     if provider == "speechmatics":
         return await _transcribe_speechmatics(
@@ -507,7 +511,8 @@ async def _transcribe_once(
 
     if provider == "mai":
         return await _transcribe_mai_only(
-            audio_bytes, lang=lang, multichannel=multichannel, rep_channel=rep_channel, diarization=diarization, t0=t0
+            audio_bytes, lang=lang, multichannel=multichannel, rep_channel=rep_channel, diarization=diarization, t0=t0,
+            rep_fixed=rep_fixed,
         )
 
     from app.services.deepgram_batch import DEEPGRAM_MODEL, DeepgramBatchService
