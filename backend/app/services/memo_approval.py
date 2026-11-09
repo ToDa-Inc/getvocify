@@ -187,6 +187,7 @@ async def approve_memo_core(
     )
     allowed_fields = (
         config.allowed_deal_fields if config
+        else ["title", "value", "currency", "expected_close_date", "stage_id"] if crm_connection.get("provider") == "pipedrive"
         else ["dealname", "amount", "description", "closedate"]
     )
     if crm_connection.get("provider") == "salesforce":

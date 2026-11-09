@@ -61,7 +61,8 @@ class PipedriveActivityService:
         if deal_id:
             body["deal_id"] = int(deal_id)
         if person_id:
-            body["person_id"] = int(person_id)
+            # v2 activities: person_id is read-only, the person goes in as the primary participant.
+            body["participants"] = [{"person_id": int(person_id), "primary": True}]
         if org_id:
             body["org_id"] = int(org_id)
         if owner_id:

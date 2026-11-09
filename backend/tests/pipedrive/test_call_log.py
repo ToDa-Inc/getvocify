@@ -89,10 +89,10 @@ async def test_answered_call_is_a_done_call_with_its_duration_on_person_and_deal
         "due_date": "2026-10-30",
         "due_time": "10:02",
         "note": "Llamada realizada con Vocify.",
-        "person_id": 42,
+        "participants": [{"person_id": 42, "primary": True}],
         "deal_id": 7,
         "owner_id": 5,
-        "duration": "00:02:05",
+        "duration": "00:02",  # v2 takes HH:MM only (live API, 2026-11-09)
     }
     assert db.updates == [{"status": "logged", "provider_state": {"pipedrive_activity_id": "901"}}]
 
@@ -119,7 +119,7 @@ async def test_without_a_contact_the_person_is_the_one_with_the_dialed_number(wo
     client.search_hits = [{"id": 42, "phones": ["+34611222333"]}, {"id": 43, "phones": ["+34600000000"]}]
     row = {**ROW, "hubspot_contact_id": None}
     await call_log.log_call(db, CONNECTION, row, duration=30, disposition="connected")
-    assert client.posts[0][1]["person_id"] == 42
+    assert client.posts[0][1]["participants"] == [{"person_id": 42, "primary": True}]
 
 
 @pytest.mark.asyncio
@@ -169,3 +169,10 @@ async def test_pipedrive_only_companies_log_in_pipedrive_once(monkeypatch):
         object(), {**ROW, "provider_state": {"pipedrive_activity_id": "901"}}, 10, "connected"
     ) is True
     assert logged == ["connected"]
+
+
+def test_duration_is_hours_and_minutes_and_a_short_call_is_one_minute():
+    assert call_log._duration(125) == "00:02"
+    assert call_log._duration(20) == "00:01"
+    assert call_log._duration(3 * 3600 + 31 * 60) == "03:31"
+    assert call_log._duration(0) == "00:00"

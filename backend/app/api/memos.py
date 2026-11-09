@@ -1889,6 +1889,8 @@ async def _build_approval_preview(
     )
     if conn.get("provider") == "salesforce":
         default_fields = ["Name", "Amount", "CloseDate", "StageName", "Description"]
+    elif conn.get("provider") == "pipedrive":
+        default_fields = ["title", "value", "currency", "expected_close_date", "stage_id"]
     else:
         default_fields = ["dealname", "amount", "description", "closedate"]
     allowed_fields = (config.allowed_deal_fields or default_fields) if config else default_fields
@@ -2143,6 +2145,8 @@ async def post_approval_preview(
     )
     if conn.get("provider") == "salesforce":
         default_fields = ["Name", "Amount", "CloseDate", "StageName", "Description"]
+    elif conn.get("provider") == "pipedrive":
+        default_fields = ["title", "value", "currency", "expected_close_date", "stage_id"]
     else:
         default_fields = ["dealname", "amount", "description", "closedate"]
     allowed_fields = (config.allowed_deal_fields or default_fields) if config else default_fields

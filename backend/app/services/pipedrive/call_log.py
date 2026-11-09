@@ -59,8 +59,9 @@ async def person_id_for_number(search: PipedriveSearchService, number: str) -> O
 
 
 def _duration(seconds: float) -> str:
-    total = max(int(round(seconds or 0)), 0)
-    return f"{total // 3600:02d}:{total % 3600 // 60:02d}:{total % 60:02d}"
+    """HH:MM, the only form v2 activities take (HH:MM:SS and seconds are refused); a connected call under a minute is 00:01."""
+    total = max(int(round((seconds or 0) / 60)), 1 if seconds and seconds > 0 else 0)
+    return f"{total // 60:02d}:{total % 60:02d}"
 
 
 def _occurred_at(row: dict, duration: float) -> datetime:
@@ -114,7 +115,8 @@ async def log_call(supabase: Client, connection: dict, row: dict, *, duration: f
             "due_date": occurred.date().isoformat(),
             "due_time": occurred.strftime("%H:%M"),
             "note": hubspot_call_body_for_disposition(disposition),
-            "person_id": int(person_id),
+            # v2 activities: person_id is read-only, the person goes in as the primary participant.
+            "participants": [{"person_id": int(person_id), "primary": True}],
         }
         if row.get("hubspot_deal_id"):
             body["deal_id"] = int(row["hubspot_deal_id"])
@@ -128,7 +130,7 @@ async def log_call(supabase: Client, connection: dict, row: dict, *, duration: f
         except Exception:
             if "duration" not in body:
                 raise
-            # A format Pipedrive does not take for the duration must not lose the call: log it without.
+            # A duration Pipedrive refuses must not lose the call: log it without.
             body.pop("duration")
             created = unwrap_data(await client.post("/activities", json_body=body))
         activity_id = str(created["id"]) if isinstance(created, dict) and created.get("id") is not None else None

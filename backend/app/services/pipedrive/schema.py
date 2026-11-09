@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import re
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -60,6 +62,8 @@ def expand_schema_fields(fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def active_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [r for r in rows if isinstance(r, dict) and not r.get("is_deleted")]
+
+logger = logging.getLogger(__name__)
 
 OBJECT_PATHS = {
     "deals": "/dealFields",
@@ -211,6 +215,35 @@ class PipedriveSchemaService:
             fields["person_id"] = int(person_id)
         return fields
 
+    async def coerce_for_write(self, object_type: str, fields: dict[str, Any]) -> dict[str, Any]:
+        """Values as Pipedrive v2 takes them (checked against the live API, 2026-11-09): a single-option field
+        takes its option id as a number (not "40", not the label), a multi-option field a list of option ids.
+        The extractor gives ids as text, or labels; a value that matches no option is dropped, so one wrong
+        answer never fails the whole write."""
+        try:
+            defs = {field_key(f): f for f in await self.list_fields(object_type)}
+        except Exception:
+            logger.warning("Pipedrive %s fields could not be read; values are sent as given", object_type, exc_info=True)
+            return fields
+        out: dict[str, Any] = {}
+        for key, value in fields.items():
+            field = defs.get(key)
+            kind = str((field or {}).get("field_type") or "")
+            if kind not in ("enum", "set"):
+                out[key] = value
+                continue
+            ids = option_ids(field, value)
+            if kind == "enum":
+                if ids:
+                    out[key] = ids[0]
+                else:
+                    logger.info("Pipedrive %s.%s: %r is none of its options, not written", object_type, key, value)
+            elif ids:
+                out[key] = ids
+            else:
+                logger.info("Pipedrive %s.%s: %r is none of its options, not written", object_type, key, value)
+        return out
+
     def split_write_payload(self, fields: dict[str, Any]) -> dict[str, Any]:
         """40-char hashes → v2 `custom_fields`. System codes (title, currency, mrr, …) stay top-level."""
         core: dict[str, Any] = {}
@@ -266,6 +299,55 @@ class PipedriveSchemaService:
             ).execute()
         except Exception:
             pass
+
+
+def _option_id(raw: Any) -> Any:
+    """Custom options have number ids; some system ones have text ids (a deal's origin: "ManuallyCreated")."""
+    text = str(raw)
+    return int(text) if text.lstrip("-").isdigit() else raw
+
+
+def option_ids(field: dict[str, Any], value: Any) -> list[Any]:
+    """The option ids a value names: ids (numbers or text) or labels, one or several (a list or "a, b")."""
+    options = [o for o in field.get("options") or [] if isinstance(o, dict) and o.get("id") is not None]
+    by_id = {str(o["id"]).lower(): _option_id(o["id"]) for o in options}
+    by_label = {str(o.get("label") or "").strip().lower(): _option_id(o["id"]) for o in options}
+    if isinstance(value, (list, tuple, set)):
+        parts = list(value)
+    elif isinstance(value, str):
+        parts = [value] if value.strip().lower() in by_label else value.split(",")
+    else:
+        parts = [value]
+    ids: list[int] = []
+    for part in parts:
+        text = str(part).strip()
+        found = by_id.get(text.lower()) or by_label.get(text.lower())
+        if found is not None and found not in ids:
+            ids.append(found)
+    return ids
+
+
+def merged_contact_list(existing: Any, new: Any) -> list[dict[str, Any]]:
+    """A person's emails or phones after Vocify adds one: the new value first and primary, every value the person
+    already had kept after it (Pipedrive v2 replaces the whole list on update)."""
+
+    def norm(item: dict[str, Any]) -> str:
+        text = str(item.get("value") or "").strip().lower()
+        digits = re.sub(r"\D", "", text)
+        return digits if digits and "@" not in text else text
+
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for primary, items in ((True, new), (False, existing)):
+        for item in items if isinstance(items, list) else []:
+            if not isinstance(item, dict) or not str(item.get("value") or "").strip():
+                continue
+            key = norm(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({**{k: item[k] for k in ("value", "label") if item.get(k)}, "primary": primary and not any(o["primary"] for o in out)})
+    return out
 
 
 def flatten_record(record: dict[str, Any]) -> dict[str, Any]:

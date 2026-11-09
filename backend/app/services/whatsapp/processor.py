@@ -174,23 +174,29 @@ def _metadata_for_message(msg: IncomingMessage) -> dict:
 def _default_deal_fields(provider: str) -> list[str]:
     if provider == "salesforce":
         return ["Name", "Amount", "CloseDate", "StageName", "Description"]
+    if provider == "pipedrive":
+        return ["title", "value", "currency", "expected_close_date", "stage_id"]
     return ["dealname", "amount", "description", "closedate"]
 
 
 def _default_contact_fields(provider: str) -> list[str]:
     if provider == "salesforce":
         return ["FirstName", "LastName", "Email", "Phone"]
+    if provider == "pipedrive":
+        return ["name", "emails", "phones"]
     return ["firstname", "lastname", "email", "phone", "jobtitle"]
 
 
 def _default_company_fields(provider: str) -> list[str]:
     if provider == "salesforce":
         return ["Name"]
+    if provider == "pipedrive":
+        return ["name"]
     return ["name", "domain"]
 
 
 def _default_line_item_fields(provider: str) -> list[str]:
-    if provider == "salesforce":
+    if provider in ("salesforce", "pipedrive"):
         return []
     return ["name", "quantity", "price"]
 
