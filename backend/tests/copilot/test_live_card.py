@@ -517,3 +517,24 @@ def test_asked_again_the_same_words_are_another_try_not_nothing(monkeypatch):
     assert result["event"] == "shown" and result["points"][0]["answer"].startswith("¿Quién decide")
     assert f"REPEATS «{shown_say}»" in seen[1]
 
+
+
+def test_the_cards_reach_the_playbooks_improvement_step():
+    # Since the card became everyone's brain (2026-11-09) the improvement step got nothing: it reads these rows.
+    from types import SimpleNamespace as T
+    turns = [T(id="t0", who="you", text="¿Os encaja?"), T(id="t1", who="them", text="Ya, pero es que eso es caro, ¿no?")]
+    answered = {"moment": "them_urgent", "points": [{
+        "id": "card-1", "kind": "question", "turn_ids": ["t1"], "answer": "¿Respecto a qué te parece caro?",
+        "source": {"id": "objection:custom:es_caro", "label": "Playbook · Es caro"},
+    }]}
+    common = dict(user_id="u", company_id="co", call_mode="softphone", sales_motion_key="frio", call_id="c1", turns=turns)
+    (row,) = events.strategic_card_rows(**common, objection="objection:custom:es_caro", result=answered)
+    assert row["is_objection"] and row["kind"] == "points" and row["latest_turn"] == "Ya, pero es que eso es caro, ¿no?"
+    assert row["entry_id"] == row["source_id"] == "objection:custom:es_caro" and row["objection_type"] == "custom"
+    assert row["say_this"] == "¿Respecto a qué te parece caro?" and row["detail"]["card"] == "shown"
+    # Flagged and nothing shown: a missed objection, what the gaps count.
+    (missed,) = events.strategic_card_rows(**common, objection="price", result={"moment": "them_urgent", "points": []})
+    assert missed["detail"]["card"] == "missed" and missed["objection_type"] == "price" and missed["say_this"] is None
+    # A question built only on the conversation, at a turn nobody flagged: not something to answer, not logged.
+    deepen = {"moment": "them_end", "points": [{"id": "card-2", "kind": "deepen", "turn_ids": ["t1"], "answer": "¿Qué os falta?", "source": None}]}
+    assert events.strategic_card_rows(**common, objection="none", result=deepen) == []

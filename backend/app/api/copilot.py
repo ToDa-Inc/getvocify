@@ -528,6 +528,12 @@ def _card_log(supabase: Client, membership: Membership, body: CardReading, resul
         sales_motion_key=(body.sales_motion_key or "").strip() or None, call_id=body.call_id, latest_turn=them,
         result=result, error=result.get("error"), detail={k: v for k, v in detail.items() if v is not None},
     ))
+    # What the playbook's improvement step learns from (it read only the older brain's rows until 2026-11-09).
+    events.record_ui(supabase, events.strategic_card_rows(
+        user_id=membership.user_id, company_id=membership.company_id, call_mode=body.call_mode,
+        sales_motion_key=(body.sales_motion_key or "").strip() or None, call_id=body.call_id, turns=body.turns,
+        objection=body.objection, result=result,
+    ))
 
 
 @router.post("/live/card")
