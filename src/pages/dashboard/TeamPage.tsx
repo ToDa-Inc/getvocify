@@ -11,7 +11,6 @@ import { TypesChip } from "@/features/sales-process/TypesChip";
 import type { SalesRole } from "@/features/company/types";
 import { useLanguage } from "@/lib/i18n";
 import { typesSummary } from "@/lib/sales-process";
-import { commercialRoleLabel } from "@/lib/role-labels";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -85,6 +84,49 @@ function RoleChip({
   );
 }
 
+type Access = "admin" | "member";
+const ACCESS: Access[] = ["admin", "member"];
+
+/** The member's access level (what they may edit: playbooks, company, CRM, team). Only the owner can change it. */
+function AccessChip({
+  value,
+  label,
+  names,
+  help,
+  disabled,
+  onChange,
+}: {
+  value: Access;
+  label: string;
+  names: Record<Access, string>;
+  help: Record<Access, string>;
+  disabled?: boolean;
+  onChange: (next: Access) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" aria-label={`${label}: ${names[value]}`} disabled={disabled} className={THEME_TOKENS.interaction.menuChip}>
+          {names[value]}
+          <ChevronDown aria-hidden className="h-3 w-3 opacity-60" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-w-xs">
+        <DropdownMenuRadioGroup value={value} onValueChange={(next) => next !== value && onChange(next as Access)}>
+          {ACCESS.map((access) => (
+            <DropdownMenuRadioItem key={access} value={access}>
+              <span className="flex flex-col gap-0.5">
+                <span>{names[access]}</span>
+                <span className="text-[11px] leading-snug text-muted-foreground">{help[access]}</span>
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 const TeamPage = () => {
   const { user } = useAuth();
   const { t, language } = useLanguage();
@@ -102,6 +144,7 @@ const TeamPage = () => {
   >(null);
 
   const canManage = user?.company?.role === "owner" || user?.company?.role === "admin";
+  const isOwner = user?.company?.role === "owner";
   const salesRolesEnabled = Boolean(user?.company?.features?.includes("SALES_ROLES_ENABLED"));
   // The company's own process: each member runs the interaction types they are assigned, instead of a SDR / AE role.
   const processOn = Boolean(user?.company?.features?.includes("SALES_PROCESS_ENABLED")) && canManage;
@@ -114,6 +157,12 @@ const TeamPage = () => {
     ae: p.teamMemberTypeAe,
     general: p.teamMemberTypeGeneral,
   };
+  const accessNames: Record<Access | "owner", string> = {
+    owner: copy.accessOwner,
+    admin: copy.accessAdmin,
+    member: copy.accessMember,
+  };
+  const accessHelp: Record<Access, string> = { admin: copy.accessAdminHelp, member: copy.accessMemberHelp };
   const roleHelp: Record<SalesRole, string> = {
     sdr: p.teamMemberTypeHelpSdr,
     ae: p.teamMemberTypeHelpAe,
@@ -190,6 +239,15 @@ const TeamPage = () => {
       }),
     onSuccess: refreshWorkspace,
     onError: (error) => toast.error(apiErrorMessage(error, copy.updateFailed)),
+  });
+
+  const accessMutation = useMutation({
+    mutationFn: (vars: { memberId: string; role: Access }) => companyApi.updateMemberRole(vars.memberId, vars.role),
+    onSuccess: () => {
+      refreshWorkspace();
+      toast.success(copy.accessChanged);
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, copy.accessFailed)),
   });
 
   const typesMutation = useMutation({
@@ -321,30 +379,46 @@ const TeamPage = () => {
           const editable = salesRolesEnabled && canManage && member.role === "member";
           return (
             <li key={member.id} className="flex items-center gap-3 py-3">
-              <div className="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-baseline sm:gap-3">
-                <span className="truncate text-sm text-foreground sm:w-48 sm:shrink-0">{name}</span>
+              <div className="flex min-w-0 flex-1 flex-col xl:flex-row xl:items-baseline xl:gap-3">
+                <span className="truncate text-sm text-foreground xl:w-48 xl:shrink-0">{name}</span>
                 <span className="truncate text-xs text-muted-foreground">{member.email}</span>
               </div>
-              {processOn && member.role === "member" ? (
-                <TypesChip
-                  value={memberTypes.data?.members[member.userId] ?? null}
-                  types={typeOptions}
-                  label={p.pb2.process.teamTypes}
-                  disabled={typesMutation.isPending && typesMutation.variables?.memberId === member.id}
-                  onChange={(types) => typesMutation.mutate({ memberId: member.id, types })}
-                />
-              ) : editable ? (
-                <RoleChip
-                  value={member.salesRole ?? "general"}
-                  label={copy.changeType}
-                  options={roleNames}
-                  help={roleHelp}
-                  disabled={salesProfileMutation.isPending && salesProfileMutation.variables?.memberId === member.id}
-                  onChange={(salesRole) => salesProfileMutation.mutate({ memberId: member.id, salesRole })}
-                />
-              ) : (
-                <span className={cn(CHIP, "bg-secondary/60 text-muted-foreground")}>{commercialRoleLabel(member.role, p)}</span>
-              )}
+              <span className="flex w-24 shrink-0 justify-end">
+                {isOwner && member.role !== "owner" && member.userId !== user?.id ? (
+                  <AccessChip
+                    value={member.role === "admin" ? "admin" : "member"}
+                    label={copy.accessLabel}
+                    names={accessNames}
+                    help={accessHelp}
+                    disabled={accessMutation.isPending && accessMutation.variables?.memberId === member.id}
+                    onChange={(role) => accessMutation.mutate({ memberId: member.id, role })}
+                  />
+                ) : (
+                  <span className={cn(CHIP, "bg-secondary/60 text-muted-foreground")}>
+                    {accessNames[member.role === "owner" ? "owner" : member.role === "admin" ? "admin" : "member"]}
+                  </span>
+                )}
+              </span>
+              <span className="flex w-24 shrink-0 justify-end">
+                {processOn && member.role === "member" ? (
+                  <TypesChip
+                    value={memberTypes.data?.members[member.userId] ?? null}
+                    types={typeOptions}
+                    label={p.pb2.process.teamTypes}
+                    disabled={typesMutation.isPending && typesMutation.variables?.memberId === member.id}
+                    onChange={(types) => typesMutation.mutate({ memberId: member.id, types })}
+                  />
+                ) : editable ? (
+                  <RoleChip
+                    value={member.salesRole ?? "general"}
+                    label={copy.changeType}
+                    options={roleNames}
+                    help={roleHelp}
+                    disabled={salesProfileMutation.isPending && salesProfileMutation.variables?.memberId === member.id}
+                    onChange={(salesRole) => salesProfileMutation.mutate({ memberId: member.id, salesRole })}
+                  />
+                ) : null}
+              </span>
               {canManage ? (
                 <span className="inline-flex w-8 justify-center">
                   {member.userId !== user?.id && member.role !== "owner" ? (
@@ -363,19 +437,22 @@ const TeamPage = () => {
         })}
         {invites.map((invite) => (
           <li key={invite.id} className="flex items-center gap-3 py-3">
-            <div className="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-baseline sm:gap-3">
-              <span className="truncate text-sm text-muted-foreground sm:w-48 sm:shrink-0">{invite.email}</span>
+            <div className="flex min-w-0 flex-1 flex-col xl:flex-row xl:items-baseline xl:gap-3">
+              <span className="truncate text-sm text-muted-foreground xl:w-48 xl:shrink-0">{invite.email}</span>
               <span className="truncate text-xs text-muted-foreground/80">
                 {copy.pending.replace("{date}", dateFormat.format(new Date(invite.expiresAt)))}
               </span>
             </div>
-            {processOn ? (
-              <span className={cn(CHIP, "bg-secondary/60 text-muted-foreground")}>
-                {typesSummary(memberTypes.data?.invitations[invite.id] ?? null, typeOptions, p.pb2.process.teamAll, p.pb2.process.teamMany)}
-              </span>
-            ) : salesRolesEnabled && invite.salesRole ? (
-              <span className={cn(CHIP, "bg-secondary/60 text-muted-foreground")}>{roleNames[invite.salesRole]}</span>
-            ) : null}
+            <span className="w-24 shrink-0" aria-hidden />
+            <span className="flex w-24 shrink-0 justify-end">
+              {processOn ? (
+                <span className={cn(CHIP, "bg-secondary/60 text-muted-foreground")}>
+                  {typesSummary(memberTypes.data?.invitations[invite.id] ?? null, typeOptions, p.pb2.process.teamAll, p.pb2.process.teamMany)}
+                </span>
+              ) : salesRolesEnabled && invite.salesRole ? (
+                <span className={cn(CHIP, "bg-secondary/60 text-muted-foreground")}>{roleNames[invite.salesRole]}</span>
+              ) : null}
+            </span>
             {canManage ? (
               <span className="inline-flex items-center">
                 <IconAction
