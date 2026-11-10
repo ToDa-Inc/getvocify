@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Info, Maximize2, MessageCircleQuestion, MessageSquareReply, Pause, Play, Reply, ScrollText, Square, X } from "lucide-react";
+import { ChevronDown, Maximize2, MessageSquareReply, Pause, Play, ScrollText, Square, X } from "lucide-react";
 import { IconAction } from "@/components/ui/icon-action";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -10,7 +11,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -22,24 +22,24 @@ import type { DesktopMeeting } from "../DesktopMeetingProvider";
 import type { LiveBrain } from "../assist/useLiveBrain";
 import { clock, type LiveCopy } from "./copy";
 import { Dots } from "./PointCard";
+import { quoted, sayKind, SaySlot, SayTag } from "./SaySlot";
 import { StepsPane } from "./StepsPane";
 import type { LivePoint } from "./types";
 
-/** What opens over the tabs, one at a time: the recap or who the call is with. */
-type Pane = "recap" | "contact" | null;
+/** What opens over the tabs, one at a time: the recap, who the call is with, or the earlier answers. */
+type Pane = "recap" | "contact" | "older" | null;
 /** Under what to say: the steps (the default: they are what the window is for) or the conversation. */
 type Tab = "steps" | "transcript";
 
-/** How long Responder's "nothing to answer" stays. */
-const NOTHING_MS = 6000;
 /** A card this new is what Responder points at (the island's REWRITE_AFTER_S); after that, Responder asks for the next. */
 const JUST_CAME_S = 5;
 const FLASH_MS = 1200;
 
 /**
- * The live view in the dashboard's compact window (desktop app): what to say at the top, then two tabs, Pasos (open by
- * default) and Transcripción, and the rep's asks in a bar at the bottom. The recap and the contact open over the tabs.
- * The window itself goes back to the whole dashboard with the button in its header.
+ * The live view in the dashboard's compact window (desktop app): one row of controls, what to say (one answer at a time,
+ * SaySlot), then two tabs, Pasos (open by default) and Transcripción, and the rep's asks in a bar at the bottom. The
+ * recap, the contact and the earlier answers open over the tabs. The window itself goes back to the whole dashboard with
+ * the button in its header.
  */
 export function CompactLiveView({
   meeting,
@@ -96,45 +96,45 @@ export function CompactLiveView({
   return (
     <TooltipProvider delayDuration={300}>
       <div className={cn("flex h-dvh flex-col overflow-hidden bg-card", THEME_TOKENS.motion.fadeIn)}>
-        {/* The island's head, in two rows: the clock and who the call is with, then the recording's controls, the call's
-            type and live help on or off. */}
-        <header className="shrink-0 border-b border-border/60">
-          <div className="flex h-9 items-center gap-2 pl-3.5 pr-1.5">
-            <span
-              className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meeting.paused ? "bg-muted-foreground/50" : "bg-destructive animate-pulse motion-reduce:animate-none")}
-              aria-hidden
-            />
-            <span className="shrink-0 text-[12px] tabular-nums text-foreground">{meeting.paused ? `${copy.compact.paused} · ${meeting.elapsed}` : meeting.elapsed}</span>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{contactName ?? ""}</span>
-            <IconAction label={copy.compact.expand} onClick={onExpand}>
-              <Maximize2 />
-            </IconAction>
+        {/* One row: the clock, the call's type (a menu, with live help on or off: set once per call), then pause, stop
+            and the whole dashboard. Who the call is with is in the bar at the foot. */}
+        <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border/60 pl-3.5 pr-1.5">
+          <span
+            className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meeting.paused ? "bg-muted-foreground/50" : "bg-destructive animate-pulse motion-reduce:animate-none")}
+            aria-hidden
+          />
+          <span className="shrink-0 pl-1 text-[12px] tabular-nums text-foreground">{meeting.paused ? `${copy.compact.paused} · ${meeting.elapsed}` : meeting.elapsed}</span>
+          <div className="flex min-w-0 flex-1 pl-1">
+            <TypeMenu meeting={meeting} typeName={typeName} copy={copy} helpOn={helpOn} onHelpChange={onHelpChange} />
           </div>
-          <div className="flex h-10 items-center gap-1.5 px-2.5 pb-1.5">
-            <IconAction label={meeting.paused ? copy.compact.resume : copy.compact.pause} onClick={meeting.paused ? meeting.resume : meeting.pause}>
-              {meeting.paused ? <Play /> : <Pause />}
-            </IconAction>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => void meeting.stop()}
-                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-destructive px-3 text-[12px] font-medium text-destructive-foreground transition-opacity duration-150 hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
-                >
-                  <Square className="h-2.5 w-2.5 fill-current" strokeWidth={1.5} />
-                  {copy.compact.stop}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{copy.compact.stopTip}</TooltipContent>
-            </Tooltip>
-            <TypeMenu meeting={meeting} typeName={typeName} copy={copy} />
-            <Switch checked={helpOn} onCheckedChange={onHelpChange} aria-label={copy.switchLabel} className="shrink-0" />
-          </div>
+          <IconAction label={meeting.paused ? copy.compact.resume : copy.compact.pause} onClick={meeting.paused ? meeting.resume : meeting.pause}>
+            {meeting.paused ? <Play /> : <Pause />}
+          </IconAction>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => void meeting.stop()}
+                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-destructive px-2.5 text-[12px] font-medium text-destructive-foreground transition-opacity duration-150 hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
+              >
+                <Square className="h-2.5 w-2.5 fill-current" strokeWidth={1.5} />
+                {copy.compact.stop}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{copy.compact.stopTip}</TooltipContent>
+          </Tooltip>
+          <IconAction label={copy.compact.expand} onClick={onExpand}>
+            <Maximize2 />
+          </IconAction>
         </header>
 
-        <section aria-label={copy.compact.say} className="flex max-h-[42%] min-h-[88px] shrink-0 flex-col border-b border-border/60">
-          {helpOn ? <SayList brain={brain} copy={copy} responder={responder} flashId={flash} /> : <p className="px-3.5 py-3 text-[12px] text-muted-foreground">{copy.off}</p>}
-        </section>
+        {helpOn ? (
+          <SaySlot brain={brain} copy={copy} responder={responder} flashId={flash} olderOpen={pane === "older"} onOlder={() => toggle("older")} />
+        ) : (
+          <section aria-label={copy.compact.say} className="shrink-0 border-b border-border/60">
+            <p className="px-3.5 py-3 text-[12px] text-muted-foreground">{copy.off}</p>
+          </section>
+        )}
 
         <Tabs value={tab} onValueChange={(next) => setTab(next as Tab)} className="shrink-0 px-2.5 pt-2">
           <TabsList className={cn(THEME_TOKENS.interaction.segmentList, "grid w-full grid-cols-2 flex-nowrap gap-0.5 rounded-full p-0.5")}>
@@ -174,8 +174,8 @@ export function CompactLiveView({
             />
           </div>
           {pane ? (
-            <Over title={pane === "recap" ? copy.bar.recap : copy.compact.contact} copy={copy} onClose={() => setPane(null)}>
-              {pane === "recap" ? <Recap recap={recap} copy={copy} /> : <Contact contact={brain.contact} copy={copy} />}
+            <Over title={pane === "recap" ? copy.bar.recap : pane === "older" ? copy.compact.older : copy.compact.contact} copy={copy} onClose={() => setPane(null)}>
+              {pane === "recap" ? <Recap recap={recap} copy={copy} /> : pane === "older" ? <Older points={brain.state.points as LivePoint[]} copy={copy} /> : <Contact contact={brain.contact} copy={copy} />}
             </Over>
           ) : null}
         </div>
@@ -204,13 +204,25 @@ export function CompactLiveView({
 }
 
 /** The call's type, as the island's menu: the channel when types go by channel, then the channel's types (Vocify's
- * proposal marked), or letting Vocify decide. The chip reads like the island's: "Llamada · Descubrimiento". */
-function TypeMenu({ meeting, typeName, copy }: { meeting: DesktopMeeting; typeName: string | null; copy: LiveCopy }) {
+ * proposal marked), or letting Vocify decide; under them, live help on or off for this call. The chip reads like the
+ * island's: "Llamada · Descubrimiento". */
+function TypeMenu({
+  meeting,
+  typeName,
+  copy,
+  helpOn,
+  onHelpChange,
+}: {
+  meeting: DesktopMeeting;
+  typeName: string | null;
+  copy: LiveCopy;
+  helpOn: boolean;
+  onHelpChange: (on: boolean) => void;
+}) {
   const menu = meeting.typeMenu;
   const channel = menu?.channel ?? null;
   const channelLabel = channel?.options.find((option) => option.key === channel.selected)?.label ?? null;
   const label = [channelLabel, typeName ?? copy.compact.noType].filter(Boolean).join(" · ");
-  if (!menu) return <span className="min-w-0 flex-1 truncate px-1 text-[12px] text-muted-foreground">{label}</span>;
   return (
     <DropdownMenu>
       <Tooltip>
@@ -218,10 +230,10 @@ function TypeMenu({ meeting, typeName, copy }: { meeting: DesktopMeeting; typeNa
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-8 min-w-0 flex-1 items-center gap-1 rounded-full px-2.5 text-[12px] text-foreground transition-colors duration-150 hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/60 motion-reduce:transition-none"
+              className="inline-flex h-7 min-w-0 max-w-full items-center gap-1 rounded-full px-2 text-[12px] text-foreground transition-colors duration-150 hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/60 motion-reduce:transition-none"
             >
               <span className="min-w-0 truncate">{label}</span>
-              {meeting.callType.proposed ? <span className="shrink-0 text-[11px] text-muted-foreground">· {copy.compact.proposed}</span> : null}
+              {menu && meeting.callType.proposed ? <span className="shrink-0 text-[11px] text-muted-foreground">· {copy.compact.proposed}</span> : null}
               <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={1.5} />
             </button>
           </DropdownMenuTrigger>
@@ -240,21 +252,27 @@ function TypeMenu({ meeting, typeName, copy }: { meeting: DesktopMeeting; typeNa
             <DropdownMenuSeparator />
           </>
         ) : null}
-        <DropdownMenuLabel>{copy.compact.type}</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={meeting.callType.proposed ? "" : meeting.callType.key ?? ""}
-          onValueChange={(key) => meeting.pickCallType(key || null)}
-        >
-          {menu.options.map((option) => (
-            <DropdownMenuRadioItem key={option.key} value={option.key}>
-              <span className="min-w-0 flex-1 truncate">{option.label}</span>
-              {meeting.callType.proposed && meeting.callType.key === option.key ? (
-                <span className="shrink-0 text-[11px] text-muted-foreground">{copy.compact.proposed}</span>
-              ) : null}
-            </DropdownMenuRadioItem>
-          ))}
-          <DropdownMenuRadioItem value="">{copy.compact.vocifyDecides}</DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
+        {menu ? (
+          <>
+            <DropdownMenuLabel>{copy.compact.type}</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={meeting.callType.proposed ? "" : meeting.callType.key ?? ""}
+              onValueChange={(key) => meeting.pickCallType(key || null)}
+            >
+              {menu.options.map((option) => (
+                <DropdownMenuRadioItem key={option.key} value={option.key}>
+                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  {meeting.callType.proposed && meeting.callType.key === option.key ? (
+                    <span className="shrink-0 text-[11px] text-muted-foreground">{copy.compact.proposed}</span>
+                  ) : null}
+                </DropdownMenuRadioItem>
+              ))}
+              <DropdownMenuRadioItem value="">{copy.compact.vocifyDecides}</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
+        <DropdownMenuCheckboxItem checked={helpOn} onCheckedChange={(on) => onHelpChange(Boolean(on))}>{copy.switchLabel}</DropdownMenuCheckboxItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -304,127 +322,27 @@ function BarAction({
   );
 }
 
-/** Qué decir, like a chat (the island's recipe): every card in the order it came, the newest at the bottom; what is still
- * open is bright, what was dealt with fades where it is. It follows the newest unless the rep scrolled up to read.
- * Responder with nothing to answer says so for a moment, with the next thing to find out. */
-function SayList({ brain, copy, responder, flashId }: { brain: LiveBrain; copy: LiveCopy; responder: LiveBrain["asks"]["responder"]; flashId: string | null }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const follow = useRef(true);
-  const points = brain.state.points as LivePoint[];
-  const [nothing, setNothing] = useState<{ seq: number; question: string | null } | null>(null);
-
-  useEffect(() => {
-    if (!responder || responder.status !== "nothing") return;
-    setNothing({ seq: responder.seq, question: responder.next?.question ?? null });
-    const timer = window.setTimeout(() => setNothing((n) => (n?.seq === responder.seq ? null : n)), NOTHING_MS);
-    return () => window.clearTimeout(timer);
-  }, [responder]);
-
-  useEffect(() => {
-    if (flashId) ref.current?.querySelector(`[data-point="${CSS.escape(flashId)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [flashId]);
-  const signature = `${points.map((p) => `${p.id}:${p.outcome}`).join(",")}|${brain.drafts.length}|${nothing?.seq ?? ""}`;
-  useEffect(() => {
-    const box = ref.current;
-    if (box && follow.current) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
-  }, [signature]);
-
-  if (!points.length && !brain.drafts.length && !nothing) {
-    return <p className="px-3.5 py-3 text-[12px] text-muted-foreground">{copy.compact.sayEmpty}</p>;
-  }
+/** The earlier answers, newest first: when each came, their words and what it said. */
+function Older({ points, copy }: { points: LivePoint[]; copy: LiveCopy }) {
+  const open = points.filter((point) => point.outcome === "open");
+  const current = open[open.length - 1] ?? null;
+  const past = points.filter((point) => point !== current).reverse();
   return (
-    <div
-      ref={ref}
-      onScroll={(event) => {
-        const box = event.currentTarget;
-        follow.current = box.scrollHeight - box.clientHeight - box.scrollTop < 12;
-      }}
-      className="flex min-h-0 flex-col gap-1.5 overflow-y-auto px-3 py-2.5"
-    >
-      {brain.offlineSince !== null ? <p className="text-[11px] text-warning">{copy.offline}</p> : null}
-      {points.map((point) => (
-        <SayCard key={point.id} point={point} copy={copy} flash={flashId === point.id} onDismiss={() => brain.dismiss(point.id)} />
-      ))}
-      {brain.drafts.map((draft, index) => (
-        <div key={`draft-${index}`} className="flex flex-col gap-0.5 rounded-xl bg-secondary/60 px-3 py-2">
-          <Said kind="answer" label={copy.compact.preparing} words={draft.title} />
-          {draft.say ? <p className="text-[14px] font-medium leading-snug text-foreground">{draft.say}</p> : <Dots />}
-        </div>
-      ))}
-      {nothing ? (
-        <div className="flex flex-col gap-0.5 rounded-xl px-3 py-2 ring-1 ring-inset ring-border">
-          <p className="text-[11.5px] text-muted-foreground">{brain.cardMode ? copy.compact.nothingNew : copy.nothingFound}</p>
-          {nothing.question ? <p className="text-[14px] leading-snug text-foreground/85">{nothing.question}</p> : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-type SayKind = "answer" | "unknown" | "explore";
-const KIND_ICON: Record<SayKind, typeof Reply> = { answer: Reply, unknown: Info, explore: MessageCircleQuestion };
-const KIND_TONE: Record<SayKind, string> = { answer: "text-beige", unknown: "text-warning", explore: "text-muted-foreground" };
-
-/** The first line of a card: what kind of help it is (always in the same place) and their words. */
-function Said({ kind, label, words, tip }: { kind: SayKind; label: string; words: string | null; tip?: string | null }) {
-  const Icon = KIND_ICON[kind];
-  const tag = (
-    <span className={cn("inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold", KIND_TONE[kind])}>
-      <Icon className="h-3 w-3" strokeWidth={1.5} />
-      {label}
-    </span>
-  );
-  return (
-    <div className="flex min-w-0 items-center gap-1.5 pr-5">
-      {tip ? (
-        <Tooltip>
-          <TooltipTrigger asChild>{tag}</TooltipTrigger>
-          <TooltipContent side="top">{tip}</TooltipContent>
-        </Tooltip>
-      ) : (
-        tag
-      )}
-      {words ? <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">«{words.replace(/^[«"]|[»"]$/g, "")}»</span> : null}
-    </div>
-  );
-}
-
-/** One card: an answer is a full card, an opportunity an outlined one, lighter; dealt with, it fades to two lines. */
-function SayCard({ point, copy, flash, onDismiss }: { point: LivePoint; copy: LiveCopy; flash: boolean; onDismiss: () => void }) {
-  const live = point.outcome === "open";
-  const kind: SayKind = point.kind === "deepen" ? "explore" : !point.answer && point.fallback ? "unknown" : "answer";
-  return (
-    <div
-      data-point={point.id}
-      className={cn(
-        "group relative flex flex-col gap-0.5 rounded-xl px-3 py-2 transition-opacity duration-300 animate-in fade-in slide-in-from-bottom-1 motion-reduce:animate-none",
-        kind === "explore" ? "ring-1 ring-inset ring-border" : "bg-secondary/60",
-        kind === "unknown" && "ring-1 ring-inset ring-warning/40",
-        !live && "opacity-45",
-        flash && "ring-2 ring-beige/50",
-      )}
-    >
-      <Said kind={kind} label={copy.compact.kinds[kind]} words={point.title} tip={point.source?.label ?? null} />
-      <p
-        className={cn(
-          "select-text text-[14px] leading-snug text-foreground",
-          kind === "explore" ? "text-foreground/85" : "font-medium",
-          !live && "line-clamp-2",
-        )}
-      >
-        {pointSays(point)}
-      </p>
-      {live ? (
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label={copy.dismissAria}
-          title={copy.dismissAria}
-          className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-secondary hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-        >
-          <X className="h-3 w-3" strokeWidth={1.5} />
-        </button>
-      ) : null}
+    <div className="space-y-1.5 px-3 pb-4">
+      {past.map((point) => {
+        const kind = sayKind(point);
+        const at = typeof (point as { visible_t?: unknown }).visible_t === "number" ? (point as { visible_t: number }).visible_t : point.said_at;
+        return (
+          <div key={point.id} className="rounded-xl bg-secondary/40 px-3 py-2">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <SayTag kind={kind} label={copy.compact.kinds[kind]} />
+              <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{clock(at)}</span>
+              {point.title ? <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">{quoted(point.title)}</span> : null}
+            </div>
+            <p className="select-text pt-0.5 text-[13px] leading-snug text-foreground/85">{pointSays(point)}</p>
+          </div>
+        );
+      })}
     </div>
   );
 }
