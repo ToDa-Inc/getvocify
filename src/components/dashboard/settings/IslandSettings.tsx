@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { PanelRight, PanelTop, SunMoon } from "lucide-react";
+import { EyeOff, PanelRight, PanelTop, SunMoon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
 import { Switch } from "@/components/ui/switch";
@@ -25,7 +25,8 @@ export const IslandSettings = () => {
   const appearance = island?.setAppearance && state?.appearance ? state.appearance : null;
   const placement = island?.setPlacement && state?.placement ? state.placement : null;
   const visible = island?.setVisible && typeof state?.visible === "boolean" ? state.visible : null;
-  if (!island || !state || (!appearance && !placement && visible === null)) return null;
+  const hiddenFromCapture = island?.setHiddenFromCapture && typeof state?.hiddenFromCapture === "boolean" ? state.hiddenFromCapture : null;
+  if (!island || !state || (!appearance && !placement && visible === null && hiddenFromCapture === null)) return null;
 
   const appearances: { value: IslandAppearance; label: string }[] = [
     { value: "auto", label: t.product.islandAppearanceAuto },
@@ -77,6 +78,15 @@ export const IslandSettings = () => {
             checked={visible}
             onCheckedChange={(on) => void island.setVisible?.(on).then(merge)}
             aria-label={t.product.islandShowTitle}
+          />
+        </SettingsRow>
+      ) : null}
+      {hiddenFromCapture !== null ? (
+        <SettingsRow icon={EyeOff} title={t.product.islandHideFromCaptureTitle} description={t.product.islandHideFromCaptureHelper}>
+          <Switch
+            checked={hiddenFromCapture}
+            onCheckedChange={(on) => void island.setHiddenFromCapture?.(on).then(merge)}
+            aria-label={t.product.islandHideFromCaptureTitle}
           />
         </SettingsRow>
       ) : null}
