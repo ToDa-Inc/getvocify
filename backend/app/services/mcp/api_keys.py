@@ -1,4 +1,9 @@
-"""One personal API key per user, kept as three columns on user_profiles. Only its hash is stored."""
+"""One personal API key per user, kept as three columns on user_profiles. Only its hash is stored.
+
+A key is read-only (`vk_…`) or can also edit the company's setup (`vkw_…`: playbooks, company knowledge, offer).
+The access is part of the key itself, fixed when it is made, the way restricted keys work elsewhere: a key made
+before edits existed is a `vk_` key and stays read-only. Changing the access means making a new key.
+"""
 
 from __future__ import annotations
 
@@ -8,12 +13,18 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 KEY_PREFIX = "vk_"
-_PREFIX_SHOWN = 10  # "vk_" plus 7 characters: enough to tell two keys apart, useless to guess one
+WRITE_KEY_PREFIX = "vkw_"
+_PREFIX_SHOWN = 10  # the kind plus 6-7 characters: enough to tell two keys apart, useless to guess one
 _COLUMNS = "api_key_prefix,api_key_created_at"
 
 
 def is_api_key(token: str) -> bool:
-    return token.startswith(KEY_PREFIX)
+    return token.startswith((KEY_PREFIX, WRITE_KEY_PREFIX))
+
+
+def can_write(key_or_prefix: Optional[str]) -> bool:
+    """Whether a key (or its stored prefix) is one that may edit the company's setup."""
+    return bool(key_or_prefix) and str(key_or_prefix).startswith(WRITE_KEY_PREFIX)
 
 
 def hash_key(key: str) -> str:
@@ -27,6 +38,7 @@ def _status(row: Optional[dict]) -> dict:
         "has_key": bool(prefix),
         "prefix": prefix or None,
         "created_at": (row or {}).get("api_key_created_at") if prefix else None,
+        "can_write": can_write(prefix),
     }
 
 
@@ -37,9 +49,10 @@ def key_status(supabase: Any, user_id: str) -> dict:
     return _status(rows[0] if rows else None)
 
 
-def generate_key(supabase: Any, user_id: str) -> dict:
-    """A new key replaces the old one, which stops working at once. The key is returned only here."""
-    key = KEY_PREFIX + secrets.token_urlsafe(32)
+def generate_key(supabase: Any, user_id: str, *, write: bool = False) -> dict:
+    """A new key replaces the old one, which stops working at once. The key is returned only here. `write`: the
+    key may also edit the company's setup (the caller checks the user may grant that)."""
+    key = (WRITE_KEY_PREFIX if write else KEY_PREFIX) + secrets.token_urlsafe(32)
     values = {
         "api_key_hash": hash_key(key),
         "api_key_prefix": key[:_PREFIX_SHOWN],

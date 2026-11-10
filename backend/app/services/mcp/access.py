@@ -40,8 +40,19 @@ def issuer_url() -> str:
     return settings.BACKEND_PUBLIC_URL.rstrip("/")
 
 
-def resolve_token(supabase: Any, token: str) -> Optional[tuple[str, str]]:
-    """(user_id, credential) where credential is "api_key" or "oauth:<app name>". None means 401."""
+READ_SCOPE = "vocify:read"
+WRITE_SCOPE = "vocify:write"  # edit the company's setup: playbooks, company knowledge, offer, settings
+
+
+@dataclass(frozen=True)
+class Credential:
+    user_id: str
+    name: str  # "api_key" or "oauth:<app name>", for the logs
+    can_write: bool  # the user allowed this credential to edit (a write key, or an app allowed to edit)
+
+
+def resolve_token(supabase: Any, token: str) -> Optional[Credential]:
+    """Who a bearer token is and what it may do. None means 401."""
     token = (token or "").strip()
     if not token:
         return None
@@ -51,11 +62,11 @@ def resolve_token(supabase: Any, token: str) -> Optional[tuple[str, str]]:
         except Exception:  # noqa: BLE001 - e.g. migration 079 not applied yet: no key is valid
             logger.warning("mcp api key lookup failed", exc_info=True)
             return None
-        return (user_id, "api_key") if user_id else None
+        return Credential(user_id, "api_key", api_keys.can_write(token)) if user_id else None
     from app.services.mcp import oauth
 
     found = oauth.verify_access_token(supabase, token)
-    return (found[0], f"oauth:{found[1]}") if found else None
+    return Credential(found[0], f"oauth:{found[1]}", found[2]) if found else None
 
 
 class VocifyTokenVerifier:
@@ -69,8 +80,12 @@ class VocifyTokenVerifier:
         found = await anyio.to_thread.run_sync(resolve_token, get_supabase(), token)
         if not found:
             return None
-        user_id, credential = found
-        return AccessToken(token=token, client_id=credential, scopes=[], subject=user_id)
+        scopes = [READ_SCOPE, WRITE_SCOPE] if found.can_write else [READ_SCOPE]
+        return AccessToken(token=token, client_id=found.name, scopes=scopes, subject=found.user_id)
+
+
+def may_write(token: Any) -> bool:
+    return WRITE_SCOPE in (getattr(token, "scopes", None) or [])
 
 
 def require_membership(supabase: Any, user_id: str):

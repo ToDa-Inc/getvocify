@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Download } from "lucide-react";
+import { ChevronRight, Download, Settings } from "lucide-react";
 import Header from "@/components/landing/Header";
 import Footer from "@/components/landing/Footer";
 import { AppleMark, WindowsMark } from "@/components/landing/brand-icons";
@@ -19,14 +19,23 @@ const DownloadPage = () => {
   const { language } = useLanguage();
   const c = downloadCopy[language];
   const os = userOs();
+  // The Mac download has started (or the visitor came back for the steps): show how to open it.
+  const [macSteps, setMacSteps] = useState(() => window.location.hash === "#mac-steps");
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "instant" });
+    if (window.location.hash === "#mac-steps") document.getElementById("mac-steps")?.scrollIntoView({ block: "start" });
+    else window.scrollTo({ top: 0, behavior: "instant" });
   }, []);
+
+  useEffect(() => {
+    if (!macSteps) return;
+    const t = setTimeout(() => document.getElementById("mac-steps")?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+    return () => clearTimeout(t);
+  }, [macSteps]);
 
   const cards = [
     { id: "windows" as const, Icon: WindowsMark, copy: c.windows, href: "/download/windows" },
-    { id: "mac" as const, Icon: AppleMark, copy: c.mac, href: null },
+    { id: "mac" as const, Icon: AppleMark, copy: c.mac, href: "/download/mac" },
   ];
 
   return (
@@ -54,6 +63,7 @@ const DownloadPage = () => {
                 {href ? (
                   <a
                     href={href}
+                    onClick={id === "mac" ? () => setMacSteps(true) : undefined}
                     className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-cream px-6 text-sm font-semibold text-ink transition-all duration-300 ease-silk hover:bg-white active:scale-[0.98]"
                   >
                     <Download className="h-4 w-4" />
@@ -72,6 +82,8 @@ const DownloadPage = () => {
             ))}
           </div>
 
+          {macSteps ? <MacOpenSteps copy={c.macSteps} /> : null}
+
           <p className="mt-12 text-sm text-cream/50">
             {c.help}{" "}
             <a href="mailto:toni@getvocify.com" className="text-cream underline underline-offset-4 hover:text-white">
@@ -84,5 +96,69 @@ const DownloadPage = () => {
     </div>
   );
 };
+
+/** After the Mac download: macOS blocks the first open (no Apple Developer ID yet); the two clicks past it. */
+function MacOpenSteps({ copy }: { copy: (typeof downloadCopy)["EN"]["macSteps"] }) {
+  // The real macOS screens, with a ring on the one button to click (in % of each image).
+  const images = [
+    { src: "/download/mac-step-1.png", ring: { left: "5%", top: "79.5%", width: "45%", height: "14%" } },
+    { src: "/download/mac-step-2.png", ring: { left: "74%", top: "48%", width: "24.5%", height: "19%" } },
+  ];
+  return (
+    <motion.section
+      id="mac-steps"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+      className="mx-auto mt-16 max-w-3xl scroll-mt-32 text-left"
+    >
+      <h2 className="text-center text-2xl font-medium tracking-[-0.03em] md:text-3xl">{copy.title}</h2>
+      <p className="mx-auto mt-3 max-w-xl text-center text-sm leading-relaxed text-cream/55">{copy.wink}</p>
+      <ol className="mt-10 grid gap-5 md:grid-cols-2">
+        {copy.steps.map((step, i) => (
+          <li key={step.title} className="flex flex-col rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+            <div className="flex items-center gap-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-cream text-sm font-semibold text-ink">
+                {i + 1}
+              </span>
+              <p className="text-base font-medium tracking-[-0.02em]">{step.title}</p>
+            </div>
+            <p className="mt-3 text-sm leading-relaxed text-cream/60">{step.body}</p>
+            {i === 1 ? (
+              <div className="mt-4 flex flex-wrap items-center gap-x-1 gap-y-2 text-xs font-medium">
+                {copy.path.map((part, j) => (
+                  <span key={part} className="inline-flex items-center gap-1">
+                    {j > 0 ? <ChevronRight className="h-3 w-3 text-cream/35" /> : null}
+                    <span className="rounded-full border border-white/15 bg-white/[0.06] px-2.5 py-1 text-cream/80">{part}</span>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <div className="mt-5 flex flex-1 items-center justify-center rounded-2xl bg-black/30 p-4">
+              <div className="relative">
+                <img src={images[i].src} alt={step.alt} loading="lazy" className="block max-h-56 w-auto max-w-full rounded-xl" />
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute rounded-xl ring-2 ring-amber-300 ring-offset-2 ring-offset-transparent motion-safe:animate-pulse"
+                  style={images[i].ring}
+                />
+              </div>
+            </div>
+            {i === 1 ? (
+              <a
+                href="x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension"
+                className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-white/15 px-4 text-sm font-medium text-cream transition-colors hover:bg-white/[0.06]"
+              >
+                <Settings className="h-4 w-4" />
+                {copy.openSettings}
+              </a>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+      <p className="mt-6 text-center text-sm text-cream/55">{copy.after}</p>
+    </motion.section>
+  );
+}
 
 export default DownloadPage;

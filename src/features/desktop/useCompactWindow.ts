@@ -23,9 +23,9 @@ export function useCompactWindow() {
   }, [bridge]);
 
   const setCompact = useCallback(
-    (on: boolean) => {
+    (on: boolean, options?: { callEnded?: boolean }) => {
       if (!bridge) return;
-      void bridge.setCompact(on).then((state) => setCompactState(Boolean(state?.compact))).catch(() => undefined);
+      void bridge.setCompact(on, options).then((state) => setCompactState(Boolean(state?.compact))).catch(() => undefined);
     },
     [bridge],
   );

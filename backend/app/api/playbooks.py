@@ -82,9 +82,13 @@ async def create_type(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"code": exc.code}
             ) from exc
-    named = {}
+    # The name is kept with or without a rule: a type saved without one showed its key instead of its name.
+    named: dict[str, Any] = {}
+    label = body.name.strip() or (catalog_label(key) if rule is not None else None)
+    if label:
+        named["label"] = label
     if rule is not None:
-        named = {"label": body.name.strip() or catalog_label(key) or None, "applies_to": rule}
+        named["applies_to"] = rule
     try:
         repository.add_type(membership.company_id, body.type_key, body.name or body.type_key, **named)
     except PublishError as exc:

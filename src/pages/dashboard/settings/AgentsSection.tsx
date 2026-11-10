@@ -86,6 +86,8 @@ const AgentsSection = () => {
   const [newKey, setNewKey] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"revoke" | "regenerate" | null>(null);
   const [memberToRevoke, setMemberToRevoke] = useState<string | null>(null);
+  // The access of the next key made here (a key's access is fixed when it is made). null: same as the current key.
+  const [keyWrite, setKeyWrite] = useState<boolean | null>(null);
 
   const { data, isLoading, isError } = useQuery({ queryKey: mcpKeys.settings(), queryFn: () => mcpApi.settings() });
   const grants = useQuery({
@@ -100,9 +102,10 @@ const AgentsSection = () => {
 
   const update = useMutation({ mutationFn: mcpApi.update, onSuccess: setSettings, onError: failed });
   const createKey = useMutation({
-    mutationFn: mcpApi.createKey,
+    mutationFn: (write: boolean) => mcpApi.createKey(write),
     onSuccess: (created) => {
       setNewKey(created.key);
+      setKeyWrite(null);
       setConfirm(null);
       void refresh();
     },
@@ -125,6 +128,11 @@ const AgentsSection = () => {
     },
     onError: failed,
   });
+  const setGrantWrite = useMutation({
+    mutationFn: ({ clientId, canWrite }: { clientId: string; canWrite: boolean }) => mcpApi.setGrantWrite(clientId, canWrite),
+    onSuccess: (next) => queryClient.setQueryData(mcpKeys.grants(), next),
+    onError: failed,
+  });
   const revokeGrant = useMutation({
     mutationFn: (clientId: string) => mcpApi.revokeGrant(clientId),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: mcpKeys.grants() }),
@@ -144,6 +152,7 @@ const AgentsSection = () => {
 
   const connected = grants.data?.grants ?? [];
   const membersWithKey = (data.members ?? []).filter((m) => m.has_key);
+  const nextKeyWrite = Boolean(data.can_grant_write) && (keyWrite ?? Boolean(data.key.can_write));
   const memberName = membersWithKey.find((m) => m.user_id === memberToRevoke)?.name ?? "";
 
   return (
@@ -179,18 +188,32 @@ const AgentsSection = () => {
                         <div className="min-w-0">
                           <p className="truncate text-sm text-foreground">{grant.client.client_name || grant.client.client_uri}</p>
                           <p className="text-xs text-muted-foreground">
-                            {t.product.agentsAppsConnectedOn} {formatDate(grant.granted_at, language)}
+                            {t.product.agentsAppsConnectedOn} {formatDate(grant.granted_at, language)} ·{" "}
+                            {grant.can_write ? t.product.agentsAppsCanEdit : t.product.agentsAppsReadOnly}
                           </p>
                         </div>
-                        <Button
-                          type="button"
-                          variant="dangerGhost"
-                          size="text"
-                          disabled={revokeGrant.isPending}
-                          onClick={() => revokeGrant.mutate(grant.client.client_id)}
-                        >
-                          {t.product.agentsAppsDisconnect}
-                        </Button>
+                        <div className="flex shrink-0 items-center gap-4">
+                          {(data.can_grant_write || grant.can_write) && (
+                            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                              {t.product.agentsAppsAllowEdits}
+                              <Switch
+                                checked={Boolean(grant.can_write)}
+                                disabled={setGrantWrite.isPending}
+                                onCheckedChange={(canWrite) => setGrantWrite.mutate({ clientId: grant.client.client_id, canWrite })}
+                                aria-label={`${t.product.agentsAppsAllowEdits}: ${grant.client.client_name || grant.client.client_uri}`}
+                              />
+                            </label>
+                          )}
+                          <Button
+                            type="button"
+                            variant="dangerGhost"
+                            size="text"
+                            disabled={revokeGrant.isPending}
+                            onClick={() => revokeGrant.mutate(grant.client.client_id)}
+                          >
+                            {t.product.agentsAppsDisconnect}
+                          </Button>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -204,7 +227,8 @@ const AgentsSection = () => {
                 data.key.has_key ? (
                   <>
                     <span className="font-mono">{data.key.prefix}…</span> · {t.product.agentsKeyCreatedOn}{" "}
-                    {formatDate(data.key.created_at, language)}
+                    {formatDate(data.key.created_at, language)} ·{" "}
+                    {data.key.can_write ? t.product.agentsAppsCanEdit : t.product.agentsAppsReadOnly}
                   </>
                 ) : (
                   t.product.agentsKeyHelper
@@ -225,6 +249,21 @@ const AgentsSection = () => {
                 ) : null
               }
             >
+              {data.can_grant_write && (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {t.product.agentsAppsAllowEdits}
+                  <Switch
+                    checked={nextKeyWrite}
+                    disabled={createKey.isPending}
+                    onCheckedChange={(write) => {
+                      setKeyWrite(write);
+                      // A key's access is fixed when it is made: changing it means a new key (confirmed first).
+                      if (data.key.has_key) setConfirm("regenerate");
+                    }}
+                    aria-label={`${t.product.agentsAppsAllowEdits}: ${t.product.agentsKeyTitle}`}
+                  />
+                </label>
+              )}
               {data.key.has_key ? (
                 <>
                   <Button type="button" variant="quiet" size="text" onClick={() => setConfirm("regenerate")}>
@@ -235,7 +274,7 @@ const AgentsSection = () => {
                   </Button>
                 </>
               ) : (
-                <Button type="button" size="sm" className="rounded-full" disabled={createKey.isPending} onClick={() => createKey.mutate()}>
+                <Button type="button" size="sm" className="rounded-full" disabled={createKey.isPending} onClick={() => createKey.mutate(nextKeyWrite)}>
                   {createKey.isPending ? <VocifySpinner size={14} tone="onFill" /> : t.product.agentsKeyCreate}
                 </Button>
               )}
@@ -294,12 +333,17 @@ const AgentsSection = () => {
 
       <ConfirmAction
         open={confirm !== null}
-        onOpenChange={(open) => !open && setConfirm(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirm(null);
+            setKeyWrite(null);
+          }
+        }}
         title={confirm === "regenerate" ? t.product.agentsKeyRegenerateTitle : t.product.agentsKeyRevokeTitle}
         description={confirm === "regenerate" ? t.product.agentsKeyRegenerateBody : t.product.agentsKeyRevokeBody}
         confirmLabel={confirm === "regenerate" ? t.product.agentsKeyRegenerate : t.product.agentsKeyRevoke}
         pending={createKey.isPending || revokeKey.isPending}
-        onConfirm={() => (confirm === "regenerate" ? createKey.mutate() : revokeKey.mutate())}
+        onConfirm={() => (confirm === "regenerate" ? createKey.mutate(nextKeyWrite) : revokeKey.mutate())}
       />
       <ConfirmAction
         open={memberToRevoke !== null}

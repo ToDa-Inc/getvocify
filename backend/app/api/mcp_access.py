@@ -17,6 +17,7 @@ from app.deps import get_membership, get_supabase
 from app.services import feature_flags
 from app.services.company import CompanyService, Membership
 from app.services.mcp import access, api_keys, oauth
+from app.services.playbooks.versions import can_publish
 
 router = APIRouter(prefix="/api/v1/mcp", tags=["mcp"])
 oauth_router = APIRouter(prefix="/api/v1/oauth", tags=["oauth"])
@@ -30,6 +31,17 @@ class WorkspaceSettings(BaseModel):
 
 class ConsentRequest(BaseModel):
     action: Literal["approve", "deny"]
+    # Also let the app edit the company's setup (playbooks, company knowledge, offer). Owners and admins only.
+    allow_write: bool = False
+
+
+class GrantRequest(BaseModel):
+    can_write: bool
+
+
+class KeyRequest(BaseModel):
+    # The key may also edit the company's setup. Owners and admins only.
+    write: bool = False
 
 
 def _set_flag(supabase, company_id: str, flag: str, enabled: bool) -> None:
@@ -66,6 +78,7 @@ def get_settings(membership: Membership = Depends(get_membership), supabase=Depe
         "enabled": feature_flags.is_enabled(supabase, membership.company_id, access.FLAG),
         "transcripts_enabled": access.transcripts_allowed(supabase, membership.company_id),
         "can_manage": membership.can_manage_team,
+        "can_grant_write": can_publish(membership.role),  # may make an edit key or let an app edit
         "key": api_keys.key_status(supabase, membership.user_id),
     }
     if membership.can_manage_team:
@@ -89,15 +102,32 @@ def update_settings(
     return get_settings(membership=membership, supabase=supabase)
 
 
+def _require_editor(membership: Membership) -> None:
+    """Edit access is the same permission the dashboard asks for to edit playbooks."""
+    if not can_publish(membership.role):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "write_not_allowed", "message": "Only owners and admins can give an AI agent edit access."},
+        )
+
+
 @router.post("/key")
-def create_key(membership: Membership = Depends(get_membership), supabase=Depends(get_supabase)):
-    """A new key replaces the caller's old one. It is returned once; only its hash is kept."""
+def create_key(
+    payload: Optional[KeyRequest] = None,
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    """A new key replaces the caller's old one. It is returned once; only its hash is kept. {write: true} makes a
+    key that may also edit the company's setup; without it the key is read-only, as every key was before."""
+    write = bool(payload and payload.write)
+    if write:
+        _require_editor(membership)
     if not feature_flags.is_enabled(supabase, membership.company_id, access.FLAG):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="AI agent access is off for this workspace. An owner or admin can turn it on.",
         )
-    return api_keys.generate_key(supabase, membership.user_id)
+    return api_keys.generate_key(supabase, membership.user_id, write=write)
 
 
 @router.delete("/key", status_code=status.HTTP_204_NO_CONTENT)
@@ -128,11 +158,12 @@ def _gone() -> HTTPException:
 
 @oauth_router.get("/authorizations/{authorization_id}")
 def get_authorization(authorization_id: str, membership: Membership = Depends(get_membership)):
-    """The app asking for access: its name, where it sends the user back, and whether we recognise it."""
+    """The app asking for access: its name, where it sends the user back, whether we recognise it, and whether this
+    user may also let it edit the company's setup."""
     request = oauth.read_request(authorization_id)
     if request is None:
         raise _gone()
-    return request
+    return {**request, "can_allow_write": can_publish(membership.role)}
 
 
 @oauth_router.post("/authorizations/{authorization_id}/consent")
@@ -148,7 +179,11 @@ def consent(
             status_code=status.HTTP_409_CONFLICT,
             detail="AI agent access is off for this workspace. An owner or admin can turn it on.",
         )
-    redirect_url = oauth.decide(authorization_id, membership.user_id, payload.action == "approve")
+    if payload.action == "approve" and payload.allow_write:
+        _require_editor(membership)
+    redirect_url = oauth.decide(
+        authorization_id, membership.user_id, payload.action == "approve", allow_write=payload.allow_write,
+    )
     if redirect_url is None:
         raise _gone()
     return {"redirect_url": redirect_url}
@@ -157,6 +192,22 @@ def consent(
 @oauth_router.get("/grants")
 def list_grants(membership: Membership = Depends(get_membership), supabase=Depends(get_supabase)):
     """The apps this user connected by signing in."""
+    return {"grants": oauth.list_grants(supabase, membership.user_id)}
+
+
+@oauth_router.patch("/grants")
+def update_grant(
+    payload: GrantRequest,
+    client_id: str = Query(..., min_length=1),
+    membership: Membership = Depends(get_membership),
+    supabase=Depends(get_supabase),
+):
+    """Let an app this user connected edit the company's setup (owners and admins), or make it read-only again
+    (anyone). No reconnect: it applies within 30 seconds."""
+    if payload.can_write:
+        _require_editor(membership)
+    if not oauth.set_grant_write(supabase, membership.user_id, client_id, payload.can_write):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="App not connected")
     return {"grants": oauth.list_grants(supabase, membership.user_id)}
 
 

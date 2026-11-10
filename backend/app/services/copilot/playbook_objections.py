@@ -37,16 +37,19 @@ def invalidate_company(company_id: Optional[str]) -> None:
 
 
 def custom_entries(snapshot: Optional[dict]) -> dict[str, dict[str, str]]:
-    """{entry_id: {label, trigger}} of the snapshot's custom entries that have an answer to give."""
+    """{entry_id: {label, trigger, answer}} of every answer the snapshot's playbook has to give, its own and the ones
+    filed under a usual kind (price, competitor…) alike: the turn check matches what they said against these answers,
+    not against a list of kinds in code (Dani, 2026-11-09). An entry without a name is known by its answer."""
     found: dict[str, dict[str, str]] = {}
     for entry in (snapshot or {}).get("entries") or []:
-        if not isinstance(entry, dict) or str(entry.get("category") or "") != "custom":
+        if not isinstance(entry, dict):
             continue
         entry_id = str(entry.get("entry_id") or "").strip()
         label = " ".join(str(entry.get("label") or "").split())
         trigger = " ".join(str(entry.get("trigger") or "").split())
-        if entry_id and label and str(entry.get("guidance") or "").strip():
-            found[entry_id] = {"label": label, "trigger": trigger}
+        answer = " ".join(str(entry.get("guidance") or "").split())
+        if entry_id and answer:
+            found[entry_id] = {"label": label, "trigger": trigger, "answer": answer[:240]}
     return found
 
 

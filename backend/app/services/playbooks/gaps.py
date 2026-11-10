@@ -87,6 +87,10 @@ class Gap:
     seen: int
     example: Optional[str]
     motion_key: Optional[str]
+    # What a rep replied in a call that moved forward after it: a starting point the manager edits, never an approved answer.
+    draft: Optional[str] = None
+    # Choices the screen offers as buttons (the two versions of a fact that do not match).
+    options: Optional[list[str]] = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -95,7 +99,8 @@ class Gap:
 def gap_from_dict(data: dict) -> Gap:
     return Gap(
         key=str(data["key"]), kind=str(data["kind"]), question=str(data["question"]), request=str(data["request"]),
-        seen=int(data.get("seen") or 0), example=data.get("example"), motion_key=data.get("motion_key"),
+        seen=int(data.get("seen") or 0), example=data.get("example"), motion_key=data.get("motion_key"), draft=data.get("draft"),
+        options=list(data["options"]) if data.get("options") else None,
     )
 
 
@@ -149,7 +154,7 @@ def _process_gaps(process_types: list[dict], lang: str) -> list[Gap]:
             if lang == "en"
             else f"¿Qué pasos seguís en «{label}»? Cuéntamelo de principio a fin, como se lo explicarías a alguien nuevo."
         )
-        out.append(Gap(f"process:{item['key']}", "process", question, _STEPS_REQUEST.format(label=label), 0, None, str(item["key"])))
+        out.append(Gap(f"process:{item['key']}", "process", question, _STEPS_REQUEST.format(label=label), 0, label, str(item["key"])))
     return out
 
 
@@ -190,20 +195,23 @@ def detect_conflicts(existing: dict, found: dict, lang: str) -> list[Gap]:
             f"Your material does not agree about {names}: “{a}” versus “{b}”. Which one is right?" if lang == "en"
             else f"Tu material no coincide sobre {names}: «{a}» frente a «{b}». ¿Cuál es el correcto?"
         )
-        out.append(Gap(f"conflict:{field}", "conflict", question, _CONFLICT_REQUEST.format(field=field, old=a, new=b), 0, None, None))
+        out.append(Gap(f"conflict:{field}", "conflict", question, _CONFLICT_REQUEST.format(field=field, old=a, new=b), 0,
+                       names[:1].upper() + names[1:], None, options=[a, b]))
     return out
 
 
 def build_gaps(
     *, entries: list[dict], knowledge: dict, events: list[dict], lang: str, limit: int = MAX_GAPS,
-    conflicts: Optional[list[Gap]] = None, process_types: Optional[list[dict]] = None,
+    conflicts: Optional[list[Gap]] = None, process_types: Optional[list[dict]] = None, real: Optional[list[Gap]] = None,
 ) -> list[Gap]:
     """Up to `limit` gaps, most useful first: what happens in each of the company's own types that has nothing written, then
     real questions (most repeated first), then the given conflicts, then the typical topics nobody covered. `knowledge` is accepted for callers that have it; topics only look at the
     team's own questions because only those reach a live card."""
     del knowledge
     lang = _lang(lang)
-    gaps = _process_gaps(process_types or [], lang) + _real_gaps(events, lang) + list(conflicts or []) + _topic_gaps(entries, lang)
+    # `real`: the unanswered objections already grouped by meaning (call_gaps); without it, live help's by first words.
+    real_gaps = real if real is not None else _real_gaps(events, lang)
+    gaps = _process_gaps(process_types or [], lang) + real_gaps + list(conflicts or []) + _topic_gaps(entries, lang)
     return gaps[:limit]
 
 

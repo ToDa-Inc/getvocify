@@ -301,6 +301,15 @@ async def _present_recordings(
         row["author_user_id"] = author["user_id"]
         row["author_name"] = author["name"]
         row["author_email"] = author["email"]
+    # A call whose HubSpot owner matches no member (emails differ) belongs to whoever connected
+    # HubSpot, so it is not dropped for everyone.
+    if conn and str(conn.get("user_id") or "") == str(user_id):
+        viewer = authors.get(str(user_id)) or {}
+        for row in joined:
+            if not row.get("author_user_id"):
+                row["author_user_id"] = str(user_id)
+                row["author_name"] = viewer.get("name")
+                row["author_email"] = viewer.get("email")
     visible = visible_recordings_for_viewer(
         joined,
         viewer_id=user_id,

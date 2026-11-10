@@ -204,10 +204,11 @@ SNAPSHOT = {
 }
 
 
-def test_only_custom_entries_with_an_answer_reach_the_classifier():
+def test_every_playbook_answer_reaches_the_classifier_and_one_without_a_name_is_known_by_its_answer():
     assert playbook_objections.custom_entries(SNAPSHOT) == {
-        DIFFERENT_SALE: {"label": "Venta muy diferente", "trigger": "Damos pocas visitas, son proyectos grandes."},
-        EMAIL: {"label": "Mándame un email", "trigger": ""},
+        "objection:price": {"label": "", "trigger": "", "answer": "Habla de cifras."},
+        DIFFERENT_SALE: {"label": "Venta muy diferente", "trigger": "Damos pocas visitas, son proyectos grandes.", "answer": "Comprueba con números."},
+        EMAIL: {"label": "Mándame un email", "trigger": "", "answer": "Acepta pero hazlo útil."},
     }
     assert playbook_objections.custom_entries(None) == {}
 
@@ -221,8 +222,10 @@ def test_a_turn_that_means_a_custom_objection_is_named_not_filed_under_none(monk
     reading = asyncio.run(turn.read_turn("Them: nuestra venta es diferente", "nuestra venta es diferente", custom))
     assert reading == {"finished": True, "objection": "custom", "entry_id": DIFFERENT_SALE, "label": "Venta muy diferente"}
     criteria = seen["questions"]["objection"]["criteria"]
-    assert set(criteria) == set(turn.OBJECTIONS) | set(custom)
+    # The playbook's answers and nothing else: no "status_quo", "price"… from a list in code (Dani, 2026-11-09).
+    assert set(criteria) == {"none", "question"} | set(custom)
     assert "Damos pocas visitas" in criteria[DIFFERENT_SALE] and "Venta muy diferente" in criteria[DIFFERENT_SALE]
+    assert "Habla de cifras." in criteria["objection:price"]
 
 
 def test_without_custom_entries_the_classifier_is_asked_exactly_as_before(monkeypatch):
@@ -305,7 +308,7 @@ def test_the_turn_check_knows_the_objections_of_every_live_playbook_its_own_firs
     )
     found = playbook_objections.custom_for(object(), "user-9", "closing")
     assert found["objection:custom:caja"]["label"] == "Sin caja (demo)"
-    assert found["objection:custom:upfront"] == {"label": "No pago por adelantado", "trigger": "No quiero pagar upfront"}
+    assert found["objection:custom:upfront"] == {"label": "No pago por adelantado", "trigger": "No quiero pagar upfront", "answer": "Definimos hitos."}
 
 
 def test_the_answer_follows_the_matched_playbook_entry(monkeypatch):

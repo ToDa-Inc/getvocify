@@ -31,6 +31,7 @@ const REAL = {
   seen: 3,
   example: "Y si no nos gusta, ¿cómo cancelamos el servicio?",
   motion_key: "discovery",
+  draft: "Sin permanencia: si no os encaja, lo dais de baja desde ajustes y no pagáis el mes siguiente.",
 };
 const TOPIC = {
   key: "topic:security",
@@ -45,8 +46,9 @@ const CONFLICT = {
   kind: "conflict" as const,
   question: "Tu material no coincide sobre los precios: «Desde 39 € al mes por usuario.» frente a «Desde 49 € al mes por usuario.». ¿Cuál es el correcto?",
   seen: 0,
-  example: null,
+  example: "Los precios",
   motion_key: null,
+  options: ["Desde 39 € al mes por usuario.", "Desde 49 € al mes por usuario."],
 };
 
 const session = (current: GapSession["current"], over: Partial<GapSession> = {}): GapSession => ({

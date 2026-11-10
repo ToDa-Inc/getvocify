@@ -207,6 +207,48 @@ def card_rows(
     return [row for row in rows if row.get("latest_turn")]
 
 
+def strategic_card_rows(
+    *, user_id: str, company_id: Optional[str], call_mode: str, sales_motion_key: Optional[str], call_id: Optional[str],
+    turns: list[Any], objection: Optional[str], result: Optional[dict],
+) -> list[dict]:
+    """The strategic card's readings in the improvement step's shape (see card_rows), so it keeps learning now that the
+    card is everyone's brain (2026-11-09): a card that answered from a playbook answer, and any reading whose turn the
+    turn check flagged as an objection, with the card it got or, when it got none, as missed. A question card built only
+    on the conversation, at a turn nobody flagged, is an opportunity, not something to answer: left out."""
+    flagged = objection if objection and objection not in ("none", "question") else None
+    texts = {str(getattr(t, "id", "")): str(getattr(t, "text", "") or "") for t in turns or []}
+    them = next((str(getattr(t, "text", "") or "") for t in reversed(turns or []) if getattr(t, "who", "") == "them"), "")
+    base = {
+        "kind": "points", "user_id": user_id, "company_id": company_id, "sales_motion_key": sales_motion_key or None,
+        "call_mode": call_mode, "capture_id": _clip(call_id, 128), "playbook_version_id": None, "build": _build(),
+        "is_objection": True,
+    }
+    flagged_entry = flagged if flagged and flagged.startswith("objection:") else None
+    rows: list[dict] = []
+    for point in (result or {}).get("points") or []:
+        if not isinstance(point, dict):
+            continue
+        source = (point.get("source") or {}).get("id") if isinstance(point.get("source"), dict) else None
+        entry = source if str(source or "").startswith("objection:") else None
+        if not entry and not flagged:
+            continue
+        said = " ".join(texts.get(str(i), "") for i in point.get("turn_ids") or []).strip() or them
+        entry_id = entry or flagged_entry
+        rows.append({
+            **base, "latest_turn": _clip(said),
+            "objection_type": "custom" if str(entry_id or "").startswith("objection:custom:") else (entry_id or flagged),
+            "entry_id": entry_id, "source_id": source, "say_this": _clip(point.get("answer"), 2000),
+            "detail": {"card": "shown", "point_id": point.get("id"), "producer": "card"},
+        })
+    if flagged and not rows and (result or {}).get("moment") == "them_urgent":
+        rows.append({
+            **base, "latest_turn": _clip(them), "objection_type": "custom" if str(flagged).startswith("objection:custom:") else flagged,
+            "entry_id": flagged_entry, "source_id": None, "say_this": None,
+            "detail": {"card": "missed", "producer": "card", "event": (result or {}).get("event")},
+        })
+    return [row for row in rows if row.get("latest_turn")]
+
+
 def brain_row(
     *, kind: str, user_id: str, company_id: Optional[str], call_mode: str, sales_motion_key: Optional[str],
     call_id: Optional[str], latest_turn: str, result: Optional[dict], error: Optional[str], detail: dict,

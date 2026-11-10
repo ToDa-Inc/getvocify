@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/download/windows", "destination": "/api/download-windows" },
+    { "source": "/download/mac", "destination": "/api/download-mac" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

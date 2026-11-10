@@ -11,6 +11,9 @@ type Kind = "step" | "data" | "goal";
 type Item = { kind: Kind; id: string };
 type StepAsk = LiveBrain["asks"]["step"];
 
+/** How long «Apuntado: …» stays beside «Por averiguar». */
+const NOTED_MS = 5000;
+
 const same = (a: Item | null, kind: Kind, id: string) => Boolean(a && a.kind === kind && a.id === id);
 
 /** The circle in front of a step: empty, a flag for the goal, beige with a check once done (it pops in when it ticks). */
@@ -81,24 +84,26 @@ function Asked({ ask, item, fallback, copy }: { ask: StepAsk; item: Item; fallba
   return text ? <Question text={text} /> : <p className="text-[12.5px] text-muted-foreground">{copy.compact.noQuestion}</p>;
 }
 
-/** What a step shows when it is open: what it asks, its parts as heard, and the question (the brain's, or one asked for). */
-function StepBody({
-  row,
-  current,
-  suggestion,
-  asked,
-  ask,
-  copy,
-  onAsk,
-}: {
-  row: StepRow;
-  current: boolean;
-  suggestion: string | null;
-  asked: boolean;
-  ask: StepAsk;
-  copy: LiveCopy;
-  onAsk: () => void;
-}) {
+/** The call's steps as one line: covered, where the call is now, still to come. No number: a "2/6" reads as a score. */
+function ProgressLine({ rows }: { rows: StepRow[] }) {
+  return (
+    <div className="flex items-center gap-1 px-3" aria-hidden>
+      {rows.map((row) => (
+        <span
+          key={`${row.kind}:${row.id}`}
+          className={cn(
+            "h-1 flex-1 rounded-full transition-colors duration-500 motion-reduce:transition-none",
+            row.state === "done" ? "bg-beige" : row.state === "current" ? "bg-beige/45 animate-pulse motion-reduce:animate-none" : "bg-border",
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** What a step shows when it is open: covered, the words that covered it; else what it asks, its parts as heard, and a
+ * question from this call (the brain's own for the step the call is on, or the one the tap asked for). */
+function StepBody({ row, suggestion, asked, ask, copy }: { row: StepRow; suggestion: string | null; asked: boolean; ask: StepAsk; copy: LiveCopy }) {
   if (row.state === "done") {
     return <p className="text-[12.5px] leading-snug text-muted-foreground">{row.by === "rep" ? copy.markedByYou : row.quote ? `«${row.quote}»` : copy.markedByYou}</p>;
   }
@@ -122,23 +127,13 @@ function StepBody({
           {row.need !== null && row.need < row.parts.length ? <span className="pl-1 text-[11.5px] text-muted-foreground">{copy.compact.enough(row.need, row.parts.length)}</span> : null}
         </div>
       ) : null}
-      {row.kind === "goal" ? null : asked ? (
-        <Asked ask={ask} item={{ kind: row.kind, id: row.id }} fallback={null} copy={copy} />
-      ) : current && suggestion ? (
-        <Question text={suggestion} />
-      ) : (
-        <button
-          type="button"
-          onClick={onAsk}
-          className="self-start rounded text-[12.5px] font-medium text-beige transition-colors duration-150 hover:text-beige/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/60"
-        >
-          {copy.compact.askThis}
-        </button>
-      )}
+      {row.kind === "goal" ? null : suggestion ? <Question text={suggestion} /> : asked ? <Asked ask={ask} item={{ kind: row.kind, id: row.id }} fallback={null} copy={copy} /> : null}
     </>
   );
 }
 
+/** One step: the circle ticks it, the rest of the row opens it. Every step is an equal row: the one the call is on has a
+ * mark («Ahora»), not a box of its own, and a pending step shows a question mark so the row reads as something to press. */
 function StepItem({
   row,
   open,
@@ -147,7 +142,6 @@ function StepItem({
   ask,
   copy,
   onToggle,
-  onAsk,
   onTick,
   onUntick,
 }: {
@@ -158,40 +152,38 @@ function StepItem({
   ask: StepAsk;
   copy: LiveCopy;
   onToggle: () => void;
-  onAsk: () => void;
   onTick: () => void;
   onUntick: () => void;
 }) {
   const current = row.state === "current";
+  const done = row.state === "done";
   return (
     <div
       {...(current ? { "data-current": true } : {})}
-      className={cn(
-        "rounded-xl px-3 transition-colors duration-200 motion-reduce:transition-none",
-        current ? "bg-beige/10 py-2.5 ring-1 ring-inset ring-beige/25" : open ? "bg-secondary/50 py-2" : "py-1.5",
-      )}
+      className={cn("group rounded-xl px-3 transition-colors duration-200 motion-reduce:transition-none", open ? "bg-secondary/50 py-2" : "py-1 hover:bg-secondary/60")}
     >
       <div className="flex items-center gap-2.5">
         <Tick row={row} copy={copy} onTick={onTick} onUntick={onUntick} />
-        {current ? (
-          <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-foreground">{row.label}</span>
-        ) : (
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-expanded={open}
-            className={cn(
-              "min-w-0 flex-1 truncate rounded text-left text-[13px] transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/60 motion-reduce:transition-none",
-              row.state === "done" ? "text-muted-foreground/70" : open ? "text-foreground" : "text-muted-foreground",
-            )}
-          >
-            {row.label}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/60"
+        >
+          <span className={cn("min-w-0 truncate text-[13px]", done ? "text-muted-foreground/70" : current || open ? "font-medium text-foreground" : "text-foreground/80")}>{row.label}</span>
+          {current ? <span className="inline-flex h-[18px] shrink-0 items-center rounded-full bg-beige/15 px-1.5 text-[10.5px] font-medium text-beige">{copy.compact.now}</span> : null}
+          <span className="flex-1" />
+          {!done && row.kind !== "goal" ? (
+            <span className={cn("inline-flex shrink-0 items-center gap-1 text-[11.5px] transition-colors duration-150 motion-reduce:transition-none", open ? "text-beige" : "text-muted-foreground group-hover:text-beige")}>
+              <MessageCircleQuestion className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden />
+              <span className={open ? "" : "hidden group-hover:inline"}>{copy.compact.question}</span>
+            </span>
+          ) : null}
+        </button>
       </div>
-      {current || open ? (
-        <div className="flex flex-col gap-1.5 pl-[26px] pt-1.5 animate-in fade-in duration-200 motion-reduce:animate-none">
-          <StepBody row={row} current={current} suggestion={suggestion} asked={asked} ask={ask} copy={copy} onAsk={onAsk} />
+      {open ? (
+        <div className="flex flex-col gap-1.5 pb-0.5 pl-[26px] pt-1 animate-in fade-in duration-200 motion-reduce:animate-none">
+          <StepBody row={row} suggestion={suggestion} asked={asked} ask={ask} copy={copy} />
         </div>
       ) : null}
     </div>
@@ -208,7 +200,7 @@ function Chip({ chip, open, onToggle }: { chip: DataChip; open: boolean; onToggl
       onClick={onToggle}
       aria-expanded={open}
       className={cn(
-        "inline-flex h-7 max-w-full items-center gap-1 rounded-full px-2.5 text-[12.5px] transition-colors duration-200 motion-reduce:transition-none",
+        "inline-flex h-7 max-w-full items-center gap-1.5 rounded-full px-2.5 text-[12.5px] transition-colors duration-200 motion-reduce:transition-none",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/60",
         done ? "bg-beige/15 text-foreground hover:bg-beige/20" : "text-muted-foreground ring-1 ring-inset ring-border hover:text-foreground",
         (open || chip.state === "current") && !done && "text-foreground ring-beige/60",
@@ -216,7 +208,8 @@ function Chip({ chip, open, onToggle }: { chip: DataChip; open: boolean; onToggl
       )}
     >
       {done ? <Check className="h-3 w-3 shrink-0 text-beige animate-in zoom-in-50 duration-300 motion-reduce:animate-none" strokeWidth={2} /> : null}
-      <span className="truncate">{chip.label}</span>
+      <span className="shrink-0">{chip.label}</span>
+      {done && chip.detail ? <span className="min-w-0 truncate text-muted-foreground">{chip.detail}</span> : null}
     </button>
   );
 }
@@ -275,10 +268,10 @@ function ChipBody({
 }
 
 /**
- * Pasos, the compact window's main tab: the playbook's steps in order, ticking themselves as the call covers them. The step
- * that matters now is open, with the brain's question from this call. A tap on any other step or on something to find out
- * opens it in place and asks the brain for a question about it, written from what has been said. Nothing hides behind a
- * hover.
+ * Pasos, the compact window's main tab (2026-11-10): a line of progress, then the playbook's steps as equal rows that tick
+ * themselves as the call covers them. No step is forced open: the one the call is on carries «Ahora». A tap on any step or
+ * on something to find out opens it in place; a pending one is asked to the brain at once, a question written from what
+ * has been said. What they say shows inside its chip. Nothing hides behind a hover.
  */
 export function StepsPane({
   view,
@@ -321,12 +314,31 @@ export function StepsPane({
     setAsked({ kind, id });
     onAsk(kind, id);
   };
-  // Opening a pending item asks for its question at once: the tap is the ask. Closing it keeps nothing.
+  // Opening a pending item asks for its question at once: the tap is the ask (the step the call is on already has the
+  // brain's own). Closing it keeps nothing.
   const toggle = (kind: "step" | "data" | "goal", id: string, pending: boolean) => {
     if (same(opened, kind, id)) return setOpened(null);
     setOpened({ kind, id });
-    if (pending && kind !== "goal") askFor(kind, id);
+    const hasOwn = view.suggestion && ((kind === "step" && current?.id === id) || (kind === "data" && currentChip?.id === id));
+    if (pending && kind !== "goal" && !hasOwn) askFor(kind, id);
   };
+
+  // What they have just told us: named beside «Por averiguar» for a few seconds when a chip ticks itself.
+  const known = useRef<Set<string> | null>(null);
+  const [noted, setNoted] = useState<string[]>([]);
+  const doneKey = view.data.filter((chip) => chip.state === "done" && chip.by !== "rep").map((chip) => chip.id).join(",");
+  useEffect(() => {
+    const done = view.data.filter((chip) => chip.state === "done" && chip.by !== "rep");
+    const before = known.current;
+    known.current = new Set(done.map((chip) => chip.id));
+    if (before === null) return;
+    const fresh = done.filter((chip) => !before.has(chip.id)).map((chip) => chip.label);
+    if (!fresh.length) return;
+    setNoted(fresh);
+    const timer = window.setTimeout(() => setNoted([]), NOTED_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doneKey]);
 
   if (!helpOn) return <p className="px-6 pt-8 text-center text-[13px] text-muted-foreground">{copy.off}</p>;
   if (!view.hasPlaybook) {
@@ -341,10 +353,11 @@ export function StepsPane({
   }
 
   const openChip = opened?.kind === "data" ? view.data.find((chip) => chip.id === opened.id) ?? null : null;
-  const chipShown = openChip ?? currentChip;
+  const chipShown = openChip;
   return (
     <div ref={ref} className="relative h-full overflow-y-auto px-2.5 pb-4 pt-3">
-      <div className="flex flex-col gap-1">
+      {view.rows.length ? <ProgressLine rows={view.rows} /> : null}
+      <div className="mt-2.5 flex flex-col gap-0.5">
         {view.rows.length ? (
           view.rows.map((row) => (
             <StepItem
@@ -356,7 +369,6 @@ export function StepsPane({
               ask={ask}
               copy={copy}
               onToggle={() => toggle(row.kind, row.id, row.state !== "done")}
-              onAsk={() => row.kind !== "goal" && askFor(row.kind, row.id)}
               onTick={() => onTick(row.id, row.kind)}
               onUntick={() => onUntick(row.id, row.kind)}
             />
@@ -367,8 +379,16 @@ export function StepsPane({
       </div>
 
       {view.data.length ? (
-        <div {...(currentChip && !current ? { "data-current": true } : {})} className="mt-5 space-y-2 px-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{copy.compact.toFind}</p>
+        <div {...(currentChip && !current ? { "data-current": true } : {})} className="mt-4 space-y-2 px-3">
+          <div className="flex h-5 items-center gap-2">
+            <p className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{copy.compact.toFind}</p>
+            {noted.length ? (
+              <span key={noted.join()} className="inline-flex min-w-0 items-center gap-1 text-[11.5px] text-beige animate-in fade-in slide-in-from-left-1 duration-300 motion-reduce:animate-none">
+                <Check className="h-3 w-3 shrink-0" strokeWidth={2} />
+                <span className="truncate">{copy.compact.noted(noted.join(", "))}</span>
+              </span>
+            ) : null}
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {view.data.map((chip) => (
               <Chip key={chip.id} chip={chip} open={same(opened, "data", chip.id)} onToggle={() => toggle("data", chip.id, chip.state !== "done")} />

@@ -12,6 +12,7 @@ A session lives in `playbook_assistant_sessions` (kind `gaps`):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Callable, Optional
 
@@ -20,6 +21,7 @@ from app.services.playbooks.api_support import StructureRequest, company_context
 from app.services.playbooks.assistant_store import AssistantStore
 from app.services.playbooks.catalog import catalog_label
 from app.services.playbooks.fill import FillError, fill_company, fill_playbook
+from app.services.playbooks.call_gaps import recent_call_rows, unanswered_gaps
 from app.services.playbooks.gaps import MAX_GAPS, Gap, build_gaps, gap_from_dict, recent_suggest_events
 from app.services.playbooks.repository import PlaybookRepository
 from app.services.playbooks.structured import (
@@ -53,7 +55,7 @@ def _remaining(state: dict) -> list[dict]:
 
 
 def public_gap(gap: dict) -> dict:
-    return {key: gap.get(key) for key in ("key", "kind", "question", "seen", "example", "motion_key")}
+    return {key: gap.get(key) for key in ("key", "kind", "question", "seen", "example", "motion_key", "draft", "options")}
 
 
 def public_session(session: dict) -> dict:
@@ -142,6 +144,8 @@ async def start_gaps_session(
     events: Optional[list[dict]] = None,
     conflicts: Optional[list[Gap]] = None,
     process_types: Optional[list[dict]] = None,
+    call_rows: Optional[list[dict]] = None,
+    llm: Any = None,
     limit: int = MAX_GAPS,
 ) -> dict:
     """The company's open session, or a new one with up to `limit` gaps. A session with nothing left to ask is
@@ -151,14 +155,19 @@ async def start_gaps_session(
     if open_session is not None:
         return open_session
     knowledge = (repository.get_knowledge(company_id) or {}).get("data") or {}
+    entries = _own_entries(repository, company_id)
+    events = events if events is not None else recent_suggest_events(supabase, company_id)
+    # Weeks of calls: read off the event loop, which also serves live calls.
+    rows = call_rows if call_rows is not None else await asyncio.to_thread(recent_call_rows, supabase, company_id)
     gaps = build_gaps(
-        entries=_own_entries(repository, company_id),
+        entries=entries,
         knowledge=knowledge,
-        events=events if events is not None else recent_suggest_events(supabase, company_id),
+        events=events,
         lang=lang,
         limit=limit,
         conflicts=conflicts,
         process_types=process_types if process_types is not None else _process_types(supabase, repository, company_id),
+        real=await unanswered_gaps(call_rows=rows, events=events, entries=entries, lang=lang, llm=llm),
     )
     state = {
         "gaps": [g.as_dict() for g in gaps], "answered": {}, "skipped": [], "pending": {}, "undo": {},

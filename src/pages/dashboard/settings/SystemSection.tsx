@@ -5,7 +5,8 @@ import { DesktopPermissionRows } from "@/features/desktop/DesktopPermissionsPane
 import { useDesktopMeeting } from "@/features/desktop/DesktopMeetingProvider";
 import { useAudioCheck } from "@/features/desktop/useAudioCheck";
 import { useDesktopPermissions } from "@/features/desktop/useDesktopPermissions";
-import { desktopPlatform } from "@/lib/desktop-host";
+import { useDesktopUpdates } from "@/features/desktop/useDesktopUpdates";
+import { desktopPlatform, type DesktopUpdateStatus } from "@/lib/desktop-host";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +47,7 @@ const SystemSection = () => {
   const permissions = useDesktopPermissions();
   const meeting = useDesktopMeeting();
   const check = useAudioCheck();
+  const updates = useDesktopUpdates();
   const recording = meeting.available && meeting.phase !== "idle";
   const { running, yieldToRecording } = check;
 
@@ -112,8 +114,58 @@ const SystemSection = () => {
         ) : null}
       </div>
 
+      {updates?.status ? (
+        <div className={card}>
+          <div className="flex items-start justify-between gap-6">
+            <div className="min-w-0">
+              <h3 className={THEME_TOKENS.typography.sectionTitle}>Updates</h3>
+              <p className="text-xs text-muted-foreground mt-1">Vocify {updates.status.version}</p>
+              <p
+                className={cn("text-sm mt-3", updates.status.state === "failed" ? "text-warning" : "text-foreground")}
+                role="status"
+                aria-live="polite"
+              >
+                {updateLine(updates.status)}
+              </p>
+            </div>
+            {updates.status.state !== "unavailable" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-full shrink-0"
+                disabled={["checking", "downloading", "ready"].includes(updates.status.state)}
+                onClick={updates.check}
+              >
+                Check for updates
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
+
+/** What the Updates card says about where updating stands. */
+function updateLine(status: DesktopUpdateStatus): string {
+  switch (status.state) {
+    case "unavailable":
+      return "This copy of Vocify doesn't update itself.";
+    case "idle":
+    case "checking":
+      return "Checking for updates…";
+    case "current":
+      return `Up to date · checked at ${new Date(status.checkedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    case "downloading":
+      return `Downloading ${status.next}…`;
+    case "ready":
+      return `${status.next} is ready. Vocify restarts into it as soon as nothing is being recorded.`;
+    case "failed": {
+      const reason = status.reason.split("\n")[0].slice(0, 140);
+      return `Couldn't check for updates: ${reason}`;
+    }
+  }
+}
 
 export default SystemSection;

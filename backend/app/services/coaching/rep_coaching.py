@@ -148,6 +148,9 @@ def interaction_row(memo: dict) -> dict | None:
                 "nature": item.get("nature") or None,
                 "advice": item.get("advice") or None,
                 "line": item.get("line") or None,
+                # C04 v10: what happened right after the rep's reply, and the prospect's words that show it.
+                "after": item.get("after") or None,
+                "after_quote": item.get("after_quote") or None,
             })
     return {
         "memo_id": str(memo.get("id") or ""),
@@ -165,6 +168,8 @@ def interaction_row(memo: dict) -> dict | None:
         "summary_line": (_outcome_line(intel) or _first_plain_line(str(extraction.get("summary") or "")))[:SUMMARY_MAX_CHARS],
         "steps": steps,
         "objections": objections,
+        # C04 v10/v11 read the objections against every answer of the playbook: one with no id has no answer.
+        "answers_read": intel.get("prompt_version") in ANSWERS_VERSIONS,
         # C04 v9: the call as a whole (the error that cost it most, how to steer it, the best it could give).
         "reading": intel.get("reading") if isinstance(intel.get("reading"), dict) else None,
     }
@@ -275,6 +280,28 @@ def objection_entry(entries: list[dict], key: str) -> Optional[dict]:
     return None
 
 
+# The analyses that read objections against every answer (C04 v10/v11, extract.ANSWERS_VERSIONS).
+ANSWERS_VERSIONS = frozenset({"intelligence_v10", "intelligence_v11"})
+# An objection the company has no answer for yet (C04 v10/v11 with no answer id): its own row, never hidden.
+UNANSWERED = "unanswered"
+AFTER_STATES = ("advanced", "stalled", "ended")
+
+
+def objection_key(item: dict, answers: dict[str, dict], answers_read: bool) -> str:
+    """The playbook answer an objection is grouped under: the company's own («custom:<slug>») or one filed under a
+    usual category («price»), by the id the call reading gave it; with none, under «unanswered» when the reading
+    looked at every answer (C04 v10/v11), else its category as before."""
+    answer_id = str(item.get("objection_id") or "")
+    if answer_id:
+        if f"custom:{answer_id}" in answers:
+            return f"custom:{answer_id}"
+        if answer_id in answers:
+            return answer_id
+    if answers_read and answers:
+        return UNANSWERED
+    return str(item.get("category") or "other")
+
+
 def call_objections(row: dict, entries: list[dict]) -> list[dict]:
     """The objections the prospect raised in one conversation (not obstacles), each with the key the
     playbook answers it by, how it ended, what they said and what the rep replied."""
@@ -285,14 +312,15 @@ def call_objections(row: dict, entries: list[dict]) -> list[dict]:
     for item in row.get("objections") or []:
         if item.get("kind") != "objection":
             continue
-        custom = f"custom:{item['objection_id']}" if item.get("objection_id") else None
-        key = custom if custom in answers else item["category"]
+        key = objection_key(item, answers, bool(row.get("answers_read")))
         out.append({
             "key": key,
             "category": key.split(":", 1)[0] if key.startswith("custom:") else key,
             "label": (answers.get(key) or {}).get("label"),
             "how": (answers.get(key) or {}).get("how"),
             "resolution": item.get("resolution") or "unknown",
+            "after": item.get("after"),
+            "after_quote": item.get("after_quote"),
             "quote": item.get("quote"),
             "response": item.get("response"),
             "nature": item.get("nature"),
@@ -345,31 +373,57 @@ def slipped_steps(rows: list[dict], steps: list[dict], limit: int = OCCURRENCE_L
     return sorted(out, key=lambda item: (-item["missing"], -item["improvable"]))
 
 
-def objection_breakdown(rows: list[dict], entries: list[dict], limit: int = OCCURRENCE_LIMIT) -> list[dict]:
-    """Every objection the prospects raised in these conversations (objections, not obstacles), the
-    ones left open most first: how many, how each went (what they said, what the rep replied) and the
-    playbook's answer."""
+def objection_breakdown(
+    rows: list[dict], entries: list[dict], limit: int = OCCURRENCE_LIMIT, peer_rows: list[dict] | None = None,
+) -> list[dict]:
+    """Every objection the prospects raised in these conversations (objections, not obstacles), grouped by the
+    playbook answer it is for: how many, what happened right after each reply (C04 v10: moved on, stalled, ended),
+    each time with what they said and what the rep replied, the playbook's answer, and what colleagues replied to it
+    when the call moved on (`worked`, from `peer_rows`). The ones that went worst first."""
     answers = _objection_answers(entries)
     tally: dict[str, dict] = {}
+    # Calls read against every answer and calls read before it count different things (what followed vs resolved), so
+    # once any call has the newer reading the table is built from those calls alone, never a mix.
+    by_after = any(row.get("answers_read") for row in rows)
+    if by_after:
+        rows = [row for row in rows if row.get("answers_read")]
+
+    def entry_for(key: str) -> dict:
+        return tally.setdefault(key, {"total": 0, "open": 0, "resolved": 0, "advanced": 0, "stalled": 0, "ended": 0,
+                                      "occurrences": [], "worked": []})
+
     for row in sorted(rows, key=lambda r: r["observed_at"], reverse=True):
         if not row.get("is_conversation", True):
             continue
         for item in row.get("objections") or []:
             if item.get("kind") != "objection":
                 continue
-            custom = f"custom:{item['objection_id']}" if item.get("objection_id") else None
-            key = custom if custom in answers else item["category"]
-            entry = tally.setdefault(key, {"total": 0, "open": 0, "resolved": 0, "occurrences": []})
+            entry = entry_for(objection_key(item, answers, bool(row.get("answers_read"))))
             entry["total"] += 1
             if item.get("resolution") in ("open", "resolved"):
                 entry[item["resolution"]] += 1
+            if item.get("after") in AFTER_STATES:
+                entry[item["after"]] += 1
             if len(entry["occurrences"]) < limit:
                 entry["occurrences"].append({
                     "memo_id": row["memo_id"],
                     "observed_at": row["observed_at"],
                     "resolution": item.get("resolution") or "unknown",
+                    "after": item.get("after"),
+                    "after_quote": item.get("after_quote"),
                     "quote": item.get("quote"),
                     "response": item.get("response"),
+                })
+    for row in sorted(peer_rows or [], key=lambda r: r["observed_at"], reverse=True):
+        if not row.get("is_conversation", True):
+            continue
+        for item in row.get("objections") or []:
+            if item.get("kind") != "objection" or item.get("after") != "advanced" or not item.get("response"):
+                continue
+            key = objection_key(item, answers, bool(row.get("answers_read")))
+            if key in tally and len(tally[key]["worked"]) < WORKED_LIMIT:
+                tally[key]["worked"].append({
+                    "quote": item.get("quote"), "response": item.get("response"), "after_quote": item.get("after_quote"),
                 })
     return [
         {
@@ -377,10 +431,17 @@ def objection_breakdown(rows: list[dict], entries: list[dict], limit: int = OCCU
             "category": key.split(":", 1)[0] if key.startswith("custom:") else key,
             "label": (answers.get(key) or {}).get("label"),
             "how": (answers.get(key) or {}).get("how"),
+            "by_after": by_after,
             **entry,
         }
-        for key, entry in sorted(tally.items(), key=lambda pair: (-pair[1]["open"], -pair[1]["total"], pair[0]))
+        # The objections with no answer yet are a group, not an objection: always last.
+        for key, entry in sorted(tally.items(), key=lambda pair: (
+            pair[0] == UNANSWERED, -(pair[1]["stalled"] + pair[1]["ended"]), -pair[1]["open"], -pair[1]["total"], pair[0]))
     ]
+
+
+# What colleagues replied when the call moved on, per objection: a few to learn from, newest first.
+WORKED_LIMIT = 3
 
 
 def process_complete(row: dict) -> bool:

@@ -47,7 +47,17 @@ CALL_READING_FLAG = "INTELLIGENCE_CALL_READING_ENABLED"
 # not re-read when a company turns it on: only new conversations get it.
 COACHING_READING_PROMPT_VERSION = "intelligence_v9"
 COACHING_READING_FLAG = "COACHING_READING_ENABLED"
-CALL_READING_VERSIONS = frozenset({CALL_READING_PROMPT_VERSION, COACHING_READING_PROMPT_VERSION})
+# v10 = v8 and v11 = v9 with the objections read against EVERY answer of the company's playbook (not only its own
+# objections, so an objection with no answer is one the company has to write), only what pushes back on the offer or
+# on going ahead counted as one (not their situation, an answer to the rep's question or a complaint about their tool
+# today), and what happened right after the rep's reply (`after`, `after_quote`): a fact of the call that coaching
+# shows instead of whether the prospect gave in (Dani, 2026-11-10). They replace v8 and v9 for new conversations; v8
+# and v9 blocks stay current (no re-read).
+ANSWERS_PROMPT_VERSION = "intelligence_v10"
+COACHING_ANSWERS_PROMPT_VERSION = "intelligence_v11"
+_ANSWERS_VERSIONS = frozenset({ANSWERS_PROMPT_VERSION, COACHING_ANSWERS_PROMPT_VERSION})
+_COACHING_VERSIONS = frozenset({COACHING_READING_PROMPT_VERSION, COACHING_ANSWERS_PROMPT_VERSION})
+CALL_READING_VERSIONS = frozenset({CALL_READING_PROMPT_VERSION, COACHING_READING_PROMPT_VERSION, *_ANSWERS_VERSIONS})
 CURRENT_PROMPT_VERSIONS = frozenset({
     PROMPT_VERSION, OBSERVATIONS_PROMPT_VERSION, QUALIFICATION_PROMPT_VERSION, *CALL_READING_VERSIONS,
 })
@@ -487,6 +497,33 @@ def _qualification_observations(
 
 
 _NATURE = frozenset({"sin_dolor", "alternativa", "fondo", "objecion", "duda"})
+_AFTER = frozenset({"advanced", "stalled", "ended", "unknown"})
+_MAX_ANSWERS = 30
+_ANSWER_MAX = 300
+
+
+def playbook_answers(entries: list[dict]) -> list[dict]:
+    """v10: every objection answer of a playbook version, as the call reading names it: a company's own
+    objection by its slug, one filed under a usual category by the category («price»). {id, label, trigger,
+    answer}; an entry with no answer text is left out (there is nothing to coach against)."""
+    out: list[dict] = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        answer = " ".join(str(entry.get("guidance") or "").split())
+        category = str(entry.get("category") or "").strip().lower()
+        entry_id = str(entry.get("entry_id") or "").strip()
+        answer_id = entry_id[len(_CUSTOM_ENTRY_PREFIX):] if category == "custom" and entry_id.startswith(_CUSTOM_ENTRY_PREFIX) else (
+            category if category and category != "custom" else "")
+        if not answer or not answer_id or any(o["id"] == answer_id for o in out):
+            continue
+        out.append({
+            "id": answer_id,
+            "label": " ".join(str(entry.get("label") or "").split()),
+            "trigger": " ".join(str(entry.get("trigger") or "").split()),
+            "answer": answer[:_ANSWER_MAX],
+        })
+    return out[:_MAX_ANSWERS]
 _PAIN_READING = frozenset({"found", "absent", "not_reached", "unclear"})
 _ADVICE_MAX = 400
 _LINE_MAX = 280
@@ -597,7 +634,15 @@ def shape_intelligence(
             # does not have (or one on an obstacle) is dropped, the category stays a fixed one.
             matched = str(item.get("objection_id") or "").strip()
             entry["objection_id"] = matched if kind == "objection" and matched in custom_ids else None
-        if prompt_version == COACHING_READING_PROMPT_VERSION and kind == "objection":
+        if prompt_version in _ANSWERS_VERSIONS and kind == "objection":
+            # v10: what happened right after the reply, and the prospect's words that show it.
+            after = item.get("after") if item.get("after") in _AFTER else "unknown"
+            after_ref = _prospect_evidence(memo_id, item.get("after_quote"), transcript) if isinstance(item.get("after_quote"), str) and item.get("after_quote").strip() else None
+            entry["after"] = after if after == "unknown" or after_ref is not None else "unknown"
+            entry["after_quote"] = after_ref["quote"] if after_ref is not None else None
+            if after_ref is not None:
+                evidence[after_ref["id"]] = after_ref
+        if prompt_version in _COACHING_VERSIONS and kind == "objection":
             # v9: what it really was (no need, another tool, the idea itself...) and what would have served.
             entry["nature"] = item.get("nature") if item.get("nature") in _NATURE else None
             entry["advice"] = _sentence(item.get("advice"), _ADVICE_MAX)
@@ -656,7 +701,7 @@ def shape_intelligence(
     }
     if prompt_version in _READS_QUALIFICATION:
         shaped["qualification_observations"] = qualification
-    if prompt_version == COACHING_READING_PROMPT_VERSION:
+    if prompt_version in _COACHING_VERSIONS:
         shaped["reading"] = _reading(memo_id, raw.get("reading"), transcript, evidence)
     if prompt_version in CALL_READING_VERSIONS:
         shaped["next"] = _next_actions(
@@ -725,7 +770,8 @@ def build_messages(
             ]
         if playbook_objections:
             payload["playbook_objections"] = [
-                {"id": str(item.get("id") or ""), "label": str(item.get("label") or ""), "trigger": str(item.get("trigger") or "")}
+                {"id": str(item.get("id") or ""), "label": str(item.get("label") or ""), "trigger": str(item.get("trigger") or ""),
+                 **({"answer": str(item["answer"])} if item.get("answer") else {})}
                 for item in playbook_objections
                 if item.get("id")
             ]
@@ -774,7 +820,7 @@ def pinned_playbook_steps(supabase: Any, memo: dict) -> list[dict]:
     return [step for step in steps if isinstance(step, dict) and step.get("step_id")]
 
 
-def playbook_qualification_inputs(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+def playbook_qualification_inputs(rows: list[dict], *, every_answer: bool = False) -> tuple[list[dict], list[dict]]:
     """(criteria, custom objections) from a pinned version row, tolerant of anything missing:
     no `qualification` column, an empty one, or an entry without a label."""
     row = rows[0] if rows else {}
@@ -792,6 +838,8 @@ def playbook_qualification_inputs(rows: list[dict]) -> tuple[list[dict], list[di
             criterion["good"] = good
         criteria.append(criterion)
     objections: list[dict] = []
+    if every_answer:
+        return criteria[:_MAX_CRITERIA], playbook_answers(row.get("entries") or [])
     for entry in row.get("entries") or []:
         if not isinstance(entry, dict) or entry.get("category") != "custom":
             continue
@@ -804,9 +852,10 @@ def playbook_qualification_inputs(rows: list[dict]) -> tuple[list[dict], list[di
     return criteria[:_MAX_CRITERIA], objections[:_MAX_CUSTOM_OBJECTIONS]
 
 
-def pinned_qualification_inputs(supabase: Any, memo: dict) -> tuple[list[dict], list[dict]]:
+def pinned_qualification_inputs(supabase: Any, memo: dict, *, every_answer: bool = False) -> tuple[list[dict], list[dict]]:
     """The qualification criteria and the company's own objections of the version pinned on
-    this memo. ([], []) when nothing is pinned, the column is not there yet or the read fails."""
+    this memo (with `every_answer`, v10: every objection answer of the playbook). ([], []) when nothing
+    is pinned, the column is not there yet or the read fails."""
     version_id = memo.get("playbook_version_id")
     if not version_id:
         return [], []
@@ -819,7 +868,7 @@ def pinned_qualification_inputs(supabase: Any, memo: dict) -> tuple[list[dict], 
             break
         except Exception:
             continue
-    return playbook_qualification_inputs(rows)
+    return playbook_qualification_inputs(rows, every_answer=every_answer)
 
 
 def pinned_playbook_answer_categories(supabase: Any, memo: dict) -> frozenset[str] | None:
@@ -865,8 +914,8 @@ def extraction_plan(supabase: Any, memo: dict) -> tuple[str, list[dict]]:
     from app.services.feature_flags import is_enabled
 
     if is_enabled(supabase, memo.get("company_id"), CALL_READING_FLAG):
-        version = (COACHING_READING_PROMPT_VERSION if is_enabled(supabase, memo.get("company_id"), COACHING_READING_FLAG)
-                   else CALL_READING_PROMPT_VERSION)
+        version = (COACHING_ANSWERS_PROMPT_VERSION if is_enabled(supabase, memo.get("company_id"), COACHING_READING_FLAG)
+                   else ANSWERS_PROMPT_VERSION)
         return version, pinned_playbook_steps(supabase, memo)
     if is_enabled(supabase, memo.get("company_id"), QUALIFICATION_FLAG):
         return QUALIFICATION_PROMPT_VERSION, pinned_playbook_steps(supabase, memo)
@@ -889,7 +938,7 @@ def _intelligence_inputs(supabase: Any, memo_id: str) -> dict:
     qualification: list[dict] = []
     objections: list[dict] = []
     if prompt_version in _READS_QUALIFICATION:
-        qualification, objections = pinned_qualification_inputs(supabase, memo)
+        qualification, objections = pinned_qualification_inputs(supabase, memo, every_answer=prompt_version in _ANSWERS_VERSIONS)
     context = call_context(supabase, memo) if prompt_version in CALL_READING_VERSIONS else {}
     return {
         "memo": memo,

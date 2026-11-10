@@ -20,7 +20,7 @@ from app.services.coaching import rep_coaching as engine
 from app.services.coaching import rep_coaching_reads as reads
 from app.services.coaching.rep_focus import FLOW_WEEKS, motion_for_flow, published_flows, resolve_flow
 from app.services.coaching.score_rows import current_score, current_scores
-from app.services.activity_scope import effective_visibility, memo_readable_by
+from app.services.activity_scope import can_view_company_activity, effective_visibility, memo_readable_by
 from app.services.company import CompanyService, Membership
 from app.services.feature_flags import is_enabled
 from app.services.playbooks.catalog import INTERNAL_KEY
@@ -559,7 +559,13 @@ async def get_my_coaching_calls(
     playbook = playbook_for(chosen)
     # Everything to go through one by one: each slipped step and each objection, with its calls.
     body["slipped_steps"] = engine.slipped_steps(window, playbook["steps"], include_done=True)
-    body["objections"] = engine.objection_breakdown(window, playbook["entries"])
+    # What colleagues replied when the call moved on: only for a rep who may read the team's calls.
+    peer_rows: list[dict] = []
+    if can_view_company_activity(membership.role, effective_visibility(supabase, membership)):
+        peer_ids = reads.load_peer_ids(supabase, membership.company_id, membership.user_id)
+        peer_memos = reads.load_memos(supabase, membership.company_id, peer_ids, start=window_start, motion=chosen)
+        peer_rows = [row for row in _in_window(_rows_of(peer_memos), window_start, week_end) if row["motion"] == chosen]
+    body["objections"] = engine.objection_breakdown(window, playbook["entries"], peer_rows=peer_rows)
     calls: list[dict] = []
     for row in conversations:
         part = engine.adherence_part(row) or {}

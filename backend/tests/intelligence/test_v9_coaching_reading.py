@@ -154,9 +154,10 @@ def test_v9_needs_both_flags(monkeypatch):
     on.add(extract.COACHING_READING_FLAG)
     assert extract.extraction_plan(None, memo)[0] != COACHING_READING_PROMPT_VERSION
     on.add(extract.CALL_READING_FLAG)
-    assert extract.extraction_plan(None, memo)[0] == COACHING_READING_PROMPT_VERSION
+    # Since 2026-11-10 new conversations get v11 / v10 (v9 / v8 with the objections read against every answer).
+    assert extract.extraction_plan(None, memo)[0] == extract.COACHING_ANSWERS_PROMPT_VERSION
     on.discard(extract.COACHING_READING_FLAG)
-    assert extract.extraction_plan(None, memo)[0] == CALL_READING_PROMPT_VERSION
+    assert extract.extraction_plan(None, memo)[0] == extract.ANSWERS_PROMPT_VERSION
 
 
 def test_coaching_reads_the_reading_and_the_objection_fields():

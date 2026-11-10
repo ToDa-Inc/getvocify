@@ -77,8 +77,11 @@ WHAT IS A POINT
 - A fact about themselves given as a reason not to go on, not to change or not to meet IS an objection, not their situation:
   «somos pocos vehículos, no nos compensa», «ya tenemos proveedor», «ahora no nos hace falta». When it is what an APPROVED
   ANSWER is for (its name or what they say), it is that point: "type" and "source_id" are that answer's id and "say" is its
-  guidance WHOLE, every sentence of it, tied to their words where that fits. Never drop the end of an approved answer: its
-  close (a meeting, a next step) is the point of it. A guidance's blanks ([día], [hora]) are never written: say real
+  guidance WHOLE, every sentence of it that is said to the prospect, tied to their words where that fits. Never drop the end
+  of an approved answer: its close (a meeting, a next step) is the point of it. A guidance sentence that is the rep's OWN step
+  (what the rep does, not what they say: «Pido el contacto correcto y abro una secuencia nueva», «Lo doy de baja en
+  PipeDrive», «Registro la objeción», «Reciclo el lead») is never written as words to say: turn it into what the rep asks
+  the prospect («¿Me pasas el contacto de tu socio?») or leave it out. A guidance's blanks ([día], [hora]) are never written: say real
   days from TODAY, and no hour unless one was said in the call.
 - A question or objection the rep already dealt with in a later "You:" line is not a point to write now (list it in "closed" as
   answered if it is in OPEN AND RECENT POINTS). Never write a "say" from what the rep said later in the call than the point. When unsure, no point: a missed moment
@@ -333,6 +336,22 @@ def without_placeholders(text: str) -> str:
     left reads on its own («el jueves a las [hora]» → «el jueves»)."""
     out = _DANGLING.sub("", PLACEHOLDER.sub("", _PLACEHOLDER_PHRASE.sub("", text)))
     return re.sub(r"\s+([,.?!])", r"\1", " ".join(out.split()))
+
+
+# A playbook's own note for the rep that the model copied as a line to say: a sentence that starts with what the rep does,
+# or one about the rep's sequence. A CRM's name alone is not one: «Sí, se integra con HubSpot.» is said to the prospect.
+_REP_STEP = re.compile(
+    r"\bsecuencias?\b|^(?:pido el contacto|lo doy de baja|la doy de baja|registro|reciclo|anoto|lo marco|la marco|lo paso a|"
+    r"abro una)\b",
+    re.IGNORECASE,
+)
+
+
+def without_rep_steps(text: str) -> str:
+    """The line without the sentences that are the rep's own steps («Lo doy de baja en PipeDrive y no insisto.»): those are
+    done, not said to the prospect."""
+    sentences = re.split(r"(?<=[.?!…])\s+", " ".join(text.split()))
+    return " ".join(s for s in sentences if s and not _REP_STEP.search(s.strip("¿¡«» ")))
 
 
 def short(text: Any) -> tuple[str, bool]:
@@ -654,6 +673,10 @@ def _content(item: dict, snapshot: Optional[dict], sources: dict[str, str], allo
     if clean != said:
         said = clean
         drop("placeholder_removed")
+    clean = without_rep_steps(said)
+    if clean != said:
+        said = clean
+        drop("rep_step_removed")
     say, trimmed = short(said)
     if trimmed:
         drop("filler_opening")

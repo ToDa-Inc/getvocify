@@ -28,7 +28,7 @@ def as_user(db):
 def test_a_rep_sees_their_key_status_but_not_the_member_list(as_user):
     body = as_user(REP).get("/api/v1/mcp/settings").json()
     assert body["enabled"] is True and body["transcripts_enabled"] is False
-    assert body["key"] == {"has_key": False, "prefix": None, "created_at": None}
+    assert body["key"] == {"has_key": False, "prefix": None, "created_at": None, "can_write": False}
     assert body["server_url"].endswith("/mcp") and "members" not in body
 
 

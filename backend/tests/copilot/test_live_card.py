@@ -87,6 +87,39 @@ def test_the_end_of_their_intervention_is_read_and_a_question_or_objection_is_ur
     assert live_card.due("turn_end", "none", CALL, end, end[-1], end[-1]) is None
 
 
+def test_a_question_of_theirs_is_urgent_even_when_the_turn_check_saw_nothing():
+    # «Ya, pero es que eso es caro, ¿no?»: the turn check said "none" in 2 of 3 tries (synthetic Movertis call, 2026-11-09).
+    call = CALL[:1] + [{"id": "t1", "who": "them", "text": "Ya, pero es que eso es caro, ¿no? Con veinte furgonetas no sé si me sale a cuenta.", "t": 6.0}]
+    end = live_card.ends(call)
+    assert live_card.due("turn_end", "none", call, end, end[-1], None) == "them_urgent"
+
+
+def test_the_reading_is_told_the_objection_they_raised_and_its_approved_answer(monkeypatch):
+    snapshot = {**SNAPSHOT, "entries": SNAPSHOT["entries"] + [
+        {"entry_id": "objection:custom:es_caro", "label": "Es caro", "guidance": "¿Respecto a qué te parece caro?"}]}
+    note = live_card.spotted("objection:custom:es_caro", snapshot)
+    assert "THEY JUST RAISED: «Es caro»" in note and "¿Respecto a qué te parece caro?" in note and "never instead of it" in note
+    assert "Plan desde 49 €" in live_card.spotted("price", snapshot)
+    assert live_card.spotted("none", snapshot) == "" and live_card.spotted(None, snapshot) == ""
+    assert live_card.spotted("trust", snapshot) == "\n\nTHEY JUST RAISED: an objection (trust). Answer it before anything else."
+    seen = []
+
+    async def ask(system, user, schema, *, max_tokens, temperature):
+        meta = {"model": "direct:test", "latency_ms": 10, "error": None}
+        if system == live_card.SYSTEM:
+            seen.append(user)
+            return answer(), meta
+        if system == live_card.FACT_SYSTEM:
+            return {"unsupported": False, "what": ""}, meta
+        if system == live_card.CLOSING_SYSTEM:
+            return {"closing": False, "evidence": ""}, meta
+        return {"repeats": False, "same_as": "", "why": ""}, meta
+
+    monkeypatch.setattr(live_card, "ask", ask)
+    run(live_card.read_card(reading(reason="turn_end", objection="price"), CTX))
+    assert "THEY JUST RAISED" in seen[0] and "Plan desde 49 €" in seen[0]
+
+
 def test_a_listening_sound_is_not_an_intervention():
     call = turns(("you", "Te cuento rápidamente cómo funciona la herramienta con vuestro equipo comercial.", 0.0), ("them", "Vale, sí.", 5.0))
     end = live_card.ends(call)
@@ -132,6 +165,37 @@ def test_the_sources_are_the_replays_and_the_calendar_names_the_days():
     sources = live_card.sources_text(CTX, "discovery")
     assert "USUAL GOAL FOR THIS TYPE OF CALL" in sources and "APPROVED ANSWERS" in sources and "STEPS (" in sources
     assert live_card.calendar(sources).startswith("CALENDAR: lunes 26 oct (hoy), martes 27 oct")
+
+
+def test_a_card_never_pairs_a_weekday_with_another_days_date_nor_invents_an_hour():
+    # Cards a reading wrote on synthetic Movertis calls (2026-11-09: Monday 9; Thursday 12, Tuesday 10).
+    sources = "TODAY: Monday 2026-11-09 (Europe/Madrid)"
+    fix = live_card.fixed_days
+    assert fix("Perfecto, lo dejamos para después del puente; ¿te parece el martes 12 a las 10:00?", sources, "") == (
+        "Perfecto, lo dejamos para después del puente; ¿te parece el martes?"
+    )
+    assert fix("Con esto que me cuentas, ¿te encaja una reunión de 20 minutos el jueves 12 a las 10?", sources, "") == (
+        "Con esto que me cuentas, ¿te encaja una reunión de 20 minutos el jueves 12?"
+    )
+    # An hour said in the call stays; minutes are not a date.
+    said = "¿Te viene mejor el jueves a las 10 o el viernes a las 12?"
+    assert fix("Entonces el jueves 12 a las 10, ¿te lo confirmo?", sources, said) == "Entonces el jueves 12 a las 10, ¿te lo confirmo?"
+    assert fix("¿Lo vemos el martes 10 en 20 minutos?", sources, "") == "¿Lo vemos el martes 10 en 20 minutos?"
+    # An hour in words or with «horas» goes whole (a reading wrote «el miércoles a las 10 horas»; another «a las diez»).
+    assert fix("¿Te llamo el miércoles a las 10 horas y lo comentamos?", sources, "") == "¿Te llamo el miércoles y lo comentamos?"
+    assert fix("¿Fijamos el jueves a las diez y lo vemos juntos?", sources, "") == "¿Fijamos el jueves y lo vemos juntos?"
+    assert fix("¿Fijamos el jueves a las diez y media?", sources, "") == "¿Fijamos el jueves?"
+    assert fix("Llámale a partir de las diez, ¿te va el jueves a las diez?", sources, "a partir de las diez") == (
+        "Llámale a partir de las diez, ¿te va el jueves a las diez?")
+    # Any number said in the call is not an hour said: the rep's opening had «a diez minutos o a 300 kilómetros».
+    assert fix("¿te llamo el miércoles a las 10 y lo vemos en 20 minutos?", sources,
+               "¿cómo sabes si está a diez minutos o a 300 kilómetros?") == "¿te llamo el miércoles y lo vemos en 20 minutos?"
+    # A date with its month it cannot vouch for keeps the month, not a weekday that would read as next week.
+    assert fix("Perfecto, te lo mando. ¿Te llamo el martes 12 de enero para retomarlo?", sources, "") == (
+        "Perfecto, te lo mando. ¿Te llamo en enero para retomarlo?")
+    assert fix("¿Te va bien el jueves 12 de noviembre?", sources, "") == "¿Te va bien el jueves 12 de noviembre?"
+    # A date past the calendar cannot be checked: the weekday alone.
+    assert fix("Te llamo en junio; ¿te parece el martes 2?", sources, "") == "Te llamo en junio; ¿te parece el martes?"
 
 
 def test_the_companys_way_of_working_replaces_the_usual_goal_and_is_never_a_source():
@@ -406,6 +470,30 @@ def test_asked_a_card_with_an_unsupported_claim_gets_one_more_try_but_an_automat
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "drop:unsupported_fact"
 
 
+def test_a_question_no_source_answers_gets_an_honest_line_not_silence(monkeypatch):
+    # «¿Hay que instalarlo en cada furgoneta? ¿Cuánto tiempo lleva?» went without a card on three synthetic Movertis calls.
+    lines = iter([answer(line="La instalación no os obliga a parar furgonetas, se hace en un rato.", action="answer"),
+                  answer(line="Eso te lo confirmo con el equipo técnico. ¿Cuántas furgonetas tendríais que equipar?", action="answer")])
+    facts = iter([True, False])
+    seen = []
+
+    async def ask(system, user, schema, *, max_tokens, temperature):
+        meta = {"model": "direct:test", "latency_ms": 10, "error": None}
+        if system == live_card.SYSTEM:
+            seen.append(user)
+            return next(lines), meta
+        if system == live_card.FACT_SYSTEM:
+            return {"unsupported": next(facts), "what": ""}, meta
+        if system == live_card.CLOSING_SYSTEM:
+            return {"closing": False, "evidence": ""}, meta
+        return {"repeats": False, "same_as": "", "why": ""}, meta
+
+    monkeypatch.setattr(live_card, "ask", ask)
+    result = run(live_card.read_card(reading(reason="turn_end"), CTX))
+    assert result["event"] == "shown" and result["points"][0]["answer"].startswith("Eso te lo confirmo")
+    assert "Their question is not answered in the SOURCES" in seen[1]
+
+
 def test_asked_again_the_same_words_are_another_try_not_nothing(monkeypatch):
     shown_say = "Vale, cada uno en su cabeza. ¿Y cuánto tarda un comercial nuevo en vender solo con ese sistema?"
     lines = iter([answer(line="Vale, cada uno en su cabeza. ¿Y cuánto tarda un comercial nuevo en vender solo así?"),
@@ -429,3 +517,24 @@ def test_asked_again_the_same_words_are_another_try_not_nothing(monkeypatch):
     assert result["event"] == "shown" and result["points"][0]["answer"].startswith("¿Quién decide")
     assert f"REPEATS «{shown_say}»" in seen[1]
 
+
+
+def test_the_cards_reach_the_playbooks_improvement_step():
+    # Since the card became everyone's brain (2026-11-09) the improvement step got nothing: it reads these rows.
+    from types import SimpleNamespace as T
+    turns = [T(id="t0", who="you", text="¿Os encaja?"), T(id="t1", who="them", text="Ya, pero es que eso es caro, ¿no?")]
+    answered = {"moment": "them_urgent", "points": [{
+        "id": "card-1", "kind": "question", "turn_ids": ["t1"], "answer": "¿Respecto a qué te parece caro?",
+        "source": {"id": "objection:custom:es_caro", "label": "Playbook · Es caro"},
+    }]}
+    common = dict(user_id="u", company_id="co", call_mode="softphone", sales_motion_key="frio", call_id="c1", turns=turns)
+    (row,) = events.strategic_card_rows(**common, objection="objection:custom:es_caro", result=answered)
+    assert row["is_objection"] and row["kind"] == "points" and row["latest_turn"] == "Ya, pero es que eso es caro, ¿no?"
+    assert row["entry_id"] == row["source_id"] == "objection:custom:es_caro" and row["objection_type"] == "custom"
+    assert row["say_this"] == "¿Respecto a qué te parece caro?" and row["detail"]["card"] == "shown"
+    # Flagged and nothing shown: a missed objection, what the gaps count.
+    (missed,) = events.strategic_card_rows(**common, objection="price", result={"moment": "them_urgent", "points": []})
+    assert missed["detail"]["card"] == "missed" and missed["objection_type"] == "price" and missed["say_this"] is None
+    # A question built only on the conversation, at a turn nobody flagged: not something to answer, not logged.
+    deepen = {"moment": "them_end", "points": [{"id": "card-2", "kind": "deepen", "turn_ids": ["t1"], "answer": "¿Qué os falta?", "source": None}]}
+    assert events.strategic_card_rows(**common, objection="none", result=deepen) == []

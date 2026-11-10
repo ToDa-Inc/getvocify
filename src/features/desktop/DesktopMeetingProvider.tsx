@@ -114,6 +114,8 @@ const NATIVE_MIC_SILENT_MS = 3000;
  * not found), so the page's mic goes to the server's echo removal everywhere.
  */
 const ASK_NATIVE_MIC_ON = new Set<string>();
+/** One second of 16 kHz mono 16-bit silence: the call side's lead is sent in pieces this size. */
+const SILENCE_CHUNK_BYTES = 32_000;
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
 
@@ -189,6 +191,8 @@ export type DesktopMeeting = {
 };
 
 const MAX_RECONNECTS = 5;
+/** The server's words stopped coming back (its speech-to-text is failing): what the rep is told, here and on the island. */
+const TRANSCRIPT_PAUSED = "Transcript paused: we may be updating our servers. Your call is still being recorded.";
 /** The server answers CloseStream with EndOfTranscript as soon as the last finals are flushed (well under a second),
  * and gives up after 3 s; this waits a second longer so its answer always wins. */
 const DRAIN_MS = 4000;
@@ -273,6 +277,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const micHeardRef = useRef(false);
   /** The call audio's process died (the Mac's own report); silence checks never clear that. */
   const callAudioDiedRef = useRef(false);
+  /** Sides whose words stopped coming back from the server (its speech-to-text failing): the transcript is paused. */
+  const stalledRef = useRef<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [pending, setPending] = useState<MeetingDraft[]>([]);
@@ -336,6 +342,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const recoveredForRef = useRef<string | null>(null);
   const userIdRef = useRef("");
   const wsRef = useRef<WebSocket | null>(null);
+  /** Audio bytes sent to the current session, per side: the call side's first frame is lined up with the mic's. */
+  const sentBytesRef = useRef<Record<MeetingSpeaker, number>>({ rep: 0, prospect: 0 });
   /** Which sides have had their first words transcribed in this recording (logged once each). */
   const firstWordsRef = useRef<{ rep?: boolean; prospect?: boolean }>({});
   /** Who the meeting app showed speaking, timed on the other side's audio clock (page recording only). */
@@ -595,6 +603,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const openSocket = useCallback(() => {
     // A new session times its audio from zero again: who spoke is timed from its first audio too.
     if (speakersRef.current) speakersRef.current = { timeline: new SpeakerTimeline(), clockAt: null };
+    sentBytesRef.current = { rep: 0, prospect: 0 };
     const echoCancel = serverEchoCancel(echoCancelRef.current, nativeMicRef.current, micEchoRef.current);
     const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current, { echoCancel, captureId: draftRef.current?.id }));
     wsRef.current = ws;
@@ -603,6 +612,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       if (ticketRef.current) ws.send(liveAuthMessage(ticketRef.current));
       reconnectsRef.current = 0;
       setWarning(null);
+      // A new session says again if its words still do not come back.
+      if (stalledRef.current.size) {
+        stalledRef.current.clear();
+        getDesktopBridge()?.shell.setState({ transcriptPaused: false });
+      }
       setSpeaking({ you: false, them: false });
       speakingRef.current = { rep: false, prospect: false };
     };
@@ -668,8 +682,18 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       } else if (data.type === "ChannelReset") {
         const next = resetChannel(transcriptRef.current, data.audio_channel, data.from);
         if (next !== transcriptRef.current) updateTranscript(next);
-      } else if (data.type === "Error") {
-        setWarning(typeof data.error === "string" ? data.error : "Transcription error");
+      } else if (data.type === "TranscriptionPaused" || data.type === "Error") {
+        // The audio still reaches the server; its words do not come back. Said plainly, not as the provider's error.
+        if (data.type === "Error") console.warn("Live transcription error:", data.error);
+        stalledRef.current.add(typeof data.audio_channel === "string" ? data.audio_channel : "all");
+        setWarning(TRANSCRIPT_PAUSED);
+        getDesktopBridge()?.shell.setState({ transcriptPaused: true });
+      } else if (data.type === "TranscriptionResumed") {
+        stalledRef.current.delete(typeof data.audio_channel === "string" ? data.audio_channel : "all");
+        if (!stalledRef.current.size) {
+          setWarning((current) => (current === TRANSCRIPT_PAUSED ? null : current));
+          getDesktopBridge()?.shell.setState({ transcriptPaused: false });
+        }
       }
     };
     ws.onclose = () => {
@@ -1381,6 +1405,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       const recorder = call ? undefined : bridge.recorder;
       let ctx: AudioContext | null = null;
       let micStream: MediaStream | null = null;
+      let pendingCallAudio: ReturnType<typeof bridge.systemAudio.start> | null = null;
       const openMic = async () => {
         const getUserMedia = (constraints: MediaStreamConstraints) => navigator.mediaDevices.getUserMedia(constraints);
         // The picked mic when it is connected; otherwise (or when it will not open) the system's default.
@@ -1415,30 +1440,41 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           // Apps that capture the mic with the call (`nativeMic`) are asked to; the others, or one that could not
           // (no microphone permission yet), leave it to the page, which opens it first as before.
           const askNative = ASK_NATIVE_MIC_ON.has(desktopPlatform() ?? "") && Boolean(bridge.nativeMic);
-          if (!askNative) await openMic();
-
-          let native = await bridge.systemAudio.start({ mic: askNative });
-          // Written to the desktop app's log (it keeps every "call:" line), so a refusal says why.
-          reportCallStep("system-audio-start", { ok: native.ok, reason: native.reason ?? null, backend: native.backend ?? null });
-          if (!native.ok && native.reason !== "permission_denied" && native.reason !== "needs_restart") {
-            // The Mac's first capture after launch can outlast its 5 s wait, or meet one still letting go: once more.
-            await new Promise((resolve) => window.setTimeout(resolve, 1000));
-            native = await bridge.systemAudio.start({ mic: askNative });
-            reportCallStep("system-audio-retry", { ok: native.ok, reason: native.reason ?? null, backend: native.backend ?? null });
-          }
-          // What the permission rows show next: the fix steps after a refusal while allowed, "Ready" once it works.
-          if (native.ok && native.backend !== "none") reportCallAudio("worked");
-          else if (!native.ok && desktopPlatform() === "darwin" && isBrokenGrant(native.reason)) reportCallAudio("failed");
-          if (!native.ok) throw systemAudioError(native.reason);
-          nativeMicRef.current = native.mic === true && Boolean(bridge.nativeMic);
-          reportCallStep("microphone", { native: nativeMicRef.current });
-          if (askNative && !nativeMicRef.current) {
-            try {
-              await openMic();
-            } catch (error) {
-              await bridge.systemAudio.stop();
-              throw error;
+          const startCallAudio = async () => {
+            let native = await bridge.systemAudio.start({ mic: askNative });
+            // Written to the desktop app's log (it keeps every "call:" line), so a refusal says why.
+            reportCallStep("system-audio-start", { ok: native.ok, reason: native.reason ?? null, backend: native.backend ?? null });
+            if (!native.ok && native.reason !== "permission_denied" && native.reason !== "needs_restart") {
+              // The Mac's first capture after launch can outlast its wait, or meet one still letting go: once more.
+              await new Promise((resolve) => window.setTimeout(resolve, 1000));
+              native = await bridge.systemAudio.start({ mic: askNative });
+              reportCallStep("system-audio-retry", { ok: native.ok, reason: native.reason ?? null, backend: native.backend ?? null });
             }
+            // What the permission rows show next: the fix steps after a refusal while allowed, "Ready" once it works.
+            if (native.ok && native.backend !== "none") reportCallAudio("worked");
+            else if (!native.ok && desktopPlatform() === "darwin" && isBrokenGrant(native.reason)) reportCallAudio("failed");
+            return native;
+          };
+          if (askNative) {
+            // The mic comes with the call's audio here: the recording waits for both.
+            const native = await startCallAudio();
+            if (!native.ok) throw systemAudioError(native.reason);
+            nativeMicRef.current = native.mic === true && Boolean(bridge.nativeMic);
+            reportCallStep("microphone", { native: nativeMicRef.current });
+            if (!nativeMicRef.current) {
+              try {
+                await openMic();
+              } catch (error) {
+                await bridge.systemAudio.stop();
+                throw error;
+              }
+            }
+          } else {
+            // The recording goes live with the mic. The call's audio joins when the computer hands it over, which on a
+            // Mac took from 0.3 s to over 20 s (2026-11-09): the rep never waits on it.
+            await openMic();
+            pendingCallAudio = startCallAudio();
+            reportCallStep("microphone", { native: false });
           }
         }
 
@@ -1554,10 +1590,20 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           if (bridge.devTrace && draftRef.current) bridge.devTrace.audio(channel === "rep" ? "mic" : "call", raw, performance.now(), draftRef.current.startedAt);
           const ws = wsRef.current;
           if (ws?.readyState === WebSocket.OPEN) {
+            const sent = sentBytesRef.current;
+            // The call's audio can join seconds after the mic. Its first frame is preceded by as much silence as the mic
+            // has sent, so both sides keep one clock (the server lines them up by samples to take the echo out).
+            const lead = !call && channel === "prospect" && sent.prospect === 0 ? sent.rep : 0;
+            for (let at = 0; at < lead; at += SILENCE_CHUNK_BYTES) {
+              ws.send(encodeChannelAudio("prospect", new ArrayBuffer(Math.min(SILENCE_CHUNK_BYTES, lead - at))));
+            }
             ws.send(encodeChannelAudio(channel, audio));
+            sent[channel] += lead + audio.byteLength;
             // The other side's audio clock starts with its first frame sent (result times count from it).
             const speakers = speakersRef.current;
-            if (channel === "prospect" && speakers && speakers.clockAt === null) speakers.clockAt = performance.now();
+            if (channel === "prospect" && speakers && speakers.clockAt === null) {
+              speakers.clockAt = performance.now() - (lead / 2 / LIVE_STT_SAMPLE_RATE) * 1000;
+            }
           }
         };
         /**
@@ -1636,6 +1682,22 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             ];
       }
 
+      if (pendingCallAudio) {
+        const id = draftRef.current.id;
+        void pendingCallAudio.then((native) => {
+          if (draftRef.current?.id !== id || phaseRef.current !== "live") {
+            // Ended while the call's audio was still starting: the capture that came up late is let go.
+            if (native.ok && phaseRef.current !== "starting" && phaseRef.current !== "live") void bridge.systemAudio.stop();
+            return;
+          }
+          if (native.ok) return;
+          // The recording carries on with the rep's side, as when the call's audio stops mid-call.
+          setWarning("Meeting audio didn't start. Your mic is still recording.");
+          callAudioDiedRef.current = true;
+          bridge.shell.setState({ callAudioLost: true });
+        });
+      }
+
       setElapsed("00:00");
       pausedRef.current = false;
       pausedTotalRef.current = 0;
@@ -1673,9 +1735,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         // Words waiting to stop changing appear on time even when nothing new arrives.
         if (steadyRef.current.waiting()) sendOverlay(transcriptRef.current);
       }, 125);
+      stalledRef.current.clear();
       bridge.shell.setState({
         listening: true,
         callAudioLost: false,
+        transcriptPaused: false,
         micSilent: false,
         paused: false,
         clock: meetingClock(),

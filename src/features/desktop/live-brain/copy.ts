@@ -108,6 +108,12 @@ const ES = {
     vocifyDecides: "Que lo decida Vocify",
     proposed: "propuesto",
     noType: "Sin tipo",
+    thinking: "Pensando",
+    older: "Respuestas anteriores",
+    done: { answer: "Respondido", explore: "Preguntado" },
+    now: "Ahora",
+    question: "Pregunta",
+    noted: (what: string) => `Apuntado: ${what}`,
   },
 };
 
@@ -220,6 +226,12 @@ const EN: Copy = {
     vocifyDecides: "Let Vocify decide",
     proposed: "proposed",
     noType: "No type",
+    thinking: "Thinking",
+    older: "Earlier answers",
+    done: { answer: "Answered", explore: "Asked" },
+    now: "Now",
+    question: "Question",
+    noted: (what) => `Noted: ${what}`,
   },
 };
 

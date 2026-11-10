@@ -15,6 +15,10 @@ export type GapView = {
   seen: number;
   example: string | null;
   motion_key: string | null;
+  /** A rep's reply in a call that moved forward after it: a starting point to edit, not an approved answer. */
+  draft?: string | null;
+  /** The two versions of a fact that do not match, offered as buttons. */
+  options?: string[] | null;
 };
 
 export type GapSession = {
@@ -145,7 +149,7 @@ export const assistantApi = {
   // Several documents become one draft per call type; the model reads each, so it waits well past the default 20 s.
   intake: (sources: SourceInput[]) => api.post<IntakeManyResult>(`${BASE}/intake`, { sources }, { timeoutMs: 240_000 }),
 
-  startGaps: (body: { motion_key?: string; lang: "es" | "en" }) => api.post<GapSession>(`${BASE}/gaps/session`, body),
+  startGaps: (body: { motion_key?: string; lang: "es" | "en" }) => api.post<GapSession>(`${BASE}/gaps/session`, body, SLOW),
   currentGaps: () => api.get<{ session: GapSession | null }>(`${BASE}/gaps/session/current`),
   answerGap: (sessionId: string, gapKey: string, source: SourceInput) =>
     api.post<AnswerResult>(`${BASE}/gaps/session/${encodeURIComponent(sessionId)}/answer`, { gap_key: gapKey, ...source }, SLOW),
