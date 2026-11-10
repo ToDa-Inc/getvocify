@@ -7,6 +7,7 @@ import {
   checkPath,
   checkStamps,
   checkTiming,
+  earlyOutcome,
   cooldownLeft,
   repReplied,
   skipAnswered,
@@ -419,5 +420,18 @@ describe("quiet follows the line", () => {
   it("never calls speech quiet, however noisy the line", () => {
     assert.equal(silentLevel({ floor: 0.9, peak: 1 }), 0.4);
     assert.equal(prospectSilent(0.5, { floor: 0.45, peak: 1 }), false);
+  });
+});
+
+describe("earlyOutcome", () => {
+  it("shows the card when they said nothing more and stayed quiet", () => {
+    assert.equal(earlyOutcome({ sameWords: true, spoke: false }), "show");
+  });
+  it("drops it when more words arrived: they get their own check", () => {
+    assert.equal(earlyOutcome({ sameWords: false, spoke: false }), "drop");
+    assert.equal(earlyOutcome({ sameWords: false, spoke: true }), "drop");
+  });
+  it("waits and checks again when their voice came back without new words yet", () => {
+    assert.equal(earlyOutcome({ sameWords: true, spoke: true }), "recheck");
   });
 });

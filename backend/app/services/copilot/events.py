@@ -35,6 +35,8 @@ _ui_paused_until = 0.0
 UI_EVENTS = frozenset({
     "shown", "dismissed", "reopened", "rewrite", "ask_step", "tick", "untick", "responder", "bubble",
     "open_recap", "open_steps", "open_brief", "marker_shown", "marker_seen",
+    # A card reading asked for before the turn was known to be over: whether its result reached the screen.
+    "early_kept", "early_dropped",
 })
 UI_DETAIL_KEYS = 12
 _last_purge = float("-inf")  # never purged yet (monotonic time may be small right after a boot)

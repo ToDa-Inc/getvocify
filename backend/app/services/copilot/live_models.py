@@ -136,3 +136,5 @@ class CardReading(LiveReading):
     last_read_t: Optional[float] = Field(default=None, ge=0)
     # The call's clock at the reading (seconds, pauses held): when the cards appear. Turns only say when each one started.
     now_t: Optional[float] = Field(default=None, ge=0)
+    # Asked for while the turn check still said "still going": the client shows its card only if they then stay quiet.
+    early: bool = False

@@ -184,6 +184,8 @@ export function buildCardReading(input: {
   lastReadT?: number | null;
   /** The call's clock at the reading, in seconds: when the card appears. */
   nowT?: number | null;
+  /** Asked for before their turn was known to be over: the log says so (its card may never be shown). */
+  early?: boolean;
 }): Record<string, unknown> {
   return {
     ...buildReading({ ...input, producer: "points" }),
@@ -191,6 +193,7 @@ export function buildCardReading(input: {
     ...(input.objection ? { objection: input.objection.slice(0, 200) } : {}),
     ...(typeof input.lastReadT === "number" ? { last_read_t: input.lastReadT } : {}),
     ...(typeof input.nowT === "number" ? { now_t: input.nowT } : {}),
+    ...(input.early ? { early: true } : {}),
   };
 }
 

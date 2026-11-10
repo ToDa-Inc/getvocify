@@ -4,7 +4,7 @@ import { playbooksApi } from "@/features/playbooks/api";
 import { getDesktopBridge } from "@/lib/desktop-host";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { api } from "@/shared/lib/api-client";
-import { assistContext, BACKSTOP_MS, turnCheck } from "@/lib/live-assist";
+import { assistContext, BACKSTOP_MS, earlyOutcome, turnCheck } from "@/lib/live-assist";
 import {
   buildCardReading,
   buildReading,
@@ -45,7 +45,7 @@ const EVENTS_MS = 5000;
 /** The UI events the backend logs (contract §2.4); anything else the island sends is not ours to log. */
 const EVENT_KINDS = new Set([
   "shown", "dismissed", "reopened", "rewrite", "ask_step", "tick", "untick", "responder", "bubble",
-  "open_recap", "open_steps", "open_brief", "marker_shown", "marker_seen",
+  "open_recap", "open_steps", "open_brief", "marker_shown", "marker_seen", "early_kept", "early_dropped",
 ]);
 const POINT_EVENTS = new Set(["shown", "dismissed", "reopened", "rewrite"]);
 const STEP_EVENTS = new Set(["ask_step", "tick", "untick"]);
@@ -65,7 +65,9 @@ export type LiveBrainCall = {
   clockSeconds?: number | null;
 };
 
-type Spec = { reason: LiveReason; mark: ReadMark; typeChanged?: boolean; objection?: string | null; turnId?: string | null };
+/** `early`: asked for while the turn check still said "still going"; its card is held until it is known they stopped. */
+type Early = { key: string; turnKey: string; length: number; again: () => void };
+type Spec = { reason: LiveReason; mark: ReadMark; typeChanged?: boolean; objection?: string | null; turnId?: string | null; early?: Early };
 type Kind = "step" | "data" | "goal";
 type ResultPoint = { id: string };
 
@@ -322,7 +324,8 @@ export function useLiveBrain(
   const runCard = async (queued: Spec, options: { asked: boolean } = { asked: false }) => {
     const asked = options.asked && askedCardRef.current ? askedCardRef.current : null;
     askedCardRef.current = null;
-    const spec: Spec = asked ? { ...queued, reason: "responder", turnId: asked.turnId } : queued;
+    // The rep asked: never an early reading (its answer is theirs to see at once).
+    const spec: Spec = asked ? { ...queued, reason: "responder", turnId: asked.turnId, early: undefined } : queued;
     const all = toWireTurns(turnsRef.current);
     const wire = spec.turnId ? turnsUpTo(all, spec.turnId) ?? all : all;
     const responder = spec.reason === "responder";
@@ -342,11 +345,27 @@ export function useLiveBrain(
       objection: spec.objection ?? null,
       lastReadT: lastCardReadRef.current,
       nowT: callRef.current.clockSeconds ?? null,
+      early: Boolean(spec.early),
     });
+    if (spec.early) earlyRef.current = { key: spec.early.key, controller };
     setReading((r) => ({ ...r, points: true }));
     try {
       const result = await readCard(body, controller.signal);
       succeeded();
+      if (spec.early) {
+        // Read before it was known they had stopped: shown only when they said nothing more and stayed quiet.
+        const outcome = earlyOutcome({ sameWords: keyRef.current === spec.early.key, spoke: spokeRef.current });
+        logEvent(outcome === "show" ? "early_kept" : "early_dropped", { detail: { result: String(result.event ?? ""), outcome } });
+        if (outcome !== "show") {
+          // Their voice came back without new words yet: the usual wait, then one final check.
+          if (outcome === "recheck") backstopRef.current = window.setTimeout(spec.early.again, BACKSTOP_MS);
+          return;
+        }
+        markRef.current = { turnKey: spec.early.turnKey, length: spec.early.length };
+        lastPointsAtRef.current = Date.now();
+        repReadRef.current = { words: repWords(turnsRef.current), at: Date.now() };
+        readers.current!.progress.request({ reason: "turn_end", mark: spec.mark });
+      }
       if (typeof result.read_t === "number" && !String(result.event ?? "").startsWith("skipped")) lastCardReadRef.current = result.read_t;
       if (result.points?.length || result.closed?.length) commit(applyPoints(stateRef.current, result, { asked: responder }));
       if (responder) {
@@ -359,6 +378,7 @@ export function useLiveBrain(
       if (!refused(error)) failed();
     } finally {
       if (controllersRef.current.card === controller) controllersRef.current.card = null;
+      if (earlyRef.current?.controller === controller) earlyRef.current = null;
       setReading((r) => ({ ...r, points: false }));
     }
   };
@@ -404,6 +424,12 @@ export function useLiveBrain(
   }
 
   // ---- checkpoints ----
+  const backstopRef = useRef<number | undefined>(undefined);
+  /** Their words as last seen (the key of their latest turn), their audio's pause, and whether they spoke during an early reading. */
+  const keyRef = useRef("");
+  const pausedRef = useRef<boolean | null>(null);
+  const spokeRef = useRef(false);
+  const earlyRef = useRef<{ key: string; controller: AbortController } | null>(null);
   const markRef = useRef<ReadMark>(null);
   const lastPointsAtRef = useRef<number | null>(null);
   const repReadRef = useRef({ words: 0, at: null as number | null });
@@ -421,10 +447,14 @@ export function useLiveBrain(
   void _quiet;
   const lastKeyRef = useRef("");
   const checkRef = useRef<AbortController | null>(null);
-  const backstopRef = useRef<number | undefined>(undefined);
 
   const found = active ? assistContext(turns, markRef.current) : null;
   const key = found?.key ?? "";
+  keyRef.current = key;
+  pausedRef.current = paused;
+  if (paused === false) spokeRef.current = true;
+  // They went on: a reading asked for early is about words that are no longer their last. Stop it; the new words are checked.
+  if (earlyRef.current && earlyRef.current.key !== key) earlyRef.current.controller.abort();
 
   const check = (ctx: NonNullable<typeof found>, final: boolean) => {
     lastKeyRef.current = ctx.key;
@@ -445,6 +475,15 @@ export function useLiveBrain(
         if (longTurnDue({ lastReadAt: lastPointsAtRef.current, now: Date.now() })) {
           markRef.current = { turnKey: ctx.turnKey, length: ctx.length };
           read("long_turn", previous, "points");
+        } else if (cardRef.current && pausedRef.current === true) {
+          // The check says "still going" and they are quiet: in 7 of 10 such checks in production nothing more came
+          // within 2.5 s. The brain reads now instead of after the wait; its card shows only if they stay quiet.
+          spokeRef.current = false;
+          readers.current!.card.request({
+            reason: "turn_end", mark: previous, objection: turnObjection(turn),
+            early: { key: ctx.key, turnKey: ctx.turnKey, length: ctx.length, again: () => check(ctx, true) },
+          });
+          return;
         }
         backstopRef.current = window.setTimeout(() => check(ctx, true), BACKSTOP_MS);
         return;

@@ -171,6 +171,16 @@ export const PAUSE_MS = 300;
 export const BACKSTOP_MS = 1000;
 
 /**
+ * A reading asked for while the turn check still said "still going" (their audio was quiet): what happens to its card.
+ * "drop": they said more, and the new words get their own check. "recheck": their voice came back but no new words have
+ * arrived yet, so the usual wait and a final check follow. "show": they stopped; the card is theirs to see.
+ */
+export function earlyOutcome(input: { sameWords: boolean; spoke: boolean }): "show" | "drop" | "recheck" {
+  if (!input.sameWords) return "drop";
+  return input.spoke ? "recheck" : "show";
+}
+
+/**
  * After a card appears the rep is reading it, and saying it. No new check starts for this long, so the next
  * card never replaces one that is still being read. The prospect's words are not marked as handled meanwhile:
  * when the time is up, one check reads what they have said by then, so a fresh objection still gets a card.
