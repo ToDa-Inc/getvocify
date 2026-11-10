@@ -189,6 +189,9 @@ export type VocifyDesktopBridge = {
     status(): Promise<DesktopUpdateStatus | null>;
     /** Asks now; answers the state right after asking (changes follow on `onChanged`). */
     check(): Promise<DesktopUpdateStatus | null>;
+    /** Restarts into the downloaded build now: false while a recording, or a call note being saved, makes it wait.
+     * Missing in older builds. */
+    install?(): Promise<boolean>;
     onChanged(cb: (status: DesktopUpdateStatus) => void): () => void;
   };
   /** Meeting drafts on disk. Missing in builds older than local recovery. */

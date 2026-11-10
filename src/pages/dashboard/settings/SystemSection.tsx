@@ -125,10 +125,16 @@ const SystemSection = () => {
                 role="status"
                 aria-live="polite"
               >
-                {updateLine(updates.status)}
+                {updates.mustWait && updates.status.state === "ready"
+                  ? `Vocify restarts into ${updates.status.next} when the recording ends.`
+                  : updateLine(updates.status)}
               </p>
             </div>
-            {updates.status.state !== "unavailable" ? (
+            {updates.status.state === "ready" && updates.install ? (
+              <Button type="button" size="sm" className="rounded-full shrink-0" onClick={updates.install}>
+                Restart now
+              </Button>
+            ) : updates.status.state !== "unavailable" ? (
               <Button
                 type="button"
                 size="sm"
