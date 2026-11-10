@@ -215,6 +215,8 @@ describe("crmRecordKey", () => {
       "pipedrive:vocify-sandbox:lead:c94d8a70-d700-11f1-8ec0-61be409adeba",
     );
     assert.equal(crmRecordKey("https://acme.pipedrive.com/leads/inbox"), null);
+    assert.equal(crmRecordKey("https://vocify3.pipedrive.com/activities/list?selected=18&tab=activity"), "pipedrive:vocify3:activity:18");
+    assert.equal(crmRecordKey("https://vocify3.pipedrive.com/activities/list?tab=activity"), null);
     assert.equal(crmRecordKey("https://acme.pipedrive.com/deals/list/1"), null);
     assert.equal(crmRecordKey("https://oauth.pipedrive.com/deal/1"), null);
   });

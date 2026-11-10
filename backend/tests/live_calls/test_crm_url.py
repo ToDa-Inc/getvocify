@@ -21,6 +21,8 @@ HS = "https://app-eu1.hubspot.com/contacts/147506535"
             "https://vocify-sandbox.pipedrive.com/leads/inbox/C94D8A70-d700-11f1-8ec0-61be409adeba",
             CrmRecord("pipedrive", "lead", "c94d8a70-d700-11f1-8ec0-61be409adeba", "vocify-sandbox"),
         ),
+        ("https://vocify3.pipedrive.com/activities/list?selected=18&tab=activity", CrmRecord("pipedrive", "activity", "18", "vocify3")),
+        ("https://acme.pipedrive.com/activities/calendar/week?tab=activity&selected=7", CrmRecord("pipedrive", "activity", "7", "acme")),
     ],
 )
 def test_records(url, expected):

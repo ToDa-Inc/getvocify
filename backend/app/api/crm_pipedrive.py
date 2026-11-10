@@ -671,6 +671,47 @@ async def _load_lead_context(lead_id: str, supabase: Client, user_id: str) -> di
     return {"contactId": None, "contactName": None, "contactPhone": None, "contacts": []}
 
 
+@router.get("/activities/{activity_id}/context")
+async def get_pipedrive_activity_context(
+    activity_id: str,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """An activity open in the Activities list: the context of who it is with (its person, else its deal, lead or organization)."""
+    return await _CONTEXT_CACHE.get_or_set(f"pd:activity:{user_id}:{activity_id}", lambda: _load_activity_context(activity_id, supabase, user_id))
+
+
+def activity_person_id(activity: dict) -> Optional[str]:
+    """The activity's person: its primary participant (v2), else any participant, else the older person_id."""
+    participants = [p for p in (activity.get("participants") or []) if isinstance(p, dict) and assoc_id(p.get("person_id"))]
+    primary = next((p for p in participants if p.get("primary")), participants[0] if participants else None)
+    return assoc_id(primary.get("person_id")) if primary else assoc_id(activity.get("person_id"))
+
+
+async def _load_activity_context(activity_id: str, supabase: Client, user_id: str) -> dict:
+    empty = {"contactId": None, "contactName": None, "contactPhone": None, "contacts": []}
+    try:
+        row = _get_pipedrive_connection_row(supabase, user_id)
+        activity = await PipedriveSearchService(_pd_client_from_row(row, supabase)).get_activity(activity_id)
+    except HTTPException:
+        raise
+    except Exception:
+        return empty
+    person_id = activity_person_id(activity)
+    if person_id:
+        return await get_pipedrive_person_context(person_id, supabase=supabase, user_id=user_id)
+    deal_id = assoc_id(activity.get("deal_id"))
+    if deal_id:
+        return await get_pipedrive_deal_context(deal_id, supabase=supabase, user_id=user_id)
+    lead_id = assoc_id(activity.get("lead_id"))
+    if lead_id:
+        return await get_pipedrive_lead_context(lead_id, supabase=supabase, user_id=user_id)
+    org_id = assoc_id(activity.get("org_id"))
+    if org_id:
+        return await get_pipedrive_org_context(org_id, supabase=supabase, user_id=user_id)
+    return empty
+
+
 @router.get("/organizations/{org_id}/context")
 async def get_pipedrive_org_context(
     org_id: str,

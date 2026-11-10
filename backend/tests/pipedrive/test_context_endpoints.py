@@ -28,6 +28,12 @@ class Search:
     async def get_lead(self, lid):
         return {"id": lid, "person_id": 42} if lid == "c94d8a70-d700-11f1-8ec0-61be409adeba" else {"id": lid, "person_id": None, "organization_id": None}
 
+    async def get_activity(self, aid):
+        return {
+            "18": {"id": 18, "participants": [{"person_id": 99, "primary": False}, {"person_id": 42, "primary": True}]},
+            "19": {"id": 19, "person_id": None, "deal_id": 7},
+        }.get(aid, {"id": aid})
+
     async def persons_for_org(self, oid, limit=5):
         return [PEOPLE["42"]]
 
@@ -82,4 +88,20 @@ async def test_a_leads_inbox_page_is_called_through_the_leads_person():
 async def test_a_lead_without_a_person_offers_nobody():
     other = LEAD.replace("c94d8a70", "00000000")
     ctx = await calling_adapter("pipedrive").record_context(parse_crm_url(other), supabase=None, user_id="u")
+    assert ctx.callee is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("url", [
+    "https://acme.pipedrive.com/activities/list?selected=18&tab=activity",  # its primary participant
+    "https://acme.pipedrive.com/activities/list?selected=19&tab=activity",  # no person: its deal's
+])
+async def test_an_activity_open_in_the_list_is_called_through_who_it_is_with(url):
+    ctx = await calling_adapter("pipedrive").record_context(parse_crm_url(url), supabase=None, user_id="u")
+    assert (ctx.callee.contact_id, ctx.callee.phone) == ("42", "+34611222333")
+
+
+@pytest.mark.asyncio
+async def test_an_activity_with_nobody_offers_nobody():
+    ctx = await calling_adapter("pipedrive").record_context(parse_crm_url("https://acme.pipedrive.com/activities/list?selected=20"), supabase=None, user_id="u")
     assert ctx.callee is None

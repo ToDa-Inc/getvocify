@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Iterable, Literal, Optional, Union
 
 Provider = Literal["hubspot", "pipedrive"]
-ObjectType = Literal["contact", "company", "deal", "lead"]
+ObjectType = Literal["contact", "company", "deal", "lead", "activity"]
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,8 @@ _PIPEDRIVE_RECORD = re.compile(r"\.pipedrive\.com/(deal|person|organization)/(\d
 _PIPEDRIVE_TYPES = {"deal": "deal", "person": "contact", "organization": "company"}
 # A lead of Pipedrive's Leads inbox: its id is a UUID, and the person to call is the one it is linked to.
 _PIPEDRIVE_LEAD = re.compile(r"\.pipedrive\.com/leads/(?:inbox|archive)/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})", re.I)
+# An activity open in the Activities list (…/activities/list?selected=18&tab=activity): who to call is who it is with.
+_PIPEDRIVE_ACTIVITY = re.compile(r"\.pipedrive\.com/activities/[^?#]*\?(?:[^#]*&)?selected=(\d+)", re.I)
 
 
 def parse_crm_url(url: str) -> Union[CrmRecord, CrmPage, None]:
@@ -69,6 +71,9 @@ def parse_crm_url(url: str) -> Union[CrmRecord, CrmPage, None]:
         m = _PIPEDRIVE_LEAD.search(url)
         if m:
             return CrmRecord("pipedrive", "lead", m.group(1).lower(), app.group(1).lower())
+        m = _PIPEDRIVE_ACTIVITY.search(url)
+        if m:
+            return CrmRecord("pipedrive", "activity", m.group(1), app.group(1).lower())
         return CrmPage("pipedrive")
     return None
 

@@ -225,6 +225,8 @@ const HUBSPOT_LEGACY = /^https:\/\/app(?:-[a-z0-9]+)?\.hubspot\.com\/contacts\/(
 const LEGACY_TYPES: Record<string, string> = { contact: "0-1", company: "0-2", deal: "0-3" };
 const PIPEDRIVE_LEAD = /^https:\/\/(?!(?:api|oauth|www|developers|app)\.)([a-z0-9-]+)\.pipedrive\.com\/leads\/(?:inbox|archive)\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/i;
 const PIPEDRIVE_RECORD = /^https:\/\/(?!(?:api|oauth|www|developers|app)\.)([a-z0-9-]+)\.pipedrive\.com\/(deal|person|organization)\/(\d+)/i;
+/** An activity open in the Activities list (…/activities/list?selected=18&tab=activity). */
+const PIPEDRIVE_ACTIVITY = /^https:\/\/(?!(?:api|oauth|www|developers|app)\.)([a-z0-9-]+)\.pipedrive\.com\/activities\/[^?#]*\?(?:[^#]*&)?selected=(\d+)/i;
 
 /**
  * Which CRM record a page is, as a key: the same for every view of one record (tabs, query strings), so the island's
@@ -240,5 +242,7 @@ export function crmRecordKey(url: string): string | null {
   if (pipedrive) return `pipedrive:${pipedrive[1].toLowerCase()}:${pipedrive[2].toLowerCase()}:${pipedrive[3]}`;
   const lead = PIPEDRIVE_LEAD.exec(url);
   if (lead) return `pipedrive:${lead[1].toLowerCase()}:lead:${lead[2].toLowerCase()}`;
+  const activity = PIPEDRIVE_ACTIVITY.exec(url);
+  if (activity) return `pipedrive:${activity[1].toLowerCase()}:activity:${activity[2]}`;
   return null;
 }
