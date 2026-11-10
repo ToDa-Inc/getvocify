@@ -208,5 +208,8 @@ describe("objections by what followed the reply (C04 v10)", () => {
   it("reads a row by what followed only when it has it", () => {
     assert.equal(readByAfter({ advanced: 0, stalled: 1, ended: 0 }), true);
     assert.equal(readByAfter({}), false);
+    // The backend says which way the whole table is read: a row whose replies were all unclear still is.
+    assert.equal(readByAfter({ by_after: true, advanced: 0, stalled: 0, ended: 0 }), true);
+    assert.equal(readByAfter({ by_after: false, advanced: 1 }), false);
   });
 });

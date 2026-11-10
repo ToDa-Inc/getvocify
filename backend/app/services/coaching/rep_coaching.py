@@ -382,6 +382,11 @@ def objection_breakdown(
     when the call moved on (`worked`, from `peer_rows`). The ones that went worst first."""
     answers = _objection_answers(entries)
     tally: dict[str, dict] = {}
+    # Calls read against every answer and calls read before it count different things (what followed vs resolved), so
+    # once any call has the newer reading the table is built from those calls alone, never a mix.
+    by_after = any(row.get("answers_read") for row in rows)
+    if by_after:
+        rows = [row for row in rows if row.get("answers_read")]
 
     def entry_for(key: str) -> dict:
         return tally.setdefault(key, {"total": 0, "open": 0, "resolved": 0, "advanced": 0, "stalled": 0, "ended": 0,
@@ -426,10 +431,12 @@ def objection_breakdown(
             "category": key.split(":", 1)[0] if key.startswith("custom:") else key,
             "label": (answers.get(key) or {}).get("label"),
             "how": (answers.get(key) or {}).get("how"),
+            "by_after": by_after,
             **entry,
         }
+        # The objections with no answer yet are a group, not an objection: always last.
         for key, entry in sorted(tally.items(), key=lambda pair: (
-            -(pair[1]["stalled"] + pair[1]["ended"]), -pair[1]["open"], -pair[1]["total"], pair[0]))
+            pair[0] == UNANSWERED, -(pair[1]["stalled"] + pair[1]["ended"]), -pair[1]["open"], -pair[1]["total"], pair[0]))
     ]
 
 

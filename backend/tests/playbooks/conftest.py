@@ -44,3 +44,20 @@ def pg_empty_dsn(pg_cluster):
 @pytest.fixture
 def pg(pg_dsn):
     return pg_support.PgClient(pg_dsn)
+
+
+class _EachAlone:
+    """Grouping by meaning without a provider: every phrase is its own objection."""
+
+    def chat_json(self, messages, **_):
+        count = sum(1 for line in messages[-1]["content"].split("Phrases", 1)[-1].splitlines() if line[:1].isdigit())
+        return {"groups": [{"items": [i], "example": i} for i in range(count)]}
+
+
+@pytest.fixture(autouse=True)
+def _no_grouping_provider():
+    from app.services.playbooks.call_gaps import set_grouping_llm
+
+    set_grouping_llm(_EachAlone())
+    yield
+    set_grouping_llm(None)

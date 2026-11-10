@@ -115,6 +115,8 @@ export type CoachObjectionBreakdown = {
   open: number;
   resolved: number;
   /** C04 v10: how many times the call moved on, stalled or ended right after the reply. Absent from an older backend. */
+  /** True when the table counts only calls read against every answer, by what followed each reply. */
+  by_after?: boolean;
   advanced?: number;
   stalled?: number;
   ended?: number;
@@ -265,7 +267,8 @@ export function tableObjections(objections: CoachObjectionBreakdown[]): CoachObj
 }
 
 /** Whether a row is read by what followed each reply (C04 v10) rather than by whether the prospect gave in. */
-export function readByAfter(objection: Pick<CoachObjectionBreakdown, "advanced" | "stalled" | "ended">): boolean {
+export function readByAfter(objection: Pick<CoachObjectionBreakdown, "advanced" | "stalled" | "ended" | "by_after">): boolean {
+  if (objection.by_after !== undefined) return objection.by_after;
   return (objection.advanced ?? 0) + (objection.stalled ?? 0) + (objection.ended ?? 0) > 0;
 }
 

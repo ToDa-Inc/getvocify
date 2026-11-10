@@ -43,3 +43,17 @@ def test_what_colleagues_said_when_the_call_moved_on_is_shown_for_that_objection
     ]
     (item,) = engine.objection_breakdown(mine, ENTRIES, peer_rows=peers)
     assert item["worked"] == [{"quote": "ahora no", "response": "¿Por qué, qué cambiaría para el año que viene?", "after_quote": "déjame mirarlo"}]
+
+
+def test_once_a_call_has_the_newer_reading_older_calls_are_left_out_instead_of_shown_as_unknown():
+    rows = [
+        row([obj("timing", "advanced")], memo="new"),
+        row([obj(None, None, category="status_quo")], answers_read=False, memo="old"),
+    ]
+    table = engine.objection_breakdown(rows, ENTRIES)
+    assert [item["key"] for item in table] == ["timing"] and table[0]["by_after"] is True
+
+
+def test_the_group_without_an_answer_is_always_last():
+    rows = [row([obj(None, "ended", category="trust"), obj(None, "ended", category="trust"), obj("timing", "advanced")])]
+    assert [item["key"] for item in engine.objection_breakdown(rows, ENTRIES)] == ["timing", "unanswered"]

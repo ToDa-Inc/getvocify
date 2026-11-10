@@ -31,6 +31,7 @@ const REAL = {
   seen: 3,
   example: "Y si no nos gusta, ¿cómo cancelamos el servicio?",
   motion_key: "discovery",
+  draft: "Sin permanencia: si no os encaja, lo dais de baja desde ajustes y no pagáis el mes siguiente.",
 };
 const TOPIC = {
   key: "topic:security",

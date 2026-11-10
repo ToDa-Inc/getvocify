@@ -87,6 +87,8 @@ class Gap:
     seen: int
     example: Optional[str]
     motion_key: Optional[str]
+    # What a rep replied in a call that moved forward after it: a starting point the manager edits, never an approved answer.
+    draft: Optional[str] = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -95,7 +97,7 @@ class Gap:
 def gap_from_dict(data: dict) -> Gap:
     return Gap(
         key=str(data["key"]), kind=str(data["kind"]), question=str(data["question"]), request=str(data["request"]),
-        seen=int(data.get("seen") or 0), example=data.get("example"), motion_key=data.get("motion_key"),
+        seen=int(data.get("seen") or 0), example=data.get("example"), motion_key=data.get("motion_key"), draft=data.get("draft"),
     )
 
 
@@ -196,14 +198,16 @@ def detect_conflicts(existing: dict, found: dict, lang: str) -> list[Gap]:
 
 def build_gaps(
     *, entries: list[dict], knowledge: dict, events: list[dict], lang: str, limit: int = MAX_GAPS,
-    conflicts: Optional[list[Gap]] = None, process_types: Optional[list[dict]] = None,
+    conflicts: Optional[list[Gap]] = None, process_types: Optional[list[dict]] = None, real: Optional[list[Gap]] = None,
 ) -> list[Gap]:
     """Up to `limit` gaps, most useful first: what happens in each of the company's own types that has nothing written, then
     real questions (most repeated first), then the given conflicts, then the typical topics nobody covered. `knowledge` is accepted for callers that have it; topics only look at the
     team's own questions because only those reach a live card."""
     del knowledge
     lang = _lang(lang)
-    gaps = _process_gaps(process_types or [], lang) + _real_gaps(events, lang) + list(conflicts or []) + _topic_gaps(entries, lang)
+    # `real`: the unanswered objections already grouped by meaning (call_gaps); without it, live help's by first words.
+    real_gaps = real if real is not None else _real_gaps(events, lang)
+    gaps = _process_gaps(process_types or [], lang) + real_gaps + list(conflicts or []) + _topic_gaps(entries, lang)
     return gaps[:limit]
 
 

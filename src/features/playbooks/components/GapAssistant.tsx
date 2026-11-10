@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import type { GapSession } from "@/features/playbooks/assistantApi";
 import { AnswerBox } from "@/features/playbooks/components/AnswerBox";
-import { QuoteBubble, SavedBubble } from "@/features/playbooks/components/Bubbles";
+import { CardBubble, QuoteBubble, SavedBubble } from "@/features/playbooks/components/Bubbles";
 import { SegmentMeter, type SegmentTone } from "@/features/playbooks/components/SegmentMeter";
 import type { SourceInput } from "@/features/playbooks/components/PlaybookStart";
 import { useAssistant, type AssistantStatus } from "@/features/playbooks/hooks/useAssistant";
@@ -140,6 +140,16 @@ export function GapAssistantView(props: GapAssistantViewProps) {
         <h3 id="gap-ask" className="text-[19px] font-medium leading-snug tracking-tight text-foreground">
           {parts.ask}
         </h3>
+        {current.draft ? (
+          <div className="space-y-1.5">
+            <CardBubble label={c.gapDraftLabel}>{current.draft}</CardBubble>
+            {value.trim() !== current.draft ? (
+              <Button type="button" variant="quiet" size="text" disabled={saving} onClick={() => onValue(current.draft ?? "")}>
+                {c.gapDraftUse}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         <AnswerBox
           value={value}
           onChange={onValue}
