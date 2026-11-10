@@ -6,7 +6,12 @@ from typing import Any, Optional
 
 from app.services.hubspot.note_format import format_hubspot_note_body
 
+import logging
+
 from .client import PipedriveClient, unwrap_data
+from .exceptions import PipedriveAuthError, PipedriveError
+
+logger = logging.getLogger(__name__)
 
 
 def format_note_content(
@@ -34,6 +39,7 @@ class PipedriveNoteService:
         deal_id: Optional[str] = None,
         person_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        author_id: Optional[str] = None,
     ) -> Optional[str]:
         body: dict[str, Any] = {"content": content}
         if deal_id:
@@ -44,7 +50,18 @@ class PipedriveNoteService:
             body["org_id"] = int(org_id)
         if len(body) == 1:
             return None
-        created = unwrap_data(await self.client.post("/notes", json_body=body, version="v1"))
+        created = None
+        if author_id:
+            # The member who recorded it is the note's author, not whoever connected Pipedrive. Pipedrive lets only an
+            # admin connection set another author: refused, the note is written without it, as before.
+            try:
+                created = unwrap_data(await self.client.post("/notes", json_body={**body, "user_id": int(author_id)}, version="v1"))
+            except PipedriveAuthError:
+                raise
+            except PipedriveError as e:
+                logger.info("Pipedrive note: author %s refused (%s), written as the connected user", author_id, e.status_code)
+        if created is None:
+            created = unwrap_data(await self.client.post("/notes", json_body=body, version="v1"))
         if isinstance(created, dict) and created.get("id") is not None:
             return str(created["id"])
         return None

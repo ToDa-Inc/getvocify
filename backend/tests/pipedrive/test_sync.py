@@ -445,3 +445,27 @@ async def test_a_call_vocify_dialed_puts_the_summary_on_its_own_call_activity():
     )
     assert any(p[0] == "/activities/901" and "follow-up" in p[1]["note"] for p in client.patches)
     assert not any(p[0] == "/activities" and p[1].get("done") for p in client.posts)
+
+
+@pytest.mark.asyncio
+async def test_a_note_is_written_as_its_member_and_falls_back_when_pipedrive_refuses():
+    from app.services.pipedrive.exceptions import PipedriveError
+    from app.services.pipedrive.notes import PipedriveNoteService
+
+    class _Client:
+        def __init__(self, refuse):
+            self.refuse, self.bodies = refuse, []
+
+        async def post(self, path, json_body=None, version="v2"):
+            self.bodies.append(json_body)
+            if self.refuse and "user_id" in json_body:
+                raise PipedriveError("forbidden", status_code=403)
+            return {"data": {"id": 9}}
+
+    ok = _Client(refuse=False)
+    assert await PipedriveNoteService(ok).create("<p>x</p>", deal_id="1", author_id="15666515") == "9"
+    assert ok.bodies == [{"content": "<p>x</p>", "deal_id": 1, "user_id": 15666515}]
+
+    refused = _Client(refuse=True)
+    assert await PipedriveNoteService(refused).create("<p>x</p>", deal_id="1", author_id="15666515") == "9"
+    assert refused.bodies[-1] == {"content": "<p>x</p>", "deal_id": 1}

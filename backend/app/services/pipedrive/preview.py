@@ -205,6 +205,27 @@ class PipedrivePreviewService:
                     except Exception:
                         pass
 
+            # Pipedrive's stage field carries no options: without its stages a row shows the stage's number ("196").
+            stage_spec = deal_spec_map.get("stage_id")
+            if stage_spec is not None and not stage_spec.get("options"):
+                pipeline_for_stages = (
+                    str(current["pipeline_id"]) if current.get("pipeline_id") is not None else default_pipeline_id
+                )
+                try:
+                    stages = await self.schema.list_stages(pipeline_for_stages)
+                except Exception:
+                    stages = []
+                if stages:
+                    deal_spec_map["stage_id"] = {
+                        **stage_spec,
+                        "type": "enumeration",
+                        "options": [{"value": str(st["id"]), "label": str(st.get("name") or st["id"])} for st in stages if st.get("id") is not None],
+                    }
+                    if selected_deal and selected_deal.stage:
+                        name = next((o["label"] for o in deal_spec_map["stage_id"]["options"] if o["value"] == str(selected_deal.stage)), None)
+                        if name:
+                            selected_deal = selected_deal.model_copy(update={"stage": name})
+
             if stage_confirm:
                 # The stage is chosen from the deal's own pipeline (F14), not written as a plain field.
                 deal_props.pop("stage_id", None)

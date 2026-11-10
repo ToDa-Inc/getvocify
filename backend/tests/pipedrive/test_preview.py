@@ -70,3 +70,32 @@ async def test_deal_preview_still_lists_contact_fields():
     )
     assert any(u.object_type == "contacts" and u.field_name == "job_title" for u in preview.proposed_updates)
     assert any(f.object_type == "contacts" for f in preview.available_fields)
+
+
+@pytest.mark.asyncio
+async def test_a_stage_row_shows_the_stage_name_not_its_number():
+    class _StageSchema(_Schema):
+        def map_extraction_to_deal_fields(self, extraction, **k):
+            return {"title": "Existing", "stage_id": 196}
+
+        async def list_stages(self, pipeline_id=None):
+            assert pipeline_id == "7"
+            return [{"id": 195, "name": "Contactado"}, {"id": 196, "name": "Demo"}]
+
+    class _StageSearch:
+        async def get_deal(self, deal_id):
+            return {"id": int(deal_id), "title": "Existing", "stage_id": 195, "pipeline_id": 7}
+
+    svc = PipedrivePreviewService(_StageSearch(), _StageSchema())
+    preview = await svc.build_preview(
+        memo_id=uuid4(),
+        transcript="hello",
+        extraction=MemoExtraction(companyName="Acme"),
+        matched_deals=[],
+        selected_deal_id="58848",
+        allowed_fields=["title", "stage_id"],
+        allowed_contact_fields=[],
+    )
+    row = next(u for u in preview.proposed_updates if u.field_name == "stage_id")
+    assert (row.current_value, row.new_value) == ("Contactado", "Demo")
+    assert {"value": "196", "label": "Demo"} in row.options

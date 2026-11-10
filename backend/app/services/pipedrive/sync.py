@@ -385,7 +385,7 @@ class PipedriveSyncService:
                         action_type="create_note",
                         resource_type="note",
                     ) as tracked:
-                        note_id = await self.notes.create(content, deal_id=deal_id, person_id=person_id, org_id=org_id)
+                        note_id = await self.notes.create(content, deal_id=deal_id, person_id=person_id, org_id=org_id, author_id=owner_id)
                         if not note_id:
                             raise PipedriveError("Pipedrive note was not created.", error_code="PIPEDRIVE_NOTE_FAILED")
                         tracked.data = {"note_id": note_id}

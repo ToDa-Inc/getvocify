@@ -43,7 +43,7 @@ async def log_followup_note(supabase: Any, memo: dict, body: str) -> dict:
         if provider == "hubspot":
             note_id = await _hubspot_note(supabase, connection, deal_id, contact_id, body, memo)
         elif provider == "pipedrive":
-            note_id = await _pipedrive_note(connection, deal_id, contact_id, body)
+            note_id = await _pipedrive_note(connection, deal_id, contact_id, body, str(memo.get("user_id") or ""))
         else:
             return {"status": "skipped", "reason": "unsupported_provider"}
     except Exception as exc:
@@ -82,9 +82,10 @@ async def _hubspot_note(
     )
 
 
-async def _pipedrive_note(connection: dict, deal_id: Optional[str], contact_id: Optional[str], body: str) -> Optional[str]:
+async def _pipedrive_note(connection: dict, deal_id: Optional[str], contact_id: Optional[str], body: str, user_id: str = "") -> Optional[str]:
     from app.services.pipedrive.client import PipedriveClient
     from app.services.pipedrive.notes import PipedriveNoteService
+    from app.services.pipedrive.sync import owner_id_from_connection_metadata
 
     meta = connection.get("metadata") or {}
     api_domain = meta.get("api_domain") or ""
@@ -98,4 +99,6 @@ async def _pipedrive_note(connection: dict, deal_id: Optional[str], contact_id: 
     )
     escaped_body = html.escape(body).replace("\n", "<br>")
     content = f"{html.escape(NOTE_HEADER)}<br><br>{escaped_body}"
-    return await PipedriveNoteService(client).create(content, deal_id=deal_id, person_id=contact_id)
+    # The member's Pipedrive user, as cached when their recording was written: the note is theirs.
+    author_id = owner_id_from_connection_metadata(meta, user_id) if user_id else None
+    return await PipedriveNoteService(client).create(content, deal_id=deal_id, person_id=contact_id, author_id=author_id)
