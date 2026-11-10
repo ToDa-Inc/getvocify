@@ -55,7 +55,7 @@ def _remaining(state: dict) -> list[dict]:
 
 
 def public_gap(gap: dict) -> dict:
-    return {key: gap.get(key) for key in ("key", "kind", "question", "seen", "example", "motion_key", "draft")}
+    return {key: gap.get(key) for key in ("key", "kind", "question", "seen", "example", "motion_key", "draft", "options")}
 
 
 def public_session(session: dict) -> dict:

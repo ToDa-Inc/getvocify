@@ -17,6 +17,8 @@ export type GapView = {
   motion_key: string | null;
   /** A rep's reply in a call that moved forward after it: a starting point to edit, not an approved answer. */
   draft?: string | null;
+  /** The two versions of a fact that do not match, offered as buttons. */
+  options?: string[] | null;
 };
 
 export type GapSession = {

@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { Check } from "lucide-react";
+import { ArrowDownToLine, Check, HelpCircle, ListOrdered, MessageSquareQuote, Split } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconAction } from "@/components/ui/icon-action";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
-import type { GapSession } from "@/features/playbooks/assistantApi";
+import type { GapSession, GapView } from "@/features/playbooks/assistantApi";
 import { AnswerBox } from "@/features/playbooks/components/AnswerBox";
-import { CardBubble, QuoteBubble, SavedBubble } from "@/features/playbooks/components/Bubbles";
+import { CardBubble, SavedBubble } from "@/features/playbooks/components/Bubbles";
 import { SegmentMeter, type SegmentTone } from "@/features/playbooks/components/SegmentMeter";
 import type { SourceInput } from "@/features/playbooks/components/PlaybookStart";
 import { useAssistant, type AssistantStatus } from "@/features/playbooks/hooks/useAssistant";
@@ -34,6 +36,64 @@ export type GapAssistantViewProps = {
   onRetry: () => void;
 };
 
+const KIND_ICON = { real: MessageSquareQuote, topic: HelpCircle, conflict: Split, process: ListOrdered } as const;
+
+/** What kind of gap it is, as a chip; for one from calls, how many times, with the window on hover. */
+function GapChip({ gap }: { gap: GapView }) {
+  const { t } = useLanguage();
+  const c = t.product.pb2.improve;
+  const Icon = KIND_ICON[gap.kind as keyof typeof KIND_ICON] ?? HelpCircle;
+  const name = { real: c.gapReal, topic: c.gapTopic, conflict: c.gapConflict, process: c.gapProcess }[gap.kind as keyof typeof KIND_ICON] ?? c.gapTopic;
+  const chip = (
+    <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-secondary/70 px-2.5 text-[12px] font-medium text-muted-foreground">
+      <Icon aria-hidden className="h-3.5 w-3.5" strokeWidth={1.5} />
+      {name}
+      {gap.kind === "real" && gap.seen > 1 ? <span className="tabular-nums text-foreground">· {gap.seen}</span> : null}
+    </span>
+  );
+  if (gap.kind !== "real" || gap.seen < 1) return chip;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{chip}</TooltipTrigger>
+      <TooltipContent>{c.gapSeen.replace("{count}", String(gap.seen))}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** The thing to answer, as the hero: the customer's words, the call type, or the two versions to choose between. A gap
+ * saved before these fields existed falls back to its sentence. */
+function GapSubject({ gap, saving, onPick }: { gap: GapView; saving: boolean; onPick: (option: string) => void }) {
+  const { t } = useLanguage();
+  const c = t.product.pb2.improve;
+  const hero = "text-[19px] font-medium leading-snug tracking-tight text-foreground";
+  if (gap.kind === "conflict" && gap.options?.length) {
+    return (
+      <div className="space-y-3">
+        {gap.example ? <h3 id="gap-ask" className={hero}>{gap.example}</h3> : null}
+        <div className="grid gap-2 sm:grid-cols-2">
+          {gap.options.map((option) => (
+            <div key={option} className={cn("flex flex-col justify-between gap-3 border border-border/70 p-4", THEME_TOKENS.radius.control)}>
+              <p className="text-[14.5px] leading-relaxed text-foreground">{option}</p>
+              <Button type="button" variant="outline" size="sm" className="self-start" disabled={saving} onClick={() => onPick(option)}>
+                {c.gapPick}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  const quote = gap.kind === "real" || gap.kind === "topic" ? (gap.example ?? splitQuestion(gap.question, gap.example).quote) : null;
+  if (quote) {
+    return (
+      <blockquote id="gap-ask" className={cn(hero, "border-l-2 border-beige/60 pl-4")}>
+        {quote}
+      </blockquote>
+    );
+  }
+  return <h3 id="gap-ask" className={hero}>{gap.kind === "process" && gap.example ? gap.example : gap.question}</h3>;
+}
+
 /** One segment per question: green answered, grey left for later, beige the one on screen, pale the ones to come. */
 function Meter({ session }: { session: GapSession }) {
   const { t } = useLanguage();
@@ -55,29 +115,13 @@ export function GapAssistantView(props: GapAssistantViewProps) {
   const { t } = useLanguage();
   const c = t.product.pb2.improve;
   const current = session?.current ?? null;
-  const parts = current ? splitQuestion(current.question, current.example) : null;
-  const kindText = !current
-    ? ""
-    : current.kind === "process"
-      ? c.gapProcess
-      : current.kind === "topic"
-      ? c.gapTopic
-      : current.kind === "conflict"
-        ? c.gapConflict
-        : current.seen > 1
-          ? c.gapReal.replace("{count}", String(current.seen))
-          : c.gapRealOne;
-
   const header = (
     <header className="flex flex-wrap items-end justify-between gap-3">
-      <div className="space-y-0.5">
-        <h2 className={THEME_TOKENS.typography.panelTitle}>{c.assistantTitle}</h2>
-        <p className="max-w-md text-[13px] leading-snug text-muted-foreground">{c.assistantLead}</p>
-      </div>
+      <h2 className={THEME_TOKENS.typography.panelTitle}>{c.assistantTitle}</h2>
       {session && status === "ready" ? (
         <div className="flex items-center gap-2">
           <Meter session={session} />
-          <span className="text-xs tabular-nums text-muted-foreground">{progressText(session, c.of)}</span>
+          <span aria-hidden className="text-xs tabular-nums text-muted-foreground">{progressText(session, "/").replace(" / ", "/")}</span>
         </div>
       ) : null}
     </header>
@@ -104,7 +148,7 @@ export function GapAssistantView(props: GapAssistantViewProps) {
         </Button>
       </div>
     );
-  } else if (status === "done" || !current || !parts) {
+  } else if (status === "done" || !current) {
     body = (
       <section className={cn(card, "space-y-4 p-6", THEME_TOKENS.motion.fadeIn)} aria-labelledby="gap-done">
         <span className="flex h-9 w-9 items-center justify-center rounded-full bg-success/10 text-success">
@@ -133,21 +177,21 @@ export function GapAssistantView(props: GapAssistantViewProps) {
     );
   } else {
     body = (
-      <section key={current.key} className={cn(card, "space-y-4 p-5 md:p-6", THEME_TOKENS.motion.fadeIn)} aria-labelledby="gap-ask">
-        <p className={THEME_TOKENS.typography.capsLabel}>{kindText}</p>
-        {parts.lead ? <p className="text-sm text-muted-foreground">{parts.lead}</p> : null}
-        {parts.quote ? <QuoteBubble>{parts.quote}</QuoteBubble> : null}
-        <h3 id="gap-ask" className="text-[19px] font-medium leading-snug tracking-tight text-foreground">
-          {parts.ask}
-        </h3>
+      <section key={current.key} className={cn(card, "space-y-5 p-5 md:p-6", THEME_TOKENS.motion.fadeIn)} aria-labelledby="gap-ask">
+        <GapChip gap={current} />
+        <GapSubject gap={current} saving={saving} onPick={(option) => onAnswer({ kind: "text", payload: option })} />
         {current.draft ? (
           <div className="space-y-1.5">
-            <CardBubble label={c.gapDraftLabel}>{current.draft}</CardBubble>
-            {value.trim() !== current.draft ? (
-              <Button type="button" variant="quiet" size="text" disabled={saving} onClick={() => onValue(current.draft ?? "")}>
-                {c.gapDraftUse}
-              </Button>
-            ) : null}
+            <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Check aria-hidden className="h-3.5 w-3.5 text-success" strokeWidth={1.75} />
+              {c.gapDraftLabel}
+            </p>
+            <div className="flex items-start gap-2">
+              <CardBubble className="min-w-0 flex-1">{current.draft}</CardBubble>
+              <IconAction label={c.gapDraftUse} disabled={saving || value.trim() === current.draft} onClick={() => onValue(current.draft ?? "")}>
+                <ArrowDownToLine strokeWidth={1.5} />
+              </IconAction>
+            </div>
           </div>
         ) : null}
         <AnswerBox

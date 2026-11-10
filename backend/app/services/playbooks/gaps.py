@@ -89,6 +89,8 @@ class Gap:
     motion_key: Optional[str]
     # What a rep replied in a call that moved forward after it: a starting point the manager edits, never an approved answer.
     draft: Optional[str] = None
+    # Choices the screen offers as buttons (the two versions of a fact that do not match).
+    options: Optional[list[str]] = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -98,6 +100,7 @@ def gap_from_dict(data: dict) -> Gap:
     return Gap(
         key=str(data["key"]), kind=str(data["kind"]), question=str(data["question"]), request=str(data["request"]),
         seen=int(data.get("seen") or 0), example=data.get("example"), motion_key=data.get("motion_key"), draft=data.get("draft"),
+        options=list(data["options"]) if data.get("options") else None,
     )
 
 
@@ -151,7 +154,7 @@ def _process_gaps(process_types: list[dict], lang: str) -> list[Gap]:
             if lang == "en"
             else f"¿Qué pasos seguís en «{label}»? Cuéntamelo de principio a fin, como se lo explicarías a alguien nuevo."
         )
-        out.append(Gap(f"process:{item['key']}", "process", question, _STEPS_REQUEST.format(label=label), 0, None, str(item["key"])))
+        out.append(Gap(f"process:{item['key']}", "process", question, _STEPS_REQUEST.format(label=label), 0, label, str(item["key"])))
     return out
 
 
@@ -192,7 +195,8 @@ def detect_conflicts(existing: dict, found: dict, lang: str) -> list[Gap]:
             f"Your material does not agree about {names}: “{a}” versus “{b}”. Which one is right?" if lang == "en"
             else f"Tu material no coincide sobre {names}: «{a}» frente a «{b}». ¿Cuál es el correcto?"
         )
-        out.append(Gap(f"conflict:{field}", "conflict", question, _CONFLICT_REQUEST.format(field=field, old=a, new=b), 0, None, None))
+        out.append(Gap(f"conflict:{field}", "conflict", question, _CONFLICT_REQUEST.format(field=field, old=a, new=b), 0,
+                       names[:1].upper() + names[1:], None, options=[a, b]))
     return out
 
 
