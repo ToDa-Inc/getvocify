@@ -965,6 +965,9 @@ class ChannelSessions:
         # Streams replaced by a fresh session of the same provider: their last results still count.
         self.retiring: set[LiveStream] = set()
         self.recoveries: dict[str, int] = {label: 0 for label in labels}
+        # Sides whose words stopped coming back (the speech-to-text provider refused or failed): the client says the
+        # transcript is paused until that side settles words again.
+        self.stalled: set[str] = set()
         # Who is speaking on the call side, from their voices (live_voices). Gone with the call.
         self.voices: Optional[VoiceBook] = None
         self.voice_lock = asyncio.Lock()
@@ -1180,6 +1183,9 @@ class ChannelSessions:
             if final and transcript.strip():
                 # A stream that settles words works again: its side's failures count from zero.
                 self.recoveries[stream.label] = 0
+                if stream.label in self.stalled:
+                    self.stalled.discard(stream.label)
+                    await self._send({"type": "TranscriptionResumed", "audio_channel": stream.label})
             payload: dict[str, Any] = {
                 "type": "Results",
                 "provider": stream.provider,
@@ -1226,6 +1232,9 @@ class ChannelSessions:
         elif kind == "error":
             reason = event.get("reason") or "Unknown error"
             logger.error("%s %s error: %s", stream.provider, stream.label, reason)
+            if stream.label not in self.stalled:
+                self.stalled.add(stream.label)
+                await self._send({"type": "TranscriptionPaused", "audio_channel": stream.label})
             if self._recoverable(stream):
                 # The side keeps going on a fresh stream; the client hears of it only if that fails too.
                 task = asyncio.create_task(self._recover(stream, reason))

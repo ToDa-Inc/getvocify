@@ -189,6 +189,8 @@ export type DesktopMeeting = {
 };
 
 const MAX_RECONNECTS = 5;
+/** The server's words stopped coming back (its speech-to-text is failing): what the rep is told, here and on the island. */
+const TRANSCRIPT_PAUSED = "Transcript paused: we may be updating our servers. Your call is still being recorded.";
 /** The server answers CloseStream with EndOfTranscript as soon as the last finals are flushed (well under a second),
  * and gives up after 3 s; this waits a second longer so its answer always wins. */
 const DRAIN_MS = 4000;
@@ -273,6 +275,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const micHeardRef = useRef(false);
   /** The call audio's process died (the Mac's own report); silence checks never clear that. */
   const callAudioDiedRef = useRef(false);
+  /** Sides whose words stopped coming back from the server (its speech-to-text failing): the transcript is paused. */
+  const stalledRef = useRef<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [pending, setPending] = useState<MeetingDraft[]>([]);
@@ -603,6 +607,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       if (ticketRef.current) ws.send(liveAuthMessage(ticketRef.current));
       reconnectsRef.current = 0;
       setWarning(null);
+      // A new session says again if its words still do not come back.
+      if (stalledRef.current.size) {
+        stalledRef.current.clear();
+        getDesktopBridge()?.shell.setState({ transcriptPaused: false });
+      }
       setSpeaking({ you: false, them: false });
       speakingRef.current = { rep: false, prospect: false };
     };
@@ -668,8 +677,18 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       } else if (data.type === "ChannelReset") {
         const next = resetChannel(transcriptRef.current, data.audio_channel, data.from);
         if (next !== transcriptRef.current) updateTranscript(next);
-      } else if (data.type === "Error") {
-        setWarning(typeof data.error === "string" ? data.error : "Transcription error");
+      } else if (data.type === "TranscriptionPaused" || data.type === "Error") {
+        // The audio still reaches the server; its words do not come back. Said plainly, not as the provider's error.
+        if (data.type === "Error") console.warn("Live transcription error:", data.error);
+        stalledRef.current.add(typeof data.audio_channel === "string" ? data.audio_channel : "all");
+        setWarning(TRANSCRIPT_PAUSED);
+        getDesktopBridge()?.shell.setState({ transcriptPaused: true });
+      } else if (data.type === "TranscriptionResumed") {
+        stalledRef.current.delete(typeof data.audio_channel === "string" ? data.audio_channel : "all");
+        if (!stalledRef.current.size) {
+          setWarning((current) => (current === TRANSCRIPT_PAUSED ? null : current));
+          getDesktopBridge()?.shell.setState({ transcriptPaused: false });
+        }
       }
     };
     ws.onclose = () => {
@@ -1673,9 +1692,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         // Words waiting to stop changing appear on time even when nothing new arrives.
         if (steadyRef.current.waiting()) sendOverlay(transcriptRef.current);
       }, 125);
+      stalledRef.current.clear();
       bridge.shell.setState({
         listening: true,
         callAudioLost: false,
+        transcriptPaused: false,
         micSilent: false,
         paused: false,
         clock: meetingClock(),

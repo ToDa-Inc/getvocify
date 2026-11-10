@@ -370,6 +370,28 @@ def test_a_stream_that_settles_words_again_clears_its_sides_failures(monkeypatch
     assert sessions.recoveries["rep"] == 0
 
 
+def test_the_client_is_told_the_transcript_paused_once_and_resumed_when_words_come_back(monkeypatch):
+    import asyncio
+
+    live, sessions, client = _sessions(monkeypatch)
+    monkeypatch.setattr(live, "MAX_RECOVERIES", 0)
+
+    async def scenario():
+        stream = sessions._open("rep", "es", "bilingual-en", offset_s=0.0)
+        sessions.active["rep"] = stream
+        await sessions._on_stream(stream, {"kind": "error", "reason": "OpenRouter 402"})
+        await sessions._on_stream(stream, {"kind": "error", "reason": "OpenRouter 402"})
+        await sessions._on_stream(stream, {"kind": "final", "transcript": "Hola.", "start": 0.0, "end": 1.0, "words": []})
+        await sessions._on_stream(stream, {"kind": "final", "transcript": "Sí.", "start": 1.0, "end": 2.0, "words": []})
+
+    asyncio.run(scenario())
+    notices = [m for m in client.sent if m.get("type") in ("TranscriptionPaused", "TranscriptionResumed")]
+    assert notices == [
+        {"type": "TranscriptionPaused", "audio_channel": "rep"},
+        {"type": "TranscriptionResumed", "audio_channel": "rep"},
+    ]
+
+
 def test_a_stream_ending_normally_or_a_closing_session_is_not_reopened(monkeypatch):
     import asyncio
 
