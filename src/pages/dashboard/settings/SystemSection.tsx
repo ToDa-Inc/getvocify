@@ -166,7 +166,7 @@ function updateLine(status: DesktopUpdateStatus): string {
     case "downloading":
       return `Downloading ${status.next}…`;
     case "ready":
-      return `${status.next} is ready. Vocify restarts into it as soon as nothing is being recorded.`;
+      return `${status.next} is ready. Vocify restarts into it when you close this window, or now with Restart now.`;
     case "failed": {
       const reason = status.reason.split("\n")[0].slice(0, 140);
       return `Couldn't check for updates: ${reason}`;
