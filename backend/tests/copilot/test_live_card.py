@@ -54,7 +54,7 @@ def answer(line="Entiendo, ¿qué os preocupa más del precio: el coste por usua
 def fake_model(monkeypatch, reading_out, *, unsupported=False, closing=False, repeats=False, retry=None):
     calls = []
 
-    async def ask(system, user, schema, *, max_tokens, temperature):
+    async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=None):
         calls.append(system)
         meta = {"model": "direct:test", "latency_ms": 10, "error": None}
         if system == live_card.SYSTEM:
@@ -104,7 +104,7 @@ def test_the_reading_is_told_the_objection_they_raised_and_its_approved_answer(m
     assert live_card.spotted("trust", snapshot) == "\n\nTHEY JUST RAISED: an objection (trust). Answer it before anything else."
     seen = []
 
-    async def ask(system, user, schema, *, max_tokens, temperature):
+    async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=None):
         meta = {"model": "direct:test", "latency_ms": 10, "error": None}
         if system == live_card.SYSTEM:
             seen.append(user)
@@ -422,7 +422,7 @@ def test_a_checkpoint_that_is_not_a_moment_costs_nothing_and_is_not_logged(monke
 def test_responder_reads_at_once_tells_the_reading_it_was_asked_and_takes_the_screen(monkeypatch):
     seen = []
 
-    async def ask(system, user, schema, *, max_tokens, temperature):
+    async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=None):
         seen.append(user)
         meta = {"model": "direct:test", "latency_ms": 10, "error": None}
         if system == live_card.SYSTEM:
@@ -451,7 +451,7 @@ def test_asked_a_card_with_an_unsupported_claim_gets_one_more_try_but_an_automat
     facts = iter([True, False])
     seen = []
 
-    async def ask(system, user, schema, *, max_tokens, temperature):
+    async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=None):
         meta = {"model": "direct:test", "latency_ms": 10, "error": None}
         if system == live_card.SYSTEM:
             seen.append(user)
@@ -477,7 +477,7 @@ def test_a_question_no_source_answers_gets_an_honest_line_not_silence(monkeypatc
     facts = iter([True, False])
     seen = []
 
-    async def ask(system, user, schema, *, max_tokens, temperature):
+    async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=None):
         meta = {"model": "direct:test", "latency_ms": 10, "error": None}
         if system == live_card.SYSTEM:
             seen.append(user)
@@ -500,7 +500,7 @@ def test_asked_again_the_same_words_are_another_try_not_nothing(monkeypatch):
                   answer(line="¿Quién decide si probáis algo así, tú o alguien más?")])
     seen = []
 
-    async def ask(system, user, schema, *, max_tokens, temperature):
+    async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=None):
         meta = {"model": "direct:test", "latency_ms": 10, "error": None}
         if system == live_card.SYSTEM:
             seen.append(user)
@@ -538,3 +538,39 @@ def test_the_cards_reach_the_playbooks_improvement_step():
     # A question built only on the conversation, at a turn nobody flagged: not something to answer, not logged.
     deepen = {"moment": "them_end", "points": [{"id": "card-2", "kind": "deepen", "turn_ids": ["t1"], "answer": "¿Qué os falta?", "source": None}]}
     assert events.strategic_card_rows(**common, objection="none", result=deepen) == []
+
+
+def test_a_flagged_objection_replaces_a_card_too_new_to_have_been_read(monkeypatch):
+    end = live_card.ends(CALL)
+    on = [{"id": "a", "say": "¿Qué prioridades tenéis ahora?", "visible_t": round(end[-1], 1), "open": True}]
+    fake_model(monkeypatch, answer(card_on_screen="replace"))
+    # Nothing flagged: the card on screen is not changed before it could be read.
+    assert run(live_card.read_card(reading(reason="turn_end", objection="none", cards=on), CTX))["event"] == "drop:card_on_screen_too_new"
+    # The turn check saw an objection: its answer takes the screen.
+    fake_model(monkeypatch, answer(card_on_screen="replace"))
+    result = run(live_card.read_card(reading(reason="turn_end", objection="price", cards=on), CTX))
+    assert result["event"] == "replace" and result["points"] and result["closed"] == [{"id": "a", "outcome": "gone"}]
+
+
+def test_the_checks_wait_less_for_the_backup_than_the_reading(monkeypatch):
+    waits = {}
+
+    async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=live_card.HEDGE_S):
+        waits[system] = hedge_s
+        meta = {"model": "direct:test", "latency_ms": 10, "error": None}
+        if system == live_card.SYSTEM:
+            return answer(), meta
+        if system == live_card.FACT_SYSTEM:
+            return {"unsupported": False, "what": ""}, meta
+        if system == live_card.CLOSING_SYSTEM:
+            return {"closing": False, "evidence": ""}, meta
+        return {"repeats": False, "same_as": "", "why": ""}, meta
+
+    monkeypatch.setattr(live_card, "ask", ask)
+    assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "shown"
+    assert waits[live_card.SYSTEM] == live_card.HEDGE_S
+    assert waits[live_card.FACT_SYSTEM] == waits[live_card.CLOSING_SYSTEM] == live_card.CHECK_HEDGE_S < live_card.HEDGE_S
+
+
+def test_putting_the_call_off_is_not_the_call_closing():
+    assert "llámame la semana que viene" in live_card.CLOSING_SYSTEM and "only once a goodbye" in live_card.CLOSING_SYSTEM

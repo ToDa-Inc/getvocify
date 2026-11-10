@@ -166,8 +166,9 @@ export function draftCard(type: string, latestTurn: string, at: number, label?: 
  * A real pause in their words is the backstop, and the only signal when no audio can be read.
  */
 export const PAUSE_MS = 300;
-/** After the classifier says "still going": this much more quiet and the turn is over. */
-export const BACKSTOP_MS = 2000;
+/** After the classifier says "still going": this much more quiet and the turn is over. 2 s made a card wait 3.7 s when
+ * the check misread a finished objection as unfinished (52 of 137 checks on real calls said "still going"). */
+export const BACKSTOP_MS = 1000;
 
 /**
  * After a card appears the rep is reading it, and saying it. No new check starts for this long, so the next

@@ -46,7 +46,7 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "strategic_engine_20261109_nodates"
+PROMPT_VERSION = "strategic_engine_20261110_closing"
 
 # ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
 
@@ -269,7 +269,10 @@ goodbyes or farewell wishes, thanking and leaving, confirming the last step and 
 unequivocally is enough, even before the other answers: the other side says goodbye, or the salesperson closes («pues
 te deseo mucha suerte», «que vaya muy bien, un abrazo»), unless the other side then reopens with something new. Not
 closing: agreeing a next step while the conversation goes on, a thank-you in the middle of the call, a
-goodbye one of them takes back («espera, una cosa más»). Answer JSON {"closing": true|false, "evidence": "the words that
+goodbye one of them takes back («espera, una cosa más»). Not closing either: the other side putting the call off
+without saying goodbye («llámame la semana que viene», «ahora estoy liado», «no puedo hablar ahora», «mándame un correo»,
+«si nos interesa os llamamos»). That is pushback the salesperson can still answer (agree a day, ask one question); it
+is closing only once a goodbye or a farewell wish has been said. Answer JSON {"closing": true|false, "evidence": "the words that
 show it, copied verbatim from ONE of the last turns; empty when not closing"}."""
 CLOSING_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["closing", "evidence"],
                   "properties": {"closing": {"type": "boolean"}, "evidence": {"type": "string"}}}
@@ -293,6 +296,9 @@ MIN_READ_S = 20.0
 # A new card does not come within this long of the last one, unless they asked a question, raised an objection or the
 # rep pressed Responder: five cards came in two minutes in a replay, more than a rep can use.
 MIN_GAP_S = 30.0
+# The same moment read twice: card one time and silence the other in 57 of 180 moments at 0.2, in 40 of 180 at 0 (14
+# recorded calls, production provider, 2026-11-10). Lower, not gone: the provider is not deterministic at 0.
+READ_TEMPERATURE = 0.0
 TOKENS = 700  # the reading also writes what it observed, its hypotheses, what is unknown and the situation
 # The reading is asked for at most 20 words; only a clearly excessive card is refused (half the cards cut at 25 words
 # were good ones of 26 to 31 words).
@@ -316,6 +322,9 @@ MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", 
 CARD_MODEL = "deepseek-ai/DeepSeek-V4.1-Flash-1017"
 # Without an answer from the direct provider in this long, the backup starts too (Together stalls for 10-30 s at times).
 HEDGE_S = 3.0
+# The three checks answer in about 0.4 s: a stalled one is not waited for as long as a reading (13 of 686 rounds in
+# production waited 3 s or more for the backup, and the card with them).
+CHECK_HEDGE_S = 1.0
 TIMEOUT_S = 20.0
 
 
@@ -752,9 +761,10 @@ async def _post(client: httpx.AsyncClient, url: str, headers: dict, payload: dic
     return content
 
 
-async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperature: float) -> tuple[Optional[dict], dict]:
+async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperature: float,
+              hedge_s: float = HEDGE_S) -> tuple[Optional[dict], dict]:
     """(parsed JSON or None, {"model", "latency_ms", "error"}): the direct provider with the tested model and a strict
-    schema; OpenRouter as its backup, started after HEDGE_S without an answer or as soon as the direct one fails."""
+    schema; OpenRouter as its backup, started after `hedge_s` without an answer or as soon as the direct one fails."""
     meta: dict[str, Any] = {"model": None, "latency_ms": None, "error": None}
     effort = live_reasoning()["reasoning"]["effort"]
     base = {
@@ -789,7 +799,7 @@ async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperat
         start_next()
         try:
             while running:
-                done, _ = await asyncio.wait(running, timeout=HEDGE_S if sources else None, return_when=asyncio.FIRST_COMPLETED)
+                done, _ = await asyncio.wait(running, timeout=hedge_s if sources else None, return_when=asyncio.FIRST_COMPLETED)
                 if not done:
                     start_next()
                     continue
@@ -827,18 +837,19 @@ async def fact_check(card: dict, conversation: str) -> tuple[Optional[dict], dic
             f"WHAT THE LINE STATES OUTSIDE ITS QUESTIONS: «{stated or '(nothing: only questions)'}»"
             + (f"\nWHAT ITS QUESTIONS OFFER TO SHOW THE PRODUCT DOING (a claim, judged like a statement): «{offered(card['say'])}»"
                if offered(card["say"]) else ""))
-    return await ask(FACT_SYSTEM, user, FACT_SCHEMA, max_tokens=700, temperature=0.0)
+    return await ask(FACT_SYSTEM, user, FACT_SCHEMA, max_tokens=700, temperature=0.0, hedge_s=CHECK_HEDGE_S)
 
 
 async def closing_check(conversation: str) -> tuple[Optional[dict], dict]:
-    return await ask(CLOSING_SYSTEM, f"THE LAST TURNS (latest last):\n{conversation or '-'}", CLOSING_SCHEMA, max_tokens=80, temperature=0.0)
+    return await ask(CLOSING_SYSTEM, f"THE LAST TURNS (latest last):\n{conversation or '-'}", CLOSING_SCHEMA, max_tokens=80, temperature=0.0,
+                     hedge_s=CHECK_HEDGE_S)
 
 
 async def repeat_check(say: str, shown: list[dict], turns: list[dict], end: list[float], at: float) -> tuple[Optional[dict], dict]:
     cards = "\n".join(f"- {int(s['visible_t'] // 60)}:{int(s['visible_t'] % 60):02d} «{s['say']}»" for s in shown)
     since = conversation_lines(turns, end, at, since=shown[-1]["visible_t"]) if shown else ""
     user = f"CARDS ALREADY SHOWN:\n{cards}\nSAID SINCE THE LAST CARD:\n{since or '(nothing)'}\nTHE NEW CARD: «{say}»"
-    return await ask(REPEAT_SYSTEM, user, REPEAT_SCHEMA, max_tokens=120, temperature=0.0)
+    return await ask(REPEAT_SYSTEM, user, REPEAT_SCHEMA, max_tokens=120, temperature=0.0, hedge_s=CHECK_HEDGE_S)
 
 
 async def _nothing() -> tuple[Optional[dict], dict]:
@@ -941,7 +952,7 @@ async def read_card(body: Any, ctx: Any) -> dict:
     started = time.perf_counter()
     user = (reading_input(sources, turns, end, now, shown, pending) + (ASKED_NOTE if moment == "asked" else "")
             + (spotted(body.objection, ctx.snapshot) if moment == "them_urgent" else ""))
-    out, meta = await ask(SYSTEM, user, SCHEMA, max_tokens=TOKENS, temperature=0.2)
+    out, meta = await ask(SYSTEM, user, SCHEMA, max_tokens=TOKENS, temperature=READ_TEMPERATURE)
     trace: dict[str, Any] = {"reading": out, "reading_ms": meta["latency_ms"]}
     result.update(model=meta["model"], trace=trace)
 
@@ -974,7 +985,10 @@ async def read_card(body: Any, ctx: Any) -> dict:
         # A change: never once the rep has started to speak, nor before the card on screen could be read.
         if rep_said(turns, pending["visible_t"], now) >= 3:
             return finish("drop:rep_started_speaking")
-        if now - pending["visible_t"] < MIN_READ_S:
+        # What the turn check flagged (an objection, a question) is not kept waiting behind a card they have moved past:
+        # 50 of the 226 cards dropped here in production answered one.
+        flagged = bool(body.objection and body.objection != "none")
+        if now - pending["visible_t"] < MIN_READ_S and not flagged:
             return finish("drop:card_on_screen_too_new")
     # An update keeps the intention of the card on screen: it is not checked as a repeat of it.
     against = [s for s in shown if s is not pending] if pending and status == "update" else shown
@@ -1007,7 +1021,7 @@ async def read_card(body: Any, ctx: Any) -> dict:
         else:
             break
         tries -= 1
-        retry, _ = await ask(SYSTEM, user + notes, SCHEMA, max_tokens=TOKENS, temperature=0.2)
+        retry, _ = await ask(SYSTEM, user + notes, SCHEMA, max_tokens=TOKENS, temperature=READ_TEMPERATURE)
         trace.setdefault("retries", []).append(retry)
         if not retry or retry.get("decision") != "card" or not (retry.get("line") or "").strip() or retry.get("understanding_confidence") == "low":
             return finish(f"drop:{why}→silence")
