@@ -822,7 +822,6 @@ class _AngleEmbedder:
 def _voice_sessions(monkeypatch):
     live, sessions, client = _sessions(monkeypatch)
     monkeypatch.setattr(live, "_voice_embedder", _AngleEmbedder())
-    monkeypatch.setattr(live.settings, "LIVE_VOICES_ENABLED", True)
     return live, live.ChannelSessions(client, labels=["prospect", "rep"], language="multi", profile_languages=["es"], glossary=[], detect=False), client
 
 
@@ -830,10 +829,8 @@ def _voices_heard(client):
     return [(m["start"], m["voice"], m["sure"]) for m in client.sent if m.get("type") == "Voice"]
 
 
-def test_voices_are_not_told_apart_unless_the_setting_is_on_and_the_model_is_there(monkeypatch):
-    live, sessions, _ = _sessions(monkeypatch)
-    assert sessions.voices is None
-    monkeypatch.setattr(live.settings, "LIVE_VOICES_ENABLED", True)
+def test_voices_are_told_apart_whenever_there_is_a_call_side_and_the_model_is_there(monkeypatch):
+    live, _, _ = _sessions(monkeypatch)
     monkeypatch.setattr(live, "_voice_embedder", _AngleEmbedder())
     assert live.ChannelSessions(_FakeClient(), labels=["prospect", "rep"], language="multi", profile_languages=["es"], glossary=[], detect=False).voices is not None
     assert live.ChannelSessions(_FakeClient(), labels=["rep"], language="multi", profile_languages=["es"], glossary=[], detect=False).voices is None

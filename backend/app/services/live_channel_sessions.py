@@ -1032,11 +1032,11 @@ class ChannelSessions:
         # Who is speaking on the call side, from their voices (live_voices). Gone with the call.
         self.voices: Optional[VoiceBook] = None
         self.voice_lock = asyncio.Lock()
-        if settings.LIVE_VOICES_ENABLED and "prospect" in labels:
+        if "prospect" in labels:
             if voice_embedder().available():
                 self.voices = VoiceBook()
             else:
-                logger.warning("Live voices: on, but the speaker model is not at %s", voice_embedder().path)
+                logger.warning("Live voices: the speaker model is not at %s", voice_embedder().path)
 
     async def run(self) -> None:
         await self._send({"type": "connected", "model": "realtime", "mode": "copilot_channels", "provider": self.provider})
