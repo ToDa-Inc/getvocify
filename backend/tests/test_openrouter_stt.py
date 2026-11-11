@@ -51,6 +51,37 @@ def test_without_a_language_the_transcriber_detects_it():
     assert "language" not in seen[0]
 
 
+def test_the_companys_words_go_to_the_provider_as_its_phrase_list_only_when_given():
+    # «Vocify» came back as «Bossify», «Bowsify» and «Busify» on real calls, and as «Vocify» with the list (2026-11-11).
+    seen = []
+
+    async def handler(request):
+        seen.append(json.loads(request.content))
+        return ok("Soy Dani, de Vocify.")
+
+    asyncio.run(transcriber(handler, phrases=["Vocify", " ", "Trucksters"]).transcribe(PCM))
+    assert seen[0]["provider"] == {"options": {"azure": {"phraseList": {"phrases": ["Vocify", "Trucksters"]}}}}
+    asyncio.run(transcriber(handler).transcribe(PCM))
+    assert "provider" not in seen[1]
+
+
+def test_a_refused_phrase_list_is_dropped_for_the_rest_of_the_call_not_the_transcript():
+    seen = []
+
+    async def handler(request):
+        body = json.loads(request.content)
+        seen.append("provider" in body)
+        return httpx.Response(400, json={"error": {"message": "unknown option"}}) if "provider" in body else ok("Hola")
+
+    async def scenario():
+        t = transcriber(handler, phrases=["Vocify"])
+        return (await t.transcribe(PCM)).text, (await t.transcribe(PCM)).text
+
+    assert asyncio.run(scenario()) == ("Hola", "Hola")
+    # The first chunk is sent again without the list; the second never carries it.
+    assert seen == [True, False, False]
+
+
 def test_a_request_that_stalls_is_answered_by_its_second():
     calls = []
 

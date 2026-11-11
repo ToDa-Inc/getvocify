@@ -60,6 +60,7 @@ class OpenRouterTranscriber:
         *,
         model: str = MODEL,
         language: Optional[str] = None,
+        phrases: Optional[list[str]] = None,
         hedge_s: float = HEDGE_S,
         give_up_s: float = GIVE_UP_S,
         client: Optional[httpx.AsyncClient] = None,
@@ -67,6 +68,11 @@ class OpenRouterTranscriber:
         self.api_key = api_key
         self.model = model
         self.language = language
+        # Words the transcriber should recognise as written (the company's glossary), passed to the provider behind MAI
+        # (Azure's phrase list). «Vocify» came back as «Bossify», «Bowsify» and «Busify» without it and right with it, at
+        # the same speed (0.38 s against 0.39 s). It also changes other pieces a little (about one in four of 59: capitals,
+        # «okey» → «ok», a mumbled piece dropped), so it is sent only where asked for.
+        self.phrases = [p for p in (phrases or []) if p and p.strip()]
         self.hedge_s = hedge_s
         self.give_up_s = give_up_s
         # One client per call: the connection stays open between chunks (a first request on a cold connection took 1.8-2.8 s).
@@ -92,7 +98,16 @@ class OpenRouterTranscriber:
         }
         if self.language:
             body["language"] = self.language
+        phrases = self.phrases
+        if phrases:
+            body["provider"] = {"options": {"azure": {"phraseList": {"phrases": phrases}}}}
         response = await self.client.post(URL, headers={"Authorization": f"Bearer {self.api_key}"}, json=body)
+        if response.status_code == 400 and phrases:
+            # The provider refused the list: the call goes on without it rather than without a transcript.
+            logger.warning("OpenRouter STT: the phrase list was refused (%s); this call goes on without it", response.text[:200])
+            self.phrases = []
+            del body["provider"]
+            response = await self.client.post(URL, headers={"Authorization": f"Bearer {self.api_key}"}, json=body)
         if response.status_code != 200:
             raise TranscriptionError(f"OpenRouter {response.status_code}: {response.text[:200]}")
         data = response.json()

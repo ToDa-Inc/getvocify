@@ -774,6 +774,17 @@ def test_mai_chunks_run_when_forced_and_openrouter_has_a_key_and_the_language_hi
     provider, one, several = asyncio.run(scenario())
     assert provider == "mai_chunks"
     assert one.hint == "es" and several.hint is None and one.started_with == "or-key"
+    assert one.phrases == []
+    # With the company's switch on, the glossary's words go to the transcriber as written; the sound-alikes do not.
+    glossary = [{"target_word": "Vocify", "phonetic_hints": ["Bocifai"]}, {"target_word": "Trucksters", "phonetic_hints": []}]
+    on = live.ChannelSessions(_FakeClient(), labels=["rep"], language="multi", profile_languages=["es"], glossary=glossary, detect=False,
+                              phrases=True)
+    off = live.ChannelSessions(_FakeClient(), labels=["rep"], language="multi", profile_languages=["es"], glossary=glossary, detect=False)
+
+    async def opened(sessions):
+        return sessions._open("rep", "es", None, offset_s=0.0).phrases
+
+    assert asyncio.run(opened(on)) == ["Vocify", "Trucksters"] and asyncio.run(opened(off)) == []
     # No OpenRouter key: the profile's own rule is used, as for the other forced providers.
     monkeypatch.setattr(live.settings, "OPENROUTER_API_KEY", None)
     assert make(["es"]).provider == "deepgram"

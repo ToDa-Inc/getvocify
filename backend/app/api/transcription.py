@@ -45,6 +45,8 @@ from fastapi import APIRouter, Depends, WebSocket
 
 from app.config import settings
 from app.deps import get_supabase, get_user_id
+from app.services import feature_flags
+from app.services.company import get_company_id_for_user
 from app.services.glossary import GlossaryService
 from app.services.live_channel_sessions import ChannelSessions
 from app.services.live_ticket import issue_ticket, user_for_ticket
@@ -496,6 +498,18 @@ async def authenticated_live_transcription(websocket: WebSocket):
     await serve_live(websocket, user_id, service="live")
 
 
+def _phrases_enabled(user_id: Optional[str]) -> bool:
+    """LIVE_STT_PHRASES_ENABLED for this user's company. A blocking database read: run in a thread."""
+    if not user_id or user_id == "anonymous":
+        return False
+    try:
+        supabase = get_supabase()
+        return feature_flags.is_enabled(supabase, get_company_id_for_user(supabase, user_id), "LIVE_STT_PHRASES_ENABLED")
+    except Exception as e:
+        logger.error("Failed to read LIVE_STT_PHRASES_ENABLED: %s", e)
+        return False
+
+
 def _session_context(user_id: Optional[str], mode: str) -> tuple[list, Optional[List[str]], Optional[dict]]:
     """Glossary, call languages and voice enrollment for a session. Blocking database reads:
     run in a thread, so the event loop keeps every other call's audio moving meanwhile."""
@@ -594,6 +608,7 @@ async def serve_live(websocket: WebSocket, user_id: Optional[str], *, service: s
             # The page's mic is leveled by the browser already; the desktop app's own raw mic is raised on the server.
             echo_raise=websocket.query_params.get("mic") != "page",
             capture_id=websocket.query_params.get("capture_id"),
+            phrases=await asyncio.to_thread(_phrases_enabled, user_id),
         )
         with usage_scope(
             "live_stt",

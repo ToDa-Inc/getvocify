@@ -361,6 +361,10 @@ class Settings(BaseSettings):
     # ONE card or nothing, fact-checked. On for everyone (Dani, 2026-11-09, after the Vocify pilot since 2026-10-26); a
     # company_feature_flags row switches it off.
     LIVE_CARD_ENABLED: bool = True
+    # Live transcription (mai_chunks): the company's glossary is also sent to the transcriber as the words to recognise as
+    # written, not only used to correct its text afterwards. Off; a company_feature_flags row switches it on (Vocify first,
+    # 2026-11-11: it fixes the company's name and changes other pieces a little, so it is tried on real calls before all).
+    LIVE_STT_PHRASES_ENABLED: bool = False
     # Playbooks v2, per company. QUALIFICATION: C04 v7 reads "what has to come out of the call"
     # criteria and the company's own objections, and the score is built from three blocks
     # (steps, qualification, objections) instead of steps alone.

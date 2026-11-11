@@ -756,6 +756,8 @@ class MaiChunkStream(LiveStream):
         self.hint: Optional[str] = None
         # The rep's transcription languages: text in a script none of them uses is dropped. Set by ChannelSessions.
         self.profile_languages: list[str] = []
+        # The glossary's words as the transcriber should write them, when the company has that on. Set by ChannelSessions.
+        self.phrases: list[str] = []
         self.transcriber: Optional[OpenRouterTranscriber] = None
         self.cutter = ChunkCutter(offset_s=self.offset_s)
         self.sent_s = 0.0
@@ -774,7 +776,7 @@ class MaiChunkStream(LiveStream):
 
     async def _run(self, api_key: str) -> None:
         try:
-            self.transcriber = OpenRouterTranscriber(api_key, language=self.hint)
+            self.transcriber = OpenRouterTranscriber(api_key, language=self.hint, phrases=self.phrases)
             self.started_at = time.monotonic()
             self.ready.set()
             asyncio.create_task(self.transcriber.warm_up())
@@ -905,6 +907,7 @@ class ChannelSessions:
         echo_cancel: bool = False,
         echo_raise: bool = True,
         capture_id: Optional[str] = None,
+        phrases: bool = False,
     ) -> None:
         self.client = client_ws
         # The call's own recording, for the whole-call transcription its memo gets (live_recording.py).
@@ -949,6 +952,8 @@ class ChannelSessions:
         self.vocab = GlossaryService().format_for_speechmatics(glossary) if glossary else []
         self.terms = glossary_terms(self.vocab)
         self.sounds = glossary_sounds(self.terms)
+        # LIVE_STT_PHRASES_ENABLED: the glossary's words also go to the transcriber itself (mai_chunks only).
+        self.phrases = [v["content"] for v in self.vocab[:MAX_KEYTERMS] if v.get("content")] if phrases else []
         self.sides = {label: SideLanguage(start_language, start_domain) for label in labels}
         self.buffers = {label: PcmBuffer() for label in labels}
         self.active: dict[str, LiveStream] = {}
@@ -1048,6 +1053,7 @@ class ChannelSessions:
         if isinstance(stream, MaiChunkStream):
             stream.hint = self._language_hint()
             stream.profile_languages = list(self.profile)
+            stream.phrases = list(self.phrases)
         stream.start(self.keys[self.provider] or "")
         self.streams.append(stream)
         return stream
