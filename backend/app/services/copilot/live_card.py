@@ -17,7 +17,8 @@ answers and the examples as ways to say things. Anything about selling lives in 
 - The small gate, in parallel: facts (only against the approved text and the conversation), the call closing, and a
   repeat of a move already made (one more try for a different move, or silence).
 - The fact check also stops a question or proposal that goes against what they set or asks again what they answered.
-- Pace: a new card not within MIN_GAP_S of the last one (a question, an objection or Responder skip it), and the
+- Pace: a card of the reading's own initiative not within MIN_GAP_S of the last one (a card that responds to what they
+  just raised, or Responder, is not held back; it replaces another response only once that one is MIN_SWAP_S old), and the
   reading keeps the direction of the cards before until what they say contradicts or answers it.
 - The screen holds one card. Until the rep could use it (REP_WORDS words of substance since it appeared, a new
   intervention of theirs begun and finished, or the rep closed it) each reading says whether it stays, is updated,
@@ -47,7 +48,7 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "strategic_engine_20261111_short"
+PROMPT_VERSION = "strategic_engine_20261111_pace"
 
 # ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
 # The reading weighs what is happening, what was said, its hypotheses, what is unknown and the situation without writing
@@ -277,6 +278,18 @@ MIN_READ_S = 20.0
 # A new card does not come within this long of the last one, unless they asked a question, raised an objection or the
 # rep pressed Responder: five cards came in two minutes in a replay, more than a rep can use.
 MIN_GAP_S = 30.0
+# Both limits pace the cards the reading offers on its own initiative (deepen, add value, a next step). A card that
+# responds to what they just raised is not held back by them: the reading's move is "answer" or "clarify", or the turn
+# check or the code saw a question or an objection. The limits used to open only for what the turn check flagged, and it
+# flagged neither «ya estamos trabajando con Granola» (its card came 27 s late, behind the 30 s) nor «¿cuántos sois en la
+# empresa?» (no card: the one on screen was 10 s old). Real call, 2026-11-11.
+RESPONDS = ("answer", "clarify")
+# A response replaces at once a card of the reading's own initiative: a deeper question appeared 0.6 s before «me parece
+# bastante caro» was read, and in a replay with one floor for every card the price went unanswered for 17 s and the next
+# objection was lost behind its late answer. A card that was itself a response is given this long first: a flagged
+# objection replaced a card of any age and one changed three times in 6 s while the same objection was still being said
+# (real call, 2026-11-10).
+MIN_SWAP_S = 8.0
 # The same moment read twice: card one time and silence the other in 57 of 180 moments at 0.2, in 40 of 180 at 0 (14
 # recorded calls, production provider, 2026-11-10). Lower, not gone: the provider is not deterministic at 0.
 READ_TEMPERATURE = 0.0
@@ -887,7 +900,7 @@ async def vet(out: dict, turns: list[dict], end: list[float], now: float, shown:
     return card, None, checks
 
 
-def _card_point(card: dict, call_id: str, turns: list[dict], now: float, labels: dict[str, str]) -> dict:
+def _card_point(card: dict, call_id: str, turns: list[dict], now: float, labels: dict[str, str], responds: bool = False) -> dict:
     """The card as a point of the shared state (shared/live-call/state.js): an approved answer is a "Respuesta", any
     other move a "Puedes preguntar" (kind deepen)."""
     them = [t for t in turns if t["who"] == "them"]
@@ -910,6 +923,8 @@ def _card_point(card: dict, call_id: str, turns: list[dict], now: float, labels:
         "source": {"id": source, "label": label or brain.GENERIC_SOURCES.get(source, source)} if source else None,
         "repeated": False, "outcome": "open",
         "visible_t": round(now, 1),
+        # Sent back with the cards shown: what replaces this card, and when, depends on it.
+        "responds": responds,
     }
 
 
@@ -928,7 +943,8 @@ async def read_card(body: Any, ctx: Any) -> dict:
     if body.now_t is not None:
         end[-1] = max(end[-1], body.now_t)
     now = end[-1]
-    shown = sorted(({"id": c.id, "say": c.say, "visible_t": c.visible_t, "open": c.open} for c in body.cards), key=lambda c: c["visible_t"])
+    shown = sorted(({"id": c.id, "say": c.say, "visible_t": c.visible_t, "open": c.open, "responds": c.responds} for c in body.cards),
+                   key=lambda c: c["visible_t"])
     moment = due(body.reason, body.objection, turns, end, now, body.last_read_t)
     floors_them = them_floors(turns, end)
     # The card the rep has not had the chance to use yet: the reading says whether it stays, changes or goes. Asked for,
@@ -937,9 +953,6 @@ async def read_card(body: Any, ctx: Any) -> dict:
     result.update(moment=moment, read_t=round(now, 1))
     if moment is None:
         result["event"] = "skipped:not_a_moment"
-        return result
-    if not pending and moment not in ("them_urgent", "asked") and shown and now - shown[-1]["visible_t"] < MIN_GAP_S:
-        result["event"] = "skipped:too_soon_after_last_card"
         return result
     motion = (body.sales_motion_key or "").strip() or None
     sources = sources_text(ctx, motion)
@@ -975,14 +988,21 @@ async def read_card(body: Any, ctx: Any) -> dict:
         return finish("low_confidence")
     if moment != "asked" and not rests_on_their_words(out, turns):
         return finish("drop:no_reason_in_their_words")
+    # The card responds to what they just raised, or is the reading's own initiative: only the second is paced.
+    responds = moment in ("them_urgent", "asked") or out.get("action") in RESPONDS
+    if not pending and not responds and shown and now - shown[-1]["visible_t"] < MIN_GAP_S:
+        return finish("drop:too_soon_after_last_card")
     if pending:
         # A change: never once the rep has started to speak, nor before the card on screen could be read.
         if rep_said(turns, pending["visible_t"], now) >= 3:
             return finish("drop:rep_started_speaking")
-        # What the turn check flagged (an objection, a question) is not kept waiting behind a card they have moved past:
-        # 50 of the 226 cards dropped here in production answered one.
-        flagged = bool(body.objection and body.objection != "none")
-        if now - pending["visible_t"] < MIN_READ_S and not flagged:
+        # A response is not kept waiting behind a card they have moved past (50 of the 226 cards dropped here in
+        # production answered a flagged objection or question); the same card reworded ("update") waits like any other.
+        if responds and status != "update":
+            wait = MIN_SWAP_S if pending.get("responds") else 0.0
+        else:
+            wait = MIN_READ_S
+        if now - pending["visible_t"] < wait:
             return finish("drop:card_on_screen_too_new")
     # An update keeps the intention of the card on screen: it is not checked as a repeat of it.
     against = [s for s in shown if s is not pending] if pending and status == "update" else shown
@@ -1030,7 +1050,8 @@ async def read_card(body: Any, ctx: Any) -> dict:
     replaces = pending["id"] if pending else None
     labels = brain.allowed_sources(ctx.snapshot, has_knowledge=bool(ctx.knowledge), has_offer=bool(ctx.product_context),
                                    has_history=bool(ctx.history))
-    result["points"] = [_card_point(card, body.call_id, turns, now, labels)]
+    result["points"] = [_card_point(card, body.call_id, turns, now, labels,
+                                    responds=moment in ("them_urgent", "asked") or out.get("action") in RESPONDS)]
     # One card on screen: whatever was still open fades where it is ("gone"), replaced or not.
     result["closed"] = [{"id": s["id"], "outcome": "gone"} for s in shown if s.get("open", True)]
     trace["replaces"] = replaces

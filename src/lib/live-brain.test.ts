@@ -520,11 +520,16 @@ describe("the strategic card (pilot)", () => {
 
   it("a new card comes in and the one still open fades: one card on screen", () => {
     let state = applyPoints(emptyLiveState("c1"), { state_version: 0, points: [card("a", "¿Qué os preocupa del precio?", 10)], closed: [] });
-    state = applyPoints(state, { state_version: 1, points: [card("b", "¿Lo vemos 15 minutos el martes?", 40)], closed: [{ id: "a", outcome: "gone" }] });
+    // The second card answered something they raised: the producer says so and the next reading is told.
+    state = applyPoints(state, {
+      state_version: 1,
+      points: [{ ...card("b", "¿Lo vemos 15 minutos el martes?", 40), responds: true }],
+      closed: [{ id: "a", outcome: "gone" }],
+    });
     assert.deepEqual(state.points.map((p: any) => [p.id, p.outcome]), [["a", "gone"], ["b", "open"]]);
     assert.deepEqual(cardsIn(state), [
-      { id: "a", say: "¿Qué os preocupa del precio?", visible_t: 10, open: false },
-      { id: "b", say: "¿Lo vemos 15 minutos el martes?", visible_t: 40, open: true },
+      { id: "a", say: "¿Qué os preocupa del precio?", visible_t: 10, open: false, responds: false },
+      { id: "b", say: "¿Lo vemos 15 minutos el martes?", visible_t: 40, open: true, responds: true },
     ]);
   });
 
@@ -532,7 +537,7 @@ describe("the strategic card (pilot)", () => {
     let state = applyPoints(emptyLiveState("c1"), example.points_result);
     state = applyPoints(state, { state_version: 1, points: [card("b", "¿Lo vemos el martes?", 40)], closed: [] });
     state = dismissPoint(state, "b");
-    assert.deepEqual(cardsIn(state), [{ id: "b", say: "¿Lo vemos el martes?", visible_t: 40, open: false }]);
+    assert.deepEqual(cardsIn(state), [{ id: "b", say: "¿Lo vemos el martes?", visible_t: 40, open: false, responds: false }]);
   });
 
   it("the reading carries the cards, what the turn check saw and the previous reading's time", () => {

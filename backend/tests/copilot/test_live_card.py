@@ -350,11 +350,19 @@ def test_a_new_card_waits_its_turn_unless_they_asked_or_objected(monkeypatch):
     calls = fake_model(monkeypatch, answer())
     end = live_card.ends(CALL)
     used = [{"id": "a", "say": "¿Qué prioridades tenéis ahora?", "visible_t": round(end[-1] - 10, 1), "open": False}]
+    # A card of the reading's own initiative (a deeper question) waits: the reading is asked, its card is not shown.
     result = run(live_card.read_card(reading(reason="turn_end", objection="none", cards=used), CTX))
-    assert result["event"] == "skipped:too_soon_after_last_card" and calls == []
-    # An objection is not kept waiting.
+    assert result["event"] == "drop:too_soon_after_last_card" and result["points"] == [] and calls.count(live_card.SYSTEM) == 1
+    # An objection the turn check saw is not kept waiting.
+    fake_model(monkeypatch, answer())
     result = run(live_card.read_card(reading(reason="turn_end", objection="price", cards=used), CTX))
     assert result["moment"] == "them_urgent" and result["event"] == "shown"
+    # Nor is a card that answers what they raised when the turn check saw nothing («ya trabajamos con Granola»: its card
+    # came 27 s late on a real call, 2026-11-11). The reading says so itself: its move is "answer" or "clarify".
+    for move in ("answer", "clarify"):
+        fake_model(monkeypatch, answer(action=move))
+        result = run(live_card.read_card(reading(reason="turn_end", objection="none", cards=used), CTX))
+        assert result["moment"] == "them_end" and result["event"] == "shown"
 
 
 def test_a_note_about_what_to_do_is_not_a_card():
@@ -573,16 +581,38 @@ def test_the_cards_reach_the_playbooks_improvement_step():
     assert events.strategic_card_rows(**common, objection="none", result=deepen) == []
 
 
-def test_a_flagged_objection_replaces_a_card_too_new_to_have_been_read(monkeypatch):
-    end = live_card.ends(CALL)
-    on = [{"id": "a", "say": "¿Qué prioridades tenéis ahora?", "visible_t": round(end[-1], 1), "open": True}]
-    fake_model(monkeypatch, answer(card_on_screen="replace"))
-    # Nothing flagged: the card on screen is not changed before it could be read.
-    assert run(live_card.read_card(reading(reason="turn_end", objection="none", cards=on), CTX))["event"] == "drop:card_on_screen_too_new"
-    # The turn check saw an objection: its answer takes the screen.
-    fake_model(monkeypatch, answer(card_on_screen="replace"))
-    result = run(live_card.read_card(reading(reason="turn_end", objection="price", cards=on), CTX))
-    assert result["event"] == "replace" and result["points"] and result["closed"] == [{"id": "a", "outcome": "gone"}]
+def test_a_response_replaces_a_card_the_rep_has_not_used_but_never_one_just_shown(monkeypatch):
+    # They keep talking: the card shown during their intervention is one the rep has not had the chance to use.
+    long = turns(("you", CALL[0]["text"], 0.0),
+                 ("them", " ".join(["ahora mismo tenemos otras prioridades y el precio nos preocupa bastante"] * 8), 6.0))
+    end = live_card.ends(long)
+
+    def event(age, objection="none", on_screen_responds=False, **reading_out):
+        on = [{"id": "a", "say": "¿Qué prioridades tenéis ahora?", "visible_t": round(end[-1] - age, 1), "open": True,
+               "responds": on_screen_responds}]
+        fake_model(monkeypatch, answer(**{"card_on_screen": "replace", **reading_out}))
+        return run(live_card.read_card(reading(call=long, reason="turn_end", objection=objection, cards=on), CTX))
+
+    # The reading's own initiative: the card on screen is not changed before it could be read (20 s).
+    assert event(10)["event"] == "drop:card_on_screen_too_new"
+    # A response to what they raised takes the screen: flagged by the turn check, or said by the reading's own move
+    # («¿cuántos sois en la empresa?» got nothing behind a card 10 s old, real call, 2026-11-11).
+    assert event(10, objection="price")["event"] == "replace"
+    assert event(10, action="answer")["event"] == "replace" and event(10, action="clarify")["event"] == "replace"
+    # Over a card of the reading's own initiative, at once: a deeper question appeared 0.6 s before «me parece bastante
+    # caro» was read, and the price went unanswered behind it (replay of a real call, 2026-11-11).
+    assert event(1, objection="price")["event"] == "replace" and event(1, action="answer")["event"] == "replace"
+    # Over a card that was itself a response, not before it could be read: one card changed three times in 6 s while the
+    # same objection was still being said.
+    assert event(3, objection="price", on_screen_responds=True)["event"] == "drop:card_on_screen_too_new"
+    assert event(3, action="answer", on_screen_responds=True)["event"] == "drop:card_on_screen_too_new"
+    assert event(10, action="answer", on_screen_responds=True)["event"] == "replace"
+    # The same card reworded waits like any other.
+    assert event(10, action="answer", card_on_screen="update")["event"] == "drop:card_on_screen_too_new"
+    # The card says which kind it is, for the next reading: a response, or the reading's own initiative.
+    assert event(10, action="answer")["points"][0]["responds"] is True
+    fake_model(monkeypatch, answer())
+    assert run(live_card.read_card(reading(reason="turn_end"), CTX))["points"][0]["responds"] is False
 
 
 def test_the_checks_wait_less_for_the_backup_than_the_reading(monkeypatch):

@@ -159,13 +159,20 @@ export function buildReading(input: {
 
 /** A card of the strategic producer as it goes back to it: every card shown in this call, oldest first, with whether it is
  * still on screen (the rep has not closed it and no newer card replaced it). The producer's points carry `visible_t`. */
-export type CardIn = { id: string; say: string; visible_t: number; open: boolean };
+export type CardIn = { id: string; say: string; visible_t: number; open: boolean; responds: boolean };
 
 export function cardsIn(state: StateLike): CardIn[] {
   return state.points
-    .flatMap((point: { id: string; outcome: string; versions?: string[]; answer?: string | null; visible_t?: unknown }): CardIn[] =>
+    .flatMap((point: { id: string; outcome: string; versions?: string[]; answer?: string | null; visible_t?: unknown; responds?: unknown }): CardIn[] =>
       typeof point.visible_t === "number"
-        ? [{ id: point.id, say: (point.versions?.[0] ?? point.answer ?? "").slice(0, 400), visible_t: point.visible_t, open: point.outcome === "open" }]
+        ? [{
+            id: point.id,
+            say: (point.versions?.[0] ?? point.answer ?? "").slice(0, 400),
+            visible_t: point.visible_t,
+            open: point.outcome === "open",
+            // The producer said this card answered something they raised: it decides what may replace it, and when.
+            responds: point.responds === true,
+          }]
         : [],
     )
     .slice(-60);

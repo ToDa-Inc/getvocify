@@ -123,6 +123,8 @@ class CardIn(BaseModel):
     say: str = Field(..., max_length=400)
     visible_t: float = Field(..., ge=0)
     open: bool = True
+    # It answered something they raised (the producer's own `responds`), as opposed to a move of its own initiative.
+    responds: bool = False
 
 
 class CardReading(LiveReading):
