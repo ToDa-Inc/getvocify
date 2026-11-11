@@ -26,6 +26,12 @@ MODEL = "microsoft/mai-transcribe-2"
 HEDGE_S = 1.0
 # A chunk whose requests have not answered by now is given up (the call goes on; its words are lost).
 GIVE_UP_S = 20.0
+# The provider answers 429 with «Retry-After: 1» or 2 when it has too many requests: the same request is sent again after
+# that wait, this many times, instead of losing the speech. On 2026-11-11 it refused about half the requests for minutes;
+# the first and its hedge were both refused within half a second and 45 pieces of live calls were lost in five minutes
+# (a prospect asked «¿qué hacéis exactamente?» three times before any text arrived).
+RATE_LIMIT_TRIES = 3
+RATE_LIMIT_WAIT_S = 3.0
 SAMPLE_RATE = 16000
 
 
@@ -101,18 +107,31 @@ class OpenRouterTranscriber:
         phrases = self.phrases
         if phrases:
             body["provider"] = {"options": {"azure": {"phraseList": {"phrases": phrases}}}}
-        response = await self.client.post(URL, headers={"Authorization": f"Bearer {self.api_key}"}, json=body)
+        response = await self._post(body)
         if response.status_code == 400 and phrases:
             # The provider refused the list: the call goes on without it rather than without a transcript.
             logger.warning("OpenRouter STT: the phrase list was refused (%s); this call goes on without it", response.text[:200])
             self.phrases = []
             del body["provider"]
-            response = await self.client.post(URL, headers={"Authorization": f"Bearer {self.api_key}"}, json=body)
+            response = await self._post(body)
         if response.status_code != 200:
             raise TranscriptionError(f"OpenRouter {response.status_code}: {response.text[:200]}")
         data = response.json()
         cost = (data.get("usage") or {}).get("cost")
         return str(data.get("text") or "").strip(), cost if isinstance(cost, (int, float)) else None
+
+    async def _post(self, body: dict) -> httpx.Response:
+        """The request, sent again after the wait the provider asks for while it answers 429."""
+        for attempt in range(RATE_LIMIT_TRIES + 1):
+            response = await self.client.post(URL, headers={"Authorization": f"Bearer {self.api_key}"}, json=body)
+            if response.status_code != 429 or attempt == RATE_LIMIT_TRIES:
+                break
+            try:
+                wait = float(response.headers.get("retry-after") or 1.0)
+            except ValueError:
+                wait = 1.0
+            await asyncio.sleep(min(RATE_LIMIT_WAIT_S, max(0.2, wait)))
+        return response
 
     async def diarize(self, pcm: bytes) -> tuple[list[dict], Optional[float]]:
         """One request for a stretch of audio: [{speaker, start, end, text}] in order, times in seconds from the start of

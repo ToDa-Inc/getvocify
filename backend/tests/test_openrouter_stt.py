@@ -82,6 +82,47 @@ def test_a_refused_phrase_list_is_dropped_for_the_rest_of_the_call_not_the_trans
     assert seen == [True, False, False]
 
 
+def test_a_request_the_provider_has_no_room_for_is_sent_again_after_the_wait_it_asks_for(monkeypatch):
+    # 2026-11-11: the provider refused about half the requests with «Retry-After: 1» and each refused chunk was lost.
+    from app.services import openrouter_stt as stt
+
+    waits, calls = [], []
+
+    async def no_wait(seconds):
+        waits.append(seconds)
+
+    async def handler(request):
+        calls.append(1)
+        if len(calls) <= 2:
+            return httpx.Response(429, headers={"Retry-After": "2" if len(calls) == 1 else "9"}, json={"error": {"code": 429}})
+        return ok("¿Qué es lo que hacéis exactamente?")
+
+    monkeypatch.setattr(stt.asyncio, "sleep", no_wait)
+    result = asyncio.run(transcriber(handler, hedge_s=60).transcribe(PCM))
+    # The wait it asked for, never more than the cap; one request of the chunk, answered on its third try.
+    assert result.text == "¿Qué es lo que hacéis exactamente?" and len(calls) == 3 and not result.hedged
+    assert waits == [2.0, stt.RATE_LIMIT_WAIT_S]
+
+
+def test_a_provider_that_keeps_refusing_loses_the_chunk_after_a_few_tries(monkeypatch):
+    from app.services import openrouter_stt as stt
+
+    calls = []
+
+    async def no_wait(seconds):
+        return None
+
+    async def handler(request):
+        calls.append(1)
+        return httpx.Response(429, json={"error": {"code": 429}})
+
+    monkeypatch.setattr(stt.asyncio, "sleep", no_wait)
+    with pytest.raises(TranscriptionError, match="429"):
+        asyncio.run(transcriber(handler, hedge_s=60).transcribe(PCM))
+    # The first request and its hedge (sent when the first failed), each tried four times.
+    assert len(calls) == 2 * (stt.RATE_LIMIT_TRIES + 1)
+
+
 def test_a_request_that_stalls_is_answered_by_its_second():
     calls = []
 
