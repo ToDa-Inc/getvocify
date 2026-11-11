@@ -29,7 +29,6 @@ import {
   Briefcase,
   Building,
   Ban,
-  FileText,
 } from "lucide-react";
 import { Segmented } from "@/components/ui/segmented";
 import { Switch } from "@/components/ui/switch";
@@ -1543,12 +1542,6 @@ export const HubSpotSyncPreview = ({
         className={tabbed ? "space-y-4" : undefined}
       >
         {tabbed ? noteLead : null}
-        {preview?.note_includes_transcript != null && callSummary ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary/10 px-2.5 py-1 text-[11px] text-muted-foreground">
-            <FileText className="h-3 w-3" />
-            {crmName} note · {preview.note_includes_transcript ? "summary + transcript" : "summary only"}
-          </span>
-        ) : null}
         {callSummary ? (
           <div className={tabbed ? "" : "space-y-3 pt-2"}>
             {tabbed ? null : <h5 className={THEME_TOKENS.typography.sectionRail}>Call note</h5>}

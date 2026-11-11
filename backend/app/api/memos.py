@@ -2080,10 +2080,6 @@ async def _build_approval_preview(
         )
     except Exception as e:
         logger.warning("Call outcome availability check failed for memo %s: %s", memo_id, e)
-    if (conn or {}).get("provider") == "pipedrive":
-        from app.services.pipedrive.sync import note_includes_transcript
-
-        preview.note_includes_transcript = note_includes_transcript(conn.get("metadata"))
     return preview
 
 

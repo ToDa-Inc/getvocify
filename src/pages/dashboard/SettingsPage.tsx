@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { AlignLeft, MessageSquareText, RefreshCw } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -7,7 +7,8 @@ import { useAuth } from "@/features/auth";
 import { integrationKeys } from "@/features/integrations/api";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
-import { crmApi, crmKeys, SESSION_QUERY_STALE_MS } from "@/lib/api/crm";
+import { crmApi, crmKeys, SESSION_QUERY_STALE_MS, type CallNoteSettings } from "@/lib/api/crm";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -159,6 +160,28 @@ const SettingsPage = () => {
     onError: () => toast.error("Could not update primary CRM"),
   });
 
+  const { data: noteSettings } = useQuery({
+    queryKey: crmKeys.noteSettings(),
+    queryFn: () => crmApi.getNoteSettings(),
+    staleTime: SESSION_QUERY_STALE_MS,
+    enabled: connections.length > 0,
+  });
+  const noteMutation = useMutation({
+    mutationFn: (next: CallNoteSettings) => crmApi.saveNoteSettings(next),
+    onMutate: (next) => {
+      const before = queryClient.getQueryData<CallNoteSettings>(crmKeys.noteSettings());
+      queryClient.setQueryData(crmKeys.noteSettings(), next);
+      return { before };
+    },
+    onSuccess: (saved) => queryClient.setQueryData(crmKeys.noteSettings(), saved),
+    onError: (_e, _next, ctx) => {
+      if (ctx?.before) queryClient.setQueryData(crmKeys.noteSettings(), ctx.before);
+      toast.error("Could not save the call note setting");
+    },
+  });
+  const note = noteSettings ?? { summary: true, transcript: true };
+  const setNote = (patch: Partial<CallNoteSettings>) => noteMutation.mutate({ ...note, ...patch });
+
   if (connectionsLoading) {
     return (
       <div className={THEME_TOKENS.interaction.pageLoad}>
@@ -215,6 +238,34 @@ const SettingsPage = () => {
           );
         })}
       </SettingsSection>
+      {connections.length > 0 && (
+        <div className="space-y-2">
+        <SettingsSection label="Call note">
+          <SettingsRow icon={AlignLeft} title="Summary" description="What was said and agreed, in the note on the record">
+            <Switch
+              aria-label="Summary in the call note"
+              checked={note.summary}
+              disabled={!canManage || !noteSettings}
+              onCheckedChange={(on) => setNote({ summary: on })}
+            />
+          </SettingsRow>
+          <SettingsRow icon={MessageSquareText} title="Transcript" description="The whole conversation, under the summary">
+            <Switch
+              aria-label="Transcript in the call note"
+              checked={note.transcript}
+              disabled={!canManage || !noteSettings}
+              onCheckedChange={(on) => setNote({ transcript: on })}
+            />
+          </SettingsRow>
+        </SettingsSection>
+        <p className="px-1 text-xs text-muted-foreground">
+          {!note.summary && !note.transcript
+            ? "No call note is written. Fields and tasks still are."
+            : "For every connected CRM."}
+        </p>
+        </div>
+      )}
+
       <div className="flex justify-end px-1">
         <Button type="button" variant="ghost" size="sm" className="h-8 gap-2 text-xs text-muted-foreground" disabled={refreshing} onClick={reloadConnections}>
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden />

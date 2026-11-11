@@ -397,20 +397,6 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
             onCheckedChange={(val) => setConfig((prev) => ({ ...prev, auto_create_companies: val }))}
           />
         </div>
-        <div className="flex items-start gap-4 p-3.5 rounded-2xl bg-secondary/5 border border-border/20">
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] text-foreground">Transcript in the note</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Off: the call note in Pipedrive is the summary only.
-            </p>
-          </div>
-          <Switch
-            className="shrink-0 mt-0.5"
-            checked={config.note_includes_transcript !== false}
-            disabled={readOnly}
-            onCheckedChange={(val) => setConfig((prev) => ({ ...prev, note_includes_transcript: val }))}
-          />
-        </div>
       </div>
 
       {!readOnly && (

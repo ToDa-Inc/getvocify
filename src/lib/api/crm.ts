@@ -30,8 +30,6 @@ export interface CRMConfiguration {
   allowed_line_item_fields?: string[];
   auto_create_contacts: boolean;
   auto_create_companies: boolean;
-  /** Pipedrive: the call note carries the transcript under the summary (default on). */
-  note_includes_transcript?: boolean;
   /** Lost reasons shown in the extension's Lost picker (plus a UI-only "Other"). */
   lost_reasons?: string[];
   /**
@@ -75,7 +73,14 @@ export const crmKeys = {
   salesforceSetup: () => [...crmKeys.all, "salesforce", "setup"] as const,
   pipedriveSetup: () => [...crmKeys.all, "pipedrive", "setup"] as const,
   fieldPermissions: () => [...crmKeys.all, "field-permissions"] as const,
+  noteSettings: () => [...crmKeys.all, "note-settings"] as const,
 };
+
+/** What the call note Vocify writes carries, in every CRM the company has. Both off: no note. */
+export interface CallNoteSettings {
+  summary: boolean;
+  transcript: boolean;
+}
 
 export type FieldListKey =
   | "allowed_deal_fields"
@@ -131,6 +136,14 @@ export const crmApi = {
     connections: { id: string; provider: string; status: string; created_at?: string }[];
   }> {
     return api.get("/crm/connections");
+  },
+
+  async getNoteSettings(): Promise<CallNoteSettings> {
+    return api.get("/crm/note-settings");
+  },
+
+  async saveNoteSettings(settings: CallNoteSettings): Promise<CallNoteSettings> {
+    return api.put("/crm/note-settings", settings);
   },
 
   async getCrmPreferences(): Promise<{ primary_crm_connection_id: string | null }> {

@@ -126,9 +126,6 @@ class ApprovalPreview(BaseModel):
         default_factory=list,
         description="Ambiguous contact matches requiring user confirmation",
     )
-    note_includes_transcript: Optional[bool] = Field(
-        None, description="Pipedrive: whether the call note will carry the transcript under the summary"
-    )
     skip_deal: bool = Field(
         default=False,
         description="True when syncing contact/company without creating or updating a deal",

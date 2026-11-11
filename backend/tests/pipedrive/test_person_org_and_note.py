@@ -5,7 +5,8 @@ import pytest
 from app.models.approval import DealMatch
 from app.models.memo import MemoExtraction
 from app.services.extraction import _normalize_raw_extraction
-from app.services.pipedrive.sync import note_includes_transcript
+from app.services.crm_note_settings import NoteParts, note_parts
+from app.services.hubspot.note_format import format_hubspot_note_body
 from app.services.preview_targets import open_linked_deal_ids, resolve_preview_deal_selection
 
 from .test_sync import _FakeClient, _svc
@@ -115,20 +116,23 @@ def test_option_labels_still_map_to_their_values_and_lists_keep_the_real_ones():
     assert out["company_properties"]["sector"] == "12"
 
 
-def test_the_note_carries_the_transcript_unless_switched_off():
-    assert note_includes_transcript(None) is True
-    assert note_includes_transcript({}) is True
-    assert note_includes_transcript({"note_includes_transcript": False}) is False
+def test_the_note_carries_both_parts_unless_switched_off():
+    assert note_parts(None) == NoteParts(True, True)
+    assert note_parts({"note_includes_transcript": False}) == NoteParts(True, False)
+    assert note_parts({"note_includes_summary": False, "note_includes_transcript": False}).any is False
 
 
-@pytest.mark.asyncio
-async def test_summary_only_note_leaves_the_transcript_out(monkeypatch):
+def _sync_with(monkeypatch, parts):
     svc, client = _svc()
 
-    async def off(_connection_id):
-        return False
+    async def fixed(_supabase, _connection_id):
+        return parts
 
-    monkeypatch.setattr(svc, "_note_includes_transcript", off)
+    monkeypatch.setattr("app.services.pipedrive.sync.load_note_parts", fixed)
+    return svc, client
+
+
+async def _approve(svc):
     await svc.sync_memo(
         memo_id=uuid4(),
         user_id="u1",
@@ -139,6 +143,35 @@ async def test_summary_only_note_leaves_the_transcript_out(monkeypatch):
         create_note=True,
         transcript="S1: una frase muy reconocible del transcript",
     )
+
+
+@pytest.mark.asyncio
+async def test_summary_only_note_leaves_the_transcript_out(monkeypatch):
+    svc, client = _sync_with(monkeypatch, NoteParts(summary=True, transcript=False))
+    await _approve(svc)
     note = next(p for p in client.posts if p[0] == "/notes")
     assert "Resumen de la llamada" in note[1]["content"]
     assert "reconocible" not in note[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_transcript_only_note_leaves_the_summary_out(monkeypatch):
+    svc, client = _sync_with(monkeypatch, NoteParts(summary=False, transcript=True))
+    await _approve(svc)
+    note = next(p for p in client.posts if p[0] == "/notes")
+    assert "reconocible" in note[1]["content"]
+    assert "Resumen de la llamada" not in note[1]["content"]
+    assert "Sin resumen" not in note[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_neither_part_writes_no_note(monkeypatch):
+    svc, client = _sync_with(monkeypatch, NoteParts(summary=False, transcript=False))
+    await _approve(svc)
+    assert "/notes" not in [p[0] for p in client.posts]
+
+
+def test_hubspot_note_without_the_summary_has_no_missing_summary_line():
+    body = format_hubspot_note_body(summary=None, transcript="S1: hola que tal", include_summary=False)
+    assert "Sin resumen" not in body and "No summary" not in body
+    assert "hola que tal" in body

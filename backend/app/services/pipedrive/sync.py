@@ -14,6 +14,7 @@ from supabase import Client
 from app.logging_config import DOMAIN_PIPEDRIVE, log_domain
 from app.metrics import inc_pipeline_error, record_sync_duration
 from app.models.memo import MemoExtraction
+from app.services.crm_note_settings import NoteParts, load_note_parts
 from app.services.crm_updates import CRMUpdatesService
 from app.services.hubspot.contact_identity import real_contact_email_or_none
 from app.services.hubspot.types import SyncResult
@@ -105,15 +106,6 @@ async def _get_pipedrive_owner_id_for_user(
     except Exception as e:
         logger.warning("Could not resolve Pipedrive owner for user %s: %s", user_id, e)
     return None
-
-
-NOTE_TRANSCRIPT_KEY = "note_includes_transcript"
-
-
-def note_includes_transcript(meta: Optional[dict]) -> bool:
-    """Stored on crm_connections.metadata; absent means on (the note as it always was)."""
-    value = (meta or {}).get(NOTE_TRANSCRIPT_KEY) if isinstance(meta, dict) else None
-    return value is not False
 
 
 def new_deal_title(extraction: MemoExtraction) -> str:
@@ -386,7 +378,13 @@ class PipedriveSyncService:
                     data={"deal_id": deal_id},
                 )
 
-            if create_note and (deal_id or person_id or org_id):
+            parts = await load_note_parts(self.supabase, connection_id) if create_note else NoteParts()
+            if create_note and not parts.any:
+                logger.info(
+                    "Pipedrive note skipped - the company writes neither the summary nor the transcript",
+                    extra=log_domain(DOMAIN_PIPEDRIVE, "note_off", memo_id=str(memo_id)),
+                )
+            elif create_note and (deal_id or person_id or org_id):
                 # One memo, one note: a retry after a later step failed must not write it again.
                 if CRMUpdatesService.is_action_already_done(await self._previous_updates(memo_id), ("create_note",)):
                     logger.info(
@@ -394,9 +392,10 @@ class PipedriveSyncService:
                         extra=log_domain(DOMAIN_PIPEDRIVE, "note_skipped_duplicate", memo_id=str(memo_id)),
                     )
                 else:
-                    with_transcript = await self._note_includes_transcript(connection_id)
                     content = format_note_content(
-                        summary=extraction.summary, transcript=(transcript or "") if with_transcript else ""
+                        summary=extraction.summary if parts.summary else None,
+                        transcript=(transcript or "") if parts.transcript else "",
+                        include_summary=parts.summary,
                     )
                     async with self.crm_updates.track(
                         memo_id=str(memo_id),
@@ -411,7 +410,7 @@ class PipedriveSyncService:
                         tracked.data = {"note_id": note_id}
                         tracked.resource_id = note_id
                     # Written with the note (so a retry never logs it twice): the call itself, with the summary.
-                    if conversation and extraction.summary:
+                    if conversation and extraction.summary and parts.summary:
                         await self._log_conversation(conversation, extraction, deal_id, person_id, org_id, owner_id, memo_id, transcript)
                 landed.append("note")
             elif create_note:
@@ -532,18 +531,6 @@ class PipedriveSyncService:
                 extra=log_domain(DOMAIN_PIPEDRIVE, "conversation_activity_failed", memo_id=str(memo_id)),
                 exc_info=True,
             )
-
-    async def _note_includes_transcript(self, connection_id: Union[UUID, str]) -> bool:
-        """Settings > CRM > Pipedrive: the note carries the summary and, unless switched off, the transcript."""
-        if not self.supabase:
-            return True
-        query = self.supabase.table("crm_connections").select("metadata").eq("id", str(connection_id)).single()
-        try:
-            row = await asyncio.to_thread(query.execute)
-        except Exception:
-            logger.warning("Could not read the note setting of connection %s", connection_id, exc_info=True)
-            return True
-        return note_includes_transcript((row.data or {}).get("metadata") if row else None)
 
     async def _person_org_id(self, person_id: str) -> Optional[str]:
         try:

@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Union
 from uuid import UUID
 
+from app.services.crm_note_settings import NoteParts, load_note_parts
 from app.logging_config import log_domain, with_timing, DOMAIN_HUBSPOT
 from app.metrics import record_sync_duration, inc_pipeline_error
 
@@ -463,8 +464,10 @@ class HubSpotSyncService:
         call_outcome: Optional[str],
         lost_reason: Optional[str],
         field_changes: list,
+        note_parts: Optional[NoteParts] = None,
     ) -> bool:
         """The memo's write-up on its Vocify-placed HubSpot Call. False: not such a call, or it failed (a Note then)."""
+        parts = note_parts or NoteParts()
         from .note_format import format_hubspot_note_body
 
         try:
@@ -476,8 +479,9 @@ class HubSpotSyncService:
                 user_id=user_id,
                 connection_id=connection_id,
                 body=format_hubspot_note_body(
-                    summary=summary,
-                    transcript=transcript,
+                    summary=summary if parts.summary else None,
+                    transcript=transcript if parts.transcript else "",
+                    include_summary=parts.summary,
                     source="hubspot_call",
                     call_outcome=call_outcome,
                     lost_reason=lost_reason,
@@ -1640,7 +1644,13 @@ class HubSpotSyncService:
             # (and outcome_note_already_recorded, computed below from previous_updates
             # for retries) tell Step 8 whether it still needs its own standalone note.
             outcome_note_merged_this_run = False
-            if create_note and transcript and transcript.strip() and (deal_id or contact_id or company_id):
+            note_parts = await load_note_parts(self.supabase, connection_id) if create_note else NoteParts()
+            if create_note and not note_parts.any:
+                logger.info(
+                    "HubSpot note skipped - the company writes neither the summary nor the transcript",
+                    extra=log_domain(DOMAIN_HUBSPOT, "note_off", memo_id=str(memo_id)),
+                )
+            if create_note and note_parts.any and transcript and transcript.strip() and (deal_id or contact_id or company_id):
                 # Dedupe by memo, not by deal: one memo produces at most one note,
                 # regardless of how many objects it ends up associated with.
                 note_already_created = CRMUpdatesService.is_action_already_done(
@@ -1660,6 +1670,7 @@ class HubSpotSyncService:
                     call_outcome=call_outcome,
                     lost_reason=lost_reason,
                     field_changes=written_fields,
+                    note_parts=note_parts,
                 ):
                     # A call placed through Vocify: its HubSpot Call carries the write-up, no second entry.
                     outcome_note_merged_this_run = call_outcome == "lost"
@@ -1675,8 +1686,9 @@ class HubSpotSyncService:
                             from .note_format import format_hubspot_note_body
 
                             note_body = format_hubspot_note_body(
-                                summary=getattr(extraction, "summary", None),
-                                transcript=transcript,
+                                summary=getattr(extraction, "summary", None) if note_parts.summary else None,
+                                transcript=transcript if note_parts.transcript else "",
+                                include_summary=note_parts.summary,
                                 source="hubspot_call",
                                 call_outcome=call_outcome,
                                 lost_reason=lost_reason,

@@ -19,12 +19,14 @@ def format_note_content(
     summary: Optional[str],
     transcript: str,
     field_changes: Optional[list[dict[str, Any]]] = None,
+    include_summary: bool = True,
 ) -> str:
     return format_hubspot_note_body(
         summary=summary,
         transcript=transcript,
         source=None,
         field_changes=field_changes,
+        include_summary=include_summary,
     )
 
 

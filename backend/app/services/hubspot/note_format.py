@@ -295,8 +295,12 @@ def format_hubspot_note_body(
     call_outcome: Optional[str] = None,
     lost_reason: Optional[str] = None,
     field_changes: Optional[list[dict[str, Any]]] = None,
+    include_summary: bool = True,
 ) -> str:
     """
+    include_summary=False (Settings > CRM > Call note): the summary is left out on purpose, with no
+    "no summary" line.
+
     Build an HTML HubSpot note: summary first, then readable transcript,
     then (when call_outcome == 'lost') a visually separated outcome section
     - see format_call_outcome_section. Merging it in here (one note, not
@@ -321,7 +325,9 @@ def format_hubspot_note_body(
     parts.append(f"<p><strong>{html.escape(title)}</strong></p>")
 
     # Summary: Granola-style markdown when present; otherwise a labeled paragraph.
-    if summary:
+    if not include_summary:
+        pass
+    elif summary:
         if summary_looks_markdown(summary):
             html_summary = format_summary_html(summary)
             if html_summary:

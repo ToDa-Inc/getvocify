@@ -22,6 +22,7 @@ from app.services.activity_scope import (
     should_apply_author_recording_filter,
     visible_recordings_for_viewer,
 )
+from app.services.crm_note_settings import NoteParts, company_note_parts, save_company_note_parts
 from app.services.company_scope import require_company_id, require_crm_write_access, require_crm_connection, get_crm_connection
 from app.services.live_calls.linking import calls_recorded_on_desktop, link_desktop_calls_for_contact
 from app.services.hubspot import (
@@ -1381,6 +1382,35 @@ async def get_crm_preferences(
     )
     pid = (comp.data or {}).get("primary_crm_connection_id") if comp and comp.data else None
     return {"primary_crm_connection_id": str(pid) if pid else None}
+
+
+class CallNoteSettings(BaseModel):
+    """What the call note Vocify writes in the CRM carries (every CRM the company has)."""
+
+    summary: bool = True
+    transcript: bool = True
+
+
+@router.get("/note-settings", response_model=CallNoteSettings)
+def get_note_settings(
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    parts = company_note_parts(supabase, require_company_id(supabase, user_id))
+    return CallNoteSettings(summary=parts.summary, transcript=parts.transcript)
+
+
+@router.put("/note-settings", response_model=CallNoteSettings)
+def save_note_settings(
+    body: CallNoteSettings,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    require_crm_write_access(supabase, user_id)
+    parts = save_company_note_parts(
+        supabase, require_company_id(supabase, user_id), NoteParts(summary=body.summary, transcript=body.transcript)
+    )
+    return CallNoteSettings(summary=parts.summary, transcript=parts.transcript)
 
 
 @router.post("/hubspot/deals")
