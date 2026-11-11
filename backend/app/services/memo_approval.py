@@ -5,7 +5,7 @@ Shared by HTTP API and WhatsApp processor.
 
 import logging
 from datetime import datetime
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from supabase import Client
 
@@ -53,6 +53,20 @@ class CRMSyncError(ValueError):
         self.error_code = error_code
 
 
+# What the rep's review never edits: the reading of the call (C04) and the call read before the CRM pass.
+_READING_KEYS = ("intelligence", "call_reading")
+
+
+def with_stored_reading(reviewed: dict, stored: Any) -> dict:
+    """The reviewed extraction with the memo's own reading put back. The review went through MemoExtraction, whose
+    typed block knows only part of the reading (no call, next, qualification or prompt version) and is None when the
+    client left it out: saved as it came, Equipo and Coaching lost what they read."""
+    if not isinstance(stored, dict):
+        return reviewed
+    kept = {key: stored[key] for key in _READING_KEYS if isinstance(stored.get(key), dict)}
+    return {**reviewed, **kept}
+
+
 async def approve_memo_core(
     supabase: Client,
     memo_id: str,
@@ -78,7 +92,7 @@ async def approve_memo_core(
         raise ValueError("Memo not found")
     reviewed_extraction = bool(payload and payload.extraction)
     extraction_data = (
-        payload.extraction.model_dump() if reviewed_extraction
+        with_stored_reading(payload.extraction.model_dump(), memo_data.get("extraction")) if reviewed_extraction
         else memo_data.get("extraction")
     )
     if not extraction_data:

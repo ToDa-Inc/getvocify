@@ -425,6 +425,48 @@ async def test_reviewed_approval_stores_task_ids_on_the_reviewed_copy(monkeypatc
     assert [c.get("crm_task_id") for c in commitments] == ["T-1", None, None]
 
 
+def _memo_with_a_whole_reading():
+    """The reading as C04 v8+ stores it: parts MemoExtraction's typed block does not know, and the call read first."""
+    memo = _memo()
+    memo["extraction"]["intelligence"].update({
+        "call": {"reached_conversation": True}, "next": {"outcome": {"text": "Demo el jueves"}},
+        "qualification_observations": [{"criterion_id": "q1", "status": "met"}],
+    })
+    memo["extraction"]["call_reading"] = {"call_type": "sales", "roles_marked": True}
+    return memo
+
+
+@pytest.mark.asyncio
+async def test_a_reviewed_approval_keeps_the_calls_whole_reading(monkeypatch):
+    """The rep reviews the CRM fields, never the reading. The reviewed copy went through MemoExtraction, which kept only
+    part of it: Equipo and Coaching lost the call read, what comes next, the qualification and the prompt version."""
+    memo = _memo_with_a_whole_reading()
+    stored = copy.deepcopy(memo["extraction"])
+    db, _provider = _approve_env(monkeypatch, memo=memo)
+    await memo_approval.approve_memo_core(db, MEMO_ID, "u-1", _reviewed(memo, ["Llamar a Ana el viernes"]))
+    [(_table, update)] = [u for u in db.updates if u[0] == "memos"]
+    assert update["extraction"]["nextSteps"] == ["Llamar a Ana el viernes"]
+    assert update["extraction"]["intelligence"] == stored["intelligence"]
+    assert update["extraction"]["call_reading"] == stored["call_reading"]
+
+
+@pytest.mark.asyncio
+async def test_a_review_that_leaves_the_reading_out_does_not_erase_it(monkeypatch):
+    memo = _memo_with_a_whole_reading()
+    stored = copy.deepcopy(memo["extraction"]["intelligence"])
+    db, _provider = _approve_env(monkeypatch, memo=memo)
+    payload = ApproveMemoRequest(extraction=MemoExtraction(companyName="Acme", nextSteps=["Llamar a Ana"]), deal_id="D1")
+    await memo_approval.approve_memo_core(db, MEMO_ID, "u-1", payload)
+    [(_table, update)] = [u for u in db.updates if u[0] == "memos"]
+    assert update["extraction"]["intelligence"] == stored
+
+
+def test_a_memo_without_a_reading_keeps_the_reviewed_copy_as_it_is():
+    reviewed = {"companyName": "Acme", "intelligence": None}
+    assert memo_approval.with_stored_reading(reviewed, None) == reviewed
+    assert memo_approval.with_stored_reading(reviewed, {"companyName": "Old", "intelligence": None}) == reviewed
+
+
 def _legacy_memo():
     """Two commitments plus the legacy nextSteps and their schedule hints the extraction stored."""
     memo = _memo([DAY, UNDATED], next_steps=("Mandar el caso", "Preparar propuesta"))
