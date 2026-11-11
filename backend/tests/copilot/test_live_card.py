@@ -45,10 +45,9 @@ def reading(call=CALL, **kw):
 
 
 def answer(line="Entiendo, ¿qué os preocupa más del precio: el coste por usuario o justificarlo ante dirección?", **kw):
-    return {"what_is_happening": "Pone el precio como freno.", "understanding_confidence": "high",
-            "observed": "«el precio nos preocupa bastante»", "hypotheses": "", "unknown": "qué parte del precio", "situation": "none",
-            "their_latest": "precio", "last_move": "", "action": "deepen", "card_on_screen": "no_card",
-            "because": "el precio nos preocupa bastante", "decision": "card", "line": line, "source": "context", "source_quote": "", **kw}
+    return {"their_latest": "Pone el precio como freno.", "understanding_confidence": "high", "action": "deepen",
+            "card_on_screen": "no_card", "because": "el precio nos preocupa bastante", "decision": "card", "line": line,
+            "source": "context", "source_quote": "", **kw}
 
 
 def fake_model(monkeypatch, reading_out, *, unsupported=False, closing=False, repeats=False, retry=None):
@@ -275,6 +274,37 @@ def test_a_repeat_gets_one_more_try_and_otherwise_silence(monkeypatch):
     assert result["event"] == "drop:repeats→silence" and calls.count(live_card.SYSTEM) == 2
 
 
+def test_the_reading_writes_their_latest_words_then_the_move_then_the_card():
+    # What it weighs (what is happening, hypotheses, the unknown, the situation) is not written: the card came at 1.3 s
+    # with those fields and at 0.8 s without, deciding the same. The card is never written before the move.
+    fields = live_card.SCHEMA["required"]
+    assert fields == list(live_card.SCHEMA["properties"]) == [
+        "their_latest", "understanding_confidence", "action", "card_on_screen", "because", "decision", "line", "source", "source_quote"]
+    for gone in ('"what_is_happening"', '"observed"', '"hypotheses"', '"unknown"', '"situation"', '"last_move"'):
+        assert gone not in live_card.SYSTEM
+    assert "you do not write them" in live_card.SYSTEM and "company's SITUATIONS" in live_card.SYSTEM
+
+
+def test_a_card_that_names_a_day_nobody_said_gets_one_more_try(monkeypatch):
+    # «¿Jueves o viernes te viene mejor?» after «podríamos verlo» (replay of a real call, 2026-11-11): the day is the rep's.
+    assert live_card.proposed_day("Pues te lo enseño en 15 minutos. ¿Jueves o viernes te viene mejor?", "Podríamos verlo.")
+    assert not live_card.proposed_day("Entonces el jueves te llamo, ¿te mando la invitación?", "Llámame el Jueves mejor.")
+    assert not live_card.proposed_day("¿Qué día te viene bien para verlo 15 minutos?", "Podríamos verlo.")
+    proposes = answer(line="Pues te lo enseño en 15 minutos con tus comerciales. ¿Jueves o viernes te viene mejor?")
+    calls = fake_model(monkeypatch, proposes, retry=answer(line="Pues te lo enseño en 15 minutos con tus comerciales. ¿Qué día te viene bien?"))
+    result = run(live_card.read_card(reading(reason="turn_end"), CTX))
+    assert result["event"] == "shown" and calls.count(live_card.SYSTEM) == 2
+    assert result["points"][0]["answer"].endswith("¿Qué día te viene bien?")
+    # Still a day on the second try: nothing is shown.
+    fake_model(monkeypatch, proposes, retry=proposes)
+    assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "drop:proposes_day"
+    # A day they said themselves stays.
+    call = CALL + turns(("them", "Si acaso llámame el jueves y lo miramos con calma.", 14.0))
+    call[-1]["id"] = "t9"
+    calls = fake_model(monkeypatch, answer(line="Perfecto, te llamo el jueves y lo miramos con calma.", because="llámame el jueves y lo miramos"))
+    assert run(live_card.read_card(reading(call=call, reason="turn_end"), CTX))["event"] == "shown" and calls.count(live_card.SYSTEM) == 1
+
+
 def test_an_unsupported_fact_or_a_closing_call_shows_nothing(monkeypatch):
     fake_model(monkeypatch, answer(), unsupported=True)
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "drop:unsupported_fact"
@@ -341,7 +371,10 @@ def test_a_card_rests_on_their_own_words(monkeypatch):
 
 
 def test_the_prompts_hold_the_hierarchy_the_situations_and_the_proposal_rule():
-    assert "When they disagree, the higher level wins" in live_card.SYSTEM and '"situation"' in live_card.SYSTEM
+    assert "When they disagree, the higher level wins" in live_card.SYSTEM
+    # The situation is weighed, no longer written: its rule stays word for word.
+    assert "which of the company's SITUATIONS fits this moment" in live_card.SYSTEM
+    assert "your action does what it says to do and nothing it says not to do" in " ".join(live_card.SYSTEM.split())
     assert "asks again what they already answered" in live_card.FACT_SYSTEM and "General knowledge" in live_card.FACT_SYSTEM
     sources = live_card.sources_text(CTX, "discovery")
     assert "APPROVED ANSWERS (" in sources and "(Level 4: ways to answer." in sources

@@ -8,11 +8,12 @@ The rules only say how to read and decide, the same for any company: what was sa
 company's goals, then its criterion and situations (its own or Vocify's buenas prácticas, imported), then the approved
 answers and the examples as ways to say things. Anything about selling lives in the playbook, not here.
 
-- One reading: what is happening, what they said, what is only supposed, what is unknown, which of the company's
-  situations fits, the last move, an action (clarify, deepen, answer, add value, next step, listen), what happens to the
-  card on screen, and a card that rests on their own words, or silence (DeepSeek, strict JSON).
+- One reading: it weighs what is happening, what they said, what is only supposed, what is unknown and which of the
+  company's situations fits, and writes their latest words, an action (clarify, deepen, answer, add value, next step,
+  listen), what happens to the card on screen, and a card that rests on their own words, or silence (DeepSeek, strict
+  JSON).
 - Code checks what can be checked: at most 35 words, a fact cited from the playbook really is there, no number an
-  answer invents, not the same text as a card already shown, not after their goodbye.
+  answer invents, no weekday nobody said, not the same text as a card already shown, not after their goodbye.
 - The small gate, in parallel: facts (only against the approved text and the conversation), the call closing, and a
   repeat of a move already made (one more try for a different move, or silence).
 - The fact check also stops a question or proposal that goes against what they set or asks again what they answered.
@@ -46,9 +47,13 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "strategic_engine_20261110_closing"
+PROMPT_VERSION = "strategic_engine_20261111_short"
 
 # ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
+# The reading weighs what is happening, what was said, its hypotheses, what is unknown and the situation without writing
+# them: it writes their latest words, then the move, then the card. Writing all of it took 1.3 s; this takes 0.8 s and
+# decides the same (card or silence as the full reading on 44 of 60 moments, where the full reading agrees with itself on
+# 42; production provider, 2026-11-11). The card first, or the card alone, was faster and decided worse (35 of 60).
 
 SYSTEM = """You are the real-time sales copilot of a salesperson ("the rep", "You") in a call with a prospect ("Them").
 You see the company's playbook and everything said so far.
@@ -76,24 +81,24 @@ What you read has four levels. When they disagree, the higher level wins:
 A DEMO: when the rep is showing Vocify to the other side and asks them to play an objection or a question so it can be
 seen working («ponme una objeción», «suéltame una para que lo veas»), what they say next is the moment the demo is about.
 Read it as a real objection or question and answer it like one, from the SOURCES and the approved answers: never
-silence because it is staged or because the one who said it is a colleague and not a buyer. Say in "what_is_happening"
-that it is a demo. Outside a demo this changes nothing.
+silence because it is staged or because the one who said it is a colleague and not a buyer. Outside a demo this
+changes nothing.
 
-How to decide (your answer follows this order):
-1. "what_is_happening"; "understanding_confidence" is "low" when the words are garbled, the meaning is ambiguous or it
-   may be irony.
-2. "observed": what they have actually said that matters now, each point with their words.
-3. "hypotheses": plausible readings you are not sure of. You may reason from them, but a card never states or
+How to decide. Steps 1 to 5 are what you weigh before answering: you do not write them. Your answer starts at step
+6 and follows this order:
+1. What is happening, and how sure you are of what they meant.
+2. What they have actually said that matters now, in their words.
+3. Your hypotheses: plausible readings you are not sure of. You may reason from them, but a card never states or
    presupposes them as facts: no question that takes for granted a failure, a loss or a gap they did not mention.
-4. "unknown": the most important thing still not known that could change the next commercial decision, or "nada
-   relevante ahora".
-5. "situation": which of the company's SITUATIONS fits this moment, decided again now from what they have said, above
-   all their latest words (its number and name), or "none" (often none fits, or there are no situations). When one
+4. The most important thing still not known that could change the next commercial decision.
+5. The situation: which of the company's SITUATIONS fits this moment, decided again now from what they have said, above
+   all their latest words (often none fits, or there are no situations). When one
    fits, your action does what it says to do and nothing it says not to do.
-6. "their_latest", then "last_move": the last card or the rep's own move on this and what they answered. A move already
-   made is not made again, not even reworded; respond to their answer. THE THREAD shows the direction followed so far:
-   keep it, each card building on the last, until what they said since contradicts it or has already answered it; then
-   change direction. The same angle at most twice.
+6. "their_latest": what they just said, in a few words, and what it answers when it answers the last card or the rep's
+   own move. A move already made is not made again, not even reworded; respond to their answer. THE THREAD shows the
+   direction followed so far: keep it, each card building on the last, until what they said since contradicts it or
+   has already answered it; then change direction. The same angle at most twice. "understanding_confidence" is "low"
+   when the words are garbled, the meaning is ambiguous or it may be irony.
 7. "action", the move that helps most now:
    - clarify: what they just said is ambiguous and the ambiguity changes how you read the opportunity;
    - deepen: understand how something works, what it gives them, what it costs when it happens or whether it is a
@@ -130,14 +135,8 @@ SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "required": [
-        "what_is_happening",
-        "understanding_confidence",
-        "observed",
-        "hypotheses",
-        "unknown",
-        "situation",
         "their_latest",
-        "last_move",
+        "understanding_confidence",
         "action",
         "card_on_screen",
         "because",
@@ -147,7 +146,7 @@ SCHEMA = {
         "source_quote"
     ],
     "properties": {
-        "what_is_happening": {
+        "their_latest": {
             "type": "string"
         },
         "understanding_confidence": {
@@ -157,24 +156,6 @@ SCHEMA = {
                 "medium",
                 "low"
             ]
-        },
-        "observed": {
-            "type": "string"
-        },
-        "hypotheses": {
-            "type": "string"
-        },
-        "unknown": {
-            "type": "string"
-        },
-        "situation": {
-            "type": "string"
-        },
-        "their_latest": {
-            "type": "string"
-        },
-        "last_move": {
-            "type": "string"
         },
         "action": {
             "type": "string",
@@ -299,7 +280,7 @@ MIN_GAP_S = 30.0
 # The same moment read twice: card one time and silence the other in 57 of 180 moments at 0.2, in 40 of 180 at 0 (14
 # recorded calls, production provider, 2026-11-10). Lower, not gone: the provider is not deterministic at 0.
 READ_TEMPERATURE = 0.0
-TOKENS = 700  # the reading also writes what it observed, its hypotheses, what is unknown and the situation
+TOKENS = 500  # a reading writes about 125 tokens, 236 at most in 60 moments: room to spare, never a cut answer
 # The reading is asked for at most 20 words; only a clearly excessive card is refused (half the cards cut at 25 words
 # were good ones of 26 to 31 words).
 MAX_CARD_WORDS = 35
@@ -547,6 +528,17 @@ def fixed_days(say: str, sources: str, said: str) -> str:
     return re.sub(r"\s+([,.?!])", r"\1", " ".join(out.split()))
 
 
+_WEEKDAY = re.compile(r"\b(" + "|".join(DAYS) + r")\b", re.IGNORECASE)
+
+
+def proposed_day(say: str, said: str) -> bool:
+    """The card names a weekday nobody said in the call («¿jueves o viernes?», «el martes 17» after «llámame la semana
+    que viene»): the day is the rep's to agree. The prompt forbids it and readings still did it (6 of 120 on recorded
+    moments, 2 of 35 cards in a replay of seven calls, 2026-11-11)."""
+    heard = {d.lower() for d in _WEEKDAY.findall(said)}
+    return any(d.lower() not in heard for d in _WEEKDAY.findall(say))
+
+
 def log_text(turns: list[dict], end: list[float], shown: list[dict]) -> str:
     """The conversation with each card the rep saw after the turn it appeared at."""
     screen: dict[int, list[str]] = {}
@@ -690,6 +682,8 @@ def basic_checks(card: dict, turns: list[dict], shown: list[dict], sources: str)
     said = " ".join(t["text"] for t in turns) + " " + card["authorized"]
     if card["act"] == "answer" and brain.numbers_in(asserted(card["say"])) - brain.numbers_in(said):
         return "invented_number"
+    if proposed_day(card["say"], " ".join(t["text"] for t in turns)):
+        return "proposes_day"
     text = f"«{card['say']}»".lower()
     if any(SequenceMatcher(None, text, f"«{s['say']}»".lower()).ratio() > SAME_TEXT for s in shown):
         return "same_text_as_shown"
@@ -994,7 +988,7 @@ async def read_card(body: Any, ctx: Any) -> dict:
     against = [s for s in shown if s is not pending] if pending and status == "update" else shown
     card, why, checks = await vet(out, turns, end, now, against, sources)
     trace.update(card=card["say"], checks=checks)
-    # Another try, told why: the same move again (any reading: one more try, as turns-6b), or, when the rep asked, also a
+    # Another try, told why: the same move again or a day nobody said (any reading: one more try), or, when the rep asked, also a
     # claim no source makes or the same words again (two more tries, each told every reason so far: a rep who pressed
     # Responder gets a move that stays inside what is written and is not one already made, rather than nothing).
     tries = ASKED_TRIES if moment == "asked" else 1
@@ -1009,6 +1003,9 @@ async def read_card(body: Any, ctx: Any) -> dict:
             trace["repeat_of"] = card.get("same_as", "")
             notes += (f"\n\nYOUR CARD «{card['say']}» REPEATS «{card.get('same_as', '')}», already shown, with nothing new from them "
                       "since. Give a different next move that responds to what they said, or silence.")
+        elif why == "proposes_day":
+            notes += (f"\n\nYOUR CARD «{card['say']}» NAMES A DAY NOBODY SAID IN THE CALL. The rep agrees the day with them: "
+                      "make the same move without naming a day (ask which day suits them), or silence.")
         elif why == "unsupported_fact" and out.get("action") == "answer" and moment != "asked":
             # They asked and no source says it: an honest line, not silence (the older brain says «Te lo confirmo»).
             notes += (f"\n\nYOUR CARD «{card['say']}» STATES WHAT NO SOURCE SAYS. Their question is not answered in the SOURCES: "
