@@ -93,6 +93,21 @@ def test_a_question_of_theirs_is_urgent_even_when_the_turn_check_saw_nothing():
     assert live_card.due("turn_end", "none", call, end, end[-1], None) == "them_urgent"
 
 
+def test_a_short_question_is_read_and_a_bare_tag_question_is_not():
+    # «¿Y exactamente qué es lo que hacéis?» was asked three times on a real call (2026-11-11): once it reached the brain
+    # it was not read, for having three words of substance where four are asked of any turn.
+    def moment(text, objection="none"):
+        call = CALL[:1] + [{"id": "t1", "who": "them", "text": text, "t": 6.0}]
+        end = live_card.ends(call)
+        return live_card.due("turn_end", objection, call, end, end[-1], None)
+
+    assert moment("¿Y exactamente qué es lo que hacéis?") == "them_urgent"
+    assert moment("¿Y qué precio tiene?", "question") == "them_urgent"
+    # Nothing to answer: a tag question, or a few words nobody flagged.
+    assert moment("¿Vale?") is None and moment("¿Sabes?") is None
+    assert moment("Es muy caro.") is None
+
+
 def test_the_reading_is_told_the_objection_they_raised_and_its_approved_answer(monkeypatch):
     snapshot = {**SNAPSHOT, "entries": SNAPSHOT["entries"] + [
         {"entry_id": "objection:custom:es_caro", "label": "Es caro", "guidance": "¿Respecto a qué te parece caro?"}]}

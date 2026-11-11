@@ -269,6 +269,7 @@ ACK = {
 
 SECONDS_PER_WORD = 0.33  # a turn ends at the next one's start, or its own start plus its words
 MIN_SUBSTANCE = 4  # an intervention with fewer words of substance («sí, claro, dime») is not read
+MIN_URGENT_SUBSTANCE = 2  # a question of theirs, or what the turn check flagged, is read with this many
 MID_GAP_S = 40.0  # a long intervention is also read every this long while it goes on
 REP_FLOOR_S = 45.0  # the rep holding the floor this long is a moment to read
 REP_WORDS = 15  # the rep has had the chance to use the card on screen once they said this many words of substance
@@ -436,12 +437,17 @@ def due(reason: str, objection: Optional[str], turns: list[dict], end: list[floa
             return None
         mine = own_turns(turns, floor, signals)
         if reason == "turn_end":
-            if sum(substance(turns[i]["text"]) for i in mine if end[i] > last) < MIN_SUBSTANCE:
-                return None
+            said = sum(substance(turns[i]["text"]) for i in mine if end[i] > last)
             # A question of theirs is urgent even when the turn check missed it: it said «es caro, ¿no?» was no objection
             # in 2 of 3 tries, and the pace rule then left it unread.
             asked = "?" in turns[mine[-1]]["text"]
-            return "them_urgent" if (objection and objection != "none") or asked else "them_end"
+            urgent = bool(objection and objection != "none") or asked
+            # A short question is read too: «¿Y exactamente qué es lo que hacéis?» and «¿Y qué precio tiene?»
+            # have three words of substance and were never read, even flagged as a question (real call, 2026-11-11).
+            # «¿Vale?» or «¿sabes?» alone still is not.
+            if said < (MIN_URGENT_SUBSTANCE if urgent else MIN_SUBSTANCE):
+                return None
+            return "them_urgent" if urgent else "them_end"
         since = max(last, turns[mine[0]]["t"])
         said = sum(substance(turns[i]["text"]) for i in mine if end[i] > since)
         return "them_mid" if now - since >= MID_GAP_S and said >= MIN_SUBSTANCE * 2 else None
