@@ -16,8 +16,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { useLanguage } from '@/lib/i18n';
 import type { MeetingDisplayTurn, MeetingVoice } from '@/lib/meeting-transcript';
 import type { VoiceAction } from '@/lib/voice-actions';
+
+const WORDS = {
+  EN: { name: 'Name this voice', menu: 'rename, merge or move', rename: 'Rename', same: 'Same person as', move: 'Move this to', someone: 'Someone new' },
+  ES: { name: 'Nombra esta voz', menu: 'renombrar, unir o mover', rename: 'Renombrar', same: 'Misma persona que', move: 'Mover a', someone: 'Otra persona' },
+};
 
 interface VoiceLabelProps {
   turn: MeetingDisplayTurn;
@@ -26,6 +32,7 @@ interface VoiceLabelProps {
 }
 
 export function VoiceLabel({ turn, voices, onChange }: VoiceLabelProps) {
+  const words = WORDS[useLanguage().language];
   const voice = turn.voice as number;
   const label = turn.label ?? '';
   const others = voices.filter((other) => other.id !== voice);
@@ -50,7 +57,7 @@ export function VoiceLabel({ turn, voices, onChange }: VoiceLabelProps) {
         defaultValue={turn.name ?? ''}
         placeholder={label}
         maxLength={60}
-        aria-label="Name this voice"
+        aria-label={words.name}
         className="h-6 w-36 px-1.5 text-[11px] font-medium"
         onFocus={(event) => event.currentTarget.select()}
         onBlur={(event) => finish(event.currentTarget.value)}
@@ -68,16 +75,16 @@ export function VoiceLabel({ turn, voices, onChange }: VoiceLabelProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label={`${label}: rename, merge or move`}
+        aria-label={`${label}: ${words.menu}`}
         className="rounded px-1 text-[11px] font-medium text-beige outline-none transition-colors hover:bg-muted/60 focus-visible:ring-1 focus-visible:ring-ring"
       >
         {label}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-40">
-        <DropdownMenuItem onSelect={() => setRenaming(true)}>Rename</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => setRenaming(true)}>{words.rename}</DropdownMenuItem>
         {others.length ? (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Same person as</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger>{words.same}</DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {others.map((other) => (
                 <DropdownMenuItem key={other.id} onSelect={() => onChange({ op: 'merge', keep: other.id, drop: voice })}>
@@ -89,7 +96,7 @@ export function VoiceLabel({ turn, voices, onChange }: VoiceLabelProps) {
         ) : null}
         {starts.length ? (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Move this to</DropdownMenuSubTrigger>
+            <DropdownMenuSubTrigger>{words.move}</DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {others.map((other) => (
                 <DropdownMenuItem key={other.id} onSelect={() => onChange({ op: 'move', starts, voice: other.id })}>
@@ -97,7 +104,7 @@ export function VoiceLabel({ turn, voices, onChange }: VoiceLabelProps) {
                 </DropdownMenuItem>
               ))}
               {others.length ? <DropdownMenuSeparator /> : null}
-              <DropdownMenuItem onSelect={() => onChange({ op: 'move', starts, voice: null })}>Someone new</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onChange({ op: 'move', starts, voice: null })}>{words.someone}</DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         ) : null}

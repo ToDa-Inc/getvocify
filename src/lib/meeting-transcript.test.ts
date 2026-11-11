@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  meetingLabelIn,
   applyChannelResult,
   meetingTurns,
   EMPTY_MEETING_TRANSCRIPT,
@@ -618,5 +619,16 @@ describe("voices on the other side", () => {
     assert.equal(voices.length, 2);
     const single = applyVoice(say(EMPTY_MEETING_TRANSCRIPT, "Hola.", 0), 0, 1);
     assert.deepEqual(meetingOverlay(single, { prospect: "Ana Ruiz" }).turns.map((t) => t.label), ["Ana Ruiz"]);
+  });
+});
+
+describe("meetingLabelIn", () => {
+  it("puts the default names in Spanish and leaves real names alone", () => {
+    assert.equal(meetingLabelIn("You", "ES"), "Tú");
+    assert.equal(meetingLabelIn("Them", "ES"), "Cliente");
+    assert.equal(meetingLabelIn("Voice 2", "ES"), "Voz 2");
+    assert.equal(meetingLabelIn("Marta Ruiz", "ES"), "Marta Ruiz");
+    assert.equal(meetingLabelIn("Voice 2", "EN"), "Voice 2");
+    assert.equal(meetingLabelIn(null, "ES"), null);
   });
 });

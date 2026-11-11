@@ -55,6 +55,18 @@ export const EMPTY_MEETING_TRANSCRIPT: MeetingTranscript = { segments: [], inter
 
 const SPEAKER_LABEL: Record<MeetingSpeaker, string> = { rep: "You", prospect: "Them" };
 const VOICE_LABEL = "Voice";
+
+/**
+ * A default name ("You", "Them", "Voice 2") in the rep's language, for the screens: what the meeting app showed and what
+ * the rep typed stay as they are. The transcript keeps the English defaults so a rename compares and caches the same way.
+ */
+export function meetingLabelIn(label: string | null, language: "EN" | "ES"): string | null {
+  if (language !== "ES" || label === null) return label;
+  if (label === SPEAKER_LABEL.rep) return "Tú";
+  if (label === SPEAKER_LABEL.prospect) return "Cliente";
+  const voice = new RegExp(`^${VOICE_LABEL} (\\d+)$`).exec(label);
+  return voice ? `Voz ${voice[1]}` : label;
+}
 /** A voice takes the name the meeting app showed for it when this many of its lines carried that name, and nearly all did. */
 const LEARN_MIN_LINES = 2;
 const LEARN_MIN_SHARE = 0.8;

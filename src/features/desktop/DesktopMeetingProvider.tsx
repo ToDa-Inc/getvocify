@@ -43,6 +43,7 @@ import {
   meetingHasSpeech,
   meetingOtherSideSpoke,
   meetingLastLine,
+  meetingLabelIn,
   meetingOverlay,
   meetingParticipants,
   meetingUploadText,
@@ -236,7 +237,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const integrations = useIntegrations();
   const { data: crmPrefs } = useQuery({ queryKey: crmKeys.preferences(), queryFn: () => crmApi.getCrmPreferences(), staleTime: SESSION_QUERY_STALE_MS });
   // With two CRMs connected, the one memos are written to (the primary), else the first connected.
@@ -355,6 +356,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   /** What the island shows of the words still being transcribed (see SteadyTails). */
   const steadyRef = useRef(new SteadyTails());
   const overlaySentRef = useRef("");
+  // The island is sent from callbacks that outlive a render: they read the rep's language from here.
+  const languageRef = useRef(language);
+  languageRef.current = language;
   /** Sides the server says are talking (or whose chunk is being transcribed), for the island's waiting dots. */
   const speakingRef = useRef<{ rep: boolean; prospect: boolean }>({ rep: false, prospect: false });
   const ctxRef = useRef<AudioContext | null>(null);
@@ -516,9 +520,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const view = steadyRef.current.view(state, performance.now());
     const prospect = vocifyCallRef.current?.contact?.name ?? null;
     const overlay = meetingOverlay(view, { prospect });
+    const labelled = {
+      turns: overlay.turns.map((turn) => ({ ...turn, label: meetingLabelIn(turn.label, languageRef.current) })),
+      voices: overlay.voices.map((voice) => ({ ...voice, label: meetingLabelIn(voice.label, languageRef.current) ?? voice.label })),
+    };
     const update = {
       lastLine: meetingLastLine(view),
-      overlay: { ...overlay, turns: overlayWithSpeaking(overlay.turns, speakingRef.current, prospect?.trim() || null) },
+      overlay: { ...labelled, turns: overlayWithSpeaking(labelled.turns, speakingRef.current, prospect?.trim() || null) },
     };
     const sent = JSON.stringify(update);
     if (sent === overlaySentRef.current) return;
@@ -2024,8 +2032,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     [releaseAudio, saveDraftNow],
   );
 
-  const turns = useMemo(() => meetingDisplayTurns(transcript), [transcript]);
-  const voices = useMemo(() => meetingVoices(transcript), [transcript]);
+  const turns = useMemo(() => meetingDisplayTurns(transcript).map((turn) => ({ ...turn, label: meetingLabelIn(turn.label, language) })), [transcript, language]);
+  const voices = useMemo(() => meetingVoices(transcript).map((voice) => ({ ...voice, label: meetingLabelIn(voice.label, language) ?? voice.label })), [transcript, language]);
 
   // The rep renames a voice, merges two or moves a paragraph: seen at once, and the backend learns from merges and moves.
   const changeVoices = useCallback(
