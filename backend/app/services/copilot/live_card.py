@@ -906,7 +906,8 @@ async def vet(out: dict, turns: list[dict], end: list[float], now: float, shown:
     return card, None, checks
 
 
-def _card_point(card: dict, call_id: str, turns: list[dict], now: float, labels: dict[str, str], responds: bool = False) -> dict:
+def _card_point(card: dict, call_id: str, turns: list[dict], now: float, labels: dict[str, str], responds: bool = False,
+                visible_t: Optional[float] = None) -> dict:
     """The card as a point of the shared state (shared/live-call/state.js): an approved answer is a "Respuesta", any
     other move a "Puedes preguntar" (kind deepen)."""
     them = [t for t in turns if t["who"] == "them"]
@@ -928,7 +929,7 @@ def _card_point(card: dict, call_id: str, turns: list[dict], now: float, labels:
         "answer": card["say"], "fallback": None, "gap": None,
         "source": {"id": source, "label": label or brain.GENERIC_SOURCES.get(source, source)} if source else None,
         "repeated": False, "outcome": "open",
-        "visible_t": round(now, 1),
+        "visible_t": round(now if visible_t is None else visible_t, 1),
         # Sent back with the cards shown: what replaces this card, and when, depends on it.
         "responds": responds,
     }
@@ -994,10 +995,23 @@ async def read_card(body: Any, ctx: Any) -> dict:
         return finish("low_confidence")
     if moment != "asked" and not rests_on_their_words(out, turns):
         return finish("drop:no_reason_in_their_words")
-    # The card responds to what they just raised, or is the reading's own initiative: only the second is paced.
-    responds = moment in ("them_urgent", "asked") or out.get("action") in RESPONDS
-    if not pending and not responds and shown and now - shown[-1]["visible_t"] < MIN_GAP_S:
+    # The card responds to what they just raised, or is the reading's own initiative: only the second is paced. A response
+    # is what the reading's own move says is one, what the turn check flagged, or what the rep asked for. A «¿no?» at the
+    # end of their sentence is not enough to take the screen: it let a deeper question replace an answer 1.3 s after it
+    # appeared (real meeting, 2026-11-11). It still opens the 30 s gap, as before.
+    flagged = bool(body.objection and body.objection != "none")
+
+    def responding(reading: dict) -> bool:
+        return moment == "asked" or flagged or reading.get("action") in RESPONDS
+
+    responds = responding(out)
+    if not pending and not (responds or moment == "them_urgent") and shown and now - shown[-1]["visible_t"] < MIN_GAP_S:
         return finish("drop:too_soon_after_last_card")
+    if pending:
+        # For the log: how old the card on screen is, what kind it is, and whether this client says which kind (a
+        # dashboard loaded before 2026-11-11 does not).
+        trace["on_screen"] = {"age_s": round(now - pending["visible_t"], 1), "responds": bool(pending.get("responds")),
+                              "client_says_kind": any("responds" in c.model_fields_set for c in body.cards)}
     if pending:
         # A change: never once the rep has started to speak, nor before the card on screen could be read.
         if rep_said(turns, pending["visible_t"], now) >= 3:
@@ -1056,8 +1070,10 @@ async def read_card(body: Any, ctx: Any) -> dict:
     replaces = pending["id"] if pending else None
     labels = brain.allowed_sources(ctx.snapshot, has_knowledge=bool(ctx.knowledge), has_offer=bool(ctx.product_context),
                                    has_history=bool(ctx.history))
-    result["points"] = [_card_point(card, body.call_id, turns, now, labels,
-                                    responds=moment in ("them_urgent", "asked") or out.get("action") in RESPONDS)]
+    # The card appears when the reading ends, not when it was asked for: a reading of 4.1 s made its card look 4.1 s older
+    # than it was to the next reading, and the 8 s it is given before another response replaces it were cut to 4.
+    appears = now + (time.perf_counter() - started)
+    result["points"] = [_card_point(card, body.call_id, turns, now, labels, responds=responding(out), visible_t=appears)]
     # One card on screen: whatever was still open fades where it is ("gone"), replaced or not.
     result["closed"] = [{"id": s["id"], "outcome": "gone"} for s in shown if s.get("open", True)]
     trace["replaces"] = replaces

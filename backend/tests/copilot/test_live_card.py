@@ -624,10 +624,36 @@ def test_a_response_replaces_a_card_the_rep_has_not_used_but_never_one_just_show
     assert event(10, action="answer", on_screen_responds=True)["event"] == "replace"
     # The same card reworded waits like any other.
     assert event(10, action="answer", card_on_screen="update")["event"] == "drop:card_on_screen_too_new"
+    # A «¿no?» closing their sentence is a question to the code, not a response: a deeper question replaced an answer 1.3 s
+    # after it appeared (real meeting, 2026-11-11). The reading's own move decides.
+    tagged = turns(("you", CALL[0]["text"], 0.0),
+                   ("them", " ".join(["nos cuesta que lo lleven a cabo en la mayoría de las ocasiones"] * 8) + ", ¿no?", 6.0))
+    ends_tagged = live_card.ends(tagged)
+
+    def tag_event(age, **reading_out):
+        on = [{"id": "a", "say": "¿Qué prioridades tenéis ahora?", "visible_t": round(ends_tagged[-1] - age, 1), "open": True, "responds": True}]
+        fake_model(monkeypatch, answer(**{"card_on_screen": "replace", "because": "nos cuesta que lo lleven a cabo", **reading_out}))
+        return run(live_card.read_card(reading(call=tagged, reason="turn_end", objection="none", cards=on), CTX))
+
+    result = tag_event(10, action="deepen")
+    assert result["moment"] == "them_urgent" and result["event"] == "drop:card_on_screen_too_new"
+    assert tag_event(10, action="answer")["event"] == "replace"
+    # The log says how old the card on screen was, its kind, and whether the client says the kind at all.
+    assert result["trace"]["on_screen"] == {"age_s": 10.0, "responds": True, "client_says_kind": True}
     # The card says which kind it is, for the next reading: a response, or the reading's own initiative.
     assert event(10, action="answer")["points"][0]["responds"] is True
     fake_model(monkeypatch, answer())
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["points"][0]["responds"] is False
+
+
+def test_a_card_appears_when_its_reading_ends_not_when_it_was_asked_for(monkeypatch):
+    # A reading of 4.1 s made its card look 4.1 s older than it was to the next reading (real meeting, 2026-11-11).
+    fake_model(monkeypatch, answer())
+    clock = iter([100.0])
+    monkeypatch.setattr(live_card.time, "perf_counter", lambda: next(clock, 104.1))
+    result = run(live_card.read_card(reading(reason="turn_end", now_t=60.0), CTX))
+    point = result["points"][0]
+    assert result["event"] == "shown" and point["said_at"] == 60.0 and point["visible_t"] == 64.1
 
 
 def test_the_checks_wait_less_for_the_backup_than_the_reading(monkeypatch):

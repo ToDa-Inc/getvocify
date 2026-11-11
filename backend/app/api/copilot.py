@@ -522,7 +522,7 @@ def _card_log(supabase: Client, membership: Membership, body: CardReading, resul
         "event": result.get("event"), "read_t": result.get("read_t"), "turns": len(body.turns), "cards": len(body.cards),
         "prep_ms": prep_ms, "say": (result.get("points") or [{}])[0].get("answer") or trace.get("card"),
         "reading": trace.get("reading"), "checks": trace.get("checks"), "retries": trace.get("retries"), "replaces": trace.get("replaces"),
-        "early": True if body.early else None,
+        "early": True if body.early else None, "on_screen": trace.get("on_screen"),
     }
     events.record(supabase, events.brain_row(
         kind="points", user_id=membership.user_id, company_id=membership.company_id, call_mode=body.call_mode,
