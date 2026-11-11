@@ -35,6 +35,8 @@ export function LiveBrainSection({
           finalTranscript=""
           interimTranscript=""
           turns={meeting.turns}
+          voices={meeting.voices}
+          onVoice={meeting.changeVoices}
           speaking={meeting.paused ? undefined : { rep: meeting.speaking.you, prospect: meeting.speaking.them }}
           isActive={live}
           listeningHint={copy.transcriptEmpty}
