@@ -8,6 +8,7 @@ import {
   checkStamps,
   checkTiming,
   earlyOutcome,
+  supersedesReading,
   cooldownLeft,
   repReplied,
   skipAnswered,
@@ -420,6 +421,17 @@ describe("quiet follows the line", () => {
   it("never calls speech quiet, however noisy the line", () => {
     assert.equal(silentLevel({ floor: 0.9, peak: 1 }), 0.4);
     assert.equal(prospectSilent(0.5, { floor: 0.45, peak: 1 }), false);
+  });
+});
+
+describe("supersedesReading", () => {
+  it("newer words of theirs stop the automatic reading of the ones before, never what the rep asked for", () => {
+    assert.equal(supersedesReading({ reason: "turn_end", inFlight: "automatic" }), true);
+    assert.equal(supersedesReading({ reason: "turn_end", inFlight: "asked" }), false);
+    assert.equal(supersedesReading({ reason: "turn_end", inFlight: null }), false);
+    // A breath in a long turn, or the rep holding the floor, stops nothing.
+    assert.equal(supersedesReading({ reason: "long_turn", inFlight: "automatic" }), false);
+    assert.equal(supersedesReading({ reason: "rep_turn", inFlight: "automatic" }), false);
   });
 });
 

@@ -37,6 +37,8 @@ UI_EVENTS = frozenset({
     "open_recap", "open_steps", "open_brief", "marker_shown", "marker_seen",
     # A card reading asked for before the turn was known to be over: whether its result reached the screen.
     "early_kept", "early_dropped",
+    # An automatic card reading stopped because their words went on: its card, if it wrote one, never reached the screen.
+    "superseded",
 })
 UI_DETAIL_KEYS = 12
 _last_purge = float("-inf")  # never purged yet (monotonic time may be small right after a boot)

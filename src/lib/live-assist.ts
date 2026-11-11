@@ -181,6 +181,16 @@ export function earlyOutcome(input: { sameWords: boolean; spoke: boolean }): "sh
 }
 
 /**
+ * Their words went on while the brain was still reading the ones before. That reading is stopped and the new words are
+ * read instead: left to finish, its card showed for a second or two and was replaced by the next one (a sentence that
+ * arrived in two pieces 0.6 s apart got two cards 1.6 s apart on a real call, 2026-11-11). What the rep asked for
+ * (Responder) is never stopped, and a reading of a long turn or of the rep's own turn stops nothing.
+ */
+export function supersedesReading(input: { reason: string; inFlight: "automatic" | "asked" | null }): boolean {
+  return input.inFlight === "automatic" && input.reason === "turn_end";
+}
+
+/**
  * After a card appears the rep is reading it, and saying it. No new check starts for this long, so the next
  * card never replaces one that is still being read. The prospect's words are not marked as handled meanwhile:
  * when the time is up, one check reads what they have said by then, so a fresh objection still gets a card.

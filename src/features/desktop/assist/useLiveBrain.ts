@@ -4,7 +4,7 @@ import { playbooksApi } from "@/features/playbooks/api";
 import { getDesktopBridge } from "@/lib/desktop-host";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { api } from "@/shared/lib/api-client";
-import { assistContext, BACKSTOP_MS, earlyOutcome, turnCheck } from "@/lib/live-assist";
+import { assistContext, BACKSTOP_MS, earlyOutcome, supersedesReading, turnCheck } from "@/lib/live-assist";
 import {
   buildCardReading,
   buildReading,
@@ -45,7 +45,7 @@ const EVENTS_MS = 5000;
 /** The UI events the backend logs (contract §2.4); anything else the island sends is not ours to log. */
 const EVENT_KINDS = new Set([
   "shown", "dismissed", "reopened", "rewrite", "ask_step", "tick", "untick", "responder", "bubble",
-  "open_recap", "open_steps", "open_brief", "marker_shown", "marker_seen", "early_kept", "early_dropped",
+  "open_recap", "open_steps", "open_brief", "marker_shown", "marker_seen", "early_kept", "early_dropped", "superseded",
 ]);
 const POINT_EVENTS = new Set(["shown", "dismissed", "reopened", "rewrite"]);
 const STEP_EVENTS = new Set(["ask_step", "tick", "untick"]);
@@ -321,6 +321,16 @@ export function useLiveBrain(
    * A strategic card reading: ONE card (the one still open fades) or nothing, merged like a points result. Responder asks
    * the same brain at once ("what do I say now?"): its answer takes the screen, and says whether it found one.
    */
+  /** The card reading in flight, and whether the rep asked for it. */
+  const cardRunRef = useRef<{ controller: AbortController; kind: "automatic" | "asked" } | null>(null);
+  /** A new reading of their words takes the place of the automatic one still in flight (supersedesReading). */
+  const supersedeCard = (reason: LiveReason) => {
+    const running = cardRunRef.current;
+    if (!running || !supersedesReading({ reason, inFlight: running.kind })) return;
+    running.controller.abort();
+    logEvent("superseded", { detail: { reason } });
+  };
+
   const runCard = async (queued: Spec, options: { asked: boolean } = { asked: false }) => {
     const asked = options.asked && askedCardRef.current ? askedCardRef.current : null;
     askedCardRef.current = null;
@@ -335,6 +345,7 @@ export function useLiveBrain(
     }
     const controller = new AbortController();
     controllersRef.current.card = controller;
+    cardRunRef.current = { controller, kind: responder ? "asked" : "automatic" };
     const body = buildCardReading({
       call: readingCall(),
       turns: wire,
@@ -378,6 +389,7 @@ export function useLiveBrain(
       if (!refused(error)) failed();
     } finally {
       if (controllersRef.current.card === controller) controllersRef.current.card = null;
+      if (cardRunRef.current?.controller === controller) cardRunRef.current = null;
       if (earlyRef.current?.controller === controller) earlyRef.current = null;
       setReading((r) => ({ ...r, points: false }));
     }
@@ -438,8 +450,10 @@ export function useLiveBrain(
   const read = (reason: LiveReason, mark: ReadMark, only?: "points", objection?: string | null) => {
     lastPointsAtRef.current = Date.now();
     repReadRef.current = { words: repWords(turnsRef.current), at: Date.now() };
-    if (cardRef.current) readers.current!.card.request({ reason, mark, objection: objection ?? null });
-    else readers.current!.points.request({ reason, mark });
+    if (cardRef.current) {
+      supersedeCard(reason);
+      readers.current!.card.request({ reason, mark, objection: objection ?? null });
+    } else readers.current!.points.request({ reason, mark });
     if (!only) readers.current!.progress.request({ reason, mark });
   };
 
@@ -479,6 +493,7 @@ export function useLiveBrain(
           // The check says "still going" and they are quiet: in 7 of 10 such checks in production nothing more came
           // within 2.5 s. The brain reads now instead of after the wait; its card shows only if they stay quiet.
           spokeRef.current = false;
+          supersedeCard("turn_end");
           readers.current!.card.request({
             reason: "turn_end", mark: previous, objection: turnObjection(turn),
             early: { key: ctx.key, turnKey: ctx.turnKey, length: ctx.length, again: () => check(ctx, true) },
