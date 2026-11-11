@@ -785,6 +785,18 @@ def test_mai_chunks_run_when_forced_and_openrouter_has_a_key_and_the_language_hi
         return sessions._open("rep", "es", None, offset_s=0.0).phrases
 
     assert asyncio.run(opened(on)) == ["Vocify", "Trucksters"] and asyncio.run(opened(off)) == []
+    # The streaming route's key makes it the backup of a refused chunk; without it, or switched off, there is none.
+    monkeypatch.setattr(live.settings, "AI_GATEWAY_API_KEY", "gw-key")
+
+    async def backup_key(sessions):
+        return sessions._open("rep", "es", None, offset_s=0.0).backup_key
+
+    assert asyncio.run(backup_key(make(["es"]))) == "gw-key"
+    monkeypatch.setattr(live.settings, "LIVE_STT_STREAM_BACKUP", False)
+    assert asyncio.run(backup_key(make(["es"]))) is None
+    monkeypatch.setattr(live.settings, "LIVE_STT_STREAM_BACKUP", True)
+    monkeypatch.setattr(live.settings, "AI_GATEWAY_API_KEY", None)
+    assert asyncio.run(backup_key(make(["es"]))) is None
     # No OpenRouter key: the profile's own rule is used, as for the other forced providers.
     monkeypatch.setattr(live.settings, "OPENROUTER_API_KEY", None)
     assert make(["es"]).provider == "deepgram"

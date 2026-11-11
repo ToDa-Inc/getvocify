@@ -123,6 +123,81 @@ def test_a_provider_that_keeps_refusing_loses_the_chunk_after_a_few_tries(monkey
     assert len(calls) == 2 * (stt.RATE_LIMIT_TRIES + 1)
 
 
+def refusing(waits, text="Hola"):
+    """A provider that refuses the first len(waits) requests, asking each time for that wait."""
+    calls = []
+
+    async def handler(request):
+        calls.append(1)
+        if len(calls) <= len(waits):
+            return httpx.Response(429, headers={"Retry-After": str(waits[len(calls) - 1])}, json={"error": {"code": 429}})
+        return ok(text)
+
+    return handler, calls
+
+
+def test_a_chunk_refused_for_long_also_goes_to_the_backup_and_the_first_answer_is_used():
+    # The route closes for about 6 s in every 10 (2026-11-11): the streaming route answers a piece in about 1.7 s.
+    handler, calls = refusing([5])
+    sent = []
+
+    async def backup(pcm):
+        sent.append(pcm)
+        await asyncio.sleep(0.05)
+        return " ¿Qué es lo que hacéis exactamente? "
+
+    result = asyncio.run(transcriber(handler, backup=backup).transcribe(PCM))
+    assert result.text == "¿Qué es lo que hacéis exactamente?" and result.backup and result.winner == "backup"
+    # The chunk's own audio went to the backup once; the retry was still waiting and was never sent, nor was a hedge.
+    assert sent == [PCM] and len(calls) == 1 and not result.hedged and result.latency_s < 1.0
+
+
+def test_a_short_wait_is_waited_and_the_backup_is_not_used():
+    handler, calls = refusing([1])
+    sent = []
+
+    async def backup(pcm):
+        sent.append(pcm)
+        return "backup"
+
+    result = asyncio.run(transcriber(handler, backup=backup, hedge_s=60).transcribe(PCM))
+    assert result.text == "Hola" and not result.backup and sent == [] and len(calls) == 2
+
+
+def test_a_backup_that_fails_leaves_the_chunk_to_the_retry():
+    handler, calls = refusing([2])
+
+    async def backup(pcm):
+        raise RuntimeError("Transcription provider stream error")
+
+    result = asyncio.run(transcriber(handler, backup=backup, hedge_s=60).transcribe(PCM))
+    assert result.text == "Hola" and not result.backup and result.winner == "first" and len(calls) == 2
+
+
+def test_the_retry_that_answers_before_the_backup_is_used_and_the_backup_is_stopped():
+    handler, calls = refusing([2])
+    state = {"cancelled": False}
+
+    async def backup(pcm):
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            state["cancelled"] = True
+            raise
+        return "late"
+
+    result = asyncio.run(transcriber(handler, backup=backup, hedge_s=60).transcribe(PCM))
+    assert result.text == "Hola" and not result.backup and state["cancelled"]
+
+
+def test_the_hedge_is_not_sent_while_the_provider_says_it_is_closed():
+    # Two requests at the same instant got the same answer in 35 of 36 seconds: a hedge into a closed stretch is refused too.
+    handler, calls = refusing([2])
+    result = asyncio.run(transcriber(handler, hedge_s=0.2).transcribe(PCM))
+    # Refused, then answered after the 2 s it asked for: the hedge due at 0.2 s was never sent.
+    assert result.text == "Hola" and len(calls) == 2 and not result.hedged
+
+
 def test_a_request_that_stalls_is_answered_by_its_second():
     calls = []
 

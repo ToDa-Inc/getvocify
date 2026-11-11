@@ -594,6 +594,49 @@ def speech_level(pcm: bytes) -> float:
     return (sum(x * x for x in samples) / len(samples)) ** 0.5
 
 
+STREAM_ONCE_S = 8.0  # a piece sent to the streaming route in one go is given up after this long
+STREAM_ONCE_FRAME = 3200
+
+
+async def mai_stream_once(pcm: bytes, api_key: str) -> str:
+    """One piece of speech through MAI-2-Transcribe-Streaming (Vercel AI Gateway) in one go: the backup of a chunk the
+    batch route refuses. The connection takes about 0.15 s and the text is back about 1.5 s after the audio is sent (1.4 s
+    for a 2 s piece, 1.9 s for a 6 s one; eight pieces of a real call, 2026-11-11). Raises when the route fails."""
+    async with asyncio.timeout(STREAM_ONCE_S):
+        ws = await websockets.connect(
+            MAI_GATEWAY_URL, additional_headers={"Authorization": f"Bearer {api_key}"},
+            subprotocols=["ai-gateway-transcription.v1", f"ai-gateway-auth.{api_key}"],
+        )
+        try:
+            await ws.send(json.dumps({"type": "transcription-stream.start", "inputAudioFormat": {"type": "audio/pcm", "rate": MAI_RATE}}))
+            upsample = Upsampler()
+            for at in range(0, len(pcm), STREAM_ONCE_FRAME):
+                await ws.send(upsample(pcm[at:at + STREAM_ONCE_FRAME]))
+            await ws.send(json.dumps({"type": "transcription-stream.audio-done"}))
+            text = ""
+            async for raw in ws:
+                if isinstance(raw, bytes):
+                    continue
+                data = json.loads(raw)
+                kind = data.get("type")
+                if kind == "transcript-delta":
+                    text += data.get("delta") or ""
+                elif kind == "finish":
+                    return " ".join(text.split())
+                elif kind == "error":
+                    error = data.get("error")
+                    raise RuntimeError(error.get("message") if isinstance(error, dict) else str(error or "MAI error"))
+            raise RuntimeError("the stream closed before it finished")
+        finally:
+            # The gateway answers the close handshake slowly: not waited for.
+            closing = asyncio.create_task(ws.close())
+            _CLOSING.add(closing)
+            closing.add_done_callback(_CLOSING.discard)
+
+
+_CLOSING: set[asyncio.Task] = set()
+
+
 class MaiStream(LiveStream):
     """MAI-Transcribe-2-Streaming via Vercel AI Gateway: 60 languages detected as they are spoken,
     Catalan included, so no language checks or restarts are needed."""
@@ -758,6 +801,10 @@ class MaiChunkStream(LiveStream):
         self.profile_languages: list[str] = []
         # The glossary's words as the transcriber should write them, when the company has that on. Set by ChannelSessions.
         self.phrases: list[str] = []
+        # The key of the streaming route, the backup of a chunk the batch route refuses. Set by ChannelSessions.
+        self.backup_key: Optional[str] = None
+        self.backup_chunks = 0
+        self.backup_s = 0.0
         self.transcriber: Optional[OpenRouterTranscriber] = None
         self.cutter = ChunkCutter(offset_s=self.offset_s)
         self.sent_s = 0.0
@@ -776,7 +823,11 @@ class MaiChunkStream(LiveStream):
 
     async def _run(self, api_key: str) -> None:
         try:
-            self.transcriber = OpenRouterTranscriber(api_key, language=self.hint, phrases=self.phrases)
+            key = self.backup_key
+            self.transcriber = OpenRouterTranscriber(
+                api_key, language=self.hint, phrases=self.phrases,
+                backup=(lambda pcm: mai_stream_once(pcm, key)) if key else None,
+            )
             self.started_at = time.monotonic()
             self.ready.set()
             asyncio.create_task(self.transcriber.warm_up())
@@ -831,6 +882,9 @@ class MaiChunkStream(LiveStream):
         try:
             result = await self.transcriber.transcribe(chunk.pcm)  # type: ignore[union-attr]
             self.sent_s += chunk.seconds * result.requests
+            if result.backup:
+                self.backup_chunks += 1
+                self.backup_s += chunk.seconds
             self.failures = 0
             text = without_foreign_script(result.text, self.profile_languages)
             if text != result.text:
@@ -846,7 +900,9 @@ class MaiChunkStream(LiveStream):
                     "timed": False,
                     "settle_s": waited,
                 }
-                if result.hedged:
+                if result.backup:
+                    logger.info("%s %s: a refused chunk was answered by the streaming route (%.1fs)", self.provider, self.label, result.latency_s)
+                elif result.hedged:
                     logger.info("%s %s: a slow chunk request was answered by its second (%.1fs)", self.provider, self.label, result.latency_s)
         except TranscriptionError as e:
             self.sent_s += chunk.seconds
@@ -1054,6 +1110,7 @@ class ChannelSessions:
             stream.hint = self._language_hint()
             stream.profile_languages = list(self.profile)
             stream.phrases = list(self.phrases)
+            stream.backup_key = (settings.AI_GATEWAY_API_KEY or None) if settings.LIVE_STT_STREAM_BACKUP else None
         stream.start(self.keys[self.provider] or "")
         self.streams.append(stream)
         return stream

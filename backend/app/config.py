@@ -365,6 +365,9 @@ class Settings(BaseSettings):
     # written, not only used to correct its text afterwards. Off; a company_feature_flags row switches it on (Vocify first,
     # 2026-11-11: it fixes the company's name and changes other pieces a little, so it is tried on real calls before all).
     LIVE_STT_PHRASES_ENABLED: bool = False
+    # Live transcription (mai_chunks): a chunk the batch route refuses for 2 s or more also goes to the streaming route
+    # (AI_GATEWAY_API_KEY) and the first answer is used. Only refused chunks go there; without the key there is no backup.
+    LIVE_STT_STREAM_BACKUP: bool = True
     # Playbooks v2, per company. QUALIFICATION: C04 v7 reads "what has to come out of the call"
     # criteria and the company's own objections, and the score is built from three blocks
     # (steps, qualification, objections) instead of steps alone.

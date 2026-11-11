@@ -15,7 +15,7 @@ import logging
 import time
 import wave
 from dataclasses import dataclass
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 import httpx
 
@@ -32,6 +32,12 @@ GIVE_UP_S = 20.0
 # (a prospect asked «¿qué hacéis exactamente?» three times before any text arrived).
 RATE_LIMIT_TRIES = 3
 RATE_LIMIT_WAIT_S = 3.0
+# The refusals come in a fixed cycle (about 4 s answering everything, then 6 s refusing everything, the wait asked for
+# counting down to the reopening), and a second request in a closed stretch is refused too (same answer for two requests at
+# the same instant in 35 of 36 seconds). So a chunk told to wait this long or more also goes to the backup (the streaming
+# route, about 1.7 s for a piece), the hedge is not sent into a closed stretch, and the first answer of the two is used.
+# A shorter wait is as fast as the backup.
+BACKUP_MIN_WAIT_S = 2.0
 SAMPLE_RATE = 16000
 
 
@@ -44,9 +50,10 @@ class Transcription:
     text: str
     requests: int  # how many were sent for this chunk (2 when the hedge went out)
     hedged: bool
-    winner: str  # "first" | "hedge"
+    winner: str  # "first" | "hedge" | "backup"
     latency_s: float  # until the answer that was used
     cost_usd: Optional[float]  # what the winning response reported, when it did
+    backup: bool = False  # refused here and answered by the backup route
 
 
 def wav_bytes(pcm: bytes, rate: int = SAMPLE_RATE) -> bytes:
@@ -70,8 +77,11 @@ class OpenRouterTranscriber:
         hedge_s: float = HEDGE_S,
         give_up_s: float = GIVE_UP_S,
         client: Optional[httpx.AsyncClient] = None,
+        backup: Optional[Callable[[bytes], Awaitable[str]]] = None,
     ) -> None:
         self.api_key = api_key
+        # Another route for a chunk this one refuses: takes the chunk's PCM, returns its text.
+        self.backup = backup
         self.model = model
         self.language = language
         # Words the transcriber should recognise as written (the company's glossary), passed to the provider behind MAI
@@ -96,7 +106,7 @@ class OpenRouterTranscriber:
         except Exception as e:  # never at the cost of the call
             logger.info("OpenRouter STT warm-up failed: %s", e)
 
-    async def _once(self, wav: bytes) -> tuple[str, Optional[float]]:
+    async def _once(self, wav: bytes, refused: Optional[Callable[[float], None]] = None) -> tuple[str, Optional[float]]:
         body: dict = {
             "model": self.model,
             "input_audio": {"data": base64.b64encode(wav).decode(), "format": "wav"},
@@ -107,21 +117,21 @@ class OpenRouterTranscriber:
         phrases = self.phrases
         if phrases:
             body["provider"] = {"options": {"azure": {"phraseList": {"phrases": phrases}}}}
-        response = await self._post(body)
+        response = await self._post(body, refused)
         if response.status_code == 400 and phrases:
             # The provider refused the list: the call goes on without it rather than without a transcript.
             logger.warning("OpenRouter STT: the phrase list was refused (%s); this call goes on without it", response.text[:200])
             self.phrases = []
             del body["provider"]
-            response = await self._post(body)
+            response = await self._post(body, refused)
         if response.status_code != 200:
             raise TranscriptionError(f"OpenRouter {response.status_code}: {response.text[:200]}")
         data = response.json()
         cost = (data.get("usage") or {}).get("cost")
         return str(data.get("text") or "").strip(), cost if isinstance(cost, (int, float)) else None
 
-    async def _post(self, body: dict) -> httpx.Response:
-        """The request, sent again after the wait the provider asks for while it answers 429."""
+    async def _post(self, body: dict, refused: Optional[Callable[[float], None]] = None) -> httpx.Response:
+        """The request, sent again after the wait the provider asks for while it answers 429. `refused` is told that wait."""
         for attempt in range(RATE_LIMIT_TRIES + 1):
             response = await self.client.post(URL, headers={"Authorization": f"Bearer {self.api_key}"}, json=body)
             if response.status_code != 429 or attempt == RATE_LIMIT_TRIES:
@@ -130,6 +140,8 @@ class OpenRouterTranscriber:
                 wait = float(response.headers.get("retry-after") or 1.0)
             except ValueError:
                 wait = 1.0
+            if refused:
+                refused(wait)
             await asyncio.sleep(min(RATE_LIMIT_WAIT_S, max(0.2, wait)))
         return response
 
@@ -164,26 +176,43 @@ class OpenRouterTranscriber:
         """The chunk's text. Raises TranscriptionError when no request answered."""
         wav = wav_bytes(pcm)
         started = time.monotonic()
-        first = asyncio.create_task(self._once(wav))
-        tasks = {first: "first"}
+        tasks: dict[asyncio.Task, str] = {}
         hedged = False
+        backed = False
+        closed_until = 0.0  # the provider said it answers nothing before then
         errors: list[str] = []
+        wake = asyncio.Event()
+
+        def refused(wait: float) -> None:
+            nonlocal backed, closed_until
+            closed_until = max(closed_until, time.monotonic() + wait)
+            if self.backup is not None and not backed and wait >= BACKUP_MIN_WAIT_S:
+                backed = True
+                tasks[asyncio.create_task(self._backup(pcm))] = "backup"
+            wake.set()
+
+        tasks[asyncio.create_task(self._once(wav, refused))] = "first"
+        waker = asyncio.create_task(wake.wait())
         try:
             while True:
-                waiting = set(tasks)
-                timeout = None
-                if not hedged:
-                    timeout = max(0.0, self.hedge_s - (time.monotonic() - started))
-                remaining = self.give_up_s - (time.monotonic() - started)
+                now = time.monotonic()
+                remaining = self.give_up_s - (now - started)
                 if remaining <= 0:
                     raise TranscriptionError("; ".join(errors) or f"no answer in {self.give_up_s:.0f}s")
-                done, _ = await asyncio.wait(
-                    waiting,
-                    timeout=min(timeout, remaining) if timeout is not None else remaining,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
+                timeout = remaining
+                if not hedged:
+                    # The hedge goes out when the first is slow or has failed, never into a stretch the provider has closed.
+                    waiting_on_a_request = any(who != "backup" for who in tasks.values())
+                    due = max(started + self.hedge_s, closed_until) if waiting_on_a_request else closed_until
+                    timeout = min(remaining, max(0.0, due - now))
+                done, _ = await asyncio.wait({*tasks, waker}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+                if waker in done:
+                    wake.clear()
+                    waker = asyncio.create_task(wake.wait())
                 for task in done:
-                    who = tasks.pop(task)
+                    who = tasks.pop(task, None)
+                    if who is None:
+                        continue
                     try:
                         text, cost = task.result()
                     except Exception as e:
@@ -196,15 +225,21 @@ class OpenRouterTranscriber:
                         winner=who,
                         latency_s=time.monotonic() - started,
                         cost_usd=cost,
+                        backup=who == "backup",
                     )
                 # Nothing answered: the hedge goes out when the first is slow, or when it failed.
-                if not hedged and (not tasks or time.monotonic() - started >= self.hedge_s - 1e-6):
+                now = time.monotonic()
+                requests_left = any(who != "backup" for who in tasks.values())
+                if not hedged and now >= closed_until and (not requests_left or now - started >= self.hedge_s - 1e-6):
                     hedged = True
-                    tasks[asyncio.create_task(self._once(wav))] = "hedge"
-                elif not tasks:
+                    tasks[asyncio.create_task(self._once(wav, refused))] = "hedge"
+                elif not tasks and hedged:
                     raise TranscriptionError("; ".join(errors) or "no request answered")
         finally:
+            waker.cancel()
             for task in tasks:
                 task.cancel()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.gather(waker, *tasks, return_exceptions=True)
+
+    async def _backup(self, pcm: bytes) -> tuple[str, Optional[float]]:
+        return (await self.backup(pcm)).strip(), None  # type: ignore[misc]
