@@ -338,7 +338,8 @@ def test_the_flag_picks_the_prompt_version(monkeypatch):
     assert plan({"PLAYBOOK_QUALIFICATION_ENABLED", "PLAYBOOK_OBSERVATIONS_ENABLED"})[0] == QUALIFICATION_PROMPT_VERSION
 
 
-def test_the_flag_exists_and_is_off_by_default():
+def test_the_flag_exists_and_a_test_starts_with_it_off():
+    # On for every company in production (tests/test_reading_defaults.py); tests/conftest.py starts each test with it off.
     assert settings.PLAYBOOK_QUALIFICATION_ENABLED is False
 
 

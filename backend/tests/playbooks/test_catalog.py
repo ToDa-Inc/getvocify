@@ -156,7 +156,8 @@ def test_a_custom_type_is_visible_by_the_role_of_its_rule():
     assert visible_to_role("qualification", "ae", None) is True
 
 
-def test_both_flags_exist_off_by_default_and_reach_the_client():
+def test_the_flags_exist_start_off_in_a_test_and_reach_the_client():
+    # PLAYBOOK_QUALIFICATION_ENABLED is on in production (tests/test_reading_defaults.py); tests/conftest.py starts tests with it off.
     assert PLAYBOOK_V2_FLAGS == ("PLAYBOOK_V2_ENABLED", "PLAYBOOK_ROUTING_ENABLED", "PLAYBOOK_QUALIFICATION_ENABLED")
     for flag in PLAYBOOK_V2_FLAGS:
         assert flag in CLIENT_FLAGS

@@ -273,11 +273,15 @@ class Settings(BaseSettings):
     # Bell also lists what Vocify did on its own (CRM writes, meeting stage moves) and why.
     NOTIFICATIONS_ACTIVITY_ENABLED: bool = False
     INTELLIGENCE_WORKER_PUBLISH: bool = False
+    # The reading of every call after it ends, on for every company since 11 Nov 2026 (it was on per company only, so a
+    # new company's Equipo and Coaching stayed empty). A company is switched off with a row in company_feature_flags.
     # Interest, objections and commitments from the transcript, once per extraction.
-    INTELLIGENCE_EXTRACT_ENABLED: bool = False
-    # C04 v4: named competitors + one observation per playbook step (coaching, adherence,
-    # missed steps, checklist). Per company via company_feature_flags; off until its evals pass.
-    PLAYBOOK_OBSERVATIONS_ENABLED: bool = False
+    INTELLIGENCE_EXTRACT_ENABLED: bool = True
+    # C04 v4: named competitors + one observation per playbook step (coaching, adherence, missed steps, checklist).
+    PLAYBOOK_OBSERVATIONS_ENABLED: bool = True
+    # C04 v8: the call is read before the CRM pass (who said what, which type of call it was); the reading every later
+    # version builds on, and what the editable sales process and the types by channel need.
+    INTELLIGENCE_CALL_READING_ENABLED: bool = True
     # Hoy card «no te ha respondido»: reads the rep's CRM emails. HubSpot needs sales-email-read.
     HOY_NO_REPLY_ENABLED: bool = False
     # One-click confirm in Hoy after CRM auto-approve (stage and/or meeting). Per company.
@@ -367,10 +371,10 @@ class Settings(BaseSettings):
     # Live transcription (mai_chunks): a chunk the batch route refuses for 2 s or more also goes to the streaming route
     # (AI_GATEWAY_API_KEY) and the first answer is used. Only refused chunks go there; without the key there is no backup.
     LIVE_STT_STREAM_BACKUP: bool = True
-    # Playbooks v2, per company. QUALIFICATION: C04 v7 reads "what has to come out of the call"
+    # Playbooks v2. QUALIFICATION: C04 v7 reads "what has to come out of the call"
     # criteria and the company's own objections, and the score is built from three blocks
-    # (steps, qualification, objections) instead of steps alone.
-    PLAYBOOK_QUALIFICATION_ENABLED: bool = False
+    # (steps, qualification, objections) instead of steps alone. On for every company since 11 Nov 2026.
+    PLAYBOOK_QUALIFICATION_ENABLED: bool = True
     # C04 v9 (2026-10-21): v8 plus a reading of the whole call (the error that cost it most, how to steer it,
     # the best it could have given) that makes step advice and objections precise. Needs
     # INTELLIGENCE_CALL_READING_ENABLED too. Off everywhere; on in an environment or per company to test.

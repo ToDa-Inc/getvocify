@@ -11,6 +11,22 @@ def _no_llm_transcript_repair(monkeypatch):
     monkeypatch.setattr(settings, "TRANSCRIPT_SANITIZE_LLM", False)
 
 
+READING_FLAGS = (
+    "INTELLIGENCE_EXTRACT_ENABLED", "PLAYBOOK_OBSERVATIONS_ENABLED", "PLAYBOOK_QUALIFICATION_ENABLED",
+    "INTELLIGENCE_CALL_READING_ENABLED",
+)
+
+
+@pytest.fixture(autouse=True)
+def _after_call_reading_off(monkeypatch):
+    """The after-call reading is on for every company in production (tests/test_reading_defaults.py). A test starts with
+    it off, as a company switched off by its own row, and switches on what it describes."""
+    from app.config import settings
+
+    for flag in READING_FLAGS:
+        monkeypatch.setattr(settings, flag, False)
+
+
 @pytest.fixture(autouse=True)
 def _no_cost_writes():
     """backend/.env can point at a real Supabase; a test must never write memo costs to it."""
