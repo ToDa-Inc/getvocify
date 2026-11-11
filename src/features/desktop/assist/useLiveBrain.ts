@@ -4,7 +4,7 @@ import { playbooksApi } from "@/features/playbooks/api";
 import { getDesktopBridge } from "@/lib/desktop-host";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { api } from "@/shared/lib/api-client";
-import { assistContext, BACKSTOP_MS, earlyOutcome, supersedesReading, turnCheck } from "@/lib/live-assist";
+import { assistContext, BACKSTOP_MS, earlyOutcome, SPEAKING_NET_MS, supersedesReading, turnCheck, unfinishedPlan } from "@/lib/live-assist";
 import {
   buildCardReading,
   buildReading,
@@ -46,6 +46,7 @@ const EVENTS_MS = 5000;
 const EVENT_KINDS = new Set([
   "shown", "dismissed", "reopened", "rewrite", "ask_step", "tick", "untick", "responder", "bubble",
   "open_recap", "open_steps", "open_brief", "marker_shown", "marker_seen", "early_kept", "early_dropped", "superseded",
+  "held_speaking", "held_net",
 ]);
 const POINT_EVENTS = new Set(["shown", "dismissed", "reopened", "rewrite"]);
 const STEP_EVENTS = new Set(["ask_step", "tick", "untick"]);
@@ -368,8 +369,8 @@ export function useLiveBrain(
         const outcome = earlyOutcome({ sameWords: keyRef.current === spec.early.key, spoke: spokeRef.current });
         logEvent(outcome === "show" ? "early_kept" : "early_dropped", { detail: { result: String(result.event ?? ""), outcome } });
         if (outcome !== "show") {
-          // Their voice came back without new words yet: the usual wait, then one final check.
-          if (outcome === "recheck") backstopRef.current = window.setTimeout(spec.early.again, BACKSTOP_MS);
+          // Their voice came back without new words yet: their next pause, or their next words, brings the next check.
+          if (outcome === "recheck") spec.early.again();
           return;
         }
         markRef.current = { turnKey: spec.early.turnKey, length: spec.early.length };
@@ -442,6 +443,8 @@ export function useLiveBrain(
   const pausedRef = useRef<boolean | null>(null);
   const spokeRef = useRef(false);
   const earlyRef = useRef<{ key: string; controller: AbortController } | null>(null);
+  /** Their words the turn check called unfinished while their audio said they were still speaking: checked again at their next pause. */
+  const waitingRef = useRef<NonNullable<ReturnType<typeof assistContext>> | null>(null);
   const markRef = useRef<ReadMark>(null);
   const lastPointsAtRef = useRef<number | null>(null);
   const repReadRef = useRef({ words: 0, at: null as number | null });
@@ -469,9 +472,13 @@ export function useLiveBrain(
   if (paused === false) spokeRef.current = true;
   // They went on: a reading asked for early is about words that are no longer their last. Stop it; the new words are checked.
   if (earlyRef.current && earlyRef.current.key !== key) earlyRef.current.controller.abort();
+  if (waitingRef.current && waitingRef.current.key !== key) waitingRef.current = null;
 
-  const check = (ctx: NonNullable<typeof found>, final: boolean) => {
+  /** `forced`: the audio never paused and no new words came for SPEAKING_NET_MS; the words are read whatever the verdict. */
+  const check = (ctx: NonNullable<typeof found>, final: boolean, forced = false) => {
     lastKeyRef.current = ctx.key;
+    window.clearTimeout(backstopRef.current);
+    waitingRef.current = null;
     checkRef.current?.abort();
     const controller = new AbortController();
     checkRef.current = controller;
@@ -484,29 +491,63 @@ export function useLiveBrain(
       // A question or an objection: the rep sees its card now, the answer follows (a turn not finished says "Preparando").
       // The strategic card may stay silent: nothing shows before it decides.
       if (!cardRef.current) setSpotted(spottedDraft(turn, ctx.latestTurn));
-      if (turn && turn.finished === false && !final) {
-        // A breath, not an end: a long turn is read every LONG_TURN_MS; otherwise wait and ask again, final.
+      const plan = turn && turn.finished === false && !forced
+        ? unfinishedPlan({ card: cardRef.current, paused: pausedRef.current, final })
+        : "read";
+      if (plan === "wait") {
+        // "Still going" and their audio says so too: nothing is read in the middle of their sentence.
+        logEvent("held_speaking", { detail: { final } });
+        waitForPause(ctx);
+        return;
+      }
+      if (plan !== "read") {
+        // A breath, not an end: a long turn is read every LONG_TURN_MS.
         if (longTurnDue({ lastReadAt: lastPointsAtRef.current, now: Date.now() })) {
           markRef.current = { turnKey: ctx.turnKey, length: ctx.length };
           read("long_turn", previous, "points");
-        } else if (cardRef.current && pausedRef.current === true) {
+        } else if (plan === "early") {
           // The check says "still going" and they are quiet: in 7 of 10 such checks in production nothing more came
           // within 2.5 s. The brain reads now instead of after the wait; its card shows only if they stay quiet.
           spokeRef.current = false;
           supersedeCard("turn_end");
           readers.current!.card.request({
             reason: "turn_end", mark: previous, objection: turnObjection(turn),
-            early: { key: ctx.key, turnKey: ctx.turnKey, length: ctx.length, again: () => check(ctx, true) },
+            early: { key: ctx.key, turnKey: ctx.turnKey, length: ctx.length, again: () => waitForPause(ctx) },
           });
-          return;
+        } else {
+          // No audio to go by: wait and ask again, final.
+          backstopRef.current = window.setTimeout(() => check(ctx, true), BACKSTOP_MS);
         }
-        backstopRef.current = window.setTimeout(() => check(ctx, true), BACKSTOP_MS);
         return;
       }
       markRef.current = { turnKey: ctx.turnKey, length: ctx.length };
       read("turn_end", previous, undefined, turnObjection(turn));
     });
   };
+
+  /** Unfinished words wait for their pause (checked again then) or for more words; an audio that never pauses is not waited for forever. */
+  const waitForPause = (ctx: NonNullable<typeof found>) => {
+    window.clearTimeout(backstopRef.current);
+    if (pausedRef.current === true) {
+      // Already quiet again (their voice came back during an early reading and stopped): the words they added may
+      // still be arriving. If none do, the same words are checked again.
+      backstopRef.current = window.setTimeout(() => check(ctx, false), BACKSTOP_MS);
+      return;
+    }
+    waitingRef.current = ctx;
+    backstopRef.current = window.setTimeout(() => {
+      logEvent("held_net");
+      check(ctx, true, true);
+    }, SPEAKING_NET_MS);
+  };
+
+  useEffect(() => {
+    const waiting = waitingRef.current;
+    if (paused !== true || !waiting || waiting.key !== keyRef.current) return;
+    check(waiting, false);
+    // Only their pause starts this: the words that wait are in the ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paused]);
 
   useEffect(() => {
     if (!found || key === lastKeyRef.current) return;
@@ -563,6 +604,8 @@ export function useLiveBrain(
     oneShotRef.current.step?.abort();
     oneShotRef.current.rewrite?.abort();
     askedTurnRef.current = null;
+    window.clearTimeout(backstopRef.current);
+    waitingRef.current = null;
     // The last call's events go out under its own id; this call starts its own.
     flushEvents();
     eventsRef.current = { callId, queue: [], timer: undefined, off: false };
@@ -594,6 +637,7 @@ export function useLiveBrain(
     oneShotRef.current.step?.abort();
     oneShotRef.current.rewrite?.abort();
     window.clearTimeout(backstopRef.current);
+    waitingRef.current = null;
     flushEvents();
     setDrafts([]);
     setReading({ points: false, progress: false, recap: false });

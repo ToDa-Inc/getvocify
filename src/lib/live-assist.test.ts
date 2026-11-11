@@ -8,6 +8,8 @@ import {
   checkStamps,
   checkTiming,
   earlyOutcome,
+  unfinishedPlan,
+  SPEAKING_NET_MS,
   supersedesReading,
   cooldownLeft,
   repReplied,
@@ -432,6 +434,30 @@ describe("supersedesReading", () => {
     // A breath in a long turn, or the rep holding the floor, stops nothing.
     assert.equal(supersedesReading({ reason: "long_turn", inFlight: "automatic" }), false);
     assert.equal(supersedesReading({ reason: "rep_turn", inFlight: "automatic" }), false);
+  });
+});
+
+describe("unfinishedPlan", () => {
+  it("believes «still going» while their audio says they are speaking, final check or not", () => {
+    assert.equal(unfinishedPlan({ card: true, paused: false, final: true }), "wait");
+    assert.equal(unfinishedPlan({ card: true, paused: false, final: false }), "wait");
+  });
+  it("reads early when they are quiet: the card shows only if they stay quiet", () => {
+    assert.equal(unfinishedPlan({ card: true, paused: true, final: false }), "early");
+    assert.equal(unfinishedPlan({ card: true, paused: true, final: true }), "early");
+  });
+  it("goes by the words alone when no audio can be read", () => {
+    assert.equal(unfinishedPlan({ card: true, paused: null, final: false }), "backstop");
+    assert.equal(unfinishedPlan({ card: true, paused: null, final: true }), "read");
+  });
+  it("leaves the older producer as it was", () => {
+    for (const paused of [true, false, null]) {
+      assert.equal(unfinishedPlan({ card: false, paused, final: false }), "backstop");
+      assert.equal(unfinishedPlan({ card: false, paused, final: true }), "read");
+    }
+  });
+  it("gives up on an audio that never pauses only after the longest piece of speech has had time to arrive", () => {
+    assert.ok(SPEAKING_NET_MS > 10_000 + FALLBACK_MS);
   });
 });
 

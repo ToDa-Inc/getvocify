@@ -39,6 +39,9 @@ UI_EVENTS = frozenset({
     "early_kept", "early_dropped",
     # An automatic card reading stopped because their words went on: its card, if it wrote one, never reached the screen.
     "superseded",
+    # Their words the turn check called unfinished while their audio said they were still speaking: held until their
+    # pause or their next words (held_speaking), or read after all because the audio never paused (held_net).
+    "held_speaking", "held_net",
 })
 UI_DETAIL_KEYS = 12
 _last_purge = float("-inf")  # never purged yet (monotonic time may be small right after a boot)

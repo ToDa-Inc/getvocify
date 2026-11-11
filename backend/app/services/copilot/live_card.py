@@ -236,6 +236,9 @@ Each kind of content has its own source:
     stated as already agreed («quedamos en enero») when they did not agree it.
 - About the other side (their tools, team, situation, what they said or asked): THE CONVERSATION supports it. Naming a
   tool they said they use is not a claim about that tool.
+  Their own description or guess of how the SELLER's product works is not a source. When the line confirms it as true
+  («Exacto: Fireflies captura la transcripción y nuestro agente…» after they asked whether it works through Fireflies),
+  the SOURCE must say it too: their having said it supports nothing about the product.
 - Stating as done what the seller has not done («te acaba de llegar la invitación», «ya te lo he mandado») is a
   statement about the conversation: unsupported unless THE CONVERSATION shows it happened. Confirming a detail (a day,
   an hour, a name) that differs from what the other side said («lunes a las 10» when they said «11») contradicts it.

@@ -399,6 +399,9 @@ def test_the_prompts_hold_the_hierarchy_the_situations_and_the_proposal_rule():
     assert "which of the company's SITUATIONS fits this moment" in live_card.SYSTEM
     assert "your action does what it says to do and nothing it says not to do" in " ".join(live_card.SYSTEM.split())
     assert "asks again what they already answered" in live_card.FACT_SYSTEM and "General knowledge" in live_card.FACT_SYSTEM
+    # What they say about the seller's product is not a source for it: «Exacto: Fireflies captura…» confirmed their guess
+    # (real meeting, 2026-11-11); the check let it pass in 1 of 3 runs before this line, in 0 of 3 with it.
+    assert "is not a source" in live_card.FACT_SYSTEM and "supports nothing about the product" in live_card.FACT_SYSTEM
     sources = live_card.sources_text(CTX, "discovery")
     assert "APPROVED ANSWERS (" in sources and "(Level 4: ways to answer." in sources
 

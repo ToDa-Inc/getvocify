@@ -181,6 +181,29 @@ export function earlyOutcome(input: { sameWords: boolean; spoke: boolean }): "sh
 }
 
 /**
+ * What follows a "still going" verdict from the turn check.
+ * - "early": their audio is quiet. The brain reads now; its card shows only if they stay quiet and say nothing more.
+ * - "wait": their audio says they are still speaking, so the verdict is believed: nothing is read. Their next pause or
+ *   their next words bring the next check. A check used to be final 1 s after their words arrived whatever the audio
+ *   said, and its "still going" was thrown away: 12 of the 13 cards that came in the middle of a sentence on eleven real
+ *   calls (2026-11-10/11) had that verdict 1.3 to 3.8 s before, and 120 of 198 such verdicts were read anyway. Their
+ *   words arrive 0.5 to 3 s after they are said, so "no new words for a second" was often a person mid-sentence.
+ * - "backstop" / "read": no audio can be read (or the older producer): the words alone decide, as before.
+ */
+export function unfinishedPlan(input: { card: boolean; paused: boolean | null; final: boolean }): "early" | "wait" | "backstop" | "read" {
+  if (input.card && input.paused === true) return "early";
+  if (input.card && input.paused === false) return "wait";
+  return input.final ? "read" : "backstop";
+}
+
+/**
+ * Their audio has not paused for this long and no new words have come: the audio is not to be trusted (a line whose
+ * noise never drops), and the words are read as they are. Longer than the longest piece of speech the transcriber
+ * holds before sending it (10 s) plus its answer, so a person who is really speaking has produced new words by then.
+ */
+export const SPEAKING_NET_MS = 12_000;
+
+/**
  * Their words went on while the brain was still reading the ones before. That reading is stopped and the new words are
  * read instead: left to finish, its card showed for a second or two and was replaced by the next one (a sentence that
  * arrived in two pieces 0.6 s apart got two cards 1.6 s apart on a real call, 2026-11-11). What the rep asked for
