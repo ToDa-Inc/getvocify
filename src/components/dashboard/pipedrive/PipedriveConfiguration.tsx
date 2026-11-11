@@ -9,14 +9,20 @@ import {
   type PipedriveObjectTab,
 } from "@/lib/api/pipedrive-setup";
 import { toast } from "sonner";
-import { Check, ShieldCheck, Settings2, Search, FilterX, Info } from "lucide-react";
-import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
+import { Briefcase, Building2, Check, FilterX, Info, Search, UserPlus, UserRound } from "lucide-react";
+import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
-import { Segmented } from "@/components/ui/segmented";
 import { Toggle } from "@/components/ui/toggle";
-import { AutoAcceptCrmToggle } from "@/components/dashboard/crm/AutoAcceptCrmToggle";
-import { DealCreationRuleField } from "@/components/dashboard/crm/DealCreationRuleField";
+import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
+import {
+  CallNoteRows,
+  DealsRow,
+  FieldsRow,
+  ReviewRow,
+  SaveStatus,
+  useAutosave,
+} from "@/components/dashboard/crm/CrmSettingsParts";
 import { useLanguage } from "@/lib/i18n";
 import { AnimIcon } from "@/components/ui/anim-icon";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -31,10 +37,10 @@ interface PipedriveConfigurationProps {
 
 type ObjectTab = PipedriveObjectTab;
 
-const OBJECT_TABS: { id: ObjectTab; label: string; configKey: keyof CRMConfiguration }[] = [
-  { id: "deals", label: "Deals", configKey: "allowed_deal_fields" },
-  { id: "contacts", label: "People", configKey: "allowed_contact_fields" },
-  { id: "companies", label: "Organizations", configKey: "allowed_company_fields" },
+const OBJECT_TABS: { id: ObjectTab; label: string; configKey: keyof CRMConfiguration; icon: typeof Briefcase }[] = [
+  { id: "deals", label: "Deal", configKey: "allowed_deal_fields", icon: Briefcase },
+  { id: "contacts", label: "Person", configKey: "allowed_contact_fields", icon: UserRound },
+  { id: "companies", label: "Organization", configKey: "allowed_company_fields", icon: Building2 },
 ];
 
 const RECOMMENDED_BY_OBJECT: Record<ObjectTab, string[]> = {
@@ -54,7 +60,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
 
   const [draft, setDraft] = useState<CRMConfiguration | null>(null);
   const [activeTab, setActiveTab] = useState<ObjectTab>("deals");
-  const [isSaving, setIsSaving] = useState(false);
+  const [openFields, setOpenFields] = useState<ObjectTab | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAllFields, setShowAllFields] = useState(false);
@@ -80,7 +86,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
       const next = await loadPipedriveSetup(true);
       queryClient.setQueryData(crmKeys.pipedriveSetup(), next);
       setDraft(null);
-      toast.success("Pipedrive fields updated. Enable new properties below, then Save.");
+      toast.success("Pipedrive fields updated");
     } catch {
       toast.error("Could not refresh Pipedrive fields");
     } finally {
@@ -88,22 +94,16 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
     }
   };
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      await crmApi.savePipedriveConfiguration(config);
-      queryClient.setQueryData(crmKeys.pipedriveSetup(), (prev) =>
-        prev ? { ...prev, config, saved: true } : prev,
-      );
-      setDraft(null);
-      toast.success("Configuration saved!");
-      onSaved?.();
-    } catch {
-      toast.error("Failed to save configuration");
-    } finally {
-      setIsSaving(false);
-    }
+  const save = async (next: CRMConfiguration) => {
+    await crmApi.savePipedriveConfiguration(next);
+    queryClient.setQueryData(crmKeys.pipedriveSetup(), (prev) =>
+      prev ? { ...prev, config: next, saved: true } : prev,
+    );
+    // A change made while this one was saving stays as the draft and saves next.
+    setDraft((cur) => (cur === next ? null : cur));
+    onSaved?.();
   };
+  const saveState = useAutosave(draft, save);
 
   const filteredProperties = useMemo(() => {
     if (!activeSchema) return [];
@@ -133,282 +133,258 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
   }
 
   const selectedPipeline = pipelines.find((p) => p.id === config.default_pipeline_id) ?? pipelines[0];
+  const labelOf = (tab: ObjectTab, name: string) =>
+    schemas[tab]?.properties.find((p) => p.name === name)?.label ?? name;
+  const openEditor = (tab: ObjectTab) => {
+    setActiveTab(tab);
+    setSearchQuery("");
+    setShowAllFields(false);
+    setOpenFields((cur) => (cur === tab ? null : tab));
+  };
 
-  return (
-    <div className="space-y-10">
-      <div className="space-y-6">
-        <div className="flex items-center gap-3 text-beige">
-          <Settings2 className="h-4 w-4" />
-          <h4 className="text-[10px] font-medium border-b border-beige/10 pb-1 flex-1">
-            Default pipeline and stage (new deals)
-          </h4>
-        </div>
-        <div className="grid sm:grid-cols-2 gap-6">
-          <div className="space-y-2">
-            <label className={THEME_TOKENS.typography.capsLabel}>Pipeline</label>
-            <Select
-              value={config.default_pipeline_id}
-              disabled={readOnly}
-              onValueChange={(pipelineId) => {
-                const p = pipelines.find((pl) => pl.id === pipelineId);
-                if (!p) return;
-                const stage = p.stages[0];
-                setConfig((prev) => ({
-                  ...prev,
-                  default_pipeline_id: p.id,
-                  default_pipeline_name: p.label,
-                  default_stage_id: stage?.id ?? "",
-                  default_stage_name: stage?.label ?? "",
-                  meeting_booked_pipeline_id: null,
-                  meeting_booked_stage_id: null,
-                }));
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {pipelines.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <label className={THEME_TOKENS.typography.capsLabel}>Stage</label>
-            <Select
-              value={config.default_stage_id}
-              disabled={readOnly}
-              onValueChange={(stageId) => {
-                const s = selectedPipeline?.stages.find((st) => st.id === stageId);
-                if (s) {
-                  setConfig((prev) => ({
-                    ...prev,
-                    // The pipeline shown above is the one the stage belongs to, even if it was never picked itself.
-                    default_pipeline_id: selectedPipeline?.id ?? prev.default_pipeline_id,
-                    default_pipeline_name: selectedPipeline?.label ?? prev.default_pipeline_name,
-                    default_stage_id: s.id,
-                    default_stage_name: s.label,
-                  }));
-                }
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Pick a stage" />
-              </SelectTrigger>
-              <SelectContent>
-                {selectedPipeline?.stages.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {(!data?.saved || !data.config.default_stage_id) && (
-              <p className="text-xs text-warning">
-                {config.default_stage_id
-                  ? "Not saved yet. Click Save, or Vocify cannot create deals in Pipedrive."
-                  : "No default stage saved: new deals cannot be created until you pick one and save."}
-              </p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <label className={THEME_TOKENS.typography.capsLabel}>{t.product.meetingBookedStage}</label>
-            <Select
-              value={config.meeting_booked_stage_id ?? NONE}
-              disabled={readOnly || !selectedPipeline}
-              onValueChange={(value) => {
-                const stageId = value === NONE ? null : value;
-                setConfig((prev) => ({
-                  ...prev,
-                  meeting_booked_pipeline_id: stageId ? selectedPipeline?.id ?? null : null,
-                  meeting_booked_stage_id: stageId,
-                }));
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t.product.meetingBookedStageNone} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>{t.product.meetingBookedStageNone}</SelectItem>
-                {selectedPipeline?.stages.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+  const fieldEditor = (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        {!readOnly && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleRefreshFields}
+            disabled={isRefreshing || isLoading}
+            title="Pull the latest Pipedrive fields and pipelines"
+            className="rounded-full h-8 px-3 text-[12px] border-border/50 text-beige shrink-0"
+          >
+            <AnimIcon name="refresh" size={14} state={isRefreshing && "busy"} className="mr-1.5" />
+            Refresh from Pipedrive
+          </Button>
+        )}
       </div>
-
-      <DealCreationRuleField
-        value={config.deal_creation_rule}
-        disabled={readOnly}
-        onChange={(rule) => setConfig((prev) => ({ ...prev, deal_creation_rule: rule }))}
-      />
-
-      <AutoAcceptCrmToggle
-        checked={Boolean(config.auto_sync_hubspot_calls)}
-        disabled={readOnly}
-        onCheckedChange={(val) => setConfig((prev) => ({ ...prev, auto_sync_hubspot_calls: val }))}
-      />
-
-      <div className="space-y-6">
-        <div className="flex items-center gap-3 text-beige">
-          <ShieldCheck className="h-4 w-4" />
-          <h4 className="text-[10px] font-medium border-b border-beige/10 pb-1 flex-1">
-            Editable fields
-          </h4>
-          {!readOnly && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleRefreshFields}
-              disabled={isRefreshing || isLoading}
-              title="Pull the latest Pipedrive fields and pipelines"
-              className="rounded-full h-8 px-3 text-[12px] border-border/50 text-beige shrink-0"
-            >
-              <AnimIcon name="refresh" size={14} state={isRefreshing && "busy"} className="mr-1.5" />
-              Refresh
-            </Button>
-          )}
-        </div>
-        <Segmented<ObjectTab>
-          aria-label="Object"
-          value={activeTab}
-          onValueChange={(tab) => {
-            setActiveTab(tab);
-            setSearchQuery("");
-            setShowAllFields(false);
-          }}
-          className="flex-wrap"
-          options={OBJECT_TABS.map((tab) => ({
-            value: tab.id,
-            label: (
-              <>
-                {tab.label}
-                <span className="opacity-50">{((config[tab.configKey] as string[]) || []).length}</span>
-              </>
-            ),
-          }))}
-        />
         <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40" />
-              <Input
-                placeholder={`Search ${OBJECT_TABS.find((t) => t.id === activeTab)?.label.toLowerCase()} fields...`}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-secondary/5 border-border/40 rounded-full pl-11 pr-6 h-11 font-medium"
-              />
-            </div>
-            {!searchQuery && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAllFields(!showAllFields)}
-                className={`rounded-full px-6 h-11 text-[9px] font-medium border-border/50 transition-all ${
-                  showAllFields ? "bg-beige/10 border-beige/30 text-beige" : ""
-                }`}
-              >
-                {showAllFields ? "Show Recommended Only" : `Show All Fields (${activeSchema?.properties.length ?? 0})`}
-              </Button>
-            )}
-          </div>
-          <div className="bg-muted/5 rounded-3xl p-6 border border-border/20">
-            <div className="flex items-center gap-2 mb-4">
-              <Info className="h-3 w-3 text-muted-foreground/40" />
-              <p className="text-[10px] text-muted-foreground font-medium italic">
-                Pipedrive field keys (title, name, emails) are sent to your account.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {filteredProperties.length > 0 ? (
-                filteredProperties.map((prop) => (
-                  <Toggle
-                    key={prop.name}
-                    variant="chip"
-                    pressed={selectedFields.includes(prop.name)}
-                    onPressedChange={() => {
-                      if (readOnly) return;
-                      const active = selectedFields.includes(prop.name);
-                      setConfig((prev) => ({
-                        ...prev,
-                        [activeConfigKey]: active
-                          ? selectedFields.filter((f) => f !== prop.name)
-                          : [...selectedFields, prop.name],
-                      }));
-                    }}
-                    className="group h-auto w-full justify-between rounded-2xl px-4 py-3 text-left"
-                  >
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-[10px] font-bold truncate">{prop.label}</span>
-                      {recommended.includes(prop.name) && (
-                        <span className="text-[8px] font-black uppercase tracking-tighter opacity-30 group-hover:opacity-60">
-                          Recommended
-                        </span>
-                      )}
-                    </div>
-                    {selectedFields.includes(prop.name) && <Check className="h-3 w-3 shrink-0 ml-2" />}
-                  </Toggle>
-                ))
-              ) : (
-                <div className="col-span-full py-12 flex flex-col items-center justify-center text-muted-foreground/40">
-                  <FilterX className="h-10 w-10 mb-4 opacity-20" />
-                  <p className="text-sm font-bold">No matching properties found</p>
-                </div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/40" />
+                <Input
+                  placeholder={`Search ${OBJECT_TABS.find((t) => t.id === activeTab)?.label.toLowerCase()} fields...`}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="bg-secondary/5 border-border/40 rounded-full pl-11 pr-6 h-11 font-medium"
+                />
+              </div>
+              {!searchQuery && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAllFields(!showAllFields)}
+                  className={`rounded-full px-6 h-11 text-[9px] font-medium border-border/50 transition-all ${
+                    showAllFields ? "bg-beige/10 border-beige/30 text-beige" : ""
+                  }`}
+                >
+                  {showAllFields ? "Show Recommended Only" : `Show All Fields (${activeSchema?.properties.length ?? 0})`}
+                </Button>
               )}
             </div>
-          </div>
+            <div className="bg-muted/5 rounded-3xl p-6 border border-border/20">
+              <div className="flex items-center gap-2 mb-4">
+                <Info className="h-3 w-3 text-muted-foreground/40" />
+                <p className="text-[10px] text-muted-foreground font-medium italic">
+                  Pipedrive field keys (title, name, emails) are sent to your account.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {filteredProperties.length > 0 ? (
+                  filteredProperties.map((prop) => (
+                    <Toggle
+                      key={prop.name}
+                      variant="chip"
+                      pressed={selectedFields.includes(prop.name)}
+                      onPressedChange={() => {
+                        if (readOnly) return;
+                        const active = selectedFields.includes(prop.name);
+                        setConfig((prev) => ({
+                          ...prev,
+                          [activeConfigKey]: active
+                            ? selectedFields.filter((f) => f !== prop.name)
+                            : [...selectedFields, prop.name],
+                        }));
+                      }}
+                      className="group h-auto w-full justify-between rounded-2xl px-4 py-3 text-left"
+                    >
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-[12px] font-medium truncate">{prop.label}</span>
+                        {recommended.includes(prop.name) && (
+                          <span className="text-[8px] font-black uppercase tracking-tighter opacity-30 group-hover:opacity-60">
+                            Recommended
+                          </span>
+                        )}
+                      </div>
+                      {selectedFields.includes(prop.name) && <Check className="h-3 w-3 shrink-0 ml-2" />}
+                    </Toggle>
+                  ))
+                ) : (
+                  <div className="col-span-full py-12 flex flex-col items-center justify-center text-muted-foreground/40">
+                    <FilterX className="h-10 w-10 mb-4 opacity-20" />
+                    <p className="text-sm font-bold">No matching properties found</p>
+                  </div>
+                )}
+              </div>
+            </div>
         </div>
-      </div>
+    </div>
+  );
 
-      <div className="grid sm:grid-cols-2 gap-3">
-        <div className="flex items-start gap-4 p-3.5 rounded-2xl bg-secondary/5 border border-border/20">
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] text-foreground">Create people</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              If none match, create from a name. Email or phone alone is not enough.
-            </p>
-          </div>
+  return (
+    <div className="space-y-8">
+      <SettingsSection label="After a call" action={<SaveStatus state={saveState} />}>
+        <ReviewRow
+          crmName="Pipedrive"
+          autoWrite={Boolean(config.auto_sync_hubspot_calls)}
+          disabled={readOnly}
+          onAutoWriteChange={(val) => setConfig((prev) => ({ ...prev, auto_sync_hubspot_calls: val }))}
+        />
+      </SettingsSection>
+
+      <SettingsSection label="What Vocify creates">
+        <SettingsRow icon={UserPlus} title="People" description="When none matches, from a name. Email or phone alone is not enough.">
           <Switch
-            className="shrink-0 mt-0.5"
+            aria-label="Create people"
             checked={config.auto_create_contacts}
             disabled={readOnly}
             onCheckedChange={(val) => setConfig((prev) => ({ ...prev, auto_create_contacts: val }))}
           />
-        </div>
-        <div className="flex items-start gap-4 p-3.5 rounded-2xl bg-secondary/5 border border-border/20">
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] text-foreground">Create organizations</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              If none match, create from company name.
-            </p>
-          </div>
+        </SettingsRow>
+        <SettingsRow icon={Building2} title="Organizations" description="When none matches, from the company name">
           <Switch
-            className="shrink-0 mt-0.5"
+            aria-label="Create organizations"
             checked={config.auto_create_companies}
             disabled={readOnly}
             onCheckedChange={(val) => setConfig((prev) => ({ ...prev, auto_create_companies: val }))}
           />
-        </div>
-      </div>
+        </SettingsRow>
+        <DealsRow
+          icon={Briefcase}
+          rule={config.deal_creation_rule}
+          disabled={readOnly}
+          onRuleChange={(rule) => setConfig((prev) => ({ ...prev, deal_creation_rule: rule }))}
+        >
+        <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className={THEME_TOKENS.typography.capsLabel}>Pipeline</label>
+                <Select
+                  value={config.default_pipeline_id}
+                  disabled={readOnly}
+                  onValueChange={(pipelineId) => {
+                    const p = pipelines.find((pl) => pl.id === pipelineId);
+                    if (!p) return;
+                    const stage = p.stages[0];
+                    setConfig((prev) => ({
+                      ...prev,
+                      default_pipeline_id: p.id,
+                      default_pipeline_name: p.label,
+                      default_stage_id: stage?.id ?? "",
+                      default_stage_name: stage?.label ?? "",
+                      meeting_booked_pipeline_id: null,
+                      meeting_booked_stage_id: null,
+                    }));
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pipelines.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className={THEME_TOKENS.typography.capsLabel}>Stage</label>
+                <Select
+                  value={config.default_stage_id}
+                  disabled={readOnly}
+                  onValueChange={(stageId) => {
+                    const s = selectedPipeline?.stages.find((st) => st.id === stageId);
+                    if (s) {
+                      setConfig((prev) => ({
+                        ...prev,
+                        // The pipeline shown above is the one the stage belongs to, even if it was never picked itself.
+                        default_pipeline_id: selectedPipeline?.id ?? prev.default_pipeline_id,
+                        default_pipeline_name: selectedPipeline?.label ?? prev.default_pipeline_name,
+                        default_stage_id: s.id,
+                        default_stage_name: s.label,
+                      }));
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Pick a stage" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectedPipeline?.stages.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(!data?.saved || !data.config.default_stage_id) && (
+                  <p className="text-xs text-warning">
+                    {config.default_stage_id
+                      ? "Saving this stage. Until then Vocify cannot create deals in Pipedrive."
+                      : "Pick a stage: until then Vocify cannot create deals in Pipedrive."}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <label className={THEME_TOKENS.typography.capsLabel}>{t.product.meetingBookedStage}</label>
+                <Select
+                  value={config.meeting_booked_stage_id ?? NONE}
+                  disabled={readOnly || !selectedPipeline}
+                  onValueChange={(value) => {
+                    const stageId = value === NONE ? null : value;
+                    setConfig((prev) => ({
+                      ...prev,
+                      meeting_booked_pipeline_id: stageId ? selectedPipeline?.id ?? null : null,
+                      meeting_booked_stage_id: stageId,
+                    }));
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t.product.meetingBookedStageNone} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>{t.product.meetingBookedStageNone}</SelectItem>
+                    {selectedPipeline?.stages.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+        </DealsRow>
+      </SettingsSection>
 
-      {!readOnly && (
-      <Button
-        onClick={handleSave}
-        disabled={isSaving}
-        className="w-full bg-beige text-cream hover:bg-beige/90 rounded-full text-[10px] font-medium shadow-medium h-12"
-      >
-        {isSaving ? <VocifySpinner size={12} /> : null}
-        Save Configuration
-      </Button>
-      )}
+      <SettingsSection label="What Vocify writes">
+        <CallNoteRows disabled={readOnly} />
+        {OBJECT_TABS.map((tab) => (
+          <FieldsRow
+            key={tab.id}
+            icon={tab.icon}
+            label={tab.label}
+            names={((config[tab.configKey] as string[]) || []).map((n) => labelOf(tab.id, n))}
+            open={openFields === tab.id}
+            readOnly={readOnly}
+            onToggle={() => openEditor(tab.id)}
+          >
+            {fieldEditor}
+          </FieldsRow>
+        ))}
+      </SettingsSection>
     </div>
   );
 };

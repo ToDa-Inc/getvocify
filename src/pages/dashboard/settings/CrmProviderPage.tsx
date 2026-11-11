@@ -19,18 +19,16 @@ import { CRM_LABEL, CRM_PROVIDERS, isLiveCrmId } from "./crmProviders";
 /** What each CRM's settings do, in the words this page has always used for it. */
 const HOW_IT_WORKS: Record<string, { manage: string; read: string }> = {
   hubspot: {
-    manage:
-      "Pipeline, who gets credit, and whether Vocify writes after processing — HubSpot recordings, the Vocify dialer, and memos locked to a contact. Or wait for Approve.",
-    read: "Workspace field mapping. Ask an admin to change it.",
+    manage: "What happens after a call, what Vocify creates in HubSpot and what it writes there.",
+    read: "Workspace settings. Ask an admin to change them.",
   },
   salesforce: {
     manage: "Default stage, fields AI may fill, and whether Vocify writes after processing — or waits for Approve.",
     read: "Workspace field mapping. Ask an admin to change it.",
   },
   pipedrive: {
-    manage:
-      "Default pipeline and stage, fields AI may fill, and whether Vocify writes after processing — or waits for Approve.",
-    read: "Workspace field mapping. Ask an admin to change it.",
+    manage: "What happens after a call, what Vocify creates in Pipedrive and what it writes there.",
+    read: "Workspace settings. Ask an admin to change them.",
   },
 };
 
@@ -140,13 +138,15 @@ const CrmProviderPage = () => {
         <p className="text-sm text-muted-foreground">{how}</p>
       </div>
 
-      <SettingsSection>
-        <div className="py-5">
-          {id === "hubspot" && <HubSpotConfiguration readOnly={!canManage} />}
-          {id === "salesforce" && <SalesforceConfiguration readOnly={!canManage} />}
-          {id === "pipedrive" && <PipedriveConfiguration readOnly={!canManage} />}
-        </div>
-      </SettingsSection>
+      {id === "hubspot" && <HubSpotConfiguration readOnly={!canManage} />}
+      {id === "pipedrive" && <PipedriveConfiguration readOnly={!canManage} />}
+      {id === "salesforce" && (
+        <SettingsSection>
+          <div className="py-5">
+            <SalesforceConfiguration readOnly={!canManage} />
+          </div>
+        </SettingsSection>
+      )}
 
       {id === "hubspot" && canManage && (
         <SettingsSection>

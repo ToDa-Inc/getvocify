@@ -30,7 +30,6 @@ import {
   Building,
   Ban,
 } from "lucide-react";
-import { Segmented } from "@/components/ui/segmented";
 import { Switch } from "@/components/ui/switch";
 import { ExtractionDatePicker } from "@/components/dashboard/crm/ExtractionDatePicker";
 import { formatCrmDateForDisplay, formatTaskDue, isCrmDateField } from "@/lib/crm-date";
@@ -627,6 +626,14 @@ export const HubSpotSyncPreview = ({
     });
   };
 
+  // Back on a deal: the default again (the contact's only open deal, otherwise a new one).
+  const handleUseDeal = async () => {
+    setIsSkipDealRequested(false);
+    setIsNewDealRequested(false);
+    setSelectedDealId(null);
+    await fetchPreview(null, { skipDeal: false, createNewDeal: false, contactId: selectedContactId });
+  };
+
   const confirmManualDealName = () => {
     const name = manualDealName.trim();
     if (!name) return;
@@ -668,6 +675,10 @@ export const HubSpotSyncPreview = ({
   const currentDealId = preview?.selected_deal?.deal_id ?? selectedDealId;
 
   const updates = editedUpdates ?? preview?.proposed_updates ?? [];
+  const newDealName = String(
+    updates.find((u: any) => (u?.object_type || "deals") === "deals" && ["dealname", "title", "Name"].includes(u?.field_name))
+      ?.new_value ?? "",
+  ).trim();
   const availableFields = preview?.available_fields ?? [];
   const OBJECT_ORDER = ["deals", "contacts", "companies", "line_items", "task"];
   const sortedUpdateEntries = [...updates.map((u: any, idx: number) => ({ u, idx }))]
@@ -1452,72 +1463,59 @@ export const HubSpotSyncPreview = ({
           </div>
         )}
 
-        {/* Where the call lands: the deal (default: the contact's only open deal), a new one, or none. */}
+        {/* Where the call lands. The switch says deal or not; Change says which one. */}
         {!dealPickerOpen && !(needsDealDecision && !dealDecisionMade) && (
-          <div className="space-y-1.5">
-            <Segmented
-              aria-label="Deal"
-              value={dealMatch ? "existing" : skipDeal ? "none" : "new"}
-              onValueChange={(v) => {
-                if (readOnly) return;
-                if (v === "existing") setDealPickerOpen(true);
-                else if (v === "new") handleCreateNewDeal();
-                else handleSkipDeal();
-              }}
-              className="flex w-full"
-              itemClassName="flex-1 min-w-0 justify-center"
-              options={[
-                {
-                  value: "existing",
-                  disabled: readOnly,
-                  label: (
-                    <>
-                      <Briefcase className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">{dealMatch ? dealMatch.deal_name || "Existing deal" : "Existing deal"}</span>
-                    </>
-                  ),
-                },
-                {
-                  value: "new",
-                  disabled: readOnly,
-                  label: (
-                    <>
-                      <Plus className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">New deal</span>
-                    </>
-                  ),
-                },
-                {
-                  value: "none",
-                  disabled: readOnly || !selectedContact,
-                  label: (
-                    <>
-                      <Ban className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">No deal</span>
-                    </>
-                  ),
-                },
-              ]}
-            />
-            <div className="flex items-center justify-between gap-2 px-1">
-              <p className="min-w-0 truncate text-[11.5px] text-muted-foreground">
-                {dealMatch
-                  ? "Note, call, tasks and fields go on this deal"
-                  : skipDeal
-                    ? `Only ${selectedContact?.name || "the contact"} is updated`
-                    : "Created in your main pipeline"}
+          <div
+            className={`flex items-center gap-3 rounded-xl border px-3 py-2 transition-colors ${
+              skipDeal ? "border-border/30 bg-transparent" : "border-border/50 bg-secondary/5"
+            }`}
+          >
+            <span
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                skipDeal ? "bg-muted/40 text-muted-foreground" : "bg-beige/15 text-beige"
+              }`}
+              title="Deal"
+            >
+              {skipDeal ? <Ban className="h-3.5 w-3.5" /> : dealMatch ? <Briefcase className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className={`truncate text-[13px] ${skipDeal ? "text-muted-foreground" : "text-foreground"}`}>
+                {skipDeal ? (
+                  "No deal"
+                ) : dealMatch ? (
+                  <span className="font-medium">{dealMatch.deal_name || "Deal"}</span>
+                ) : (
+                  <>
+                    <span className="text-muted-foreground">New deal </span>
+                    <span className="font-medium">{newDealName || "in your main pipeline"}</span>
+                  </>
+                )}
               </p>
-              {dealMatch && !readOnly ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setDealPickerOpen(true)}
-                  className="h-6 shrink-0 rounded-full px-2 text-[11.5px] font-normal text-beige hover:bg-beige/10"
-                >
-                  Change
-                </Button>
-              ) : null}
+              <p className="truncate text-[11.5px] text-muted-foreground">
+                {skipDeal
+                  ? `Only ${selectedContact?.name || "the contact"} is updated`
+                  : dealMatch
+                    ? "Note, call, tasks and fields go on this deal"
+                    : "Created when you confirm"}
+              </p>
             </div>
+            {!readOnly && !skipDeal ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDealPickerOpen(true)}
+                className="h-7 shrink-0 rounded-full px-2.5 text-xs font-normal text-beige hover:bg-beige/10"
+              >
+                Change
+              </Button>
+            ) : null}
+            <Switch
+              aria-label="Put this call on a deal"
+              className="shrink-0"
+              checked={!skipDeal}
+              disabled={readOnly || isSwitchingTarget || (!skipDeal && !selectedContact)}
+              onCheckedChange={(on) => (on ? handleUseDeal() : handleSkipDeal())}
+            />
           </div>
         )}
       </div>
