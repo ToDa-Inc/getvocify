@@ -90,6 +90,27 @@ def _parse_amount(value: any) -> Optional[float]:
         return None
 
 
+_NO_OPTION = object()
+_FREE_TEXT_OPTION_KEYS = frozenset({"dealstage", "stage_id", "pipeline", "pipeline_id", "StageName"})
+
+
+def _option_value(options: list, value: str) -> Any:
+    """The option a value names (by value or label, any case), else _NO_OPTION."""
+    raw = value.strip()
+    raw_l = raw.lower()
+    for o in options:
+        if isinstance(o, dict):
+            val = o.get("value")
+            lab = o.get("label")
+            if val is not None and (raw == val or str(val).lower() == raw_l):
+                return val
+            if lab is not None and str(lab).strip().lower() == raw_l:
+                return val
+        elif str(o).strip().lower() == raw_l:
+            return o
+    return _NO_OPTION
+
+
 def _normalize_raw_extraction(
     extracted: dict, field_specs: Optional[list[dict]] = None
 ) -> dict:
@@ -120,21 +141,15 @@ def _normalize_raw_extraction(
             parsed = _parse_amount(value)
             return parsed if parsed is not None else value
         if options and isinstance(value, str):
-            raw = value.strip()
-            raw_l = raw.lower()
-            for o in options:
-                if isinstance(o, dict):
-                    val = o.get("value")
-                    lab = o.get("label")
-                    if val is not None and raw == val:
-                        return val
-                    if val is not None and str(val).lower() == raw_l:
-                        return val
-                    if lab is not None and str(lab).lower() == raw_l:
-                        return val
-                elif str(o).lower() == raw_l:
-                    return o
-            return value
+            matched = _option_value(options, value)
+            if matched is not _NO_OPTION:
+                return matched
+            # Not one of the CRM's own options: the CRM refuses it, so it is not proposed. A stage stays as said,
+            # for the stage resolver to match by name.
+            return value if key in _FREE_TEXT_OPTION_KEYS else None
+        if options and isinstance(value, list) and all(isinstance(v, str) for v in value):
+            kept = [m for m in (_option_value(options, v) for v in value) if m is not _NO_OPTION]
+            return kept or None
         return value
 
     for key, value in list(out.items()):

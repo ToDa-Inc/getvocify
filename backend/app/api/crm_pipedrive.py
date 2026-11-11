@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -23,6 +24,7 @@ from app.services.crm_config import CRMConfigurationService
 from app.services.crm_field_permissions import edits_company_fields
 from app.services.hubspot.types import CRMSchema, HubSpotPipeline, HubSpotPipelineStage, HubSpotProperty, PropertyOption
 from app.services.pipedrive.client import PipedriveClient
+from app.services.pipedrive.sync import NOTE_TRANSCRIPT_KEY, note_includes_transcript
 from app.services.pipedrive.oauth import (
     build_authorize_url,
     decode_state,
@@ -387,7 +389,26 @@ async def get_pipedrive_configuration(
     )
     if not config:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CRM not configured.")
-    return config
+    return config.model_copy(
+        update={"note_includes_transcript": await asyncio.to_thread(_note_setting, supabase, str(config.connection_id))}
+    )
+
+
+def _connection_metadata(supabase: Client, connection_id: str) -> dict:
+    row = supabase.table("crm_connections").select("metadata").eq("id", connection_id).single().execute()
+    meta = (row.data or {}).get("metadata") if row else None
+    return meta if isinstance(meta, dict) else {}
+
+
+def _note_setting(supabase: Client, connection_id: str) -> bool:
+    return note_includes_transcript(_connection_metadata(supabase, connection_id))
+
+
+def _save_note_setting(supabase: Client, connection_id: str, on: bool) -> None:
+    meta = _connection_metadata(supabase, connection_id)
+    supabase.table("crm_connections").update({"metadata": {**meta, NOTE_TRANSCRIPT_KEY: on}}).eq(
+        "id", connection_id
+    ).execute()
 
 
 @router.post("/configure", response_model=CRMConfigurationResponse)
@@ -423,7 +444,11 @@ async def configure_pipedrive(
 
     svc = CRMConfigurationService(supabase)
     config = await svc.save_configuration(user_id, connection_id, request)
-    return config
+    if request.note_includes_transcript is not None:
+        await asyncio.to_thread(_save_note_setting, supabase, connection_id, bool(request.note_includes_transcript))
+    return config.model_copy(
+        update={"note_includes_transcript": await asyncio.to_thread(_note_setting, supabase, connection_id)}
+    )
 
 
 @router.get("/search/deals", response_model=list[DealMatch])

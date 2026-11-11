@@ -295,7 +295,7 @@ async def _deal_matches_for_contact(
                 deal_data = await search.client.get(
                     f"/crm/v3/objects/deals/{did}",
                     params={
-                        "properties": "dealname,amount,dealstage,pipeline,hs_lastmodifieddate",
+                        "properties": "dealname,amount,dealstage,pipeline,hs_lastmodifieddate,hs_is_closed",
                     },
                 )
             except Exception:
@@ -319,6 +319,9 @@ async def _deal_matches_for_contact(
                     last_updated=dprops.get("hs_lastmodifieddate") or "",
                     match_confidence=match_confidence,
                     match_reason="Linked to matched contact",
+                    is_open=(
+                        str(dprops["hs_is_closed"]).lower() != "true" if dprops.get("hs_is_closed") is not None else None
+                    ),
                 ),
             ))
     except Exception as e:

@@ -19,6 +19,7 @@ class DealMatch(BaseModel):
     last_updated: str
     match_confidence: float = Field(ge=0.0, le=1.0, description="Confidence score 0-1")
     match_reason: str = Field(..., description="Why this deal was matched")
+    is_open: Optional[bool] = Field(None, description="False when won/lost; None when the CRM did not say")
 
 
 class ContactMatch(BaseModel):
@@ -124,6 +125,9 @@ class ApprovalPreview(BaseModel):
     contact_candidates: list[ContactMatch] = Field(
         default_factory=list,
         description="Ambiguous contact matches requiring user confirmation",
+    )
+    note_includes_transcript: Optional[bool] = Field(
+        None, description="Pipedrive: whether the call note will carry the transcript under the summary"
     )
     skip_deal: bool = Field(
         default=False,

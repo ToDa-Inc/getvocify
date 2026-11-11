@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import date, datetime, timezone
@@ -104,6 +105,15 @@ async def _get_pipedrive_owner_id_for_user(
     except Exception as e:
         logger.warning("Could not resolve Pipedrive owner for user %s: %s", user_id, e)
     return None
+
+
+NOTE_TRANSCRIPT_KEY = "note_includes_transcript"
+
+
+def note_includes_transcript(meta: Optional[dict]) -> bool:
+    """Stored on crm_connections.metadata; absent means on (the note as it always was)."""
+    value = (meta or {}).get(NOTE_TRANSCRIPT_KEY) if isinstance(meta, dict) else None
+    return value is not False
 
 
 def new_deal_title(extraction: MemoExtraction) -> str:
@@ -216,6 +226,13 @@ class PipedriveSyncService:
                         "Pipedrive deal skipped: no default stage saved",
                         extra=log_domain(DOMAIN_PIPEDRIVE, "deal_skipped_no_stage", memo_id=str(memo_id)),
                     )
+
+            if not org_id and person_id:
+                # The approval named the person, not their organization: the organization's fields go to the person's
+                # own one (the one Pipedrive files the note under), never to a new organization.
+                org_id = await self._person_org_id(person_id)
+                if org_id:
+                    create_companies = False
 
             if create_companies and extraction.companyName:
                 org_id = await self._find_or_create_org(extraction.companyName, org_id)
@@ -377,7 +394,10 @@ class PipedriveSyncService:
                         extra=log_domain(DOMAIN_PIPEDRIVE, "note_skipped_duplicate", memo_id=str(memo_id)),
                     )
                 else:
-                    content = format_note_content(summary=extraction.summary, transcript=transcript or "")
+                    with_transcript = await self._note_includes_transcript(connection_id)
+                    content = format_note_content(
+                        summary=extraction.summary, transcript=(transcript or "") if with_transcript else ""
+                    )
                     async with self.crm_updates.track(
                         memo_id=str(memo_id),
                         user_id=user_id,
@@ -512,6 +532,28 @@ class PipedriveSyncService:
                 extra=log_domain(DOMAIN_PIPEDRIVE, "conversation_activity_failed", memo_id=str(memo_id)),
                 exc_info=True,
             )
+
+    async def _note_includes_transcript(self, connection_id: Union[UUID, str]) -> bool:
+        """Settings > CRM > Pipedrive: the note carries the summary and, unless switched off, the transcript."""
+        if not self.supabase:
+            return True
+        query = self.supabase.table("crm_connections").select("metadata").eq("id", str(connection_id)).single()
+        try:
+            row = await asyncio.to_thread(query.execute)
+        except Exception:
+            logger.warning("Could not read the note setting of connection %s", connection_id, exc_info=True)
+            return True
+        return note_includes_transcript((row.data or {}).get("metadata") if row else None)
+
+    async def _person_org_id(self, person_id: str) -> Optional[str]:
+        try:
+            org = (await self.search.get_person(str(person_id))).get("org_id")
+        except Exception:
+            logger.warning("Could not read the organization of Pipedrive person %s", person_id, exc_info=True)
+            return None
+        if isinstance(org, dict):
+            org = org.get("value") or org.get("id")
+        return str(org) if org else None
 
     async def _add_participant(self, deal_id: str, person_id: Any) -> None:
         """A deal that has no person gets this one (v2 PATCH person_id; v2 has no participants route). Best-effort:

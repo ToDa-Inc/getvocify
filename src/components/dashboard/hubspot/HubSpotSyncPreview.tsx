@@ -28,7 +28,11 @@ import {
   UserCheck,
   Briefcase,
   Building,
+  Ban,
+  FileText,
 } from "lucide-react";
+import { Segmented } from "@/components/ui/segmented";
+import { Switch } from "@/components/ui/switch";
 import { ExtractionDatePicker } from "@/components/dashboard/crm/ExtractionDatePicker";
 import { formatCrmDateForDisplay, formatTaskDue, isCrmDateField } from "@/lib/crm-date";
 import {
@@ -228,6 +232,8 @@ export const HubSpotSyncPreview = ({
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [showAddField, setShowAddField] = useState<"fields" | "tasks" | null>(null);
   const [omittedKeys, setOmittedKeys] = useState<string[]>([]);
+  // Record sections the rep switched off: none of their fields is written.
+  const [offSections, setOffSections] = useState<string[]>([]);
 
   // Weak matches and manual deal naming
   const [needsDealDecision, setNeedsDealDecision] = useState(false);
@@ -307,6 +313,7 @@ export const HubSpotSyncPreview = ({
         const previewData = await crmApi.getPreview(memoId, targetDealId || undefined, {
           createNewDeal: isCreatingNew,
           contactId: targetContactId || undefined,
+          skipDeal: isSkippingDeal,
         });
 
         if (memoIdRef.current !== requestedMemoId) return undefined;
@@ -374,6 +381,7 @@ export const HubSpotSyncPreview = ({
       setPreview(null);
       setEditedUpdates(null);
       setOmittedKeys([]);
+      setOffSections([]);
       setLoading(true);
       setNeedsDealDecision(false);
       setDealDecisionMade(true);
@@ -682,8 +690,10 @@ export const HubSpotSyncPreview = ({
     const memo = await memosApi.get(memoId);
     const base = memo?.extraction && typeof memo.extraction === "object" ? { ...memo.extraction } : {};
     const originalUpdates = preview?.proposed_updates ?? [];
-    const effectiveUpdates = editedUpdates ?? originalUpdates;
-    if (effectiveUpdates.length === 0 && omittedKeys.length === 0) return undefined;
+    const effectiveUpdates = (editedUpdates ?? originalUpdates).filter(
+      (u: any) => !offSections.includes(u?.object_type || "deals"),
+    );
+    if (effectiveUpdates.length === 0 && omittedKeys.length === 0 && offSections.length === 0) return undefined;
     const omitted = [...omittedKeys, ...omittedKeysFrom(originalUpdates, effectiveUpdates)];
     return buildApproveExtraction({
       memoExtraction: base as Record<string, unknown>,
@@ -867,19 +877,34 @@ export const HubSpotSyncPreview = ({
           line_items: "Line Items",
           task: "Tasks",
         }[String(currentObject)] || currentObject;
+      const switchable = showHeaders && !readOnly && ["deals", "contacts", "companies"].includes(String(currentObject));
+      const sectionOff = offSections.includes(String(currentObject));
 
       return (
         <div key={`${currentObject}-${update.field_name}-${idx}`} className="space-y-2">
           {showSection && (
             <div className="flex items-center gap-2 px-1 pt-2">
-              <span className="text-[11px] font-medium tracking-wider uppercase text-beige">
+              <span className={`text-[11px] font-medium tracking-wider uppercase ${sectionOff ? "text-muted-foreground" : "text-beige"}`}>
                 {sectionLabel}
               </span>
               <span className="h-px flex-1 bg-border/40" />
+              {switchable ? (
+                <Switch
+                  aria-label={`Write ${sectionLabel}`}
+                  checked={!sectionOff}
+                  onCheckedChange={(on) =>
+                    setOffSections((prev) =>
+                      on ? prev.filter((s) => s !== currentObject) : [...prev, String(currentObject)],
+                    )
+                  }
+                  className="scale-75"
+                />
+              ) : null}
             </div>
           )}
           <div
-            className={`group relative rounded-xl px-3.5 py-3 transition-all flex items-start justify-between gap-3 border ${
+            aria-disabled={sectionOff || undefined}
+            className={`group relative rounded-xl px-3.5 py-3 transition-all flex items-start justify-between gap-3 border ${sectionOff ? "opacity-45 pointer-events-none " : ""}${
               isUncertain
                 ? "bg-warning/[0.04] border-warning/30 hover:border-warning/45"
                 : isOverride
@@ -1428,40 +1453,72 @@ export const HubSpotSyncPreview = ({
           </div>
         )}
 
-        {/* Selected deal: one row, Change on the right. */}
+        {/* Where the call lands: the deal (default: the contact's only open deal), a new one, or none. */}
         {!dealPickerOpen && !(needsDealDecision && !dealDecisionMade) && (
-          <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-secondary/5 px-3 py-2">
-            <span
-              title="Deal"
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-                dealMatch ? "bg-success/10 text-success" : skipDeal ? "bg-foreground/[0.05] text-muted-foreground" : "bg-beige/15 text-beige"
-              }`}
-            >
-              <Briefcase className="h-3.5 w-3.5" />
-            </span>
-            <p className="min-w-0 flex-1 truncate text-[13px] text-foreground">
-              <span className="font-medium">
-                {dealMatch ? dealMatch.deal_name || "Existing deal" : skipDeal ? "No deal" : "New deal"}
-              </span>
-              <span className="text-muted-foreground">
-                {"  "}
+          <div className="space-y-1.5">
+            <Segmented
+              aria-label="Deal"
+              value={dealMatch ? "existing" : skipDeal ? "none" : "new"}
+              onValueChange={(v) => {
+                if (readOnly) return;
+                if (v === "existing") setDealPickerOpen(true);
+                else if (v === "new") handleCreateNewDeal();
+                else handleSkipDeal();
+              }}
+              className="flex w-full"
+              itemClassName="flex-1 min-w-0 justify-center"
+              options={[
+                {
+                  value: "existing",
+                  disabled: readOnly,
+                  label: (
+                    <>
+                      <Briefcase className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{dealMatch ? dealMatch.deal_name || "Existing deal" : "Existing deal"}</span>
+                    </>
+                  ),
+                },
+                {
+                  value: "new",
+                  disabled: readOnly,
+                  label: (
+                    <>
+                      <Plus className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">New deal</span>
+                    </>
+                  ),
+                },
+                {
+                  value: "none",
+                  disabled: readOnly || !selectedContact,
+                  label: (
+                    <>
+                      <Ban className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">No deal</span>
+                    </>
+                  ),
+                },
+              ]}
+            />
+            <div className="flex items-center justify-between gap-2 px-1">
+              <p className="min-w-0 truncate text-[11.5px] text-muted-foreground">
                 {dealMatch
-                  ? "Updates this deal"
+                  ? "Note, call, tasks and fields go on this deal"
                   : skipDeal
                     ? `Only ${selectedContact?.name || "the contact"} is updated`
                     : "Created in your main pipeline"}
-              </span>
-            </p>
-            {!readOnly ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setDealPickerOpen(true)}
-                className="h-7 shrink-0 rounded-full px-2.5 text-xs font-normal text-beige hover:bg-beige/10"
-              >
-                Change
-              </Button>
-            ) : null}
+              </p>
+              {dealMatch && !readOnly ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setDealPickerOpen(true)}
+                  className="h-6 shrink-0 rounded-full px-2 text-[11.5px] font-normal text-beige hover:bg-beige/10"
+                >
+                  Change
+                </Button>
+              ) : null}
+            </div>
           </div>
         )}
       </div>
@@ -1486,6 +1543,12 @@ export const HubSpotSyncPreview = ({
         className={tabbed ? "space-y-4" : undefined}
       >
         {tabbed ? noteLead : null}
+        {preview?.note_includes_transcript != null && callSummary ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary/10 px-2.5 py-1 text-[11px] text-muted-foreground">
+            <FileText className="h-3 w-3" />
+            {crmName} note · {preview.note_includes_transcript ? "summary + transcript" : "summary only"}
+          </span>
+        ) : null}
         {callSummary ? (
           <div className={tabbed ? "" : "space-y-3 pt-2"}>
             {tabbed ? null : <h5 className={THEME_TOKENS.typography.sectionRail}>Call note</h5>}

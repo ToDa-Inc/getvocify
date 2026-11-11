@@ -30,6 +30,8 @@ export interface CRMConfiguration {
   allowed_line_item_fields?: string[];
   auto_create_contacts: boolean;
   auto_create_companies: boolean;
+  /** Pipedrive: the call note carries the transcript under the summary (default on). */
+  note_includes_transcript?: boolean;
   /** Lost reasons shown in the extension's Lost picker (plus a UI-only "Other"). */
   lost_reasons?: string[];
   /**
@@ -312,11 +314,13 @@ export const crmApi = {
   async getPreview(
     memoId: string,
     dealId?: string,
-    opts?: { createNewDeal?: boolean; contactId?: string }
+    opts?: { createNewDeal?: boolean; contactId?: string; skipDeal?: boolean }
   ) {
     const params = new URLSearchParams();
     if (dealId) params.set("deal_id", dealId);
     if (opts?.createNewDeal) params.set("create_new_deal", "true");
+    // "No deal" is said out loud: without it the contact's only open deal is chosen.
+    else if (opts?.skipDeal && !dealId) params.set("skip_deal", "true");
     if (opts?.contactId) params.set("contact_id", opts.contactId);
     const qs = params.toString();
     const endpoint = `/memos/${memoId}/preview${qs ? `?${qs}` : ""}`;

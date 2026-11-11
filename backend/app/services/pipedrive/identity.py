@@ -83,6 +83,7 @@ async def _deals_for_person(search: PipedriveSearchService, person: dict[str, An
                 last_updated=str(row.get("update_time") or row.get("updated_at") or ""),
                 match_confidence=0.95,
                 match_reason="Linked to matched contact",
+                is_open=(row.get("status") == "open") if row.get("status") else None,
             )
         )
     return out[:limit]

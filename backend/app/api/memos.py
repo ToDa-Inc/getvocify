@@ -47,7 +47,7 @@ from app.services.crm_config import CRMConfigurationService
 from app.services.commitment_tasks import preview_kwargs as commitment_preview_kwargs
 from app.services.deal_stage_confirm import preview_stage_kwargs
 from app.services.memo_approval import approve_memo_core, CRMSyncError
-from app.services.preview_targets import resolve_preview_deal_selection
+from app.services.preview_targets import open_linked_deal_ids, resolve_preview_deal_selection
 from app.services.hubspot.preview import replay_written_fields
 from app.services.memo_crm import get_memo_crm_or_none_with_hubspot_refresh
 from app.services.hubspot import HubSpotClient, SyncResult
@@ -2014,6 +2014,7 @@ async def _build_approval_preview(
         has_contact_candidates=bool(contact_candidates),
         linked_deal_count=len(anchor.deal_matches) if anchor else 0,
         skip_deal=skip_deal,
+        linked_open_deal_ids=open_linked_deal_ids(anchor),
     )
 
     stage_kwargs, commitment_kwargs = await asyncio.gather(
@@ -2079,6 +2080,10 @@ async def _build_approval_preview(
         )
     except Exception as e:
         logger.warning("Call outcome availability check failed for memo %s: %s", memo_id, e)
+    if (conn or {}).get("provider") == "pipedrive":
+        from app.services.pipedrive.sync import note_includes_transcript
+
+        preview.note_includes_transcript = note_includes_transcript(conn.get("metadata"))
     return preview
 
 
@@ -2262,6 +2267,7 @@ async def post_approval_preview(
         has_contact_candidates=bool(contact_candidates),
         linked_deal_count=len(anchor.deal_matches) if anchor else 0,
         skip_deal=skip_deal,
+        linked_open_deal_ids=open_linked_deal_ids(anchor),
     )
 
     try:

@@ -30,7 +30,7 @@ from app.services.hubspot.token_refresh import ensure_hubspot_connection_tokens_
 from app.services.memo_approval import approve_memo_core
 from app.services.stt_batch import transcribe_bytes
 from app.services.storage import StorageService
-from app.services.preview_targets import resolve_preview_deal_selection
+from app.services.preview_targets import open_linked_deal_ids, resolve_preview_deal_selection
 from app.services.crm_copilot.loop import run_copilot_turn
 from app.services.crm_copilot.prompts import build_system_prompt
 from app.services.crm_copilot.route import should_handle_with_copilot
@@ -1025,6 +1025,7 @@ async def _build_preview_for_selection(
         has_contact_candidates=bool(contact_candidates),
         linked_deal_count=len(anchor.deal_matches) if anchor else 0,
         skip_deal=skip_deal,
+        linked_open_deal_ids=open_linked_deal_ids(anchor),
     )
 
     preview = await provider.build_preview(

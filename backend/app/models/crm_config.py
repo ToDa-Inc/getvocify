@@ -94,6 +94,10 @@ class CRMConfigurationRequest(BaseModel):
             "client that doesn't know the field (or a database before migration 063) is unaffected."
         ),
     )
+    note_includes_transcript: Optional[bool] = Field(
+        None,
+        description="Pipedrive: the call note carries the transcript under the summary. None keeps the stored choice.",
+    )
 
 
 class CRMConfigurationResponse(BaseModel):
@@ -123,6 +127,8 @@ class CRMConfigurationResponse(BaseModel):
     meeting_booked_stage_id: Optional[str] = None
     # None only before migration 063; the column's own default is "always".
     deal_creation_rule: Optional[str] = None
+    # Pipedrive only (crm_connections.metadata); absent means on.
+    note_includes_transcript: bool = True
     is_configured: bool = True
     created_at: str
     updated_at: str
