@@ -48,7 +48,7 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "strategic_engine_20261111_pace"
+PROMPT_VERSION = "strategic_engine_20261111_blanks"
 
 # ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
 # The reading weighs what is happening, what was said, its hypotheses, what is unknown and the situation without writing
@@ -127,6 +127,11 @@ How to decide. Steps 1 to 5 are what you weigh before answering: you do not writ
 The card: one sentence the rep can say as is, in the language of the call, at most 20 words, natural and respectful,
 built from their words. It is the rep's own words to them, never an instruction or a note about what to do («explorar
 qué pasa…», «cambiar de la comparación a…»): the playbook's guidance tells you what to do, the card says it.
+The company writes its examples with blanks in square brackets («Hola [cliente], soy [nombre] de…», «[cargo]», «[fecha]»)
+and with one person's own details («Soy Toni, uno de los founders»). A card never has a bracket or a blank in it. Fill
+one only with what THE CONVERSATION says (their name, their company, a date they gave); otherwise say the line without
+that part. You are not told the rep's name: never write one, neither a blank nor the name in an example («Te llamo de
+Movertis…», not «Soy [tu nombre] de Movertis…»), unless the conversation has called the rep by it.
 
 Notes on the data: a fact about the product, prices, customers or results only when the SOURCES say it ("source": the
 entry id as written before " · ", "offer" or "knowledge"; "source_quote": the verbatim text of the SOURCES); otherwise
