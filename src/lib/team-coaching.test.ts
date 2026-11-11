@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { productCatalog } from "./product-catalog.ts";
-import { causeLabel, cellValue, goalsMarked, heatTone, lossesLine, worksHasVerdict, type TeamCoaching } from "./team-coaching.ts";
+import { causeLabel, cellValue, goalsMarked, hasRate, heatTone, lossesLine, worksHasVerdict, type TeamCoaching } from "./team-coaching.ts";
 
 const ES = productCatalog.ES;
 const EN = productCatalog.EN;
@@ -18,6 +18,15 @@ describe("heat map cells", () => {
     assert.equal(cellValue({ done: 0, applicable: 0, rate: null }), "—");
     assert.equal(cellValue({ done: 1, applicable: 2, rate: 0.5 }), "1/2");
     assert.equal(cellValue({ done: 5, applicable: 6, rate: 5 / 6 }), "83 %");
+  });
+});
+
+describe("the whole percentage", () => {
+  it("is shown from three evaluated conversations, never from one or from none", () => {
+    assert.equal(hasRate(1, 1), false); // one conversation that went well is not "100 %"
+    assert.equal(hasRate(2, 0.5), false);
+    assert.equal(hasRate(3, 0.6), true);
+    assert.equal(hasRate(8, null), false);
   });
 });
 

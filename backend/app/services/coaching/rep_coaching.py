@@ -219,8 +219,9 @@ _PART_KEY = {"done": "met_steps", "improvable": "met_steps", "missing": "missed_
 def adherence_part(row: dict | None) -> dict | None:
     """THE "% del proceso" of one interaction, as counts for metrics.aggregate_adherence: done
     (improvable counts as done) over done + not done; no evidence and not reached do not count.
-    None for a non-conversation, which is never evaluated. Every surface (the rep's coaching, the
-    Head of Sales' team, trend and process health) sums these, so they all say one number."""
+    None for a non-conversation, which is never evaluated. The rep's coaching, the trend and process
+    health sum these: the call as it was judged. Equipo's table is the other reading, the steps as they
+    are published now (team_coaching.adherence_of)."""
     if row is None or not row.get("is_conversation", True):
         return None
     part = {"met_steps": 0, "missed_steps": 0, "unknown_steps": 0, "not_applicable_steps": 0}

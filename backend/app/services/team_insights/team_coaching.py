@@ -1,7 +1,9 @@
 """Equipo (Head of Sales): three questions over the team's conversations of one interaction type,
 read like the reps' own coaching (rep_coaching) so both see the same numbers. No I/O.
 
-1. Do they follow the playbook? Team adherence, and each rep against each step.
+1. Do they follow the playbook? Team adherence, and each rep against each step. The percentage is the
+   sum of the table under it: a verdict counts for a step as it is published now (step_identity), so a
+   step edited after a call drops out of both, and the column says how many verdicts it left behind.
 2. Does the playbook work? Per step, how often the goal is reached when the step is done and when
    it is not. The goal is what the rep declared (a meeting), never what a model read in the call.
 3. Why do we lose? The calls marked not interested or disqualified in Vocify, or whose deal was
@@ -12,7 +14,6 @@ read like the reps' own coaching (rep_coaching) so both see the same numbers. No
 from __future__ import annotations
 
 from app.services.coaching import rep_coaching as engine
-from app.services.coaching.metrics import aggregate_adherence
 from app.services.playbooks.step_identity import StepMatcher
 
 # A comparison needs this many calls on each side and this many goals reached; below it, no verdict.
@@ -28,13 +29,42 @@ def _rate(part: int, whole: int) -> float | None:
     return round(part / whole, 4) if whole else None
 
 
-def adherence_of(rows: list[dict]) -> dict:
-    """{adherence, conversations}: THE "% del proceso" (rep_coaching.adherence_part), summed."""
-    parts = [part for part in (engine.adherence_part(row) for row in rows) if part is not None]
+# A verdict that says the step was done or not done; no evidence and not reached never count.
+_COUNTED = engine.DONE_STATES | {"missing"}
+
+
+def adherence_of(rows: list[dict], steps: list[dict]) -> dict:
+    """{adherence, conversations, evaluated}: done over done + not done on the steps as they are published
+    now, so the number is the sum of the table under it (engine.step_rates) and never counts a verdict the
+    table leaves out. `evaluated` is how many of the conversations have a verdict that counts: a
+    percentage over fewer than three says nothing (the screen shows none)."""
+    rates = engine.step_rates(rows, steps)
+    matcher = StepMatcher(steps)
+    conversations = [row for row in rows if row.get("is_conversation", True)]
     return {
-        "adherence": aggregate_adherence(parts)["adherence"] if parts else None,
-        "conversations": len(parts),
+        "adherence": _rate(sum(rate["done"] for rate in rates), sum(rate["applicable"] for rate in rates)),
+        "conversations": len(conversations),
+        "evaluated": sum(
+            1 for row in conversations
+            if any(s["state"] in _COUNTED and matcher.match(s["step_id"], s.get("criterion")) is not None for s in row["steps"])
+        ),
     }
+
+
+def outdated_verdicts(rows: list[dict], steps: list[dict]) -> dict[str, int]:
+    """{step_id: conversations} whose verdict on that step stopped counting because the step was edited
+    after the call (same step, another criterion). A step with none is not in the result."""
+    matcher = StepMatcher(steps)
+    published = {str(step.get("step_id")) for step in steps}
+    out: dict[str, int] = {}
+    for row in rows:
+        if not row.get("is_conversation", True):
+            continue
+        for s in row["steps"]:
+            step_id = str(s["step_id"])
+            if step_id in published and s["state"] in _COUNTED and matcher.match(step_id, s.get("criterion")) is None:
+                out[step_id] = out.get(step_id, 0) + 1
+    return out
 
 
 def rep_matrix(rows_by_user: dict[str, list[dict]], reps: list[dict], steps: list[dict]) -> list[dict]:
@@ -46,7 +76,7 @@ def rep_matrix(rows_by_user: dict[str, list[dict]], reps: list[dict], steps: lis
         out.append({
             "user_id": str(rep["userId"]),
             "name": rep.get("name") or "",
-            **adherence_of(rows),
+            **adherence_of(rows, steps),
             "meetings": sum(1 for row in conversations if row.get("meeting_agreed")),
             "steps": {
                 rate["step_id"]: {"done": rate["done"], "applicable": rate["applicable"], "rate": rate["rate"]}

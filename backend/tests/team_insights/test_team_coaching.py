@@ -79,6 +79,36 @@ def test_rep_matrix_is_each_rep_against_each_step():
     assert luis["steps"]["pain"]["applicable"] == 0
 
 
+def _judged(states: dict, *, criteria: dict, user=ANA, conv=True):
+    row = _row(states, user=user, conv=conv)
+    for step in row["steps"]:
+        step["criterion"] = criteria[step["step_id"]]
+    return row
+
+
+def test_the_percentage_is_the_sum_of_the_table_when_a_step_was_edited_after_the_calls():
+    # "open" was judged with an earlier wording in every call: it counts nowhere, and the column says so.
+    earlier = {"open": "Saluda y pide permiso", "pain": "Pregunta por el dolor"}
+    rows = [_judged({"open": "done", "pain": "missing"}, criteria=earlier) for _ in range(3)]
+    rows.append(_judged({"open": "done", "pain": "done"}, criteria=earlier))
+    team = answers.adherence_of(rows, STEPS)
+    rates = {rate["step_id"]: rate for rate in answers.engine.step_rates(rows, STEPS)}
+    assert (rates["open"]["applicable"], rates["pain"]["done"], rates["pain"]["applicable"]) == (0, 1, 4)
+    assert team == {"adherence": 0.25, "conversations": 4, "evaluated": 4}  # not 5 of 8: the table shows 1 of 4
+    assert answers.outdated_verdicts(rows, STEPS) == {"open": 4}
+
+
+def test_a_conversation_with_no_verdict_on_todays_steps_is_not_evaluated():
+    earlier = {"open": "Saluda y pide permiso", "pain": "Otra pregunta"}
+    rows = [_judged({"open": "done", "pain": "done"}, criteria=earlier) for _ in range(4)]
+    rows.append(_judged({"open": "missing"}, criteria={"open": "Se presenta"}))
+    rows.append(_judged({"open": "done"}, criteria={"open": "Se presenta"}, conv=False))  # a voicemail never counts
+    team = answers.adherence_of(rows, STEPS)
+    assert team == {"adherence": 0.0, "conversations": 5, "evaluated": 1}
+    assert answers.outdated_verdicts(rows, STEPS) == {"open": 4, "pain": 4}
+    assert answers.outdated_verdicts([_row({"open": "done", "gone": "missing"})], STEPS) == {}  # no criterion kept, a removed step
+
+
 # --- why we lose ------------------------------------------------------------------------------
 
 
@@ -193,11 +223,28 @@ def test_team_coaching_answers_the_three_questions():
     body = _client(memos).get("/api/v1/team/coaching?period=month").json()
     assert body["type"] == "discovery" and body["types"][0]["conversations"] == 3
     follow = body["follow"]
-    assert (follow["adherence"], follow["conversations"]) == (0.5, 3)
+    assert (follow["adherence"], follow["conversations"], follow["evaluated"]) == (0.5, 3, 3)
+    assert [step["outdated"] for step in follow["steps"]] == [0, 0]
     assert {rep["user_id"]: rep["adherence"] for rep in follow["reps"]} == {ANA: 0.75, LUIS: 0.0}
     assert [s["step_id"] for s in body["works"]["steps"]] == ["open", "pain"]
     assert body["works"]["steps"][1]["verdict"] == "few_data"  # three calls are not a verdict
     assert body["losses"]["total"] == 1 and body["losses"]["causes"][0]["cause"] == "price"
+
+
+def test_team_coaching_counts_the_same_in_the_percentage_and_in_the_table():
+    """A step edited after the calls: its verdicts leave the percentage, the reps' totals and the table
+    together, and the step says how many conversations it left behind."""
+    memos = [_memo(f"a{i}", ANA, {"open": "met", "pain": "missed"}) for i in range(3)]
+    memos.append(_memo("old", ANA, {"open": "met", "pain": "met"}, days_ago=40))  # the period before
+    for memo in memos:
+        memo["extraction"]["intelligence"]["playbook_observations"][0]["criterion"] = "Saluda y pide permiso"
+    follow = _client(memos).get("/api/v1/team/coaching?period=month").json()["follow"]
+    by_step = {step["step_id"]: step for step in follow["steps"]}
+    assert (by_step["open"]["applicable"], by_step["open"]["outdated"]) == (0, 3)
+    assert (by_step["pain"]["done"], by_step["pain"]["applicable"], by_step["pain"]["outdated"]) == (0, 3, 0)
+    assert (follow["adherence"], follow["evaluated"]) == (0.0, 3)  # 0 of 3, as the table reads; it was 3 of 6
+    assert (follow["reps"][0]["adherence"], follow["reps"][0]["evaluated"]) == (0.0, 3)
+    assert (follow["prev_adherence"], follow["prev_evaluated"]) == (1.0, 1)
 
 
 def test_team_coaching_is_for_the_head_of_sales_only():

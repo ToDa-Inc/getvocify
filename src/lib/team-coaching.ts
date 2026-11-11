@@ -10,6 +10,8 @@ export type TeamRep = {
   name: string;
   adherence: number | null;
   conversations: number;
+  /** Conversations with a verdict that counts on the steps as they are published now. */
+  evaluated: number;
   meetings: number;
   steps: Record<string, TeamStepCell>;
 };
@@ -33,7 +35,10 @@ export type TeamCoaching = {
     adherence: number | null;
     prev_adherence: number | null;
     conversations: number;
-    steps: ({ step_id: string; label: string } & TeamStepCell)[];
+    evaluated: number;
+    prev_evaluated: number;
+    /** outdated: conversations judged on the step before it was edited, which no longer count. */
+    steps: ({ step_id: string; label: string; outdated: number } & TeamStepCell)[];
     reps: TeamRep[];
   };
   works: { process: TeamEffect | null; steps: ({ step_id: string; label: string } & TeamEffect)[] };
@@ -63,6 +68,12 @@ export function cellValue(cell: Pick<TeamStepCell, "done" | "applicable" | "rate
   if (!cell.applicable) return "—";
   if (cell.applicable < MIN_CALLS_FOR_RATE) return `${cell.done}/${cell.applicable}`;
   return formatPercent(cell.rate);
+}
+
+/** A whole "% del proceso" (the team's, a rep's) reads as a % from three evaluated conversations: under
+ * that the screen shows none, as a cell never shows a % of one call. */
+export function hasRate(evaluated: number, adherence: number | null): boolean {
+  return adherence !== null && evaluated >= MIN_CALLS_FOR_RATE;
 }
 
 /** Meetings marked so far across the comparison: the whole process splits every conversation. */

@@ -3,15 +3,17 @@ import { Link } from "react-router-dom";
 import { ArrowDown, ArrowRight, ArrowUp, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 import type { HosPeriod, HosSalesRole } from "@/lib/head-of-sales";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
-import { fill, formatPercent, MIN_CALLS_FOR_RATE, trendOf } from "@/lib/rep-coaching";
+import { fill, formatPercent, trendOf } from "@/lib/rep-coaching";
 import {
   causeLabel,
   cellValue,
   goalsMarked,
+  hasRate,
   heatTone,
   lossesLine,
   MIN_GOALS,
@@ -68,14 +70,14 @@ function Cell({ cell, strong = false }: { cell: Pick<TeamStepCell, "done" | "app
   );
 }
 
-/** A rep's or the team's whole "% del proceso": a % over three conversations or more, "—" under. */
-function TotalCell({ conversations, adherence }: { conversations: number; adherence: number | null }) {
-  const enough = conversations >= MIN_CALLS_FOR_RATE && adherence !== null;
+/** A rep's or the team's whole "% del proceso": a % over three evaluated conversations or more, "—" under. */
+function TotalCell({ evaluated, adherence }: { evaluated: number; adherence: number | null }) {
+  const enough = hasRate(evaluated, adherence);
   return (
     <span
       className={cn(
         "block rounded-md px-2 py-1.5 text-center text-[13px] font-semibold tabular-nums",
-        HEAT[enough ? heatTone({ applicable: conversations, rate: adherence }) : "none"],
+        HEAT[enough ? heatTone({ applicable: evaluated, rate: adherence }) : "none"],
       )}
     >
       {enough ? formatPercent(adherence) : "—"}
@@ -88,7 +90,10 @@ function Follow({ data, period }: { data: TeamCoachingBody; period: HosPeriod })
   const { t } = useLanguage();
   const p = t.product;
   const { follow } = data;
-  const trend = trendOf(follow.adherence, follow.prev_adherence);
+  // The big number is the sum of the table under it, and is there only with enough behind it.
+  const showRate = hasRate(follow.evaluated, follow.adherence);
+  const showBefore = showRate && hasRate(follow.prev_evaluated, follow.prev_adherence);
+  const trend = showBefore ? trendOf(follow.adherence, follow.prev_adherence) : null;
   const TrendIcon = trend === "up" ? ArrowUp : trend === "down" ? ArrowDown : ArrowRight;
   const teamCells: Record<string, TeamStepCell> = Object.fromEntries(follow.steps.map((step) => [step.step_id, step]));
   return (
@@ -99,21 +104,23 @@ function Follow({ data, period }: { data: TeamCoachingBody; period: HosPeriod })
           title={p.teamFollowHeading}
           meta={fill(follow.reps.length === 1 ? p.teamFollowMetaOne : p.teamFollowMeta, { count: follow.conversations, reps: follow.reps.length })}
         />
-        <div className="text-right">
-          <p className="text-3xl font-semibold leading-none tabular-nums text-foreground">{formatPercent(follow.adherence)}</p>
-          {follow.prev_adherence !== null ? (
-            <p className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
-              {fill(p.teamFollowBefore, { value: formatPercent(follow.prev_adherence) })}
-              {trend ? (
-                <TrendIcon
-                  aria-hidden
-                  className={cn("h-3.5 w-3.5", trend === "up" ? "text-success" : trend === "down" ? "text-destructive" : "")}
-                  strokeWidth={2}
-                />
-              ) : null}
-            </p>
-          ) : null}
-        </div>
+        {showRate ? (
+          <div className="text-right">
+            <p className="text-3xl font-semibold leading-none tabular-nums text-foreground">{formatPercent(follow.adherence)}</p>
+            {showBefore ? (
+              <p className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                {fill(p.teamFollowBefore, { value: formatPercent(follow.prev_adherence) })}
+                {trend ? (
+                  <TrendIcon
+                    aria-hidden
+                    className={cn("h-3.5 w-3.5", trend === "up" ? "text-success" : trend === "down" ? "text-destructive" : "")}
+                    strokeWidth={2}
+                  />
+                ) : null}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {follow.reps.length ? (
         // Many steps scroll inside the table, never the page.
@@ -123,8 +130,21 @@ function Follow({ data, period }: { data: TeamCoachingBody; period: HosPeriod })
               <tr>
                 <th scope="col" className="w-44 pb-1 text-left text-xs font-normal text-muted-foreground">{p.teamRepColumn}</th>
                 {follow.steps.map((step) => (
-                  <th key={step.step_id} scope="col" title={step.label} className="min-w-[5.5rem] pb-1 align-bottom text-xs font-normal text-muted-foreground">
-                    <span className="line-clamp-2">{step.label}</span>
+                  <th key={step.step_id} scope="col" className="min-w-[5.5rem] pb-1 align-bottom text-xs font-normal text-muted-foreground">
+                    <span title={step.label} className="line-clamp-2">{step.label}</span>
+                    {step.outdated ? (
+                      // The step was edited after these calls: why its column is short or empty.
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span tabIndex={0} className="mt-0.5 block cursor-default text-[11px] text-muted-foreground/70" data-testid="team-step-edited">
+                            {p.teamStepEdited}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                          {fill(step.outdated === 1 ? p.teamStepEditedHintOne : p.teamStepEditedHint, { count: step.outdated })}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
                   </th>
                 ))}
                 <th scope="col" className="min-w-[4.5rem] pb-1 align-bottom text-xs font-medium text-foreground">{p.teamTotalColumn}</th>
@@ -148,7 +168,7 @@ function Follow({ data, period }: { data: TeamCoachingBody; period: HosPeriod })
                     </td>
                   ))}
                   <td>
-                    <TotalCell conversations={rep.conversations} adherence={rep.adherence} />
+                    <TotalCell evaluated={rep.evaluated} adherence={rep.adherence} />
                   </td>
                 </tr>
               ))}
@@ -161,7 +181,7 @@ function Follow({ data, period }: { data: TeamCoachingBody; period: HosPeriod })
                     </td>
                   ))}
                   <td className="border-t border-border/60 pt-2">
-                    <TotalCell conversations={follow.conversations} adherence={follow.adherence} />
+                    <TotalCell evaluated={follow.evaluated} adherence={follow.adherence} />
                   </td>
                 </tr>
               ) : null}

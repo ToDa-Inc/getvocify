@@ -193,7 +193,10 @@ async def get_team_coaching(
         "types": [],
         "type": None,
         "goal": "meeting_booked",
-        "follow": {"adherence": None, "prev_adherence": None, "conversations": 0, "steps": [], "reps": []},
+        "follow": {
+            "adherence": None, "prev_adherence": None, "conversations": 0, "evaluated": 0, "prev_evaluated": 0,
+            "steps": [], "reps": [],
+        },
         "works": {"process": None, "steps": []},
         "losses": {"total": 0, "by_source": {"not_interested": 0, "disqualified": 0, "crm_lost": 0}, "causes": []},
     }
@@ -251,12 +254,16 @@ async def get_team_coaching(
     by_user: dict[str, list[dict]] = {}
     for row in own:
         by_user.setdefault(row["user_id"], []).append(row)
-    team = answers.adherence_of(own)
+    # Both periods against the steps as they are published now: the table's sum, and a fair "before".
+    team, team_before = answers.adherence_of(own, steps), answers.adherence_of(before, steps)
+    outdated = answers.outdated_verdicts(own, steps)
     body["follow"] = {
         **team,
-        "prev_adherence": answers.adherence_of(before)["adherence"],
+        "prev_adherence": team_before["adherence"],
+        "prev_evaluated": team_before["evaluated"],
         "steps": [
-            {key: rate[key] for key in ("step_id", "label", "done", "applicable", "rate")}
+            # outdated: conversations judged on this step before it was edited, which no longer count.
+            {**{key: rate[key] for key in ("step_id", "label", "done", "applicable", "rate")}, "outdated": outdated.get(rate["step_id"], 0)}
             for rate in engine.step_rates(own, steps)
         ],
         "reps": [rep for rep in answers.rep_matrix(by_user, reps, steps) if rep["conversations"]],
