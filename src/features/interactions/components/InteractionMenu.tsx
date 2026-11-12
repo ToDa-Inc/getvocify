@@ -15,6 +15,22 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { useDeleteMemo } from "@/features/memos";
 import { useLanguage } from "@/lib/i18n";
 
+function copyWithTextarea(text: string): boolean {
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    area.remove();
+  }
+}
+
 /**
  * The row's three dots: open it, copy its link, delete it (only the person who recorded it can). Deleting asks first and
  * says what it does not touch, which is what the CRM already holds.
@@ -27,9 +43,11 @@ export function InteractionMenu({ memoId, canDelete, onDeleted, visible = false 
   const link = `${window.location.origin}/dashboard/memos/${memoId}`;
 
   const copyLink = () => {
+    // The menu is closing as this runs and the document can lose focus, which makes the async clipboard API reject;
+    // the textarea copy works without focus on the page.
     void navigator.clipboard.writeText(link).then(
       () => toast.success(copy.linkCopied),
-      () => toast.error(copy.deleteFailed),
+      () => (copyWithTextarea(link) ? toast.success(copy.linkCopied) : toast.error(copy.linkCopyFailed)),
     );
   };
 
