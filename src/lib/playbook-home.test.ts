@@ -43,8 +43,8 @@ describe("playbook home helpers", () => {
     assert.deepEqual(homeProgress([]), { total: 0, written: 0 });
   });
 
-  it("names the six areas of the company in the order they are shown, each opening a place in the company window", () => {
-    assert.deepEqual(COMPANY_AREAS.map((area) => area.id), ["company", "product", "offer", "competition", "icp", "cases"]);
+  it("names the areas of the company in the order they are shown, each opening a place in the company window", () => {
+    assert.deepEqual(COMPANY_AREAS.map((area) => area.id), ["company", "product", "offer", "icp", "bad_fit", "personas", "triggers", "competition", "cases"]);
     assert.equal(COMPANY_AREAS.find((area) => area.id === "offer")?.opens, "offer");
     assert.equal(COMPANY_AREAS.find((area) => area.id === "icp")?.opens, "customer");
     assert.equal(COMPANY_AREAS.find((area) => area.id === "cases")?.opens, "proofs");
@@ -52,9 +52,9 @@ describe("playbook home helpers", () => {
 
   it("says which areas of the company already have something, as the company window shows them", () => {
     const none = companyAreaStates(null, "");
-    assert.deepEqual(none.map((a) => a.filled), [false, false, false, false, false, false]);
+    assert.deepEqual(none.map((a) => a.filled), [false, false, false, false, false, false, false, false, false]);
     const some = companyAreaStates({ icp: "Tiendas de barrio", proofs: [{ customer: "Acme" }], notes: "" } as never, "  Vendemos un CRM  ");
     const by = Object.fromEntries(some.map((a) => [a.id, a.filled]));
-    assert.deepEqual(by, { company: false, product: true, offer: false, competition: false, icp: true, cases: true });
+    assert.deepEqual(by, { company: false, product: true, offer: false, icp: true, bad_fit: false, personas: false, triggers: false, competition: false, cases: true });
   });
 });

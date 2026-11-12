@@ -34,7 +34,7 @@ export function homeProgress(types: { state: string }[]): { total: number; writt
   return { total: types.length, written: types.filter((type) => type.state !== "empty").length };
 }
 
-export type CompanyAreaId = "company" | "product" | "offer" | "competition" | "icp" | "cases";
+export type CompanyAreaId = "company" | "product" | "offer" | "icp" | "bad_fit" | "personas" | "triggers" | "competition" | "cases";
 /** Where in the company window an area opens: one of its tabs, or the product and offer text that sits above them. */
 export type CompanyOpens = CompanyTab | "offer";
 
@@ -43,8 +43,11 @@ export const COMPANY_AREAS: readonly { id: CompanyAreaId; opens: CompanyOpens }[
   { id: "company", opens: "notes" },
   { id: "product", opens: "value" },
   { id: "offer", opens: "offer" },
-  { id: "competition", opens: "competitors" },
   { id: "icp", opens: "customer" },
+  { id: "bad_fit", opens: "customer" },
+  { id: "personas", opens: "customer" },
+  { id: "triggers", opens: "notes" },
+  { id: "competition", opens: "competitors" },
   { id: "cases", opens: "proofs" },
 ];
 

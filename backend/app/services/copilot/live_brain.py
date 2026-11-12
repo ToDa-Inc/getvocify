@@ -17,7 +17,7 @@ import httpx
 
 from app.config import settings
 from app.services.copilot.live_models import LiveTurn
-from app.services.copilot.prompts import _approved_answers, _clip, format_company_knowledge
+from app.services.copilot.prompts import _approved_answers, _clip, format_company_knowledge, format_company_reference
 from app.services.copilot.suggest import OPENROUTER_URL, _sse_pieces, first_writer, live_direct, live_provider, live_reasoning
 from app.services.llm.shared import extract_json
 from app.services.playbooks.motion import GOAL_FOR_MOTION
@@ -166,7 +166,7 @@ def context_blocks(
 ) -> str:
     """The parts that stay the same through a call come first (the provider reuses a prompt up to its first change)."""
     offer = (product_context or "").strip() or "(none provided)"
-    know = format_company_knowledge(knowledge, call_text=call_text)
+    know = format_company_reference(knowledge)
     parts = [f"OFFER (what the rep sells, in the rep's words):\n{offer}"]
     if know:
         parts.append(know)
@@ -361,7 +361,7 @@ _SPOKEN = {
 
 def allowed_numbers(req: Any, ctx: "BrainContext") -> set[str]:
     """Every number the reading was given: the offer, knowledge, history, the playbook, today's date and the call so far."""
-    parts = [ctx.product_context, ctx.today, ctx.history or "", format_company_knowledge(ctx.knowledge)]
+    parts = [ctx.product_context, ctx.today, ctx.history or "", format_company_reference(ctx.knowledge)]
     parts += [dump_snapshot_text(ctx.snapshot)] + [t.text for t in req.turns]
     return set().union(*(numbers_in(part) for part in parts))
 

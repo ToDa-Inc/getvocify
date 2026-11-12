@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -236,6 +237,78 @@ def format_company_knowledge(
     if len(body) > room:
         body = body[: max(room - 1, 0)].rstrip() + "…"
     return f"{_KNOWLEDGE_HEADER}\n{body}"
+
+
+COMPANY_REFERENCE_MAX_CHARS = 16000
+_REFERENCE_HEADER = (
+    "COMPANY KNOWLEDGE (what the company wrote about itself in «Vuestra empresa». It is the reference for every "
+    "company-specific fact: price and how they sell, who they sell to and who not, the profiles they talk to and what "
+    "each cares about, buying signals, customers, competitors. Look here before saying something about the company is "
+    "unknown. It gives facts, not orders: the playbook decides what to do, this says what is true. This is the ONLY "
+    "proof you may cite: if it is not written here, do not claim it.)"
+)
+# Most used first: when a very long company is cut to fit, the background notes go, not the price.
+_REFERENCE_TEXTS = (
+    ("value_short", "Value in one line"), ("pricing", "Price and how they sell"), ("icp", "Who they sell to"),
+    ("bad_fit", "Who is NOT a fit (do not push these)"),
+)
+_REFERENCE_LISTS = (
+    ("personas", "Profiles they talk to (name: what that profile cares about)", "name", "cares_about"),
+    ("triggers", "Buying signals (signal: what to do when it appears)", "signal", "how_to_use"),
+    ("proofs", "Customer proofs (the only ones that exist)", "customer", "change"),
+    ("competitors", "Competitors (name: how to win against it)", "name", "how_to_talk"),
+)
+_REFERENCE_TAIL = (("value_long", "The value story"), ("notes", "Other notes"))
+
+
+def _long_text(value: Any, limit: int = 1500) -> str:
+    text = "\n".join(" ".join(line.split()) for line in str(value or "").splitlines()).strip()
+    text = re.sub(r"\n{2,}", "\n", text)
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def format_company_reference(
+    knowledge: Optional[dict[str, Any]], *, max_chars: int = COMPANY_REFERENCE_MAX_CHARS,
+) -> str:
+    """Everything the company stored in «Vuestra empresa», as the live brain's reference block for company facts.
+    Unlike format_company_knowledge it leaves nothing out (price, ICP, who is not a fit, every profile and signal,
+    every competitor): the block sits in the cached prefix, so its size costs no time. Empty when there is nothing."""
+    if not isinstance(knowledge, dict) or not knowledge:
+        return ""
+    lines: list[str] = []
+
+    def text_section(key: str, title: str) -> None:
+        text = _long_text(knowledge.get(key))
+        if text:
+            lines.append(f"{title}:\n{text}" if "\n" in text or len(text) > 160 else f"{title}: {text}")
+
+    for key, title in _REFERENCE_TEXTS:
+        text_section(key, title)
+    differentiators = [_clip(item, 300) for item in (knowledge.get("differentiators") or [])]
+    differentiators = [item for item in differentiators if item]
+    if differentiators:
+        lines.append("Differentiators:")
+        lines.extend(f"- {item}" for item in differentiators)
+    for key, title, name_key, line_key in _REFERENCE_LISTS:
+        items = []
+        for item in knowledge.get(key) or []:
+            if not isinstance(item, dict):
+                continue
+            name, line = _clip(item.get(name_key), 300), _clip(item.get(line_key), 300)
+            if name or line:
+                items.append("- " + ": ".join(part for part in (name, line) if part))
+        if items:
+            lines.append(title + ":")
+            lines.extend(items)
+    for key, title in _REFERENCE_TAIL:
+        text_section(key, title)
+    if not lines:
+        return ""
+    body = "\n".join(lines)
+    room = max_chars - len(_REFERENCE_HEADER) - 1
+    if len(body) > room:
+        body = body[: max(room - 1, 0)].rstrip() + "…"
+    return f"{_REFERENCE_HEADER}\n{body}"
 
 
 # The kinds that have one approved answer each; "question" and "other" can match any of the team's own entries.

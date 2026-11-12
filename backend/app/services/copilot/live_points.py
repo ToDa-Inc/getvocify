@@ -745,7 +745,7 @@ def source_text(source_id: Optional[str], req: LiveReading, ctx: brain.BrainCont
             return f"Playbook step «{brain._clip(step.get('label'), 80)}»: {brain._clip(step.get('criterion'), 400)}"
     if source_id == "knowledge" and ctx.knowledge:
         call_text = "\n".join(t.text for t in req.turns[-30:])
-        return brain.format_company_knowledge(ctx.knowledge, call_text=call_text) or None
+        return brain.format_company_reference(ctx.knowledge) or None
     if source_id == "offer" and ctx.product_context.strip():
         return f"The rep's offer: {brain._clip(ctx.product_context, 2000)}"
     if source_id == "history" and (ctx.history or "").strip():

@@ -24,7 +24,9 @@ export type Knowledge = {
   competitors?: Competitor[];
 };
 
-export type KnowledgeDoc = { knowledge: Knowledge; updated_at: string | null; sections: string[] };
+/** What a save cut for size: a list over its item limit, or a text (or a list item's field) over its characters. */
+export type KnowledgeTrim = { section: string; sent: number; kept: number; limit: "items" | "characters" | "characters per field" };
+export type KnowledgeDoc = { knowledge: Knowledge; updated_at: string | null; sections: string[]; trimmed?: KnowledgeTrim[] };
 
 /** The sections on screen, in reading order. Each lists the knowledge keys it owns. */
 export const KNOWLEDGE_SECTIONS = {

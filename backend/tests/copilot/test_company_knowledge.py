@@ -185,3 +185,39 @@ def test_a_missing_table_no_row_or_a_bad_row_gives_none():
     assert load_company_knowledge(_Chain([{"data": {}}]), company_id="c") is None
     assert load_company_knowledge(_Chain([{"data": "texto"}]), company_id="c") is None
     assert load_company_knowledge(_Chain([{"data": None}]), company_id="c") is None
+
+
+def test_the_live_reference_carries_every_section_the_company_wrote():
+    from app.services.copilot.prompts import format_company_reference
+    from app.services.copilot.live_brain import context_blocks
+
+    full = {
+        **KNOWLEDGE,
+        "icp": "Flotas de 10 a 200 vehículos",
+        "bad_fit": "Autónomos con un coche",
+        "notes": "NOTA DE FONDO",
+        "personas": [{"name": "Ambulancias · Gerente", "cares_about": "tiempos de respuesta"}],
+        "triggers": [{"signal": "Vence su contrato", "how_to_use": "Pregunta la fecha"}],
+    }
+    text = format_company_reference(full)
+    assert text.startswith("COMPANY KNOWLEDGE (") and "ONLY proof" in text and "playbook decides what to do" in text
+    for expected in ("PRECIOS QUE NO VAN AL PROMPT", "TEXTO LARGO", "Flotas de 10", "Who is NOT a fit", "Autónomos",
+                     "Ambulancias · Gerente: tiempos de respuesta", "Vence su contrato: Pregunta la fecha",
+                     "CUARTO CASO", "Gong: GONG HOW", "Ringover", "NOTA DE FONDO"):
+        assert expected in text
+    assert "\n\n" not in text  # one block: the fact check splits SOURCES on blank lines
+    assert text.index("PRECIOS") < text.index("NOTA DE FONDO")
+    assert text in context_blocks(product_context="x", knowledge=full, history=None, call_text="")
+    assert format_company_reference(None) == "" and format_company_reference({}) == ""
+
+
+def test_the_live_reference_is_bounded_and_keeps_the_price_first():
+    from app.services.copilot.prompts import COMPANY_REFERENCE_MAX_CHARS, format_company_reference
+
+    huge = {"pricing": "PRECIO " + "p" * 1400, "notes": "n" * 1500,
+            "personas": [{"name": f"p{i}", "cares_about": "c" * 300} for i in range(30)],
+            "triggers": [{"signal": f"s{i}", "how_to_use": "h" * 300} for i in range(30)],
+            "competitors": [{"name": f"c{i}", "how_to_talk": "h" * 300} for i in range(30)],
+            "proofs": [{"customer": f"k{i}", "change": "x" * 300} for i in range(30)]}
+    text = format_company_reference(huge)
+    assert len(text) <= COMPANY_REFERENCE_MAX_CHARS and "PRECIO" in text

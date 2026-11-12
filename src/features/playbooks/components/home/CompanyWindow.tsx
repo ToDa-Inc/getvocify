@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Upload } from "lucide-react";
+import { Upload } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,15 +10,25 @@ import type { User } from "@/features/auth/types";
 import { playbooksApi, type CompanyFillScope } from "@/features/playbooks/api";
 import { WindowShell } from "@/features/playbooks/components/home/WindowShell";
 import { PlaybookStart, type SourceInput } from "@/features/playbooks/components/PlaybookStart";
-import { areaFillScope, areasFromKnowledge, knowledgeFromAreas, type AreaId, type Areas } from "@/lib/company-areas";
+import { LIST_AREAS, areaFillScope, areaItems, areasFromKnowledge, knowledgeFromAreas, type AreaId, type Areas } from "@/lib/company-areas";
 import { useLanguage } from "@/lib/i18n";
 import { COMPANY_AREAS } from "@/lib/playbook-home";
-import { cleanKnowledge, type Knowledge } from "@/lib/playbook-knowledge";
+import { cleanKnowledge, type Knowledge, type KnowledgeTrim } from "@/lib/playbook-knowledge";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/shared/lib/api-client";
 
 const PRODUCT_MAX = 8000;
+// What an edit box takes: a list holds up to 30 items of two 300-character fields, a text 1500 characters. A bit more is
+// let through so what does not fit is reported by the save instead of being cut by the box in silence.
+const LIST_MAX = 20000;
+const TEXT_MAX = 4000;
+const COLLAPSED_ITEMS = 4;
+const LONG_TEXT = 260;
+// The stored section each area writes, to say which area a save cut.
+const AREA_OF: Record<string, AreaId> = {
+  notes: "company", pricing: "offer", icp: "icp", bad_fit: "bad_fit", personas: "personas", triggers: "triggers", competitors: "competition", proofs: "cases",
+};
 const field = cn(
   THEME_TOKENS.radius.control,
   "block w-full resize-none border border-border bg-background px-3 py-2 text-[14px] leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-beige/40",
@@ -26,8 +36,9 @@ const field = cn(
 
 /**
  * "Vuestra empresa" in one window, like the content of the funnel: one document with everything (Vocify splits it into the
- * six areas), or each area on its own with a small box to paste a text or upload a document. Each one saves at once and
- * shows "Listo"; "Editar" corrects what is written. The product is the product text live help already reads: a document
+ * areas), or each area on its own with a small box to paste a text or upload a document. Each one saves at once. A filled
+ * area shows what it holds (a list as its items, a long text folded), "Ver todo" opens the rest and "Editar" corrects it.
+ * Anything a save had to cut for size is said under the area. The product is the product text live help already reads: a document
  * given for it is kept as written, the other areas are sorted by Vocify into their part of the notes.
  */
 export function CompanyWindow({ open, onOpenChange, canEdit }: { open: boolean; onOpenChange: (open: boolean) => void; canEdit: boolean }) {
@@ -45,6 +56,8 @@ export function CompanyWindow({ open, onOpenChange, canEdit }: { open: boolean; 
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState(false);
+  const [open_, setOpen] = useState<AreaId | null>(null);
+  const [cut, setCut] = useState<Partial<Record<AreaId, string[]>>>({});
 
   useEffect(() => {
     if (!open) return;
@@ -53,6 +66,8 @@ export function CompanyWindow({ open, onOpenChange, canEdit }: { open: boolean; 
     setWriting(null);
     setEditing(null);
     setProblem(false);
+    setOpen(null);
+    setCut({});
     void playbooksApi
       .company()
       .then((doc) => {
@@ -71,6 +86,20 @@ export function CompanyWindow({ open, onOpenChange, canEdit }: { open: boolean; 
   }, [open]);
 
   const changed = () => void client.invalidateQueries({ queryKey: ["playbook-company"] });
+  // What a save cut for size, as one line per cut under its area.
+  const report = (trims: KnowledgeTrim[] | undefined) => {
+    const next: Partial<Record<AreaId, string[]>> = {};
+    for (const trim of trims ?? []) {
+      const id = AREA_OF[trim.section];
+      if (!id) continue;
+      const section = labels[`area_${id}`];
+      const line = trim.limit === "items"
+        ? c.trimmedItems.replace("{section}", section).replace("{kept}", String(trim.kept)).replace("{sent}", String(trim.sent))
+        : c.trimmedText.replace("{section}", section).replace("{limit}", String(trim.kept));
+      next[id] = [...(next[id] ?? []), line];
+    }
+    setCut(next);
+  };
   const saveProduct = async (text: string) => {
     const updated = await authApi.updateProfile({ productContext: text });
     client.setQueryData<User>(authKeys.me(), updated);
@@ -105,9 +134,12 @@ export function CompanyWindow({ open, onOpenChange, canEdit }: { open: boolean; 
       const nextAreas = { ...areas, [id]: draft };
       if (id === "product") await saveProduct(draft.trim());
       else {
-        const doc = await playbooksApi.saveCompany(cleanKnowledge(knowledgeFromAreas(knowledge, nextAreas).knowledge), base);
+        const doc = await playbooksApi.saveCompany(cleanKnowledge(knowledgeFromAreas(knowledge, nextAreas, id).knowledge), base);
         setKnowledge(doc.knowledge ?? {});
         setBase(doc.updated_at);
+        // The window shows what was kept, not what was typed.
+        Object.assign(nextAreas, { ...areasFromKnowledge(doc.knowledge, nextAreas.product), product: nextAreas.product });
+        report(doc.trimmed);
         changed();
       }
       setAreas(nextAreas);
@@ -173,35 +205,36 @@ export function CompanyWindow({ open, onOpenChange, canEdit }: { open: boolean; 
             {COMPANY_AREAS.map((area) => {
               const id = area.id as AreaId;
               const text = areas[id].trim();
+              const isList = LIST_AREAS.includes(id);
+              const items = isList ? areaItems(text) : [];
+              const shown = editing !== id && writing !== id;
+              const expanded = open_ === id;
+              const folds = isList ? items.length > COLLAPSED_ITEMS : text.length > LONG_TEXT || text.split("\n").length > 3;
               return (
                 <li key={id} className="space-y-3 py-4">
                   <div className="flex items-center gap-3">
+                    <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-full", text ? "bg-success" : "border border-muted-foreground/50")} />
                     <div className="min-w-0 flex-1">
-                      <p className="text-[15px] font-medium text-foreground">{labels[`area_${id}`]}</p>
-                      <p className="text-[12px] text-muted-foreground">{labels[`hint_${id}`]}</p>
+                      <p className="flex items-baseline gap-2 text-[15px] font-medium text-foreground">
+                        {labels[`area_${id}`]}
+                        {isList && items.length ? <span className="text-[13px] font-normal tabular-nums text-muted-foreground">{items.length}</span> : null}
+                      </p>
+                      {!text || !shown ? <p className="text-[12px] text-muted-foreground">{labels[`hint_${id}`]}</p> : null}
                     </div>
-                    {text && editing !== id ? (
-                      <span className="flex items-center gap-3">
-                        <span className="inline-flex items-center gap-1 text-[13px] text-success">
-                          <Check aria-hidden className="h-3.5 w-3.5" strokeWidth={2} />
-                          {c.ready}
-                        </span>
-                        {canEdit ? (
-                          <Button
-                            type="button"
-                            variant="quiet"
-                            size="text"
-                            onClick={() => {
-                              setWriting(null);
-                              setProblem(false);
-                              setDraft(areas[id]);
-                              setEditing(id);
-                            }}
-                          >
-                            {c.edit}
-                          </Button>
-                        ) : null}
-                      </span>
+                    {text && shown && canEdit ? (
+                      <Button
+                        type="button"
+                        variant="quiet"
+                        size="text"
+                        onClick={() => {
+                          setWriting(null);
+                          setProblem(false);
+                          setDraft(areas[id]);
+                          setEditing(id);
+                        }}
+                      >
+                        {c.edit}
+                      </Button>
                     ) : !text && canEdit && writing !== id ? (
                       <Button
                         type="button"
@@ -216,15 +249,52 @@ export function CompanyWindow({ open, onOpenChange, canEdit }: { open: boolean; 
                       </Button>
                     ) : null}
                   </div>
-                  {text && editing !== id ? <p className="line-clamp-2 whitespace-pre-line text-[13px] leading-relaxed text-muted-foreground">{text}</p> : null}
+                  {text && shown ? (
+                    <div id={`company-area-${id}`} className="space-y-1.5 pl-5">
+                      {isList ? (
+                        <ul className="space-y-1.5">
+                          {(expanded ? items : items.slice(0, COLLAPSED_ITEMS)).map((item, index) => (
+                            <li key={`${item.title}-${index}`} className={cn("text-[13px] leading-relaxed", expanded ? "" : "truncate")}>
+                              <span className="font-medium text-foreground">{item.title}</span>
+                              {item.line ? <span className="text-muted-foreground"> · {item.line}</span> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className={cn("whitespace-pre-line text-[13px] leading-relaxed text-muted-foreground", expanded ? "" : "line-clamp-3")}>{text}</p>
+                      )}
+                      {folds ? (
+                        <Button
+                          type="button"
+                          variant="quiet"
+                          size="text"
+                          className="-ml-2"
+                          aria-expanded={expanded}
+                          aria-controls={`company-area-${id}`}
+                          onClick={() => setOpen(expanded ? null : id)}
+                        >
+                          {expanded ? c.showLess : isList ? `${c.showAll} (${items.length})` : c.showAll}
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {cut[id]?.length && shown ? (
+                    <div className="space-y-0.5 pl-5" role="status">
+                      {cut[id]?.map((line) => (
+                        <p key={line} className="text-[12px] text-warning">
+                          {line}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
                   {writing === id ? box(id) : null}
                   {editing === id ? (
                     <div className={cn("space-y-2", THEME_TOKENS.motion.fadeIn)}>
                       <textarea
                         autoFocus
-                        rows={id === "product" || id === "company" ? 6 : 4}
+                        rows={isList ? Math.min(Math.max(items.length + 1, 4), 12) : id === "product" || id === "company" ? 6 : 4}
                         value={draft}
-                        maxLength={id === "product" ? PRODUCT_MAX : 4000}
+                        maxLength={id === "product" ? PRODUCT_MAX : isList ? LIST_MAX : TEXT_MAX}
                         aria-label={labels[`area_${id}`]}
                         onChange={(event) => setDraft(event.target.value)}
                         className={field}
