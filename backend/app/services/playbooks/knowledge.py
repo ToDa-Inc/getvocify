@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 MAX_LONG = 1500   # the free-text blocks: icp, value story, pricing, notes...
 MAX_SHORT = 300   # every field inside a list item, and each differentiator
-MAX_ITEMS = 12    # per list
+MAX_ITEMS = 30    # per list
 
 TEXT_FIELDS: tuple[str, ...] = ("icp", "bad_fit", "value_short", "value_long", "pricing", "notes")
 
@@ -66,16 +66,23 @@ def _scalar(value: Any) -> str:
     return str(value)
 
 
+def _short_full(value: Any) -> str:
+    return " ".join(_scalar(value).split())
+
+
 def _short(value: Any, limit: int = MAX_SHORT) -> str:
-    return _clip(" ".join(_scalar(value).split()), limit)
+    return _clip(_short_full(value), limit)
+
+
+def _long_full(value: Any) -> str:
+    lines = [" ".join(line.split()) for line in _scalar(value).replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
 def _long(value: Any) -> str:
     """Trimmed, whitespace tidied inside each line, at most one blank line in a row (the
     Head of Sales's own line breaks stay), cut to MAX_LONG."""
-    lines = [" ".join(line.split()) for line in _scalar(value).replace("\r\n", "\n").replace("\r", "\n").split("\n")]
-    text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
-    return _clip(text, MAX_LONG)
+    return _clip(_long_full(value), MAX_LONG)
 
 
 def _item(raw: Any, fields: tuple[str, ...], identity: str) -> Optional[dict]:
@@ -125,6 +132,38 @@ def normalize_knowledge(raw: Any) -> dict:
                 items.append(item)
             data[key] = items[:MAX_ITEMS]
     return data
+
+
+def trimmed(raw: Any) -> list[dict]:
+    """What `normalize_knowledge(raw)` cuts for size, so the caller can say so instead of saving less in silence:
+    [{"section", "sent", "kept", "limit"}]. A list over MAX_ITEMS (counts of items), a text over MAX_LONG, or a
+    list item with a field over MAX_SHORT (characters; sent = the longest). Duplicates and items without a name
+    are not size cuts and are not reported."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: list[dict] = []
+    for key in SECTION_ORDER:
+        value = raw.get(key)
+        if key in TEXT_FIELDS:
+            size = len(_long_full(value))
+            if size > MAX_LONG:
+                out.append({"section": key, "sent": size, "kept": MAX_LONG, "limit": "characters"})
+            continue
+        clean = normalize_knowledge({key: value})[key]
+        entries = value if isinstance(value, list) else []
+        if key == "differentiators":
+            texts = [_short_full(e) for e in entries if _short_full(e)]
+            sent_items = len({t.casefold() for t in texts})
+            longest = max((len(t) for t in texts), default=0)
+        else:
+            fields, identity = LIST_FIELDS[key]
+            dicts = [e for e in entries if isinstance(e, dict) and _short_full(e.get(identity))]
+            sent_items = len({_short_full(e.get(identity)).casefold() for e in dicts})
+            longest = max((len(_short_full(e.get(f))) for e in dicts for f in fields), default=0)
+        if sent_items > len(clean):
+            out.append({"section": key, "sent": sent_items, "kept": len(clean), "limit": "items"})
+        if longest > MAX_SHORT:
+            out.append({"section": key, "sent": longest, "kept": MAX_SHORT, "limit": "characters per field"})
+    return out
 
 
 def sections(knowledge: Any) -> list[str]:

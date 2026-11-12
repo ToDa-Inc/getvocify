@@ -463,7 +463,8 @@ def build_server() -> MCPServer:
         description=(
             "Edit what Vocify knows about the company, for every call type at once. It is context for live help, "
             "briefs, follow-ups and Ask; it never scores a call. knowledge: Vuestra empresa, by section; each section "
-            "sent replaces that section, the others stay. Sections: icp (who the ideal customer is), bad_fit (who is "
+            "sent replaces that section, the others stay (a list keeps up to 30 items and 300 characters per field, a text 1500; "
+            "anything cut comes back in `trimmed`, so check it). Sections: icp (who the ideal customer is), bad_fit (who is "
             "not a fit), personas [{name, cares_about}] (the roles you sell to and what each cares about), triggers "
             "[{signal, how_to_use}] (buying signals and what to do when one appears), value_short (the value in one "
             "sentence), value_long (the full value story), differentiators [text] (why you over the alternatives), "

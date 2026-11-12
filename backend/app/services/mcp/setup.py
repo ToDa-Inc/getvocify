@@ -403,6 +403,8 @@ async def update_company(
         after = await _run(lambda: playbook_company.put_company_knowledge(body, membership=membership))
         out["changed"]["knowledge"] = [key for key in SECTION_ORDER if before["knowledge"].get(key) != after["knowledge"].get(key)]
         out["company_knowledge"] = after
+        if after.get("trimmed"):
+            out["trimmed"] = after["trimmed"]  # what was cut for size: tell the caller, never save less in silence
 
     if shared_body is not None or company_body is not None:
         before_settings = await _company_settings(supabase, membership)

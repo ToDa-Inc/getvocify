@@ -353,8 +353,8 @@ def test_normalize_knowledge_clips_texts_and_caps_lists():
     data = normalize_knowledge({
         "notes": "palabra " * 400,
         "pricing": "x" * 5000,
-        "personas": [{"name": f"P{i}", "cares_about": "c" * 900} for i in range(20)],
-        "differentiators": [f"d{i}" for i in range(20)],
+        "personas": [{"name": f"P{i}", "cares_about": "c" * 900} for i in range(MAX_ITEMS + 8)],
+        "differentiators": [f"d{i}" for i in range(MAX_ITEMS + 8)],
         "proofs": [{"customer": "Ríos", "change": "x" * 500}],
     })
     assert len(data["notes"]) <= MAX_LONG and len(data["pricing"]) == MAX_LONG
@@ -390,7 +390,7 @@ def test_merge_appends_lists_deduped_and_fills_only_empty_texts():
     again, refilled = merge_knowledge(merged, incoming)
     assert again == merged and refilled == []
     assert merge_knowledge(None, None) == (normalize_knowledge({}), [])
-    full = normalize_knowledge({"personas": [{"name": f"P{i}"} for i in range(12)]})
+    full = normalize_knowledge({"personas": [{"name": f"P{i}"} for i in range(MAX_ITEMS)]})
     assert merge_knowledge(full, {"personas": [{"name": "Nueva"}]})[1] == []  # the cap holds
 
 
@@ -409,15 +409,16 @@ def test_put_company_saves_at_once_and_normalizes(make):
     response = client.put(f"{BASE}/company", json={"knowledge": {
         "icp": "  Gestorías ", "unknown": "x",
         "competitors": [{"name": "Holded", "landmines": "no decir caro"}],
-        "differentiators": [f"d{i}" for i in range(15)],
+        "differentiators": [f"d{i}" for i in range(MAX_ITEMS + 3)],
     }})
     assert response.status_code == 200
     body = response.json()
     assert body["updated_at"] and body["sections"] == ["icp", "differentiators", "competitors"]
     assert body["knowledge"]["icp"] == "Gestorías" and "unknown" not in body["knowledge"]
-    assert len(body["knowledge"]["differentiators"]) == 12
+    assert len(body["knowledge"]["differentiators"]) == MAX_ITEMS
+    assert body["trimmed"] == [{"section": "differentiators", "sent": MAX_ITEMS + 3, "kept": MAX_ITEMS, "limit": "items"}]
     member = _client(client.store, role="member")
-    assert member.get(f"{BASE}/company").json() == body
+    assert member.get(f"{BASE}/company").json() == {k: v for k, v in body.items() if k != "trimmed"}
     assert _client(client.store, company="co-2").get(f"{BASE}/company").json()["sections"] == []  # tenant isolation
 
 

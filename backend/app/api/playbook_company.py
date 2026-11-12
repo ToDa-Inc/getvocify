@@ -15,7 +15,7 @@ from app.deps import get_membership, get_supabase
 from app.services.company import Membership
 from app.services.playbooks.api_support import StructureRequest, fill_failed, product_context, read_source
 from app.services.playbooks.fill import FillError, fill_company
-from app.services.playbooks.knowledge import StaleKnowledgeError, normalize_knowledge, sections
+from app.services.playbooks.knowledge import StaleKnowledgeError, normalize_knowledge, sections, trimmed
 from app.services.playbooks.repository import get_playbook_repository
 from app.services.playbooks.versions import can_publish
 
@@ -59,7 +59,8 @@ async def put_company_knowledge(
         )
     except StaleKnowledgeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": exc.code}) from exc
-    return _company_response(row)
+    # What was cut for size is said, never saved in silence (a list is capped, a text clipped).
+    return {**_company_response(row), "trimmed": trimmed(body.knowledge)}
 
 
 @router.post("/company/read")
