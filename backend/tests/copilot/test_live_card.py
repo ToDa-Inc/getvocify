@@ -745,3 +745,23 @@ def test_two_slow_requests_to_together_do_not_bring_in_openrouter(monkeypatch):
     sent = _providers(monkeypatch, [(0.4, '{"n": 1}'), (0.4, '{"n": 2}')])
     out, _ = run(live_card.ask("s", "u", {}, max_tokens=10, temperature=0, hedge_s=0.1))
     assert out == {"n": 1} and sent == ["direct", "direct"]
+
+
+def test_the_reading_and_its_checks_share_connections_that_stay_open(monkeypatch):
+    clients = []
+
+    async def post(client, url, headers, payload):
+        clients.append(client)
+        return '{"n": 1}'
+
+    monkeypatch.setattr(live_card, "_post", post)
+    monkeypatch.setattr(live_card, "live_direct", lambda: ("https://together.test", "key", "x"))
+
+    async def a_card():
+        await live_card.ask("s", "u", {}, max_tokens=10, temperature=0)
+        await asyncio.gather(*(live_card.ask("s", "u", {}, max_tokens=10, temperature=0) for _ in range(3)))
+        return clients[0].is_closed
+
+    closed = run(a_card())
+    assert len(clients) == 4 and all(c is clients[0] for c in clients) and not closed
+    assert live_card.KEEPALIVE_S >= 60

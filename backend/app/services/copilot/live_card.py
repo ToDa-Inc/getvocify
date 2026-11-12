@@ -34,6 +34,7 @@ import json
 import logging
 import re
 import time
+from contextlib import asynccontextmanager
 from datetime import date, timedelta
 from difflib import SequenceMatcher
 from typing import Any, Callable, Optional
@@ -343,6 +344,9 @@ HEDGE_S = 1.5
 # waited 3 s or more for the backup, and the card with them).
 CHECK_HEDGE_S = 1.0
 TIMEOUT_S = 20.0
+# The connections to the provider stay open between requests this long. A new connection per request cost about 0.15 s
+# each from the production region (2026-11-12), and a card makes several in a row (the reading, then its checks).
+KEEPALIVE_S = 120.0
 
 
 # ---------- who holds the floor ----------
@@ -786,6 +790,20 @@ ASKED_TRIES = 2  # more tries an asked reading gets after a dropped card; an aut
 # ---------- the model ----------
 
 
+_POOL: Optional[tuple[Any, httpx.AsyncClient]] = None
+
+
+@asynccontextmanager
+async def _kept_open():
+    """The connections every reading and check share, kept open between requests (one pool per event loop)."""
+    global _POOL
+    loop = asyncio.get_running_loop()
+    if _POOL is None or _POOL[0] is not loop or _POOL[1].is_closed:
+        _POOL = (loop, httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT_S, connect=5.0), limits=httpx.Limits(
+            max_connections=100, max_keepalive_connections=20, keepalive_expiry=KEEPALIVE_S)))
+    yield _POOL[1]
+
+
 async def _post(client: httpx.AsyncClient, url: str, headers: dict, payload: dict) -> str:
     resp = await client.post(url, headers=headers, json=payload)
     if resp.status_code >= 400:
@@ -809,7 +827,7 @@ async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperat
         "response_format": {"type": "json_schema", "json_schema": {"name": "reading", "strict": True, "schema": schema}},
     }
     started = time.perf_counter()
-    async with httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT_S, connect=5.0)) as client:
+    async with _kept_open() as client:
         # `timed`: started one after another, each once the ones before have gone `hedge_s` without an answer.
         # `failover`: started only when nothing is running any more (every request so far failed).
         timed: list[tuple[str, Callable[[], Any]]] = []
