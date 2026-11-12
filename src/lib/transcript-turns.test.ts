@@ -50,12 +50,13 @@ describe("transcript-turns", () => {
     assert.deepEqual(reviewSpeakerLabels("María García"), { s1: "You", s2: "María" });
   });
 
-  it("maps named STT speakers to the contact label, not the raw name", () => {
-    const named = `SPEAKER: JUAN
+  it("shows a speaker saved by name as that name, not the contact's", () => {
+    const named = `SPEAKER: Javier Ramirez
 Sí. Buenas. ¿Qué tal?`;
     const turns = parseTranscriptTurns(named);
-    assert.equal(turns[0].speaker, "JUAN");
-    assert.equal(speakerDisplayLabel("JUAN", { s1: "You", s2: "Francisco" }), "Francisco");
+    assert.equal(turns[0].speaker, "Javier Ramirez");
+    assert.equal(speakerDisplayLabel("Javier Ramirez", { s1: "You", s2: "Arnau" }), "Javier Ramirez");
+    assert.equal(speakerDisplayLabel("S2", { s1: "You", s2: "Arnau" }), "Arnau");
   });
 
   it("splits a collapsed S1 conversation into You/Them lines", () => {

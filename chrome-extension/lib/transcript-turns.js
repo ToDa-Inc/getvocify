@@ -23,6 +23,8 @@ export function speakerSide(raw) {
 
 export function speakerDisplayLabel(raw, labels = {}) {
   const side = speakerSide(raw);
+  // A speaker saved by name (the rep named the voice, or the meeting app showed it) reads as that name.
+  if (raw && side === 's2' && !/^(S\d+|Speaker\s*\d+)$/i.test(String(raw).trim())) return String(raw).trim();
   if (side === 's1') return labels.s1 || 'You';
   if (side === 's2') return labels.s2 || 'Them';
   return labels.s2 || raw || 'Speaker';

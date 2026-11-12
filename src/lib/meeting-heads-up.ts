@@ -73,3 +73,38 @@ export function islandMeeting(meeting: UpcomingMeeting, brief: IslandBrief | nul
     ...(brief ? { brief } : {}),
   };
 }
+
+/** A meeting counts as going on from this long before its start… */
+const PEOPLE_BEFORE_MS = 10 * 60_000;
+/** …until its end, or this long after its start when it has none. */
+const PEOPLE_NO_END_MS = 60 * 60_000;
+
+/** A person's name, or the name part of their address ("javier.ramirez@x.es" is "Javier Ramirez"). */
+function personName(person: UpcomingMeeting["people"][number]): string | null {
+  const name = person.name?.trim();
+  if (name) return name;
+  const local = person.email.split("@")[0] ?? "";
+  const parts = local.split(/[._-]+/).filter((part) => /^\p{L}+$/u.test(part));
+  return parts.length ? parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ") : null;
+}
+
+/** Who is invited to the meeting going on at `now` (the rep left out), for naming the voices heard in it. */
+export function meetingPeopleAt(meetings: UpcomingMeeting[], now: number): string[] {
+  const going = meetings.filter((m) => {
+    const start = startOf(m);
+    const end = m.end_time ? Date.parse(m.end_time) : start + PEOPLE_NO_END_MS;
+    return Number.isFinite(start) && now >= start - PEOPLE_BEFORE_MS && now < (Number.isFinite(end) ? end : start + PEOPLE_NO_END_MS);
+  });
+  const meeting = going.sort((a, b) => Math.abs(startOf(a) - now) - Math.abs(startOf(b) - now))[0];
+  if (!meeting) return [];
+  return [...new Set(meeting.people.map(personName).filter((name): name is string => Boolean(name)))];
+}
+
+/** The calendar's meetings as last loaded, so a recording can offer the people in the one it is. */
+let knownMeetings: UpcomingMeeting[] = [];
+export function rememberMeetings(meetings: UpcomingMeeting[]): void {
+  knownMeetings = meetings;
+}
+export function meetingPeopleNow(now = Date.now()): string[] {
+  return meetingPeopleAt(knownMeetings, now);
+}

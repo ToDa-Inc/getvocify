@@ -54,6 +54,7 @@ import {
 } from "@/lib/meeting-transcript";
 import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
 import { SpeakerTimeline } from "@/lib/speaker-timeline";
+import { meetingPeopleNow } from "@/lib/meeting-heads-up";
 import { applyVoiceAction, parseVoiceCommand, voiceMessage, type VoiceAction } from "@/lib/voice-actions";
 import { CALL_UPLOAD_RETRY_DELAYS_MS, withTransientRetries } from "@/lib/transient-retry";
 import { addJob, dropJob, forIsland, patchJob, stateOfMemo, stopAutoOpen, type AfterCallJob } from "@/lib/after-call-jobs";
@@ -151,6 +152,8 @@ export type DesktopMeeting = {
   turns: MeetingDisplayTurn[];
   /** The voices heard on the other side (when the backend tells them apart), and what the rep can do to them. */
   voices: MeetingVoice[];
+  /** Who the calendar says is in this meeting (none on a phone call): a voice is named by picking one. */
+  people: string[];
   changeVoices: (action: VoiceAction) => void;
   notes: string;
   setNotes: (notes: string) => void;
@@ -523,6 +526,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const labelled = {
       turns: overlay.turns.map((turn) => ({ ...turn, label: meetingLabelIn(turn.label, languageRef.current) })),
       voices: overlay.voices.map((voice) => ({ ...voice, label: meetingLabelIn(voice.label, languageRef.current) ?? voice.label })),
+      // Who the calendar says is in this meeting: the island names a voice by picking one (a phone call has its contact).
+      people: overlay.voices.length && !vocifyCallRef.current ? meetingPeopleNow() : [],
     };
     const update = {
       lastLine: meetingLastLine(view),
@@ -2034,6 +2039,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
   const turns = useMemo(() => meetingDisplayTurns(transcript).map((turn) => ({ ...turn, label: meetingLabelIn(turn.label, language) })), [transcript, language]);
   const voices = useMemo(() => meetingVoices(transcript).map((voice) => ({ ...voice, label: meetingLabelIn(voice.label, language) ?? voice.label })), [transcript, language]);
+  const hasVoices = voices.length > 0;
+  const people = useMemo(() => (hasVoices && callMode === "meeting" && !vocifyCallRef.current ? meetingPeopleNow() : []), [hasVoices, callMode]);
 
   // The rep renames a voice, merges two or moves a paragraph: seen at once, and the backend learns from merges and moves.
   const changeVoices = useCallback(
@@ -2124,6 +2131,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       warning,
       turns,
       voices,
+      people,
       changeVoices,
       notes,
       setNotes,
@@ -2146,7 +2154,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, voices, changeVoices, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallType, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, voices, people, changeVoices, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallType, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

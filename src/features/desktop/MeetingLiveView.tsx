@@ -180,6 +180,7 @@ export function MeetingLiveView() {
                   interimTranscript=""
                   turns={meeting.turns}
                   voices={meeting.voices}
+                  people={meeting.people}
                   onVoice={meeting.changeVoices}
                   speaking={meeting.paused ? undefined : { rep: meeting.speaking.you, prospect: meeting.speaking.them }}
                   query={query}

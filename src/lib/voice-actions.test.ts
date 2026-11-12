@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { applyChannelResult, EMPTY_MEETING_TRANSCRIPT, applyVoice, meetingDisplayTurns } from "./meeting-transcript.ts";
-import { applyVoiceAction, parseVoiceCommand, voiceMessage } from "./voice-actions.ts";
+import { applyVoiceAction, parseVoiceCommand, pickName, voiceMessage, voiceNames } from "./voice-actions.ts";
 
 describe("parseVoiceCommand", () => {
   it("reads the three actions the island sends", () => {
@@ -58,5 +58,18 @@ describe("applyVoiceAction and voiceMessage", () => {
     assert.deepEqual(voiceMessage({ op: "merge", keep: 1, drop: 2 }), { type: "VoiceMerge", keep: 1, drop: 2 });
     assert.deepEqual(voiceMessage({ op: "move", starts: [3, 4], voice: null }), { type: "VoiceMove", starts: [3, 4], voice: null });
     assert.equal(voiceMessage({ op: "rename", voice: 1, name: "Ana" }), null);
+  });
+});
+
+describe("naming a voice from a list", () => {
+  const voices = [{ id: 1, label: "Javier" }, { id: 2, label: "Voz 2" }];
+  it("offers the meeting's people, then names given to voices, each once and never an unnamed voice", () => {
+    assert.deepEqual(voiceNames(voices, ["Toni Mora", "javier", "Arnau González"]), ["Toni Mora", "javier", "Arnau González"]);
+    assert.deepEqual(voiceNames([...voices, { id: 3, label: "Marta" }], []), ["Javier", "Marta"]);
+  });
+  it("names the voice, makes two voices one person when the name is taken, and does nothing for its own name", () => {
+    assert.deepEqual(pickName(voices, 2, "Toni Mora"), { op: "rename", voice: 2, name: "Toni Mora" });
+    assert.deepEqual(pickName(voices, 2, "javier "), { op: "merge", keep: 1, drop: 2 });
+    assert.equal(pickName(voices, 1, "Javier"), null);
   });
 });

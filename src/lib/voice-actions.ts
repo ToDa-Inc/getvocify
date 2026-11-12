@@ -50,3 +50,27 @@ export function voiceMessage(action: VoiceAction): Record<string, unknown> | nul
   if (action.op === "move") return { type: "VoiceMove", starts: action.starts, voice: action.voice };
   return null;
 }
+
+/** A voice nobody has named yet ("Voice 2", "Voz 2"): not a person to offer. */
+const UNNAMED = /^(Voice|Voz) \d+$/;
+
+/** The names to offer for a voice: the meeting's people, then names already given to voices, each once. */
+export function voiceNames(voices: { label: string }[], people: string[]): string[] {
+  const given = voices.map((voice) => voice.label).filter((label) => !UNNAMED.test(label));
+  const seen = new Set<string>();
+  return [...people, ...given].filter((name) => {
+    const key = name.trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Picking `name` for `voice`: the same person as the voice that already has it, else this voice's name; null when it already is. */
+export function pickName(voices: { id: number; label: string }[], voice: number, name: string): VoiceAction | null {
+  const key = name.trim().toLowerCase();
+  const current = voices.find((other) => other.id === voice);
+  if (!key || current?.label.trim().toLowerCase() === key) return null;
+  const owner = voices.find((other) => other.id !== voice && other.label.trim().toLowerCase() === key);
+  return owner ? { op: "merge", keep: owner.id, drop: voice } : { op: "rename", voice, name: name.trim().slice(0, NAME_MAX) };
+}

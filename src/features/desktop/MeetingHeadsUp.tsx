@@ -3,7 +3,7 @@ import { useAuth } from "@/features/auth";
 import { calendarApi } from "@/lib/api/calendar";
 import { islandBrief, type IslandBrief } from "@/lib/desktop-call";
 import { getDesktopBridge } from "@/lib/desktop-host";
-import { briefContactId, headsUpMeeting, islandMeeting, nextChangeAt, type UpcomingMeeting } from "@/lib/meeting-heads-up";
+import { briefContactId, headsUpMeeting, islandMeeting, nextChangeAt, rememberMeetings, type UpcomingMeeting } from "@/lib/meeting-heads-up";
 import { api } from "@/shared/lib/api-client";
 
 /** How often the rep's next meetings are read: every minute, so a meeting added just before it starts still gets
@@ -78,6 +78,7 @@ export function MeetingHeadsUp() {
         .upcoming()
         .then((next) => {
           meetings = next;
+          rememberMeetings(next);
           update();
         })
         .catch(() => {

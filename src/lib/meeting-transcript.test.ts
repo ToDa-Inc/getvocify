@@ -225,6 +225,21 @@ describe("meetingUploadText", () => {
   it("is empty when nothing was said", () => {
     assert.equal(meetingUploadText(EMPTY_MEETING_TRANSCRIPT), "");
   });
+
+  it("saves the lines of a voice the rep named under that name, and the other side's other lines as S2", () => {
+    const seg = (speaker: "rep" | "prospect", text: string, start: number, voice: number | null = null) => ({ speaker, text, start, end: start + 1, voice });
+    const state = {
+      segments: [seg("rep", "Hola a los dos", 0), seg("prospect", "Hola Dani", 2, 1), seg("prospect", "Buenos días", 4, 2), seg("prospect", "Muy bien", 6, 2), seg("rep", "Genial", 8)],
+      interims: {},
+      voiceNames: { 1: "Toni Mora", 2: "Javier: Ramirez" },
+    };
+    assert.equal(
+      meetingUploadText(state),
+      "SPEAKER: S1\nHola a los dos\n\nSPEAKER: Toni Mora\nHola Dani\n\nSPEAKER: Javier Ramirez\nBuenos días Muy bien\n\nSPEAKER: S1\nGenial",
+    );
+    const { voiceNames: _names, ...unnamed } = state;
+    assert.equal(meetingUploadText(unnamed), "SPEAKER: S1\nHola a los dos\n\nSPEAKER: S2\nHola Dani Buenos días Muy bien\n\nSPEAKER: S1\nGenial");
+  });
 });
 
 describe("sortDrafts", () => {

@@ -47,7 +47,8 @@ export function TranscriptConversation({
       {turns.map((turn, i) => {
         const side = speakerSide(turn.speaker);
         const isYou = side === "s1";
-        const changed = i === 0 || speakerSide(turns[i - 1].speaker) !== side;
+        // Two people on the same side (two named voices) each get their name where the speaker changes.
+        const changed = i === 0 || speakerDisplayLabel(turns[i - 1].speaker, labels) !== speakerDisplayLabel(turn.speaker, labels);
         return (
           <div
             key={`${turn.speaker}-${i}`}

@@ -6,6 +6,7 @@ import {
   briefContactId,
   headsUpMeeting,
   islandMeeting,
+  meetingPeopleAt,
   meetingWho,
   nextChangeAt,
   type UpcomingMeeting,
@@ -71,5 +72,21 @@ describe("meeting heads-up", () => {
       platform: "meet",
     });
     assert.deepEqual(islandMeeting(meeting(), { state: "loading" }).brief, { state: "loading" });
+  });
+});
+
+describe("meetingPeopleAt", () => {
+  it("names who is invited to the meeting going on, by name or by the name part of the address", () => {
+    const m = meeting({
+      end_time: "2026-10-08T10:00:00Z",
+      people: [
+        { name: "Toni Mora", email: "toni@getvocify.com", hubspot_contact_id: null },
+        { name: null, email: "javier.ramirez@mecides.es", hubspot_contact_id: null },
+        { name: null, email: "1234@x.es", hubspot_contact_id: null },
+      ],
+    });
+    assert.deepEqual(meetingPeopleAt([m], START + 20 * 60_000), ["Toni Mora", "Javier Ramirez"]);
+    assert.deepEqual(meetingPeopleAt([m], START + 31 * 60_000), []);
+    assert.deepEqual(meetingPeopleAt([m], START - 11 * 60_000), []);
   });
 });

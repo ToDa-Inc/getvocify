@@ -30,6 +30,8 @@ interface LiveTranscriptProps {
   turns?: MeetingDisplayTurn[];
   /** The other side's voices, and what the rep can do to them: a turn's label then opens a menu to rename, merge or move it */
   voices?: MeetingVoice[];
+  /** Who the calendar says is in the meeting: what a voice can be named with one click. */
+  people?: string[];
   onVoice?: (action: VoiceAction) => void;
   /** Whether transcription is active */
   isActive: boolean;
@@ -50,6 +52,7 @@ export function LiveTranscript({
   interimTranscript,
   turns,
   voices,
+  people,
   onVoice,
   speaking,
   query,
@@ -132,7 +135,7 @@ export function LiveTranscript({
                 >
                   {!you && turn.label ? (
                     onVoice && voices && turn.voice != null ? (
-                      <VoiceLabel turn={turn} voices={voices} onChange={onVoice} />
+                      <VoiceLabel turn={turn} voices={voices} people={people} onChange={onVoice} />
                     ) : (
                       <span className="px-1 text-[11px] font-medium text-beige">{turn.label}</span>
                     )

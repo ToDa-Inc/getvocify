@@ -583,11 +583,50 @@ export function meetingOtherSideSpoke(state: MeetingTranscript): boolean {
   return state.segments.some((segment) => segment.speaker === "prospect" && segment.text.trim() !== "") || Boolean(state.interims.prospect?.trim());
 }
 
+/**
+ * What is saved: turns in speech order as `SPEAKER: S1` (the rep) and `SPEAKER: S2` (the other side), except that a
+ * line from a voice the rep named is saved under that name, so the transcript and the summary know who said it.
+ */
 export function meetingUploadText(state: MeetingTranscript): string {
-  return meetingTurns(settleMeeting(state))
-    .map((turn) => (turn.speaker ? `SPEAKER: ${SPEAKER_ID[turn.speaker]}\n${turn.text}` : turn.text))
+  const settled = settleMeeting(state);
+  const names = settled.voiceNames ?? {};
+  const named = Object.values(names).some((name) => name.trim());
+  const turns = named ? namedTurns(settled, names) : meetingTurns(settled).map((turn) => ({ ...turn, who: null }));
+  return turns
+    .map((turn) => (turn.speaker ? `SPEAKER: ${turn.who ?? SPEAKER_ID[turn.speaker]}\n${turn.text}` : turn.text))
     .join("\n\n")
     .trim();
+}
+
+/** The speech-order turns, with the other side split wherever the name the rep gave its voice changes. */
+function namedTurns(state: MeetingTranscript, names: Record<number, string>): { speaker: MeetingSpeaker | null; who: string | null; text: string }[] {
+  let clock = 0;
+  const timed = state.segments.map((segment, arrival) => {
+    if (segment.start !== null) clock = segment.start;
+    return { segment, at: clock, arrival };
+  });
+  timed.sort((a, b) => a.at - b.at || a.arrival - b.arrival);
+  const meeting = meetingAudio(state.segments);
+  const turns: { speaker: MeetingSpeaker | null; who: string | null; text: string }[] = [];
+  for (const { segment } of timed) {
+    if (isEcho(segment, meeting)) continue;
+    const given = segment.speaker === "prospect" && segment.voice != null ? names[segment.voice]?.trim() : "";
+    // A line break or ":" in a name would read as a new speaker or as text.
+    const who = given ? given.replace(/[\r\n:]+/g, " ").replace(/\s+/g, " ").trim() || null : null;
+    const last = turns[turns.length - 1];
+    if (last && segment.speaker === null) {
+      last.text = joinChunks(last.text, segment.text);
+    } else if (last && last.speaker === segment.speaker && (segment.speaker !== "prospect" || last.who === who)) {
+      last.text = joinChunks(last.text, segment.text);
+    } else if (last && last.speaker === null) {
+      last.speaker = segment.speaker;
+      last.who = who;
+      last.text = joinChunks(last.text, segment.text);
+    } else {
+      turns.push({ speaker: segment.speaker, who, text: segment.text });
+    }
+  }
+  return turns;
 }
 
 /**
