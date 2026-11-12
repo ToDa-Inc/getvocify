@@ -323,10 +323,13 @@ DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "doming
 MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
 # The model turns-6b was tested with, on the direct provider; production's live help uses an older snapshot.
 CARD_MODEL = "deepseek-ai/DeepSeek-V4.1-Flash-1017"
-# Without an answer from the direct provider in this long, the backup starts too (Together stalls for 10-30 s at times).
-HEDGE_S = 3.0
-# The three checks answer in about 0.4 s: a stalled one is not waited for as long as a reading (13 of 686 rounds in
-# production waited 3 s or more for the backup, and the card with them).
+# Without an answer from the direct provider in this long, the same request goes to it again and the first answer wins.
+# 1,857 readings (9-12 Nov 2026): half under 0.95 s, 14 % over 1.5 s, 6 % over 2 s, 1 % over 3 s. At 3 s (with OpenRouter
+# as the backup) every stall cost the card at least 3 s: the 4 cards it won on Movertis calls on 12 Nov came at 4.7-5.5 s.
+# At 1 s nearly half the readings would be asked twice for 0.3 s less at the 95th percentile; 1.5 s asks 1 in 7 twice.
+HEDGE_S = 1.5
+# The three checks answer in about 0.4 s: a stalled one is asked again after 1 s (13 of 686 rounds in production
+# waited 3 s or more for the backup, and the card with them).
 CHECK_HEDGE_S = 1.0
 TIMEOUT_S = 20.0
 
@@ -785,7 +788,8 @@ async def _post(client: httpx.AsyncClient, url: str, headers: dict, payload: dic
 async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperature: float,
               hedge_s: float = HEDGE_S) -> tuple[Optional[dict], dict]:
     """(parsed JSON or None, {"model", "latency_ms", "error"}): the direct provider with the tested model and a strict
-    schema; OpenRouter as its backup, started after `hedge_s` without an answer or as soon as the direct one fails."""
+    schema. Without an answer after `hedge_s` the same request goes to it a second time and the first answer wins: same
+    model, same card. OpenRouter (another snapshot of the model) only when every request to the direct one has failed."""
     meta: dict[str, Any] = {"model": None, "latency_ms": None, "error": None}
     effort = live_reasoning()["reasoning"]["effort"]
     base = {
@@ -795,34 +799,38 @@ async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperat
     }
     started = time.perf_counter()
     async with httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT_S, connect=5.0)) as client:
-        sources: list[tuple[str, Callable[[], Any]]] = []
+        # `timed`: started one after another, each once the ones before have gone `hedge_s` without an answer.
+        # `failover`: started only when nothing is running any more (every request so far failed).
+        timed: list[tuple[str, Callable[[], Any]]] = []
+        failover: list[tuple[str, Callable[[], Any]]] = []
         direct = live_direct()
         if direct:
             url, key, _ = direct
-            sources.append((f"direct:{CARD_MODEL}", lambda: _post(client, url, {"Authorization": f"Bearer {key}"},
-                                                                 {**base, "model": CARD_MODEL, "reasoning_effort": effort})))
+            call = (f"direct:{CARD_MODEL}", lambda: _post(client, url, {"Authorization": f"Bearer {key}"},
+                                                         {**base, "model": CARD_MODEL, "reasoning_effort": effort}))
+            timed += [call, call]
         router_key = (settings.OPENROUTER_API_KEY or "").strip()
         if router_key:
             model_r = (settings.COPILOT_MODEL or "").strip() or "deepseek/deepseek-v4.1-flash"
             headers = {"Authorization": f"Bearer {router_key}", "HTTP-Referer": settings.FRONTEND_URL, "X-Title": "Vocify Live Card"}
-            sources.append((f"openrouter:{model_r}", lambda: _post(client, OPENROUTER_URL, headers,
-                                                                  {**base, "model": model_r, "reasoning": {"effort": effort}, **live_provider()})))
-        if not sources:
+            (failover if timed else timed).append((f"openrouter:{model_r}", lambda: _post(
+                client, OPENROUTER_URL, headers, {**base, "model": model_r, "reasoning": {"effort": effort}, **live_provider()})))
+        if not timed:
             meta["error"] = "no model provider is configured"
             return None, meta
         running: dict[asyncio.Task, str] = {}
         errors: list[str] = []
 
-        def start_next() -> None:
-            name, call = sources.pop(0)
+        def start(queue: list[tuple[str, Callable[[], Any]]]) -> None:
+            name, call = queue.pop(0)
             running[asyncio.ensure_future(call())] = name
 
-        start_next()
+        start(timed)
         try:
             while running:
-                done, _ = await asyncio.wait(running, timeout=hedge_s if sources else None, return_when=asyncio.FIRST_COMPLETED)
+                done, _ = await asyncio.wait(running, timeout=hedge_s if timed else None, return_when=asyncio.FIRST_COMPLETED)
                 if not done:
-                    start_next()
+                    start(timed)
                     continue
                 for task in done:
                     name = running.pop(task)
@@ -841,8 +849,8 @@ async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperat
                             continue
                     meta.update(model=name, latency_ms=int((time.perf_counter() - started) * 1000))
                     return (parsed if isinstance(parsed, dict) else None), meta
-                if sources and not running:
-                    start_next()
+                if not running and (timed or failover):
+                    start(timed or failover)
         finally:
             for task in running:
                 task.cancel()
@@ -1054,11 +1062,9 @@ async def read_card(body: Any, ctx: Any) -> dict:
         elif why == "proposes_day":
             notes += (f"\n\nYOUR CARD «{card['say']}» NAMES A DAY NOBODY SAID IN THE CALL. The rep agrees the day with them: "
                       "make the same move without naming a day (ask which day suits them), or silence.")
-        elif why == "unsupported_fact" and out.get("action") == "answer" and moment != "asked":
-            # They asked and no source says it: an honest line, not silence (the older brain says «Te lo confirmo»).
-            notes += (f"\n\nYOUR CARD «{card['say']}» STATES WHAT NO SOURCE SAYS. Their question is not answered in the SOURCES: "
-                      "the line says honestly that the rep will confirm it («Eso te lo confirmo con el equipo técnico»), and may "
-                      "add one question about their situation. It claims nothing about the product.")
+        # An automatic card that states what no source says is dropped, not rewritten. Rewritten, it was told to say «Eso te lo
+        # confirmo con el equipo técnico»: a sentence of ours, not the company's, which came out as filler (8 of the 17 «te lo
+        # confirmo» cards on Movertis calls, 2026-11-12, often to no question) and cost a second reading (~2 s).
         elif why == "unsupported_fact" and moment == "asked":
             what = ((checks.get("facts") or {}).get("what") or "").strip()
             notes += (f"\n\nYOUR CARD «{card['say']}» STATES WHAT NO SOURCE SAYS{f' ({what})' if what else ''}. Give a move that "

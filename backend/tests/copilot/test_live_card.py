@@ -529,28 +529,25 @@ def test_asked_a_card_with_an_unsupported_claim_gets_one_more_try_but_an_automat
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "drop:unsupported_fact"
 
 
-def test_a_question_no_source_answers_gets_an_honest_line_not_silence(monkeypatch):
-    # «¿Hay que instalarlo en cada furgoneta? ¿Cuánto tiempo lleva?» went without a card on three synthetic Movertis calls.
-    lines = iter([answer(line="La instalación no os obliga a parar furgonetas, se hace en un rato.", action="answer"),
-                  answer(line="Eso te lo confirmo con el equipo técnico. ¿Cuántas furgonetas tendríais que equipar?", action="answer")])
-    facts = iter([True, False])
+def test_an_automatic_answer_no_source_supports_is_dropped_not_rewritten(monkeypatch):
+    # It used to be rewritten as «Eso te lo confirmo con el equipo técnico…»: our sentence, not the company's, and a second
+    # reading. On Movertis calls (2026-11-12) those cards were filler, often to no question at all.
     seen = []
 
     async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=None):
         meta = {"model": "direct:test", "latency_ms": 10, "error": None}
         if system == live_card.SYSTEM:
             seen.append(user)
-            return next(lines), meta
+            return answer(line="La instalación no os obliga a parar furgonetas, se hace en un rato.", action="answer"), meta
         if system == live_card.FACT_SYSTEM:
-            return {"unsupported": next(facts), "what": ""}, meta
+            return {"unsupported": True, "what": ""}, meta
         if system == live_card.CLOSING_SYSTEM:
             return {"closing": False, "evidence": ""}, meta
         return {"repeats": False, "same_as": "", "why": ""}, meta
 
     monkeypatch.setattr(live_card, "ask", ask)
     result = run(live_card.read_card(reading(reason="turn_end"), CTX))
-    assert result["event"] == "shown" and result["points"][0]["answer"].startswith("Eso te lo confirmo")
-    assert "Their question is not answered in the SOURCES" in seen[1]
+    assert result["event"] == "drop:unsupported_fact" and result["points"] == [] and len(seen) == 1
 
 
 def test_asked_again_the_same_words_are_another_try_not_nothing(monkeypatch):
@@ -659,7 +656,7 @@ def test_a_card_appears_when_its_reading_ends_not_when_it_was_asked_for(monkeypa
     assert result["event"] == "shown" and point["said_at"] == 60.0 and point["visible_t"] == 64.1
 
 
-def test_the_checks_wait_less_for_the_backup_than_the_reading(monkeypatch):
+def test_the_checks_are_asked_again_sooner_than_the_reading(monkeypatch):
     waits = {}
 
     async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=live_card.HEDGE_S):
@@ -676,8 +673,52 @@ def test_the_checks_wait_less_for_the_backup_than_the_reading(monkeypatch):
     monkeypatch.setattr(live_card, "ask", ask)
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "shown"
     assert waits[live_card.SYSTEM] == live_card.HEDGE_S
-    assert waits[live_card.FACT_SYSTEM] == waits[live_card.CLOSING_SYSTEM] == live_card.CHECK_HEDGE_S < live_card.HEDGE_S
+    assert waits[live_card.FACT_SYSTEM] == waits[live_card.CLOSING_SYSTEM] == live_card.CHECK_HEDGE_S
+    assert live_card.CHECK_HEDGE_S == 1.0 < live_card.HEDGE_S == 1.5
 
 
 def test_putting_the_call_off_is_not_the_call_closing():
     assert "llámame la semana que viene" in live_card.CLOSING_SYSTEM and "only once a goodbye" in live_card.CLOSING_SYSTEM
+
+
+def _providers(monkeypatch, answers):
+    """`answers`: per request, in the order they are sent, (delay in s, content or an exception)."""
+    sent = []
+
+    async def post(client, url, headers, payload):
+        i = len(sent)
+        sent.append("openrouter" if url == live_card.OPENROUTER_URL else "direct")
+        delay, out = answers[i]
+        await asyncio.sleep(delay)
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+    monkeypatch.setattr(live_card, "_post", post)
+    monkeypatch.setattr(live_card, "live_direct", lambda: ("https://together.test", "key", "x"))
+    monkeypatch.setattr(live_card.settings, "OPENROUTER_API_KEY", "or-key", raising=False)
+    return sent
+
+
+def test_a_slow_reading_is_asked_of_together_again_and_the_first_answer_wins(monkeypatch):
+    sent = _providers(monkeypatch, [(0.5, '{"n": 1}'), (0.05, '{"n": 2}')])
+    out, meta = run(live_card.ask("s", "u", {}, max_tokens=10, temperature=0, hedge_s=0.1))
+    assert out == {"n": 2} and sent == ["direct", "direct"] and meta["model"].startswith("direct:")
+
+
+def test_a_reading_in_time_is_asked_once(monkeypatch):
+    sent = _providers(monkeypatch, [(0.01, '{"n": 1}')])
+    out, _ = run(live_card.ask("s", "u", {}, max_tokens=10, temperature=0, hedge_s=0.1))
+    assert out == {"n": 1} and sent == ["direct"]
+
+
+def test_openrouter_only_when_both_requests_to_together_fail(monkeypatch):
+    sent = _providers(monkeypatch, [(0.01, RuntimeError("HTTP 503")), (0.01, RuntimeError("HTTP 503")), (0.01, '{"n": 3}')])
+    out, meta = run(live_card.ask("s", "u", {}, max_tokens=10, temperature=0, hedge_s=0.1))
+    assert out == {"n": 3} and sent == ["direct", "direct", "openrouter"] and meta["model"].startswith("openrouter:")
+
+
+def test_two_slow_requests_to_together_do_not_bring_in_openrouter(monkeypatch):
+    sent = _providers(monkeypatch, [(0.4, '{"n": 1}'), (0.4, '{"n": 2}')])
+    out, _ = run(live_card.ask("s", "u", {}, max_tokens=10, temperature=0, hedge_s=0.1))
+    assert out == {"n": 1} and sent == ["direct", "direct"]
