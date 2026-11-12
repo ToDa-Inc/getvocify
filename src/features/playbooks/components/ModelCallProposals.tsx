@@ -3,7 +3,7 @@ import { Pencil, Repeat2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
-import { QuoteBubble } from "@/features/playbooks/components/Bubbles";
+import { TurnBubble } from "@/features/playbooks/components/Bubbles";
 import type { ModelProposal, ProposalSpeaker } from "@/features/playbooks/assistantApi";
 import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -47,21 +47,26 @@ function ProposalCard({ proposal, props }: { proposal: ModelProposal; props: Pro
     const shown = props.swapped ? SWAP[side] : side;
     return shown === "rep" ? c.speakerRep : shown === "client" ? c.speakerClient : c.speakerUnknown;
   };
-  const title =
-    proposal.kind === "step_example"
-      ? c.proposalStep.replace("{step}", props.stepLabel(proposal.step_index ?? 0))
-      : c.proposalBranch.replace("{objection}", props.objectionLabel(proposal)).replace("{when}", proposal.when ?? "");
+  const step = proposal.kind === "step_example";
+  const subject = step ? props.stepLabel(proposal.step_index ?? 0) : props.objectionLabel(proposal);
+  const when = step ? null : proposal.when?.trim() || null;
+  const side = (who: ProposalSpeaker) => (props.swapped ? SWAP[who] : who);
   return (
     <li className={cn(card, "space-y-3 p-4", !on && "opacity-60")}>
       <div className="flex items-start justify-between gap-3">
-        <p className={THEME_TOKENS.typography.groupTitle}>{title}</p>
+        <div className="min-w-0">
+          <p className={THEME_TOKENS.typography.groupTitle}>
+            {subject} <span className="font-normal text-muted-foreground">· {step ? c.kindStep : c.kindObjection}</span>
+          </p>
+          {when ? <p className="mt-0.5 text-[13px] text-muted-foreground">{when}</p> : null}
+        </div>
         <Switch checked={on} onCheckedChange={(next) => props.onToggle(proposal.id, next)} aria-label={c.proposalUse} />
       </div>
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {proposal.excerpt.map((part, index) => (
-          <QuoteBubble key={index} label={speaker(part.speaker)}>
+          <TurnBubble key={index} who={side(part.speaker)} label={speaker(part.speaker)}>
             {part.text}
-          </QuoteBubble>
+          </TurnBubble>
         ))}
       </div>
       {editing ? (

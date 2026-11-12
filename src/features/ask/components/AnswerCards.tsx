@@ -20,12 +20,13 @@ const TONE_DOT: Record<ProcessTone, string> = {
   neutral: "bg-muted-foreground/40",
 };
 
-/** One card's frame: what it is on the left, where it lives in the app on the right. */
-function Frame({ label, to, place, children }: { label: string; to: string; place: string; children: ReactNode }) {
+/** One card's frame: what it is on the left (or just its icon, when the link already names it), where it lives in
+ * the app on the right. */
+function Frame({ label, icon, to, place, children }: { label: string; icon?: ReactNode; to: string; place: string; children: ReactNode }) {
   return (
     <section className={CARD} aria-label={label}>
       <header className="flex items-center justify-between gap-3 border-b border-[hsl(var(--hairline))] bg-secondary/25 px-4 py-2">
-        <p className="truncate text-[12.5px] text-muted-foreground">{label}</p>
+        {icon ?? <p className="truncate text-[12.5px] text-muted-foreground">{label}</p>}
         <Link
           to={to}
           className="inline-flex shrink-0 items-center gap-0.5 rounded-full text-[12.5px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -184,7 +185,7 @@ function PlaybookSources({ evidence }: { evidence: AskEvidence[] }) {
   const { user } = useAuth();
   const to = isManagerRole(user?.company?.role) ? "/dashboard/playbook" : "/dashboard/coach?tab=playbook";
   return (
-    <Frame label={p.askPlaybookSource} to={to} place={p.navPlaybook}>
+    <Frame label={p.askPlaybookSource} icon={<BookOpenText size={14} strokeWidth={1.5} className="text-beige" aria-hidden="true" />} to={to} place={p.navPlaybook}>
       <ul className="space-y-3">
         {evidence.map((entry) => {
           const tags = [

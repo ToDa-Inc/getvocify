@@ -15,8 +15,9 @@ function EvidenceChip({ n, evidence }: { n: number; evidence?: AskEvidence }) {
   const p = t.product;
   if (!evidence) return <span className="text-muted-foreground">[{n}]</span>;
   const playbook = evidence.speaker === "playbook";
+  // The book icon already says a passage is the playbook's; only who said a quote from a call is named.
   const who = playbook
-    ? p.askPlaybookSource
+    ? null
     : evidence.speaker === "prospect"
       ? p.askSpeakerProspect
       : evidence.speaker === "rep"

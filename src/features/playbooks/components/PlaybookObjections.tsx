@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Plus } from "lucide-react";
+import { Award, ChevronDown, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
 import {
@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CompleteButton, DocRow, ItemMenu, MetaLine, QuoteMark, TypeTag } from "@/features/playbooks/components/DocParts";
 import { InlineTextarea } from "@/features/playbooks/components/InlineField";
 import { itemBody, itemTitle, linkButton } from "@/features/playbooks/styles";
@@ -126,8 +127,17 @@ export function PlaybookObjections({
           >
             {row.count > 0 ? <MetaLine>{copy.heardShare.replace("{share}", percent(row.share))} · {copy.noAnswerYet}</MetaLine> : null}
             {row.bestExample ? (
-              <p className={itemBody}>
-                {copy.bestCall} «{row.bestExample}»
+              <p className={cn(itemBody, "flex items-start gap-1.5")}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span tabIndex={0} className="mt-1 shrink-0 rounded-full text-beige focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      <Award aria-hidden className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      <span className="sr-only">{copy.bestCall}</span>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{copy.bestCall}</TooltipContent>
+                </Tooltip>
+                <span className="min-w-0">«{row.bestExample}»</span>
               </p>
             ) : null}
             <div className="flex flex-wrap items-center gap-1 pt-1">

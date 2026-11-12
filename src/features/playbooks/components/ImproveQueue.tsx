@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import type { QueueGroup, QueueMoment } from "@/features/playbooks/assistantApi";
 import { AnswerBox } from "@/features/playbooks/components/AnswerBox";
-import { CardBubble, QuoteBubble } from "@/features/playbooks/components/Bubbles";
+import { SayBubble, TurnBubble } from "@/features/playbooks/components/Bubbles";
 import { ImproveStatsSkeleton, ImproveStatsView } from "@/features/playbooks/components/ImproveStats";
 import { SegmentMeter } from "@/features/playbooks/components/SegmentMeter";
 import { useImprove, type ImproveController, type ImproveProblem, type Publication } from "@/features/playbooks/hooks/useImprove";
@@ -66,12 +66,15 @@ function ReviewCase({
   const message = problem ? (c.errors[problem] ?? c.errors.unknown) : null;
   return (
     <li className="space-y-3 border-t border-border/50 px-4 py-4 first:border-t-0 md:px-5">
-      <QuoteBubble label={c.caseCustomer}>{moment.client_text}</QuoteBubble>
-      {moment.suggestion_text ? <CardBubble label={c.caseSuggested}>{moment.suggestion_text}</CardBubble> : null}
       <div className="space-y-1.5">
-        <p className="text-xs font-medium text-muted-foreground">{c.caseRepSaid}</p>
-        <p className="text-[14.5px] leading-relaxed text-foreground/85">{moment.rep_text ?? <span className="text-muted-foreground">{c.caseRepUnknown}</span>}</p>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <TurnBubble who="client" label={c.caseCustomer}>
+          {moment.client_text}
+        </TurnBubble>
+        {moment.suggestion_text ? <SayBubble label={c.caseSuggested}>{moment.suggestion_text}</SayBubble> : null}
+        <TurnBubble who="rep" label={c.caseRepSaid}>
+          {moment.rep_text ?? <span className="text-muted-foreground">{c.caseRepUnknown}</span>}
+        </TurnBubble>
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 pt-0.5">
           <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs", CHIP[moment.mark])}>{chip}</span>
           {choices.map((resolved) => (
             <Button key={resolved} type="button" variant="quiet" size="text" className="text-xs" disabled={busy} onClick={() => onVerdict(resolved)}>
@@ -82,7 +85,7 @@ function ReviewCase({
       </div>
       {here ? (
         <div className="space-y-3 pt-1">
-          <h4 className="text-[17px] font-medium leading-snug tracking-tight text-foreground">{heading}</h4>
+          <h4 className="sr-only">{heading}</h4>
           <AnswerBox
             value={value}
             onChange={onValue}

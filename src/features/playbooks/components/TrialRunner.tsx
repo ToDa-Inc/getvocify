@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import type { Trial, TrialRun } from "@/features/playbooks/assistantApi";
 import { AnswerBox } from "@/features/playbooks/components/AnswerBox";
-import { QuoteBubble } from "@/features/playbooks/components/Bubbles";
+import { TurnBubble } from "@/features/playbooks/components/Bubbles";
 import { CaseCard, RunBubble } from "@/features/playbooks/components/CaseCard";
 import { SegmentMeter, type SegmentTone } from "@/features/playbooks/components/SegmentMeter";
 import { TrialResultView } from "@/features/playbooks/components/TrialResult";
@@ -124,10 +124,12 @@ export function TrialRunnerView(props: TrialRunnerViewProps) {
         </CaseCard>
         {similar ? (
           <section className={cn(card, "space-y-4 p-5 md:p-6", THEME_TOKENS.motion.fadeIn)} aria-labelledby="trial-similar">
-            <h3 id="trial-similar" className={THEME_TOKENS.typography.groupTitle}>
+            <h3 id="trial-similar" className="sr-only">
               {c.similarTitle}
             </h3>
-            <QuoteBubble>{similar.text}</QuoteBubble>
+            <TurnBubble who="client" label={c.customerSays}>
+              {similar.text}
+            </TurnBubble>
             <RunBubble run={similar.run} label={c.nowAnswers} />
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" onClick={props.onSimilarSame}>
@@ -149,10 +151,12 @@ export function TrialRunnerView(props: TrialRunnerViewProps) {
     const mode = phase.mode;
     body = (
       <CaseCard source={current.source} clientText={current.client_text} run={run} className="space-y-4">
-        <h3 className="text-[19px] font-medium leading-snug tracking-tight text-foreground">
-          {mode === "never" ? c.neverHeading : mode === "branch" ? c.branchHeading : c.sayHeading}
-        </h3>
-        {mode === "branch" && phase.situation ? <QuoteBubble>{phase.situation}</QuoteBubble> : null}
+        <h3 className="sr-only">{mode === "never" ? c.neverHeading : mode === "branch" ? c.branchHeading : c.sayHeading}</h3>
+        {mode === "branch" && phase.situation ? (
+          <TurnBubble who="client" label={c.customerSays}>
+            {phase.situation}
+          </TurnBubble>
+        ) : null}
         <AnswerBox
           value={value}
           onChange={onValue}
