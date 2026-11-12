@@ -321,8 +321,9 @@ LINE_BLOCKS = ("APPROVED ANSWERS", "STEPS (", "WHAT TO FIND OUT")  # one entry p
 CALENDAR_DAYS = 28  # the days the reading sees with their weekdays
 DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
-# The model turns-6b was tested with, on the direct provider; production's live help uses an older snapshot.
-CARD_MODEL = "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+# The same model as the rest of live help. Its -1017 version, which turns-6b was tested with, made each card 0.3-0.8 s
+# slower at the direct provider on 2026-11-12 (the checks about twice as slow), with cards of the same quality in replays.
+CARD_MODEL = "deepseek-ai/DeepSeek-V4.1-Flash"
 # Without an answer from the direct provider in this long, the same request goes to it again and the first answer wins.
 # 1,857 readings (9-12 Nov 2026): half under 0.95 s, 14 % over 1.5 s, 6 % over 2 s, 1 % over 3 s. At 3 s (with OpenRouter
 # as the backup) every stall cost the card at least 3 s: the 4 cards it won on Movertis calls on 12 Nov came at 4.7-5.5 s.
