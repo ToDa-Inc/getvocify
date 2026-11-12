@@ -14,7 +14,7 @@ answers and the examples as ways to say things. Anything about selling lives in 
   JSON).
 - Code checks what can be checked: at most 35 words, a fact cited from the playbook really is there, no number an
   answer invents, no weekday nobody said, not the same text as a card already shown, not after their goodbye.
-- The small gate, in parallel: facts (only against the approved text and the conversation), the call closing, and a
+- The small gate, in parallel: facts (only against the approved text and the conversation) and a
   repeat of a move already made (one more try for a different move, or silence).
 - The fact check also stops a question or proposal that goes against what they set or asks again what they answered.
 - Pace: a card of the reading's own initiative not within MIN_GAP_S of the last one (a card that responds to what they
@@ -264,18 +264,6 @@ something about the other side that THE CONVERSATION contradicts, or contradicts
 {"unsupported": true|false, "what": "at most 8 words"}."""
 FACT_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["unsupported", "what"],
                "properties": {"unsupported": {"type": "boolean"}, "what": {"type": "string"}}}
-CLOSING_SYSTEM = """Is this sales call closing? Closing: the two sides are wrapping up and nothing new is being opened:
-goodbyes or farewell wishes, thanking and leaving, confirming the last step and ending. Either side closing
-unequivocally is enough, even before the other answers: the other side says goodbye, or the salesperson closes («pues
-te deseo mucha suerte», «que vaya muy bien, un abrazo»), unless the other side then reopens with something new. Not
-closing: agreeing a next step while the conversation goes on, a thank-you in the middle of the call, a
-goodbye one of them takes back («espera, una cosa más»). Not closing either: the other side putting the call off
-without saying goodbye («llámame la semana que viene», «ahora estoy liado», «no puedo hablar ahora», «mándame un correo»,
-«si nos interesa os llamamos»). That is pushback the salesperson can still answer (agree a day, ask one question); it
-is closing only once a goodbye or a farewell wish has been said. Answer JSON {"closing": true|false, "evidence": "the words that
-show it, copied verbatim from ONE of the last turns; empty when not closing"}."""
-CLOSING_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["closing", "evidence"],
-                  "properties": {"closing": {"type": "boolean"}, "evidence": {"type": "string"}}}
 ACK = {
     "mhm", "mm", "mmm", "hmm", "hm", "ajá", "aja", "ah", "eh", "oh", "uh", "uh-huh", "ok", "okay", "vale", "sí", "si",
     "claro", "total", "exacto", "exactamente", "eso", "es", "correcto", "efectivamente", "cierto", "verdad", "ya", "bien",
@@ -320,7 +308,6 @@ MIN_CARD_WORDS = 4  # «card», «their_latest» or a playbook id in the line is
 SOURCE_QUOTE_WORDS, SAME_TEXT = 6, 0.7
 FACT_TURNS, FACT_CHARS = 400, 12000
 REPEAT_TURNS = 6  # the latest turns the repeat check reads, for an echo or a move the seller just made
-CLOSING_TURNS, CLOSING_RECENT_S = 8, 30.0
 THREAD_CARDS, THREAD_WORDS = 3, 45
 GOODBYES = ("hasta luego", "hasta mañana", "hasta pronto", "hasta otra", "adiós", "adios", "chao", "chau", "un saludo",
             "bye", "goodbye")
@@ -735,16 +722,6 @@ def basic_checks(card: dict, turns: list[dict], shown: list[dict], sources: str)
     return None
 
 
-def closing_confirmed(result: Optional[dict], turns: list[dict], end: list[float], now: float) -> bool:
-    """The check says the call is closing and its evidence was really said in the last CLOSING_RECENT_S seconds."""
-    if not result or not result.get("closing"):
-        return False
-    said = [t["text"] for i, t in enumerate(turns) if t["t"] <= now and end[i] > now - CLOSING_RECENT_S]
-    pieces = [" ".join(p.split()) for p in re.split(r"\.\.\.|…", result.get("evidence") or "")]
-    pieces = [p for p in pieces if p]
-    return bool(pieces) and all(any(brain.quote_in(p, x) for x in said) for p in pieces)
-
-
 def after_goodbye(turns: list[dict], end: list[float], at: float) -> bool:
     """The other side said goodbye (a turn that ends with it) and has said nothing of substance since."""
     bye = None
@@ -898,11 +875,6 @@ async def fact_check(card: dict, conversation: str) -> tuple[Optional[dict], dic
     return await ask(FACT_SYSTEM, user, FACT_SCHEMA, max_tokens=700, temperature=0.0, hedge_s=CHECK_HEDGE_S)
 
 
-async def closing_check(conversation: str) -> tuple[Optional[dict], dict]:
-    return await ask(CLOSING_SYSTEM, f"THE LAST TURNS (latest last):\n{conversation or '-'}", CLOSING_SCHEMA, max_tokens=80, temperature=0.0,
-                     hedge_s=CHECK_HEDGE_S)
-
-
 async def repeat_check(say: str, shown: list[dict], turns: list[dict], end: list[float], at: float) -> tuple[Optional[dict], dict]:
     """Whether the card adds a move: not one already shown (in other words or on another topic), not an echo of the
     latest turns, not what the seller just did. Asked of every card, the first one included (an echo needs no card before it)."""
@@ -932,17 +904,17 @@ async def vet(out: dict, turns: list[dict], end: list[float], now: float, shown:
     why = basic_checks(card, turns, shown, sources)
     if why:
         return card, why, {}
-    facts, closing, repeat = await asyncio.gather(
+    # No model check of the call closing: on 9-11 Nov 2026 its only 2 drops (of 359 cards) were wrong, both on the other
+    # side putting the call off («Llámame la semana que viene… no quiero hablar ahora»), and it added nothing to the rep's
+    # decisions. A card after their goodbye is still held back by after_goodbye.
+    facts, repeat = await asyncio.gather(
         fact_check(card, conversation_lines(turns, end, now, n=FACT_TURNS, chars=FACT_CHARS)),
-        closing_check(conversation_lines(turns, end, now, n=CLOSING_TURNS)),
         repeat_check(card["say"], shown, turns, end, now),
     )
-    checks = {"facts": facts[0], "closing": closing[0], "repeat": repeat[0],
-              "check_ms": max(m.get("latency_ms") or 0 for _, m in (facts, closing, repeat))}
+    checks = {"facts": facts[0], "repeat": repeat[0],
+              "check_ms": max(m.get("latency_ms") or 0 for _, m in (facts, repeat))}
     if (facts[0] or {"unsupported": True})["unsupported"]:  # a check that did not answer lets nothing through
         return card, "unsupported_fact", checks
-    if closing_confirmed(closing[0], turns, end, now):
-        return card, "call_closing", checks
     if after_goodbye(turns, end, now):
         return card, "after_goodbye", checks
     if (repeat[0] or {}).get("repeats"):

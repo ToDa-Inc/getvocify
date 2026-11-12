@@ -50,7 +50,7 @@ def answer(line="Entiendo, ¿qué os preocupa más del precio: el coste por usua
             "source": "context", "source_quote": "", **kw}
 
 
-def fake_model(monkeypatch, reading_out, *, unsupported=False, closing=False, repeats=False, retry=None):
+def fake_model(monkeypatch, reading_out, *, unsupported=False, repeats=False, retry=None):
     calls = []
 
     async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=None):
@@ -61,8 +61,6 @@ def fake_model(monkeypatch, reading_out, *, unsupported=False, closing=False, re
             return (reading_out if first else retry), meta
         if system == live_card.FACT_SYSTEM:
             return {"unsupported": unsupported, "what": ""}, meta
-        if system == live_card.CLOSING_SYSTEM:
-            return {"closing": closing, "evidence": ""}, meta
         if system == live_card.REPEAT_SYSTEM:
             return {"repeats": repeats and sum(c == live_card.REPEAT_SYSTEM for c in calls) == 1, "same_as": "la anterior", "why": ""}, meta
         raise AssertionError("unknown prompt")
@@ -125,8 +123,6 @@ def test_the_reading_is_told_the_objection_they_raised_and_its_approved_answer(m
             return answer(), meta
         if system == live_card.FACT_SYSTEM:
             return {"unsupported": False, "what": ""}, meta
-        if system == live_card.CLOSING_SYSTEM:
-            return {"closing": False, "evidence": ""}, meta
         return {"repeats": False, "same_as": "", "why": ""}, meta
 
     monkeypatch.setattr(live_card, "ask", ask)
@@ -299,8 +295,6 @@ def test_the_repeat_check_reads_the_latest_turns_and_runs_on_the_first_card_too(
             return answer(), meta
         if system == live_card.FACT_SYSTEM:
             return {"unsupported": False, "what": ""}, meta
-        if system == live_card.CLOSING_SYSTEM:
-            return {"closing": False, "evidence": ""}, meta
         return {"repeats": True, "same_as": "Seller: …", "why": "echo"}, meta
 
     monkeypatch.setattr(live_card, "ask", ask)
@@ -343,12 +337,12 @@ def test_a_card_that_names_a_day_nobody_said_gets_one_more_try(monkeypatch):
     assert run(live_card.read_card(reading(call=call, reason="turn_end"), CTX))["event"] == "shown" and calls.count(live_card.SYSTEM) == 1
 
 
-def test_an_unsupported_fact_or_a_closing_call_shows_nothing(monkeypatch):
+def test_an_unsupported_fact_or_their_goodbye_shows_nothing(monkeypatch):
     fake_model(monkeypatch, answer(), unsupported=True)
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "drop:unsupported_fact"
     call = CALL + [{"id": "t5", "who": "them", "text": "Vale, gracias, hasta luego", "t": 12.0}]
-    fake_model(monkeypatch, answer(), closing=True)
-    assert run(live_card.read_card(reading(call=call, reason="turn_end"), CTX))["event"] in ("drop:call_closing", "drop:after_goodbye")
+    fake_model(monkeypatch, answer())
+    assert run(live_card.read_card(reading(call=call, reason="turn_end"), CTX))["event"] == "drop:after_goodbye"
 
 
 def test_the_card_the_rep_has_not_used_yet_stays_changes_or_goes_as_the_reading_says(monkeypatch):
@@ -511,8 +505,6 @@ def test_responder_reads_at_once_tells_the_reading_it_was_asked_and_takes_the_sc
             return answer(line="¿Qué pasa hoy cuando uno de los dos no está y un cliente pregunta por su cuenta?"), meta
         if system == live_card.FACT_SYSTEM:
             return {"unsupported": False, "what": ""}, meta
-        if system == live_card.CLOSING_SYSTEM:
-            return {"closing": False, "evidence": ""}, meta
         return {"repeats": False, "same_as": "", "why": ""}, meta
 
     monkeypatch.setattr(live_card, "ask", ask)
@@ -540,8 +532,6 @@ def test_asked_a_card_with_an_unsupported_claim_gets_one_more_try_but_an_automat
             return next(lines), meta
         if system == live_card.FACT_SYSTEM:
             return {"unsupported": next(facts), "what": "shows the CRM filled"}, meta
-        if system == live_card.CLOSING_SYSTEM:
-            return {"closing": False, "evidence": ""}, meta
         return {"repeats": False, "same_as": "", "why": ""}, meta
 
     monkeypatch.setattr(live_card, "ask", ask)
@@ -564,8 +554,6 @@ def test_an_automatic_answer_no_source_supports_is_dropped_not_rewritten(monkeyp
             return answer(line="La instalación no os obliga a parar furgonetas, se hace en un rato.", action="answer"), meta
         if system == live_card.FACT_SYSTEM:
             return {"unsupported": True, "what": ""}, meta
-        if system == live_card.CLOSING_SYSTEM:
-            return {"closing": False, "evidence": ""}, meta
         return {"repeats": False, "same_as": "", "why": ""}, meta
 
     monkeypatch.setattr(live_card, "ask", ask)
@@ -586,8 +574,6 @@ def test_asked_again_the_same_words_are_another_try_not_nothing(monkeypatch):
             return next(lines), meta
         if system == live_card.FACT_SYSTEM:
             return {"unsupported": False, "what": ""}, meta
-        if system == live_card.CLOSING_SYSTEM:
-            return {"closing": False, "evidence": ""}, meta
         return {"repeats": False, "same_as": "", "why": ""}, meta
 
     monkeypatch.setattr(live_card, "ask", ask)
@@ -689,19 +675,20 @@ def test_the_checks_are_asked_again_sooner_than_the_reading(monkeypatch):
             return answer(), meta
         if system == live_card.FACT_SYSTEM:
             return {"unsupported": False, "what": ""}, meta
-        if system == live_card.CLOSING_SYSTEM:
-            return {"closing": False, "evidence": ""}, meta
         return {"repeats": False, "same_as": "", "why": ""}, meta
 
     monkeypatch.setattr(live_card, "ask", ask)
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "shown"
     assert waits[live_card.SYSTEM] == live_card.HEDGE_S
-    assert waits[live_card.FACT_SYSTEM] == waits[live_card.CLOSING_SYSTEM] == live_card.CHECK_HEDGE_S
+    assert waits[live_card.FACT_SYSTEM] == waits[live_card.REPEAT_SYSTEM] == live_card.CHECK_HEDGE_S
     assert live_card.CHECK_HEDGE_S == 1.0 < live_card.HEDGE_S == 1.5
 
 
-def test_putting_the_call_off_is_not_the_call_closing():
-    assert "llámame la semana que viene" in live_card.CLOSING_SYSTEM and "only once a goodbye" in live_card.CLOSING_SYSTEM
+def test_putting_the_call_off_still_gets_its_card_and_no_model_judges_the_call_closing(monkeypatch):
+    call = CALL + [{"id": "t5", "who": "them", "text": "Llámame la semana que viene, que ahora estoy muy liado", "t": 12.0}]
+    calls = fake_model(monkeypatch, answer())
+    assert run(live_card.read_card(reading(call=call, reason="turn_end"), CTX))["event"] == "shown"
+    assert calls == [live_card.SYSTEM, live_card.FACT_SYSTEM, live_card.REPEAT_SYSTEM] and not hasattr(live_card, "CLOSING_SYSTEM")
 
 
 def _providers(monkeypatch, answers):
