@@ -282,11 +282,34 @@ def test_an_approved_answer_is_a_respuesta_with_its_playbook_source(monkeypatch)
     assert card["kind"] == "question" and card["tag_key"] == "objection:price" and card["source"]["id"] == "objection:price"
 
 
-def test_a_repeat_gets_one_more_try_and_otherwise_silence(monkeypatch):
-    calls = fake_model(monkeypatch, answer(), repeats=True, retry=answer(decision="silence", line=""))
+def test_an_automatic_card_that_adds_nothing_is_silence_without_another_try(monkeypatch):
+    calls = fake_model(monkeypatch, answer(), repeats=True, retry=answer(line="¿Quién más lo tiene que ver?"))
     shown = [{"id": "a", "say": "¿Qué os frena hoy?", "visible_t": 1.0, "open": False}]
     result = run(live_card.read_card(reading(reason="turn_end", cards=shown, now_t=60.0), CTX))
-    assert result["event"] == "drop:repeats→silence" and calls.count(live_card.SYSTEM) == 2
+    assert result["event"] == "drop:repeats" and result["points"] == [] and calls.count(live_card.SYSTEM) == 1
+
+
+def test_the_repeat_check_reads_the_latest_turns_and_runs_on_the_first_card_too(monkeypatch):
+    seen = {}
+
+    async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=None):
+        meta = {"model": "direct:test", "latency_ms": 10, "error": None}
+        seen.setdefault(system, user)
+        if system == live_card.SYSTEM:
+            return answer(), meta
+        if system == live_card.FACT_SYSTEM:
+            return {"unsupported": False, "what": ""}, meta
+        if system == live_card.CLOSING_SYSTEM:
+            return {"closing": False, "evidence": ""}, meta
+        return {"repeats": True, "same_as": "Seller: …", "why": "echo"}, meta
+
+    monkeypatch.setattr(live_card, "ask", ask)
+    result = run(live_card.read_card(reading(reason="turn_end"), CTX))
+    assert result["event"] == "drop:repeats"
+    user = seen[live_card.REPEAT_SYSTEM]
+    latest = user.split("THE LATEST TURNS (latest last):\n", 1)[1]
+    assert "CARDS ALREADY SHOWN:\n(none)" in user and latest.startswith(("Seller:", "Other side:"))
+    assert "another topic" in live_card.REPEAT_SYSTEM and "An echo" in live_card.REPEAT_SYSTEM
 
 
 def test_the_reading_writes_their_latest_words_then_the_move_then_the_card():

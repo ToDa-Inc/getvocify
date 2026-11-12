@@ -206,11 +206,20 @@ SCHEMA = {
         }
     }
 }
-REPEAT_SYSTEM = """A live assistant wants to show a salesperson ONE new card. The cards already shown in this call are
-listed, then what was said since the last one. Is the new card the same move as a card already shown (the same request,
-proposal or question, even in other words) while the other side has not answered that card with anything new? A move
-adapted to something new they said (a new constraint, a new person, an answer, a new topic) is not a repeat. Answer JSON
-{"repeats": true|false, "same_as": "the earlier card it repeats, or empty", "why": "at most 10 words"}."""
+REPEAT_SYSTEM = """A live assistant wants to show a salesperson ONE new card during a call. A card is worth the screen only
+when it gives the salesperson a move they do not already have. You get the cards already shown in this call, the latest
+turns, and the new card. Does the new card add nothing? It adds nothing when any of these holds:
+- The same move as a card already shown: the same request, proposal, question or commitment, in other words OR applied
+  to another topic. Promising to check something with someone and come back is one move, whatever it is about; so is
+  asking who decides, or proposing to call on a day. It is a new move only when what they said since changes the move
+  itself (they answered or rejected that card, named a new person to involve, set a new condition), not just its topic.
+- An echo: it gives back what the other side or the salesperson just said (a summary, «so what you mean is…, right?»,
+  «understood: X») and its only question asks them to confirm it.
+- The salesperson just made this move: the salesperson's latest words already ask this, propose this step or make this
+  commitment.
+A card that answers what they just asked, or brings a question, fact or step not yet in the call, adds something.
+Answer JSON {"repeats": true when it adds nothing, "same_as": "the earlier card, or the words it echoes or that already
+made the move; empty when it adds something", "why": "at most 10 words"}."""
 REPEAT_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["repeats", "same_as", "why"],
                  "properties": {"repeats": {"type": "boolean"}, "same_as": {"type": "string"}, "why": {"type": "string"}}}
 FACT_SYSTEM = """A live assistant wrote ONE line for a salesperson on a call. Check what the line states as true or
@@ -309,6 +318,7 @@ MAX_CARD_WORDS = 35
 MIN_CARD_WORDS = 4  # «card», «their_latest» or a playbook id in the line is not a card
 SOURCE_QUOTE_WORDS, SAME_TEXT = 6, 0.7
 FACT_TURNS, FACT_CHARS = 400, 12000
+REPEAT_TURNS = 6  # the latest turns the repeat check reads, for an echo or a move the seller just made
 CLOSING_TURNS, CLOSING_RECENT_S = 8, 30.0
 THREAD_CARDS, THREAD_WORDS = 3, 45
 GOODBYES = ("hasta luego", "hasta mañana", "hasta pronto", "hasta otra", "adiós", "adios", "chao", "chau", "un saludo",
@@ -876,14 +886,14 @@ async def closing_check(conversation: str) -> tuple[Optional[dict], dict]:
 
 
 async def repeat_check(say: str, shown: list[dict], turns: list[dict], end: list[float], at: float) -> tuple[Optional[dict], dict]:
+    """Whether the card adds a move: not one already shown (in other words or on another topic), not an echo of the
+    latest turns, not what the seller just did. Asked of every card, the first one included (an echo needs no card before it)."""
     cards = "\n".join(f"- {int(s['visible_t'] // 60)}:{int(s['visible_t'] % 60):02d} «{s['say']}»" for s in shown)
     since = conversation_lines(turns, end, at, since=shown[-1]["visible_t"]) if shown else ""
-    user = f"CARDS ALREADY SHOWN:\n{cards}\nSAID SINCE THE LAST CARD:\n{since or '(nothing)'}\nTHE NEW CARD: «{say}»"
+    latest = conversation_lines(turns, end, at, n=REPEAT_TURNS)
+    user = (f"CARDS ALREADY SHOWN:\n{cards or '(none)'}\nSAID SINCE THE LAST CARD:\n{since or '(nothing)'}\n"
+            f"THE LATEST TURNS (latest last):\n{latest or '-'}\nTHE NEW CARD: «{say}»")
     return await ask(REPEAT_SYSTEM, user, REPEAT_SCHEMA, max_tokens=120, temperature=0.0, hedge_s=CHECK_HEDGE_S)
-
-
-async def _nothing() -> tuple[Optional[dict], dict]:
-    return {"repeats": False, "same_as": "", "why": ""}, {"model": None, "latency_ms": 0, "error": None}
 
 
 # ---------- one reading ----------
@@ -907,7 +917,7 @@ async def vet(out: dict, turns: list[dict], end: list[float], now: float, shown:
     facts, closing, repeat = await asyncio.gather(
         fact_check(card, conversation_lines(turns, end, now, n=FACT_TURNS, chars=FACT_CHARS)),
         closing_check(conversation_lines(turns, end, now, n=CLOSING_TURNS)),
-        repeat_check(card["say"], shown, turns, end, now) if shown else _nothing(),
+        repeat_check(card["say"], shown, turns, end, now),
     )
     checks = {"facts": facts[0], "closing": closing[0], "repeat": repeat[0],
               "check_ms": max(m.get("latency_ms") or 0 for _, m in (facts, closing, repeat))}
@@ -1045,9 +1055,13 @@ async def read_card(body: Any, ctx: Any) -> dict:
     against = [s for s in shown if s is not pending] if pending and status == "update" else shown
     card, why, checks = await vet(out, turns, end, now, against, sources)
     trace.update(card=card["say"], checks=checks)
-    # Another try, told why: the same move again or a day nobody said (any reading: one more try), or, when the rep asked, also a
+    # Another try, told why: a day nobody said (any reading: one more try), or, when the rep asked, also the same move again, a
     # claim no source makes or the same words again (two more tries, each told every reason so far: a rep who pressed
     # Responder gets a move that stays inside what is written and is not one already made, rather than nothing).
+    if why == "repeats" and moment != "asked":
+        # Automatic: a card that adds nothing is silence. Another try cost ~2 s and its card came when the rep had moved on.
+        trace["repeat_of"] = card.get("same_as", "")
+        return finish("drop:repeats")
     tries = ASKED_TRIES if moment == "asked" else 1
     notes = ""
     while why and tries > 0:
