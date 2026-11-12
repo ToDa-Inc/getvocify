@@ -22,7 +22,8 @@ from app.services.intelligence.extract import _prospect_evidence as _prospect_wo
 
 logger = logging.getLogger(__name__)
 
-FINDINGS_VERSION = "findings_v1"
+# v2 (2026-11-12): new objections (none of the playbook's answers is for them) and chances to dig deeper.
+FINDINGS_VERSION = "findings_v2"
 FINDINGS_FLAG = "CALL_FINDINGS_ENABLED"
 PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"call_{FINDINGS_VERSION}.md"
 
@@ -30,10 +31,11 @@ PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"call_{FINDINGS
 SKIPPED_CALLS = frozenset({"no_conversation", "not_a_sales_call", "dictated_note"})
 
 _ANSWERED = frozenset({"yes", "partly", "later", "no"})
-_SIGNAL = frozenset({"need", "interest", "timing", "unhappy", "buying", "referral", "other"})
+_SIGNAL = frozenset({"need", "interest", "timing", "unhappy", "buying", "referral", "deeper", "other"})
+_AFTER = frozenset({"advanced", "stalled", "ended", "unknown"})
 _CONCESSION = frozenset({"price", "discount", "trial", "free", "payment", "commitment", "deadline", "other"})
 # More than this in one call is padding, not findings.
-_LIMITS = {"questions": 8, "signals": 3, "worked": 4, "concessions": 4}
+_LIMITS = {"questions": 8, "signals": 3, "worked": 4, "concessions": 4, "new_objections": 4}
 _TOPIC_MAX = 60
 _WHY_MAX = 280
 _LINE_MAX = 240
@@ -255,7 +257,29 @@ def shape_findings(
             "evidence_refs": [ref["id"]],
         })
 
-    lists = {"questions": questions, "signals": signals, "worked": worked, "concessions": concessions}
+    new_objections: list[dict] = []
+    topics_in["new_objections"] = set()
+    for item in items("new_objections"):
+        topic = _topic(item.get("topic"))
+        if not topic or topic_key(topic) in topics_in["new_objections"]:
+            continue
+        ref = fresh(_prospect_evidence(memo_id, str(item.get("quote") or ""), transcript), "prospect")
+        if ref is None:
+            continue
+        reply = _rep_evidence(memo_id, str(item.get("reply") or ""), transcript) if str(item.get("reply") or "").strip() else None
+        if reply is not None:
+            evidence[reply["id"]] = reply
+        topics_in["new_objections"].add(topic_key(topic))
+        new_objections.append({
+            "topic": _canonical(topic, known),
+            "quote": ref["quote"],
+            "reply": reply["quote"] if reply is not None else None,
+            "after": item.get("after") if item.get("after") in _AFTER else "unknown",
+            "better": _sentence(item.get("better"), _LINE_MAX),
+            "evidence_refs": [ref["id"], *([reply["id"]] if reply is not None else [])],
+        })
+
+    lists = {"questions": questions, "signals": signals, "worked": worked, "concessions": concessions, "new_objections": new_objections}
     return {
         "version": FINDINGS_VERSION,
         **{key: value[:_LIMITS[key]] for key, value in lists.items()},
@@ -311,7 +335,7 @@ def known_topics_of(rows: list[dict]) -> list[str]:
         findings = row.get("findings") if isinstance(row, dict) else None
         if not isinstance(findings, dict):
             continue
-        for key in ("questions", "signals", "worked"):
+        for key in ("questions", "signals", "worked", "new_objections"):
             for item in findings.get(key) or []:
                 name = _topic(item.get("topic")) if isinstance(item, dict) else None
                 if name:
@@ -344,7 +368,7 @@ def _same_words(a: Any, b: Any) -> bool:
     return bool(left and right) and (left in right or right in left)
 
 
-def coach_findings(findings: Any, reading: Any = None) -> dict | None:
+def coach_findings(findings: Any, reading: Any = None, *, manager: bool = False) -> dict | None:
     """What the rep's own Coaching shows of a call's findings: the questions not fully answered (with what to answer
     next time, or none when the company has no answer yet), the doors let pass (with the line to try) and what worked
     (with when to use it again). Concessions are the head of sales' business, not coaching. None when nothing is left."""
@@ -356,13 +380,23 @@ def coach_findings(findings: Any, reading: Any = None) -> dict | None:
     questions = [
         {**{k: item.get(k) for k in (*keep, "answered", "answer", "better")}, "no_answer": not item.get("better") and not item.get("covered_by")}
         for item in findings.get("questions") or []
-        if isinstance(item, dict) and item.get("answered") != "yes" and not _same_words(item.get("quote"), moment)
+        # The rep sees what needs work; the head of sales, opening a question from Equipo, sees every one.
+        if isinstance(item, dict) and (manager or item.get("answered") != "yes") and not _same_words(item.get("quote"), moment)
     ]
     signals = [
         {k: item.get(k) for k in (*keep, "kind", "reply", "why", "line")}
         for item in findings.get("signals") or [] if isinstance(item, dict) and not _same_words(item.get("quote"), moment)
     ]
     worked = [{k: item.get(k) for k in (*keep, "after_quote", "why", "use_when")} for item in findings.get("worked") or [] if isinstance(item, dict)]
-    if not (questions or signals or worked):
+    new_objections = [
+        {k: item.get(k) for k in (*keep, "reply", "after", "better")}
+        for item in findings.get("new_objections") or [] if isinstance(item, dict) and not _same_words(item.get("quote"), moment)
+    ]
+    concessions = [
+        {k: item.get(k) for k in ("kind", "what", "normal", "quote")}
+        for item in findings.get("concessions") or [] if manager and isinstance(item, dict) and item.get("what")
+    ]
+    if not (questions or signals or worked or concessions or new_objections):
         return None
-    return {"questions": questions, "signals": signals, "worked": worked}
+    out = {"questions": questions, "signals": signals, "worked": worked, "new_objections": new_objections}
+    return {**out, "concessions": concessions} if manager else out

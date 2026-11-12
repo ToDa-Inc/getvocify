@@ -1,15 +1,13 @@
 import { useState, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/i18n";
-import { afterTone, noObjectionsKey, readByAfter, tableObjections, UNANSWERED_KEY, type CoachObjectionBreakdown, type CoachSlippedStep } from "@/lib/rep-coaching";
+import { afterTone, noObjectionsKey, objectionTable, type CoachObjectionBreakdown, type CoachSlippedStep, type TableRow as Row } from "@/lib/rep-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { Bubble, OccurrencePager, type Moment } from "./OccurrencePager";
 
 // One row of either table: how many of the times it came up went well, half way, unclear or badly.
-type Row = { id: string; title: string; good: number; half: number; unknown: number; bad: number; of: number; /** A group rather than one item: lighter. */ group?: boolean };
-
 // name · outcome bar · done count · chevron: narrow enough for two tables side by side.
 const GRID = "grid grid-cols-[minmax(0,1fr)_5rem_2.75rem_1rem] items-center gap-3";
 // The worst few first; the rest one click away, so twelve objections never push the calls off the page.
@@ -33,14 +31,16 @@ function OutcomeBar({ row, label }: { row: Row; label: string }) {
   );
 }
 
-/** A table that opens in place: each row says how often it went well, a row shows next time and every call. */
-function Table({
+/** A table that opens in place: each row says how often it went well, a row shows next time and every call. With
+ * `onOpen` a row opens its calls instead (Equipo's side panel). */
+export function Table({
   id,
   title,
   column,
   rows,
   empty,
   detail,
+  onOpen,
 }: {
   id: string;
   title: string;
@@ -48,7 +48,8 @@ function Table({
   column: string;
   rows: Row[];
   empty: string;
-  detail: (rowId: string) => ReactNode;
+  detail?: (rowId: string) => ReactNode;
+  onOpen?: (rowId: string) => void;
 }) {
   const { t } = useLanguage();
   const p = t.product;
@@ -75,21 +76,28 @@ function Table({
                 <li key={row.id}>
                   <button
                     type="button"
-                    aria-expanded={expanded}
-                    onClick={() => setOpen(expanded ? null : row.id)}
+                    aria-expanded={onOpen ? undefined : expanded}
+                    onClick={() => (onOpen ? onOpen(row.id) : setOpen(expanded ? null : row.id))}
                     className={cn(`${GRID} w-full rounded-lg px-3 py-2.5 text-left`, THEME_TOKENS.interaction.rowHover, expanded && "bg-secondary/60")}
                   >
-                    <span className={cn("truncate text-sm", row.group ? "text-muted-foreground" : "text-foreground")} title={row.title}>
-                      {row.title}
+                    <span className="min-w-0">
+                      <span className={cn("block truncate text-sm", row.group ? "text-muted-foreground" : "text-foreground")} title={row.title}>
+                        {row.title}
+                      </span>
+                      {row.note ? <span className="mt-0.5 block truncate text-xs text-muted-foreground">{row.note}</span> : null}
                     </span>
-                    <OutcomeBar row={row} label={`${row.title}: ${row.good}/${row.of}`} />
+                    {row.of ? <OutcomeBar row={row} label={`${row.title}: ${row.good}/${row.of}`} /> : <span />}
                     <span className="text-right text-sm font-medium tabular-nums text-foreground">
                       {row.good}
-                      <span className="font-normal text-muted-foreground/70">/{row.of}</span>
+                      {row.of ? <span className="font-normal text-muted-foreground/70">/{row.of}</span> : null}
                     </span>
-                    <ChevronDown aria-hidden className={cn("h-4 w-4 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+                    {onOpen ? (
+                      <ChevronRight aria-hidden className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
+                    ) : (
+                      <ChevronDown aria-hidden className={cn("h-4 w-4 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+                    )}
                   </button>
-                  {expanded ? <div className="space-y-4 px-3 pb-5 pt-2">{detail(row.id)}</div> : null}
+                  {expanded && detail ? <div className="space-y-4 px-3 pb-5 pt-2">{detail(row.id)}</div> : null}
                 </li>
               );
             })}
@@ -163,27 +171,7 @@ export function ImproveTables({ type, steps, objections }: { type: string; steps
     bad: step.missing,
     of: step.applicable,
   }));
-  const listed = tableObjections(objections);
-  // Read by what followed each reply (C04 v10) once any row has it; calls read before keep "resolved".
-  const byAfter = listed.some(readByAfter);
-  const objectionRows: Row[] = listed.map((objection) => {
-    const group = objection.key === UNANSWERED_KEY;
-    const title = group ? p.coachUnanswered : objection.label || categories[objection.category] || objection.category;
-    if (byAfter) {
-      const advanced = objection.advanced ?? 0, stalled = objection.stalled ?? 0, ended = objection.ended ?? 0;
-      return { id: objection.key, title, group, good: advanced, half: stalled, unknown: Math.max(0, objection.total - advanced - stalled - ended), bad: ended, of: objection.total };
-    }
-    return {
-      id: objection.key,
-      title,
-      group,
-      good: objection.resolved,
-      half: 0,
-      unknown: Math.max(0, objection.total - objection.open - objection.resolved),
-      bad: objection.open,
-      of: objection.total,
-    };
-  });
+  const { listed, byAfter, rows: objectionRows } = objectionTable(objections, p.coachUnanswered, categories);
   return (
     <div className="-mx-3 grid gap-10 lg:grid-cols-2 lg:gap-8">
       <Table

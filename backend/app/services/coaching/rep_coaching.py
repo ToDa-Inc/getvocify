@@ -163,6 +163,9 @@ def interaction_row(memo: dict) -> dict | None:
         "full_process": call.get("call_type") in FULL_PROCESS_CALLS if call else True,
         # Booked is what the rep declared after the call, never read into the transcript.
         "meeting_agreed": rep_outcome == MEETING_BOOKED,
+        "rep_marked": bool(rep_outcome),
+        # What the call itself says: both sides agreed a meeting in it. Equipo counts it when the rep marked nothing.
+        "meeting_read": (intel.get("meeting") or {}).get("agreed") is True if isinstance(intel.get("meeting"), dict) else False,
         "duration_s": duration,
         # v8 says how the call ended, with who said what worked out; older calls keep the note's line.
         "summary_line": (_outcome_line(intel) or _first_plain_line(str(extraction.get("summary") or "")))[:SUMMARY_MAX_CHARS],

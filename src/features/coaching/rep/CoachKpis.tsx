@@ -4,7 +4,8 @@ import { useLanguage } from "@/lib/i18n";
 import { fill, formatPercent, summarizeCalls, trendOf, type CoachCalls } from "@/lib/rep-coaching";
 import { cn } from "@/lib/utils";
 
-function Tile({ icon, label, value, sub, tone }: { icon: ReactNode; label: string; value: string; sub?: ReactNode; tone?: string }) {
+/** One number of a KPI row: icon and label, the number, and one small line under it. Coaching's and Equipo's. */
+export function Tile({ icon, label, value, sub, tone }: { icon: ReactNode; label: string; value: string; sub?: ReactNode; tone?: string }) {
   return (
     <div className="min-w-0 space-y-1 overflow-hidden px-3 py-3 md:px-4 md:first:pl-3">
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

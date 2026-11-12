@@ -80,11 +80,15 @@ export type CoachCallReading = {
 /** C04 findings as the rep's Coaching shows them: each with what to do next time. Absent on calls read before them. */
 export type CoachCallFindings = {
   /** Questions not fully answered; `better` is what to answer next time, none when the company has no answer yet. */
-  questions: { topic: string; quote: string; answered: "partly" | "later" | "no"; answer: string | null; better: string | null; no_answer: boolean }[];
+  questions: { topic: string; quote: string; answered: "yes" | "partly" | "later" | "no"; answer: string | null; better: string | null; no_answer: boolean }[];
   /** Doors the prospect opened that the rep let pass, with what the rep said right after and the line to try. */
   signals: { topic: string; quote: string; kind: string; reply: string | null; why: string; line: string | null }[];
   /** What the rep said that moved the call on and the playbook does not have, and when to use it again. */
   worked: { topic: string; quote: string; after_quote: string; why: string; use_when: string | null }[];
+  /** Objections none of the playbook's answers is for: what they said, the reply, what followed, what to say instead. */
+  new_objections?: { topic: string; quote: string; reply: string | null; after: CoachAfter; better: string | null }[];
+  /** What the rep gave or relaxed, against what the company's material says is normal. Equipo's panel only. */
+  concessions?: { kind: string | null; what: string; normal: string | null; quote: string }[];
 };
 export type CoachCall = {
   memo_id: string;
@@ -106,7 +110,7 @@ export type CoachCall = {
 
 /** Whether a call's findings give the rep anything to open. */
 export function hasFindings(findings: CoachCallFindings | null | undefined): boolean {
-  return Boolean(findings && (findings.questions.length || findings.signals.length || findings.worked.length));
+  return Boolean(findings && (findings.questions.length || findings.signals.length || findings.worked.length || findings.concessions?.length || findings.new_objections?.length));
 }
 /** Every step the rep slipped on, with the calls it slipped in (newest first). */
 export type CoachSlippedStep = {
@@ -304,4 +308,45 @@ export function noObjectionsKey(given: number, listed: number): "coachNoObjectio
 /** The pager's "show earlier" action: a singular wording when exactly one moment is left. */
 export function earlierKey(count: number): "coachShowEarlier" | "coachShowEarlierOne" {
   return count === 1 ? "coachShowEarlierOne" : "coachShowEarlier";
+}
+
+/** One row of Coaching's tables (and Equipo's): how many of the times it came up went well, half way, unclear or badly. */
+export type TableRow = {
+  id: string;
+  title: string;
+  good: number;
+  half: number;
+  unknown: number;
+  bad: number;
+  /** How many times in all; absent for a plain count (then the row shows `good` alone, with no bar). */
+  of?: number;
+  /** A group rather than one item: lighter. */
+  group?: boolean;
+  /** One short line under the title: who, or a tag. */
+  note?: string;
+};
+
+/** The objections as table rows: by what followed each reply (C04 v10) once any has it, else resolved or not. */
+export function objectionTable(objections: CoachObjectionBreakdown[], unansweredTitle: string, categories: Record<string, string>) {
+  const listed = tableObjections(objections);
+  const byAfter = listed.some(readByAfter);
+  const rows: TableRow[] = listed.map((objection) => {
+    const group = objection.key === UNANSWERED_KEY;
+    const title = group ? unansweredTitle : objection.label || categories[objection.category] || objection.category;
+    if (byAfter) {
+      const advanced = objection.advanced ?? 0, stalled = objection.stalled ?? 0, ended = objection.ended ?? 0;
+      return { id: objection.key, title, group, good: advanced, half: stalled, unknown: Math.max(0, objection.total - advanced - stalled - ended), bad: ended, of: objection.total };
+    }
+    return {
+      id: objection.key,
+      title,
+      group,
+      good: objection.resolved,
+      half: 0,
+      unknown: Math.max(0, objection.total - objection.open - objection.resolved),
+      bad: objection.open,
+      of: objection.total,
+    };
+  });
+  return { listed, byAfter, rows };
 }

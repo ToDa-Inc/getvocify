@@ -567,28 +567,37 @@ async def get_my_coaching_calls(
         peer_memos = reads.load_memos(supabase, membership.company_id, peer_ids, start=window_start, motion=chosen)
         peer_rows = [row for row in _in_window(_rows_of(peer_memos), window_start, week_end) if row["motion"] == chosen]
     body["objections"] = engine.objection_breakdown(window, playbook["entries"], peer_rows=peer_rows)
-    calls: list[dict] = []
-    for row in conversations:
-        part = engine.adherence_part(row) or {}
-        calls.append({
-            "memo_id": row["memo_id"],
-            "observed_at": row["observed_at"],
-            "duration_s": row["duration_s"],
-            "summary_line": row["summary_line"],
-            "meeting_agreed": row["meeting_agreed"],
-            "kind": row.get("kind"),
-            "done": part.get("met_steps", 0),
-            "applicable": part.get("met_steps", 0) + part.get("missed_steps", 0),
-            "slips": engine.call_slips(row),  # empty: nothing to improve in this one
-            # What the prospect objected to in this call, even when no step could be judged in it.
-            "objections": engine.call_objections(row, playbook["entries"]),
-            # C04 v9: the reading of the whole call, shown first; None for calls read before it.
-            "reading": row.get("reading") if row["is_conversation"] else None,
-            # C04 findings, each with what to do next time: the questions asked, the doors let pass, what worked.
-            "findings": coach_findings(row.get("findings"), row.get("reading")) if row["is_conversation"] else None,
-        })
-    body["calls"] = calls[:_MAX_CALLS]
+    body["calls"] = [coach_call(row, playbook["entries"]) for row in conversations][:_MAX_CALLS]
     return body
+
+
+def coach_call(row: dict, entries: list[dict], *, manager: bool = False) -> dict:
+    """One conversation as Coaching opens it (the rep's record and Equipo's side panel alike; `manager` for Equipo)."""
+    part = engine.adherence_part(row) or {}
+    findings = coach_findings(row.get("findings"), row.get("reading"), manager=manager) if row["is_conversation"] else None
+    objections = engine.call_objections(row, entries)
+    if isinstance(row.get("findings"), dict) and "new_objections" in row["findings"]:
+        # A call read for its new objections names each one the playbook has no answer for: those are shown, not the
+        # unnamed "no prepared answer" group of the first read (Equipo's table does the same).
+        objections = [o for o in objections if o["key"] != engine.UNANSWERED]
+    return {
+        "memo_id": row["memo_id"],
+        "user_id": row.get("user_id"),
+        "observed_at": row["observed_at"],
+        "duration_s": row["duration_s"],
+        "summary_line": row["summary_line"],
+        "meeting_agreed": row["meeting_agreed"],
+        "kind": row.get("kind"),
+        "done": part.get("met_steps", 0),
+        "applicable": part.get("met_steps", 0) + part.get("missed_steps", 0),
+        "slips": engine.call_slips(row),  # empty: nothing to improve in this one
+        # What the prospect objected to in this call, even when no step could be judged in it.
+        "objections": objections,
+        # C04 v9: the reading of the whole call, shown first; None for calls read before it.
+        "reading": row.get("reading") if row["is_conversation"] else None,
+        # C04 findings, each with what to do next time: the questions asked, the doors let pass, what worked.
+        "findings": findings,
+    }
 
 
 class BetterReplyRequest(BaseModel):
@@ -614,7 +623,8 @@ async def post_better_reply(
     empresa". `say` is null when the playbook gives nothing to base it on: the screen says so rather than
     showing something made up. 502 when the model failed (nothing is stored; try again)."""
     memo = _require_readable_memo(supabase, membership, body.memo_id)
-    if str(memo.get("user_id") or "") != membership.user_id:
+    # The rep's own call, or for an owner or admin a call of their team they open from Equipo (nothing is stored).
+    if str(memo.get("user_id") or "") != membership.user_id and membership.role not in ("owner", "admin"):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memo no encontrado")
     playbook = reads.load_published_playbook(supabase, membership.company_id, body.type)
     if body.kind == "step":

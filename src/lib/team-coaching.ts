@@ -1,6 +1,6 @@
 // Equipo (Head of Sales): pure helpers for GET /team/coaching. No I/O, no React.
 import type { ProductTranslations } from "./product-catalog.ts";
-import { fill, formatPercent, MIN_CALLS_FOR_RATE } from "./rep-coaching.ts";
+import { fill, formatPercent, MIN_CALLS_FOR_RATE, type CoachCall, type CoachObjectionBreakdown } from "./rep-coaching.ts";
 
 type Product = ProductTranslations;
 
@@ -26,6 +26,20 @@ export type TeamLossCause = {
   share: number | null;
   examples: { memo_id: string; quote: string; rep: string; observed_at: string; from_history: boolean }[];
 };
+/** One topic across the team's calls: how many times, by whom, and the calls it came up in (newest first). */
+export type TeamTopic = { topic: string; count: number; reps: string[]; memo_ids: string[] };
+export type TeamQuestion = TeamTopic & { answered: { yes: number; partly: number; later: number; no: number }; covered: boolean };
+export type TeamConcession = { what: string; kind: string | null; normal: string | null; rep: string; memo_id: string; observed_at: string };
+export type TeamActivity = { calls: number; conversations: number; meetings: number; not_reached: { reason: string; count: number }[] };
+export type TeamFindings = {
+  read: number;
+  /** Absent from a backend older than the new objections. */
+  new_objections?: (TeamTopic & { after: { advanced: number; stalled: number; ended: number; unknown: number } })[];
+  opportunities: TeamTopic[];
+  questions: TeamQuestion[];
+  worked: TeamTopic[];
+  concessions: TeamConcession[];
+};
 export type TeamCoaching = {
   period: string;
   types: { key: string; label: string | null; conversations: number }[];
@@ -47,6 +61,12 @@ export type TeamCoaching = {
     by_source: { not_interested: number; disqualified: number; crm_lost: number };
     causes: TeamLossCause[];
   };
+  /** Absent from a backend older than the call findings on Equipo. */
+  activity?: TeamActivity;
+  findings?: TeamFindings;
+  objections?: CoachObjectionBreakdown[];
+  /** Every call a row points to, as the side panel opens it, with the rep's name. */
+  calls?: Record<string, CoachCall & { rep: string }>;
 };
 
 /** A goal needs this many marked meetings before any comparison says something (team_coaching.MIN_GOALS). */

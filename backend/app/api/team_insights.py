@@ -199,6 +199,10 @@ async def get_team_coaching(
         },
         "works": {"process": None, "steps": []},
         "losses": {"total": 0, "by_source": {"not_interested": 0, "disqualified": 0, "crm_lost": 0}, "causes": []},
+        "activity": {"calls": 0, "conversations": 0, "meetings": 0, "not_reached": []},
+        "findings": {"read": 0, "new_objections": [], "opportunities": [], "questions": [], "worked": [], "concessions": []},
+        "objections": [],
+        "calls": {},
     }
     if not reps:
         return body
@@ -282,4 +286,24 @@ async def get_team_coaching(
         if entry.get("category") == "custom" and str(entry.get("entry_id") or "").startswith("objection:custom:")
     }
     body["losses"] = answers.losses(signals, lost_ids, custom_labels, names, history=history)
+    # What the calls themselves showed: the activity, then what came up in the conversations, by topic.
+    body["activity"] = answers.activity([
+        memo for memo in memos
+        if memo.get("sales_motion_key") == chosen
+        and in_window(engine.parse_instant(memo.get("capture_started_at")) or engine.parse_instant(memo.get("created_at")), current)
+    ])
+    body["findings"] = answers.team_findings(own, names)
+    # The objections by the playbook answer they are for, with what colleagues replied when the call moved on.
+    body["objections"] = engine.objection_breakdown(own, playbook["entries"], peer_rows=own)
+    # Every conversation a row above points to, as Coaching opens it in the side panel.
+    from app.api.coaching import coach_call
+
+    found = body["findings"]
+    wanted = {memo_id for group in (*found["new_objections"], *found["opportunities"], *found["questions"], *found["worked"]) for memo_id in group["memo_ids"]}
+    wanted |= {item["memo_id"] for item in body["findings"]["concessions"]}
+    wanted |= {occurrence["memo_id"] for objection in body["objections"] for occurrence in objection["occurrences"]}
+    body["calls"] = {
+        row["memo_id"]: {**coach_call(row, playbook["entries"], manager=True), "rep": names.get(row["user_id"], "")}
+        for row in own if row["memo_id"] in wanted and row["is_conversation"]
+    }
     return body

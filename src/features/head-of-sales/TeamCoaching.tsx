@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowRight, ArrowUp, ArrowUpRight } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, MessagesSquare, PhoneOff, Search, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
+import { Tile } from "@/features/coaching/rep/CoachKpis";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 import type { HosPeriod, HosSalesRole } from "@/lib/head-of-sales";
@@ -28,6 +29,7 @@ import {
 } from "@/lib/team-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
+import { TeamFindings } from "./TeamFindings";
 import { useTeamCoaching } from "./useTeamCoaching";
 
 /** The same visual code as the reps' Coaching: colour only where it means something. */
@@ -319,6 +321,69 @@ function Losses({ data }: { data: TeamCoachingBody }) {
   );
 }
 
+// Why a call never became a conversation, from the most to the least: one neutral shade each, never red or green.
+const REASON_SHADE = ["bg-foreground/60", "bg-foreground/40", "bg-foreground/25", "bg-foreground/15", "bg-foreground/10"];
+
+/** The period's calls of the type as Coaching's KPI row, about how the team performs and not about a goal (a type may
+ * have none): conversations of all the calls, the new objections, the opportunities let pass, and the calls that never
+ * got to talk split by why, as one bar. */
+function Activity({ data }: { data: TeamCoachingBody }) {
+  const { t } = useLanguage();
+  const p = t.product;
+  const activity = data.activity!;
+  const newObjections = data.findings?.new_objections ?? [];
+  const opportunities = data.findings?.opportunities ?? [];
+  const reasons = p.teamNotReached as Record<string, string>;
+  const rest = activity.not_reached.filter((item) => item.count && reasons[item.reason]);
+  const missed = rest.reduce((sum, item) => sum + item.count, 0);
+  return (
+    <div className="grid grid-cols-2 divide-border/50 border-y border-border/50 md:grid-cols-4 md:divide-x" data-testid="team-activity">
+      <Tile
+        icon={<MessagesSquare aria-hidden size={13} strokeWidth={1.5} />}
+        label={p.coachKpiConversations}
+        value={String(activity.conversations)}
+        sub={fill(p.teamKpiOfCalls, { total: activity.calls })}
+      />
+      <Tile
+        icon={<ShieldAlert aria-hidden size={13} strokeWidth={1.5} />}
+        label={p.teamNewObjections}
+        value={String(newObjections.length)}
+        sub={newObjections.length ? fill(p.teamKpiTimes, { count: newObjections.reduce((sum, item) => sum + item.count, 0) }) : null}
+      />
+      <Tile
+        icon={<Search aria-hidden size={13} strokeWidth={1.5} />}
+        label={p.teamOpportunities}
+        value={String(opportunities.length)}
+        sub={opportunities.length ? fill(p.teamKpiTimes, { count: opportunities.reduce((sum, item) => sum + item.count, 0) }) : null}
+      />
+      <Tile
+        icon={<PhoneOff aria-hidden size={13} strokeWidth={1.5} />}
+        label={p.teamKpiNotReached}
+        value={String(missed)}
+        sub={
+          missed ? (
+            <span className="block space-y-1.5 pt-1">
+              <span className="flex h-1.5 gap-px overflow-hidden rounded-full bg-secondary" role="img" aria-label={rest.map((item) => `${item.count} ${reasons[item.reason]}`).join(", ")}>
+                {rest.map((item, index) => (
+                  <span key={item.reason} className={REASON_SHADE[index] ?? REASON_SHADE[REASON_SHADE.length - 1]} style={{ flexGrow: item.count, flexBasis: 0 }} title={`${item.count} ${reasons[item.reason]}`} />
+                ))}
+              </span>
+              <span className="flex flex-wrap gap-x-2.5 gap-y-0.5">
+                {rest.map((item, index) => (
+                  <span key={item.reason} className="inline-flex items-center gap-1 whitespace-nowrap">
+                    <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", REASON_SHADE[index] ?? REASON_SHADE[REASON_SHADE.length - 1])} />
+                    <span className="tabular-nums text-foreground/80">{item.count}</span> {reasons[item.reason]}
+                  </span>
+                ))}
+              </span>
+            </span>
+          ) : null
+        }
+      />
+    </div>
+  );
+}
+
 /** Equipo: do they follow the playbook, does it work, why we lose. One interaction type at a time, on
  * one plane, with the reps' Coaching's visual code. */
 export function TeamCoaching({ period, salesRole }: { period: HosPeriod; salesRole: HosSalesRole }) {
@@ -358,11 +423,15 @@ export function TeamCoaching({ period, salesRole }: { period: HosPeriod; salesRo
           />
         </div>
       ) : null}
+      {data.activity?.calls ? <div className="px-3"><Activity data={data} /></div> : null}
+      <TeamFindings data={data} />
       <Follow data={data} period={period} />
-      <div className="grid gap-12 px-3 lg:grid-cols-2 lg:gap-14">
-        <Works data={data} />
-        <Losses data={data} />
-      </div>
+      {worksHasVerdict(data.works) || data.losses.total ? (
+        <div className="grid gap-12 px-3 lg:grid-cols-2 lg:gap-14">
+          {worksHasVerdict(data.works) ? <Works data={data} /> : null}
+          {data.losses.total ? <Losses data={data} /> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

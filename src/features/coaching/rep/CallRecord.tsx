@@ -136,12 +136,28 @@ function FindingMisses({ findings }: { findings: CoachCallFindings }) {
   const { t } = useLanguage();
   const p = t.product;
   const state = {
+    yes: { tone: "good", word: p.coachFindingAnswered },
     no: { tone: "bad", word: p.coachFindingUnanswered },
     later: { tone: "unknown", word: p.coachFindingLater },
     partly: { tone: "half", word: p.coachFindingPartly },
   } as const;
+  const after = { advanced: ["good", p.coachAfterAdvanced], stalled: ["half", p.coachAfterStalled], ended: ["bad", p.coachAfterEnded], unknown: ["unknown", p.coachAfterUnknown] } as const;
   return (
     <>
+      {(findings.new_objections ?? []).map((item, index) => (
+        <section key={`new-${index}`} className="space-y-3" data-testid="coach-finding-new-objection">
+          <MomentTitle title={item.topic} kind={p.coachFindingNewObjection} />
+          <div className="flex items-center gap-2 text-xs">
+            <StateTag tone={after[item.after][0]}>{after[item.after][1]}</StateTag>
+            <StateTag tone="unknown">{p.coachFindingNoAnswer}</StateTag>
+          </div>
+          <div className="space-y-2.5">
+            <Bubble kind="prospect" caption={p.coachProspectSaid}>{item.quote}</Bubble>
+            {item.reply ? <Bubble kind="you" caption={p.coachYouReplied}>{item.reply}</Bubble> : null}
+            {item.better ? <WrittenLine line={item.better} /> : null}
+          </div>
+        </section>
+      ))}
       {findings.signals.map((item, index) => (
         <section key={`door-${index}`} className="space-y-3" data-testid="coach-finding-door">
           <MomentTitle title={item.topic} kind={p.coachFindingDoor} />
@@ -172,12 +188,22 @@ function FindingMisses({ findings }: { findings: CoachCallFindings }) {
   );
 }
 
-/** What worked off the playbook: what the rep said, what the client replied, and when to use it again. */
+/** What worked off the playbook: what the rep said, what the client replied, and when to use it again. Then, in
+ * Equipo's panel, what the rep conceded and what the company's material says is normal. */
 function FindingWins({ findings }: { findings: CoachCallFindings }) {
   const { t } = useLanguage();
   const p = t.product;
   return (
     <>
+      {(findings.concessions ?? []).map((item, index) => (
+        <section key={`conceded-${index}`} className="space-y-3" data-testid="coach-finding-concession">
+          <MomentTitle title={item.what} kind={p.coachFindingConcession} />
+          <div className="space-y-2.5">
+            <Bubble kind="you" caption={p.coachYouSaid}>{item.quote}</Bubble>
+            {item.normal ? <Why>{item.normal}</Why> : null}
+          </div>
+        </section>
+      ))}
       {findings.worked.map((item, index) => (
         <section key={`worked-${index}`} className="space-y-3" data-testid="coach-finding-worked">
           <MomentTitle title={item.topic} kind={p.coachFindingWorked} />
@@ -307,10 +333,11 @@ function CallRow({ call, open, onOpen }: { call: CoachCall; open: boolean; onOpe
 }
 
 /** The call opened on the side, the way Hoy opens a contact: the list stays usable, ↑ / ↓ move to the previous and
- * next call, Esc closes. Its head is the row itself; under it, every moment of the call. */
-function CallPanel({ call, type, onClose, onMove, canMove }: {
+ * next call, Esc closes. Its head is the row itself (with the rep, in Equipo); under it, every moment of the call. */
+export function CallPanel({ call, type, rep, onClose, onMove, canMove }: {
   call: CoachCall;
   type: string;
+  rep?: string;
   onClose: () => void;
   onMove: (step: -1 | 1) => void;
   canMove: { previous: boolean; next: boolean };
@@ -321,6 +348,21 @@ function CallPanel({ call, type, onClose, onMove, canMove }: {
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
   }, [call.memo_id]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const field = event.target instanceof HTMLElement && event.target.closest("input, textarea, [contenteditable=true]");
+      if (field || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        onMove(event.key === "ArrowDown" ? 1 : -1);
+      } else if (event.key === "Escape") {
+        // The list keeps focus while the panel is open, so Esc is heard here, not only inside the panel.
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onMove, onClose]);
   return (
     <Sheet open modal={false} onOpenChange={(next) => !next && onClose()}>
       <SheetPortal>
@@ -332,7 +374,7 @@ function CallPanel({ call, type, onClose, onMove, canMove }: {
         >
           <SheetPrimitive.Title className="sr-only">{cleanSummaryLine(call.summary_line)}</SheetPrimitive.Title>
           <header className="space-y-3 border-b border-border/60 px-6 pb-4 pt-5">
-            <div className="flex items-center justify-end gap-0.5">
+            <div className="-mt-1 flex items-center justify-end gap-0.5">
               <IconAction label={p.coachPrevious} disabled={!canMove.previous} onClick={() => onMove(-1)}>
                 <ChevronUp className="h-4 w-4" strokeWidth={1.5} />
               </IconAction>
@@ -346,6 +388,7 @@ function CallPanel({ call, type, onClose, onMove, canMove }: {
                 <X className="h-4 w-4" strokeWidth={1.5} />
               </IconAction>
             </div>
+            {rep ? <p className={THEME_TOKENS.typography.capsLabel}>{rep}</p> : null}
             <div className="flex items-start gap-3.5">
               <CallSummary call={call} large />
             </div>
@@ -391,22 +434,7 @@ export function CallRecord({ calls, type }: { calls: CoachCall[]; type: string }
     },
     [openable, openIndex, visible],
   );
-  useEffect(() => {
-    if (!opened) return;
-    const onKey = (event: KeyboardEvent) => {
-      const field = event.target instanceof HTMLElement && event.target.closest("input, textarea, [contenteditable=true]");
-      if (field || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        move(event.key === "ArrowDown" ? 1 : -1);
-      } else if (event.key === "Escape") {
-        // The list keeps focus while the panel is open, so Esc is heard here, not only inside the panel.
-        setOpenId(null);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [opened, move]);
+  const close = useCallback(() => setOpenId(null), []);
 
   const scroller = useRef<HTMLDivElement>(null);
   const [atEnd, setAtEnd] = useState(true);
@@ -483,7 +511,7 @@ export function CallRecord({ calls, type }: { calls: CoachCall[]; type: string }
         <CallPanel
           call={opened}
           type={type}
-          onClose={() => setOpenId(null)}
+          onClose={close}
           onMove={move}
           canMove={{ previous: openIndex > 0, next: openIndex < openable.length - 1 }}
         />

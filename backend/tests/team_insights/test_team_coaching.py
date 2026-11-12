@@ -251,3 +251,76 @@ def test_team_coaching_is_for_the_head_of_sales_only():
     assert _client([], role="member").get("/api/v1/team/coaching").status_code == 403
     empty = _client([]).get("/api/v1/team/coaching").json()
     assert empty["type"] is None and empty["follow"]["reps"] == []
+
+
+# --- what the calls themselves show (C04 findings) -------------------------------------------------------------------
+
+
+def test_a_meeting_the_call_agreed_counts_when_the_rep_marked_nothing():
+    assert answers.meeting_of({"meeting_agreed": False, "rep_marked": False, "meeting_read": True}) is True
+    # What the rep marked wins over what the call read.
+    assert answers.meeting_of({"meeting_agreed": False, "rep_marked": True, "meeting_read": True}) is False
+    assert answers.meeting_of({"meeting_agreed": True, "rep_marked": True, "meeting_read": False}) is True
+
+
+def test_activity_says_why_the_rest_never_got_to_talk():
+    def memo(call_type, *, duration=120, screening="connected", meeting=None, outcome=None):
+        return {"audio_duration": duration, "screening_outcome": screening, "rep_outcome": outcome,
+                "extraction": {"intelligence": {"call": {"call_type": call_type, "reached_conversation": call_type != "no_conversation"},
+                                                "meeting": {"agreed": meeting}}}}
+    memos = [
+        memo("cold_first_contact", meeting=True), memo("follow_up"), memo("follow_up", outcome="meeting_booked"),
+        memo("wrong_person"), memo("wrong_person"), memo("no_conversation"), memo("bad_moment"), memo(None, duration=10, screening="voicemail"),
+    ]
+    body = answers.activity(memos)
+    assert (body["calls"], body["conversations"], body["meetings"]) == (8, 3, 2)
+    assert body["not_reached"] == [{"reason": "no_answer", "count": 2}, {"reason": "wrong_person", "count": 2}, {"reason": "bad_moment", "count": 1}]
+
+
+def test_findings_are_grouped_by_topic_with_the_playbooks_gaps_first():
+    def row(memo_id, user, findings, days=0):
+        return {**_row({}, user=user), "memo_id": memo_id, "observed_at": (NOW - timedelta(days=days)).isoformat(), "findings": findings}
+    rows = [
+        row("a", ANA, {"signals": [{"topic": "Equipos sin usar", "quote": "q"}],
+                       "questions": [{"topic": "Permanencia", "answered": "yes", "covered_by": "material"},
+                                     {"topic": "Propiedad de los equipos", "answered": "no", "covered_by": None}],
+                       "worked": [], "concessions": [{"what": "Prueba de un mes", "kind": "trial"}],
+                       "new_objections": [{"topic": "No quiere compartir datos", "after": "stalled"}]}),
+        row("b", LUIS, {"signals": [{"topic": "equipos  sin usar"}], "questions": [{"topic": "Permanencia", "answered": "partly"}],
+                        "worked": [{"topic": "Cambio de camión"}], "concessions": []}, days=1),
+        row("c", LUIS, None),
+    ]
+    found = answers.team_findings(rows, {ANA: "Ana", LUIS: "Luis"})
+    assert found["read"] == 2
+    assert [(g["topic"], g["count"], g["reps"], g["memo_ids"]) for g in found["opportunities"]] == [("Equipos sin usar", 2, ["Ana", "Luis"], ["a", "b"])]
+    assert [(g["topic"], g["covered"]) for g in found["questions"]] == [("Propiedad de los equipos", False), ("Permanencia", True)]
+    assert found["questions"][1]["answered"] == {"yes": 1, "partly": 1, "later": 0, "no": 0}
+    assert [c["what"] for c in found["concessions"]] == ["Prueba de un mes"] and found["concessions"][0]["rep"] == "Ana"
+    assert found["new_objections"][0]["after"] == {"advanced": 0, "stalled": 1, "ended": 0, "unknown": 0}
+
+
+def test_team_coaching_gives_the_new_blocks_and_the_calls_they_open():
+    memos = [_memo("a1", ANA, {"open": "met", "pain": "missed"}, objections=[("price", "Es caro")])]
+    memos[0]["extraction"]["intelligence"]["findings"] = {
+        "version": "findings_v1", "questions": [], "worked": [], "concessions": [],
+        "signals": [{"topic": "Equipos sin usar", "quote": "tengo cuatro sin usar", "kind": "need", "reply": None, "why": "x", "line": "y"}],
+    }
+    body = _client(memos).get("/api/v1/team/coaching?period=month").json()
+    assert body["activity"]["calls"] == 1 and body["findings"]["opportunities"][0]["memo_ids"] == ["a1"]
+    assert body["objections"][0]["occurrences"][0]["memo_id"] == "a1"
+    call = body["calls"]["a1"]
+    assert call["rep"] and call["findings"]["signals"][0]["topic"] == "Equipos sin usar"
+
+
+
+def test_a_call_read_for_new_objections_shows_them_named_and_not_the_unnamed_group():
+    from app.api.coaching import coach_call
+    from app.services.coaching import rep_coaching as engine
+
+    row = {**_row({"open": "done"}), "duration_s": 120, "summary_line": "", "kind": "call", "objections": [
+        {"kind": "objection", "category": "other", "objection_id": None, "quote": "No quiero dar los datos"},
+    ], "answers_read": True, "reading": None, "findings": {"new_objections": [], "questions": [], "signals": [], "worked": []}}
+    entries = [{"category": "price", "entry_id": "objection:price", "guidance": "Compara."}]
+    assert [o["key"] for o in engine.call_objections(row, entries)] == [engine.UNANSWERED]
+    assert coach_call(row, entries)["objections"] == []
+    assert [o["key"] for o in coach_call({**row, "findings": None}, entries)["objections"]] == [engine.UNANSWERED]

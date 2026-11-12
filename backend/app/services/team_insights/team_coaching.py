@@ -29,6 +29,11 @@ def _rate(part: int, whole: int) -> float | None:
     return round(part / whole, 4) if whole else None
 
 
+def meeting_of(row: dict) -> bool:
+    """A meeting the rep marked, or, when they marked nothing, one both sides agreed in the call itself."""
+    return bool(row.get("meeting_agreed") or (not row.get("rep_marked") and row.get("meeting_read")))
+
+
 # A verdict that says the step was done or not done; no evidence and not reached never count.
 _COUNTED = engine.DONE_STATES | {"missing"}
 
@@ -77,7 +82,7 @@ def rep_matrix(rows_by_user: dict[str, list[dict]], reps: list[dict], steps: lis
             "user_id": str(rep["userId"]),
             "name": rep.get("name") or "",
             **adherence_of(rows, steps),
-            "meetings": sum(1 for row in conversations if row.get("meeting_agreed")),
+            "meetings": sum(1 for row in conversations if meeting_of(row)),
             "steps": {
                 rate["step_id"]: {"done": rate["done"], "applicable": rate["applicable"], "rate": rate["rate"]}
                 for rate in engine.step_rates(rows, steps)
@@ -99,7 +104,7 @@ def _verdict(with_side: dict, without_side: dict) -> str:
 
 
 def _side(rows: list[dict]) -> dict:
-    goals = sum(1 for row in rows if row.get("meeting_agreed"))
+    goals = sum(1 for row in rows if meeting_of(row))
     return {"calls": len(rows), "goals": goals, "rate": _rate(goals, len(rows))}
 
 
@@ -258,3 +263,100 @@ def losses(
     for entry in ranked:
         entry["share"] = _rate(entry["count"], total)
     return {"total": total, "by_source": by_source, "causes": ranked}
+
+
+# --- what the calls themselves show the head of sales (C04 findings) ------------------------------------------------
+
+# Why a call never became a conversation, as the call reading types it, grouped the way the head of sales reads it.
+_NOT_REACHED = {
+    "no_conversation": "no_answer", "gatekeeper": "gatekeeper", "wrong_person": "wrong_person",
+    "bad_moment": "bad_moment", "not_a_sales_call": "not_a_sales_call",
+}
+
+
+def activity(memos: list[dict]) -> dict:
+    """The period's calls of the type: how many, how many became a conversation, how many ended in a meeting, and
+    why the rest did not get to talk (by the call reading's type; calls not read yet are only counted)."""
+    calls = len(memos)
+    conversations = 0
+    meetings = 0
+    not_reached: dict[str, int] = {}
+    for memo in memos:
+        intel = engine._intelligence(memo)
+        call = intel.get("call") if isinstance(intel.get("call"), dict) else {}
+        reason = _NOT_REACHED.get(str(call.get("call_type") or ""))
+        if engine.is_conversation(memo) and reason is None:
+            conversations += 1
+            meeting = isinstance(intel.get("meeting"), dict) and intel["meeting"].get("agreed") is True
+            if memo.get("rep_outcome") == engine.MEETING_BOOKED or (not memo.get("rep_outcome") and meeting):
+                meetings += 1
+            continue
+        key = reason or ("no_answer" if not engine.is_conversation(memo) else None)
+        if key:
+            not_reached[key] = not_reached.get(key, 0) + 1
+    return {
+        "calls": calls,
+        "conversations": conversations,
+        "meetings": meetings,
+        "not_reached": [{"reason": key, "count": count} for key, count in sorted(not_reached.items(), key=lambda kv: (-kv[1], kv[0]))],
+    }
+
+
+def _group(rows: list[dict], key: str, names: dict[str, str], extra=None) -> list[dict]:
+    """One row per topic across the calls: how many times, by whom, and the calls it came up in (newest first)."""
+    from app.services.intelligence.findings import topic_key
+
+    groups: dict[str, dict] = {}
+    for row in sorted(rows, key=lambda r: r["observed_at"], reverse=True):
+        for item in ((row.get("findings") or {}).get(key) or []):
+            if not isinstance(item, dict) or not item.get("topic"):
+                continue
+            group = groups.setdefault(topic_key(item["topic"]), {"topic": item["topic"], "count": 0, "reps": [], "memo_ids": []})
+            group["count"] += 1
+            rep = names.get(str(row.get("user_id")), "")
+            if rep and rep not in group["reps"]:
+                group["reps"].append(rep)
+            if row["memo_id"] not in group["memo_ids"]:
+                group["memo_ids"].append(row["memo_id"])
+            if extra:
+                extra(group, item)
+    return sorted(groups.values(), key=lambda g: (-g["count"], g["topic"]))
+
+
+def _question_state(group: dict, item: dict) -> None:
+    answered = group.setdefault("answered", {"yes": 0, "partly": 0, "later": 0, "no": 0})
+    if item.get("answered") in answered:
+        answered[item["answered"]] += 1
+    # The playbook or the material answers it when any call said so; with none, it is a gap to write.
+    group["covered"] = bool(group.get("covered")) or bool(item.get("covered_by"))
+
+
+def _after_state(group: dict, item: dict) -> None:
+    after = group.setdefault("after", {"advanced": 0, "stalled": 0, "ended": 0, "unknown": 0})
+    after[item.get("after") if item.get("after") in after else "unknown"] += 1
+
+
+def team_findings(rows: list[dict], names: dict[str, str]) -> dict:
+    """What the conversations of the type showed, grouped by topic: the objections the playbook has no answer for, the
+    opportunities the reps let pass, the questions the clients asked (gaps of the playbook first), what worked off the
+    playbook, and every concession."""
+    conversations = [row for row in rows if row.get("is_conversation", True) and isinstance(row.get("findings"), dict)]
+    questions = _group(conversations, "questions", names, _question_state)
+    questions.sort(key=lambda g: (g.get("covered", False), -g["count"], g["topic"]))
+    concessions = []
+    for row in sorted(conversations, key=lambda r: r["observed_at"], reverse=True):
+        for item in row["findings"].get("concessions") or []:
+            if isinstance(item, dict) and item.get("what"):
+                concessions.append({
+                    "what": item["what"], "kind": item.get("kind"), "normal": item.get("normal"),
+                    "rep": names.get(str(row.get("user_id")), ""), "memo_id": row["memo_id"], "observed_at": row["observed_at"],
+                })
+    return {
+        "read": len(conversations),
+        # Objections none of the playbook's answers is for, by what the reps call them, and what followed each reply.
+        "new_objections": _group(conversations, "new_objections", names, _after_state),
+        "opportunities": _group(conversations, "signals", names),
+        "questions": questions,
+        "worked": _group(conversations, "worked", names),
+        "concessions": concessions,
+    }

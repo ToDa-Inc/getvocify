@@ -198,3 +198,14 @@ def test_a_door_that_is_the_calls_turning_point_is_not_shown_twice():
     ]}
     reading = {"decisive_moment": {"quote": "es Cuadis, con lo cual tendrías que dirigirte  directamente a Cuadis."}}
     assert [s["topic"] for s in findings.coach_findings(shaped, reading)["signals"]] == ["Otra"]
+
+
+def test_a_new_objection_stands_on_the_prospects_words_with_what_followed():
+    shaped = _shape({"new_objections": [
+        {"quote": "Me parece bastante caro en comparación con lo que pago ahora", "topic": "caro frente a lo actual",
+         "reply": "Te lo puedo dejar a 11 euros por tractora como mucho", "after": "advanced", "better": "Compara el coste real."},
+        {"quote": "Te lo puedo dejar a 11 euros por tractora como mucho", "topic": "No es del cliente", "after": "ended"},
+    ]})
+    assert [(o["topic"], o["after"], o["reply"] is not None) for o in shaped["new_objections"]] == [("Caro frente a lo actual", "advanced", True)]
+    coach = findings.coach_findings({**shaped, "questions": [], "signals": [], "worked": []})
+    assert coach["new_objections"][0]["better"] == "Compara el coste real."
