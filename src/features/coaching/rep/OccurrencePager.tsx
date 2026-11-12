@@ -36,6 +36,16 @@ export type Moment = {
 const TAG = { bad: "bg-destructive/10 text-destructive", half: "bg-warning/10 text-warning", good: "bg-success/10 text-success", unknown: "bg-secondary text-muted-foreground" } as const;
 const DOT = { bad: "bg-destructive/70", half: "bg-warning/80", good: "bg-success/70", unknown: "bg-muted-foreground/40" } as const;
 
+/** How a moment went, as the same small tag everywhere in Coaching. */
+export function StateTag({ tone, children }: { tone: Moment["tone"]; children: ReactNode }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium", TAG[tone])}>
+      <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", DOT[tone])} />
+      {children}
+    </span>
+  );
+}
+
 type BubbleKind = "prospect" | "you" | "none" | "better";
 const BUBBLE: Record<BubbleKind, string> = {
   prospect: "rounded-bl-md bg-secondary/70",
@@ -44,13 +54,14 @@ const BUBBLE: Record<BubbleKind, string> = {
   better: "rounded-br-md border border-success/25 bg-success/10",
 };
 
-/** One turn of the exchange: the prospect on the left, the rep on the right, with a small caption saying
- * whose it is. `actions` sit beside the bubble, away from the text. */
+/** One turn of the exchange, the way a chat reads: the client on the left, the rep on the right, and the line to
+ * say in green with a bulb. Whose turn it is shows by its side and colour, never by a caption over it: `caption`
+ * is read by screen readers only. `actions` sit beside the bubble, away from the text. */
 export function Bubble({ kind, caption, children, actions }: { kind: BubbleKind; caption: string; children: ReactNode; actions?: ReactNode }) {
   const right = kind !== "prospect";
   return (
-    <div className={cn("flex flex-col gap-0.5", right ? "items-end" : "items-start")}>
-      <span className="px-1 text-[11px] text-muted-foreground">{caption}</span>
+    <div className={cn("flex flex-col", right ? "items-end" : "items-start")}>
+      <span className="sr-only">{caption}</span>
       <div className={cn("flex max-w-[94%] items-center gap-1", right && "flex-row-reverse")}>
         <div className={cn("min-w-0 rounded-2xl px-3.5 py-2 text-[14.5px] leading-snug text-foreground", BUBBLE[kind])}>{children}</div>
         {actions ? <span className="flex shrink-0 items-center">{actions}</span> : null}
@@ -60,7 +71,7 @@ export function Bubble({ kind, caption, children, actions }: { kind: BubbleKind;
 }
 
 /** A line already written with the call (C04 v9): shown as the better line, with a copy icon. */
-function WrittenLine({ line }: { line: string }) {
+export function WrittenLine({ line }: { line: string }) {
   const { t } = useLanguage();
   const p = t.product;
   const [copied, setCopied] = useState(false);
@@ -215,10 +226,7 @@ export function OccurrencePager({ type, kind, itemKey, how, moments, eager = tru
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium", TAG[moment.tone])}>
-          <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", DOT[moment.tone])} />
-          {stateWord}
-        </span>
+        <StateTag tone={moment.tone}>{stateWord}</StateTag>
         <Link to={`/dashboard/memos/${moment.memo_id}`} className="inline-flex items-center gap-0.5 hover:text-foreground">
           {day}
           <ArrowUpRight aria-hidden className="h-3 w-3" />
@@ -239,7 +247,7 @@ export function OccurrencePager({ type, kind, itemKey, how, moments, eager = tru
         {objection ? (
           <>
             <Bubble kind="prospect" caption={p.coachProspectSaid}>{moment.quote ?? "—"}</Bubble>
-            {moment.response ? <Bubble kind="you" caption={p.coachYouReplied}>{moment.response}</Bubble> : <Bubble kind="none" caption={p.coachYouReplied}>{p.coachNoReply}</Bubble>}
+            {moment.response ? <Bubble kind="you" caption={p.coachYouReplied}>{moment.response}</Bubble> : null}
             {moment.afterQuote ? <Bubble kind="prospect" caption={p.coachTheyThenSaid}>{moment.afterQuote}</Bubble> : null}
           </>
         ) : moment.quote ? (

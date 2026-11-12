@@ -172,6 +172,8 @@ def interaction_row(memo: dict) -> dict | None:
         "answers_read": intel.get("prompt_version") in ANSWERS_VERSIONS,
         # C04 v9: the call as a whole (the error that cost it most, how to steer it, the best it could give).
         "reading": intel.get("reading") if isinstance(intel.get("reading"), dict) else None,
+        # C04 findings: the prospect's questions, the doors let pass, what worked off the playbook, what was conceded.
+        "findings": intel.get("findings") if isinstance(intel.get("findings"), dict) else None,
     }
 
 

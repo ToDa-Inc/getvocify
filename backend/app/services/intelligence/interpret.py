@@ -31,6 +31,8 @@ def merge_intelligence(existing: Optional[dict], incoming: dict) -> dict:
     for key in _LISTS:
         if incoming.get(key):
             merged[key] = incoming[key]
+    if isinstance(incoming.get("findings"), dict):
+        merged["findings"] = incoming["findings"]  # the head of sales' read of the call is the extractor's
     meeting = dict(existing.get("meeting") or {})
     new_meeting = incoming.get("meeting") or {}
     if new_meeting.get("agreed") is not None or not meeting:

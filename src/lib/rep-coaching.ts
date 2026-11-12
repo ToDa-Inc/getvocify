@@ -77,6 +77,15 @@ export type CoachCallReading = {
   /** The realistic best this call could have given, and whether the rep got it. */
   best_outcome: { what: string | null; got: boolean | null } | null;
 };
+/** C04 findings as the rep's Coaching shows them: each with what to do next time. Absent on calls read before them. */
+export type CoachCallFindings = {
+  /** Questions not fully answered; `better` is what to answer next time, none when the company has no answer yet. */
+  questions: { topic: string; quote: string; answered: "partly" | "later" | "no"; answer: string | null; better: string | null; no_answer: boolean }[];
+  /** Doors the prospect opened that the rep let pass, with what the rep said right after and the line to try. */
+  signals: { topic: string; quote: string; kind: string; reply: string | null; why: string; line: string | null }[];
+  /** What the rep said that moved the call on and the playbook does not have, and when to use it again. */
+  worked: { topic: string; quote: string; after_quote: string; why: string; use_when: string | null }[];
+};
 export type CoachCall = {
   memo_id: string;
   observed_at: string | null;
@@ -92,7 +101,13 @@ export type CoachCall = {
   /** Absent from a backend older than the objections of a call. */
   objections?: CoachCallObjection[];
   reading?: CoachCallReading | null;
+  findings?: CoachCallFindings | null;
 };
+
+/** Whether a call's findings give the rep anything to open. */
+export function hasFindings(findings: CoachCallFindings | null | undefined): boolean {
+  return Boolean(findings && (findings.questions.length || findings.signals.length || findings.worked.length));
+}
 /** Every step the rep slipped on, with the calls it slipped in (newest first). */
 export type CoachSlippedStep = {
   step_id: string;

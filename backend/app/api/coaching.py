@@ -23,6 +23,7 @@ from app.services.coaching.score_rows import current_score, current_scores
 from app.services.activity_scope import can_view_company_activity, effective_visibility, memo_readable_by
 from app.services.company import CompanyService, Membership
 from app.services.feature_flags import is_enabled
+from app.services.intelligence.findings import coach_findings
 from app.services.playbooks.catalog import INTERNAL_KEY
 from app.services.playbooks.live import live_snapshots
 from app.services.playbooks.motion import visible_to_role
@@ -583,6 +584,8 @@ async def get_my_coaching_calls(
             "objections": engine.call_objections(row, playbook["entries"]),
             # C04 v9: the reading of the whole call, shown first; None for calls read before it.
             "reading": row.get("reading") if row["is_conversation"] else None,
+            # C04 findings, each with what to do next time: the questions asked, the doors let pass, what worked.
+            "findings": coach_findings(row.get("findings"), row.get("reading")) if row["is_conversation"] else None,
         })
     body["calls"] = calls[:_MAX_CALLS]
     return body

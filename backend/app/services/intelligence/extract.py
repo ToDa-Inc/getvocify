@@ -947,6 +947,23 @@ def _intelligence_inputs(supabase: Any, memo_id: str) -> dict:
         "qualification": qualification,
         "objections": objections,
         "context": context,
+        "findings": _findings_inputs(supabase, memo) if prompt_version in CALL_READING_VERSIONS else None,
+    }
+
+
+def _findings_inputs(supabase: Any, memo: dict) -> dict | None:
+    """What the findings read needs beyond the call (the company's material, the topics earlier calls used), or None
+    when the company has it switched off. Blocking: callers run it in a thread."""
+    from app.services.copilot.load_grounding import load_company_knowledge
+    from app.services.feature_flags import is_enabled
+    from app.services.intelligence.findings import FINDINGS_FLAG, compact_material, load_known_topics
+
+    company_id = memo.get("company_id")
+    if not is_enabled(supabase, company_id, FINDINGS_FLAG):
+        return None
+    return {
+        "material": compact_material(load_company_knowledge(supabase, company_id=str(company_id or ""))),
+        "known_topics": load_known_topics(supabase, str(company_id or "")),
     }
 
 
@@ -979,7 +996,8 @@ async def ensure_intelligence(supabase: Any, memo_id: str, *, llm: Any = None) -
     memo = inputs["memo"]
     shaped, meta = await extract_intelligence(
         memo, llm, prompt_version=inputs["prompt_version"], playbook_steps=inputs["playbook_steps"],
-        playbook_qualification=inputs["qualification"], playbook_objections=inputs["objections"], **inputs["context"],
+        playbook_qualification=inputs["qualification"], playbook_objections=inputs["objections"],
+        findings_inputs=inputs.get("findings"), **inputs["context"],
     )
     if shaped is None:
         return {"status": "no_transcript"}
@@ -1159,9 +1177,12 @@ async def extract_intelligence(
     rep_name: str | None = None,
     company_name: str | None = None,
     prior_conversations: int | None = None,
+    findings_inputs: dict | None = None,
 ) -> tuple[dict | None, dict]:
     """None when there is nothing to read. Metadata carries model and tokens for cost.
-    v8 reads the call first (roles, type, phase) and judges the You:/Them: transcript."""
+    v8 reads the call first (roles, type, phase) and judges the You:/Them: transcript. With `findings_inputs`
+    (the company's material and earlier topics) a sales conversation is read once more for the head of sales
+    (findings.py): its questions, the doors let pass, what worked off the playbook, what was conceded."""
     if not str(memo.get("transcript") or "").strip():
         return None, {}
     call = None
@@ -1214,6 +1235,16 @@ async def extract_intelligence(
         )
         if raw and getattr(settings, "JEV_DECISIONS_ENABLED", False):
             await _apply_jev_decisions(shaped, transcript if transcript is not None else str(memo.get("transcript") or ""))
+        if findings_inputs is not None:
+            from app.services.intelligence.findings import read_findings
+
+            found = await read_findings(
+                str(memo.get("id") or ""), transcript if transcript is not None else str(memo.get("transcript") or ""), llm,
+                call=call, answers=playbook_objections, steps=playbook_steps, rep_name=rep_name, company_name=company_name,
+                **findings_inputs,
+            )
+            if found is not None:
+                shaped["findings"] = found
     return shaped, meta
 
 

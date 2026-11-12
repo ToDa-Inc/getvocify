@@ -377,8 +377,9 @@ class Settings(BaseSettings):
     PLAYBOOK_QUALIFICATION_ENABLED: bool = True
     # C04 v9 (2026-10-21): v8 plus a reading of the whole call (the error that cost it most, how to steer it,
     # the best it could have given) that makes step advice and objections precise. Needs
-    # INTELLIGENCE_CALL_READING_ENABLED too. Off everywhere; on in an environment or per company to test.
-    COACHING_READING_ENABLED: bool = False
+    # INTELLIGENCE_CALL_READING_ENABLED too. On for every company since 12 Nov 2026: Equipo's "what escaped" is
+    # built on it (the moment the call turned, and the best it could have given).
+    COACHING_READING_ENABLED: bool = True
     # Recall.ai dashboard > API keys. Unset -> POST /meetings/bot returns 503.
     RECALL_API_KEY: Optional[str] = None
     # Recall's per-region API host (https://{region}.recall.ai). Our workspace is in the EU
@@ -410,6 +411,13 @@ class Settings(BaseSettings):
     EXTRACTION_REASONING_EFFORT: Optional[str] = None
     # None used to fall through to EXTRACTION_MODEL (lite). Follow-ups need the CRM model.
     FOLLOWUP_MODEL: Optional[str] = "together/deepseek-ai/DeepSeek-V4.1-Flash"
+    # C04 findings (2026-11-12): a second, focused read of each sales conversation for the head of sales: the
+    # prospect's questions and whether they were answered, the doors the rep let pass, what worked that the playbook
+    # does not have, and what was conceded. On for every company; a company is switched off with a row.
+    CALL_FINDINGS_ENABLED: bool = True
+    # How much the findings read reasons. "medium": on Movertis's calls (2026-11-12) it told a door the rep let pass
+    # from one they used, and found what worked; without reasoning it listed brush-offs and doors already taken.
+    CALL_FINDINGS_EFFORT: Optional[str] = "medium"
     FOLLOWUP_REASONING_EFFORT: Optional[str] = None
 
     # Together AI (OpenAI-compatible). A model id "together/<id>" is served there instead of
