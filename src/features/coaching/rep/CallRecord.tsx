@@ -110,7 +110,7 @@ function KeyMoment({ reading }: { reading: CoachCallReading }) {
     <section className="space-y-3" data-testid="coach-call-reading">
       <MomentTitle title={p.coachKeyMoment} />
       <div className="space-y-2.5">
-        {reading.decisive_moment?.quote ? <Bubble kind="prospect" caption={p.coachProspectSaid}>{reading.decisive_moment.quote}</Bubble> : null}
+        {reading.decisive_moment?.quote ? <Bubble kind="prospect" caption={p.coachProspectSaid} said={reading.decisive_moment.said}>{reading.decisive_moment.quote}</Bubble> : null}
         {reading.main_error ? <Why>{reading.main_error}</Why> : null}
         {steer?.line ? <WrittenLine line={steer.line} /> : null}
       </div>
@@ -152,8 +152,8 @@ function FindingMisses({ findings }: { findings: CoachCallFindings }) {
             <StateTag tone="unknown">{p.coachFindingNoAnswer}</StateTag>
           </div>
           <div className="space-y-2.5">
-            <Bubble kind="prospect" caption={p.coachProspectSaid}>{item.quote}</Bubble>
-            {item.reply ? <Bubble kind="you" caption={p.coachYouReplied}>{item.reply}</Bubble> : null}
+            <Bubble kind="prospect" caption={p.coachProspectSaid} said={item.said}>{item.quote}</Bubble>
+            {item.reply ? <Bubble kind="you" caption={p.coachYouReplied} said={item.reply_said}>{item.reply}</Bubble> : null}
             {item.better ? <WrittenLine line={item.better} /> : null}
           </div>
         </section>
@@ -163,8 +163,8 @@ function FindingMisses({ findings }: { findings: CoachCallFindings }) {
           <MomentTitle title={item.topic} kind={p.coachFindingDoor} />
           <div className="flex items-center gap-2 text-xs"><StateTag tone="bad">{p.coachFindingNotPicked}</StateTag></div>
           <div className="space-y-2.5">
-            <Bubble kind="prospect" caption={p.coachProspectSaid}>{item.quote}</Bubble>
-            {item.reply ? <Bubble kind="you" caption={p.coachYouReplied}>{item.reply}</Bubble> : null}
+            <Bubble kind="prospect" caption={p.coachProspectSaid} said={item.said}>{item.quote}</Bubble>
+            {item.reply ? <Bubble kind="you" caption={p.coachYouReplied} said={item.reply_said}>{item.reply}</Bubble> : null}
             <Why>{item.why}</Why>
             {item.line ? <WrittenLine line={item.line} /> : null}
           </div>
@@ -178,8 +178,8 @@ function FindingMisses({ findings }: { findings: CoachCallFindings }) {
             {!item.better && item.no_answer ? <StateTag tone="unknown">{p.coachFindingNoAnswer}</StateTag> : null}
           </div>
           <div className="space-y-2.5">
-            <Bubble kind="prospect" caption={p.coachProspectSaid}>{item.quote}</Bubble>
-            {item.answer ? <Bubble kind="you" caption={p.coachYouReplied}>{item.answer}</Bubble> : null}
+            <Bubble kind="prospect" caption={p.coachProspectSaid} said={item.said}>{item.quote}</Bubble>
+            {item.answer ? <Bubble kind="you" caption={p.coachYouReplied} said={item.answer_said}>{item.answer}</Bubble> : null}
             {item.better ? <WrittenLine line={item.better} /> : null}
           </div>
         </section>
@@ -199,7 +199,7 @@ function FindingWins({ findings }: { findings: CoachCallFindings }) {
         <section key={`conceded-${index}`} className="space-y-3" data-testid="coach-finding-concession">
           <MomentTitle title={item.what} kind={p.coachFindingConcession} />
           <div className="space-y-2.5">
-            <Bubble kind="you" caption={p.coachYouSaid}>{item.quote}</Bubble>
+            <Bubble kind="you" caption={p.coachYouSaid} said={item.said}>{item.quote}</Bubble>
             {item.normal ? <Why>{item.normal}</Why> : null}
           </div>
         </section>
@@ -209,8 +209,8 @@ function FindingWins({ findings }: { findings: CoachCallFindings }) {
           <MomentTitle title={item.topic} kind={p.coachFindingWorked} />
           <div className="flex items-center gap-2 text-xs"><StateTag tone="good">{p.coachAfterAdvanced}</StateTag></div>
           <div className="space-y-2.5">
-            <Bubble kind="you" caption={p.coachYouSaid}>{item.quote}</Bubble>
-            <Bubble kind="prospect" caption={p.coachTheyThenSaid}>{item.after_quote}</Bubble>
+            <Bubble kind="you" caption={p.coachYouSaid} said={item.said}>{item.quote}</Bubble>
+            <Bubble kind="prospect" caption={p.coachTheyThenSaid} said={item.after_said}>{item.after_quote}</Bubble>
             {item.use_when ? <Why>{item.use_when}</Why> : null}
           </div>
         </section>
@@ -241,6 +241,7 @@ function CallDetail({ call, type }: { call: CoachCall; type: string }) {
           memo_id: call.memo_id, observed_at: at, tone: afterTone(objection.after, objection.resolution),
           quote: objection.quote, response: objection.response, reason: null, advice: objection.advice ?? null, line: objection.line ?? null,
           after: objection.after ?? null, afterQuote: objection.after_quote ?? null,
+          said: objection.said ?? null, responseSaid: objection.response_said ?? null, afterSaid: objection.after_said ?? null,
         };
         const nature = objection.nature ? natures[objection.nature] : null;
         return (

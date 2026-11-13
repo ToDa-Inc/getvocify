@@ -209,3 +209,31 @@ def test_a_new_objection_stands_on_the_prospects_words_with_what_followed():
     assert [(o["topic"], o["after"], o["reply"] is not None) for o in shaped["new_objections"]] == [("Caro frente a lo actual", "advanced", True)]
     coach = findings.coach_findings({**shaped, "questions": [], "signals": [], "worked": []})
     assert coach["new_objections"][0]["better"] == "Compara el coste real."
+
+
+def test_each_quote_carries_what_the_person_meant_and_loses_it_with_the_quote():
+    said = "Ya tenemos otro proveedor; quiero saber hasta dónde gestionáis los CAE y cuánto cuesta."
+    shaped = _shape({
+        "questions": [{"quote": CAE, "said": said, "topic": "Gestión de CAE", "answered": "partly",
+                       "answer": "te mando un correo con todo", "answer_said": "Te mando un correo con toda la información."}],
+        "new_objections": [
+            {"quote": "Me parece bastante caro en comparación con lo que pago ahora.", "said": "Me parece caro frente a lo que pago ahora.",
+             "topic": "Más caro que el proveedor actual", "reply": "Te lo puedo dejar a 11 euros", "reply_said": "Te lo dejo a 11 € por tractora.", "after": "advanced"},
+            # Words the call does not have: the item goes, and what it "meant" with it.
+            {"quote": "Ya lo tenemos con Webfleet", "said": "Usamos Webfleet.", "topic": "Ya tienen otro proveedor", "after": "ended"},
+        ],
+        "signals": [{"quote": "Dime, que estoy liado con la huelga.", "said": "  ", "kind": "other", "topic": "Huelga", "why": "Contexto.", "line": None}],
+    })
+    question = shaped["questions"][0]
+    assert (question["said"], question["answer_said"]) == (said, "Te mando un correo con toda la información.")
+    assert [o["said"] for o in shaped["new_objections"]] == ["Me parece caro frente a lo que pago ahora."]
+    assert shaped["new_objections"][0]["reply_said"] == "Te lo dejo a 11 € por tractora."
+    assert shaped["signals"][0]["said"] is None  # nothing written: the screen shows the quote
+    coach = findings.coach_findings(shaped)
+    assert coach["questions"][0]["said"] == said and coach["new_objections"][0]["reply_said"] == "Te lo dejo a 11 € por tractora."
+
+
+def test_the_prompt_asks_for_what_was_meant_and_topics_in_the_third_person():
+    prompt = findings.PROMPT_PATH.read_text()
+    assert findings.FINDINGS_VERSION == "findings_v3" and "SAID" in prompt and "TOPICS" in prompt
+    assert '"said": "..."' in prompt and "Acabamos de implantar con otro" in prompt

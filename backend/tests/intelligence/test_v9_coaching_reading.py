@@ -172,3 +172,37 @@ def test_coaching_reads_the_reading_and_the_objection_fields():
     assert row["reading"]["main_error"].startswith("Seguiste explicando")
     objection = rep_coaching.call_objections(row, [])[0]
     assert objection["nature"] == "sin_dolor" and objection["line"]
+
+
+def test_v11_each_quote_carries_what_was_meant_through_to_coaching():
+    meant = {
+        **JUDGED,
+        "reading": {**JUDGED["reading"], "decisive_moment": {
+            "quote": "mis comerciales ya saben lo que tienen que decir", "said": "Mis comerciales ya saben qué decir.", "meaning": "Descarta el problema."}},
+        "objections": [{
+            **JUDGED["objections"][0], "after": "ended", "after_quote": "Eso ya lo tenemos con Pipedrive, y los reportes ni los leo.",
+            "said": "Mis comerciales ya saben qué decir y llegan a sus números.",
+            "response_said": "Sí, y además actualizamos el CRM y hacemos reporting.",
+            "after_said": "Eso ya lo tenemos con Pipedrive y los reportes no los leo.",
+        }],
+    }
+    shaped, _ = _run(meant, version=extract.COACHING_ANSWERS_PROMPT_VERSION)
+    assert shaped["reading"]["decisive_moment"]["said"] == "Mis comerciales ya saben qué decir."
+    objection = shaped["objections"][0]
+    assert objection["said"].startswith("Mis comerciales ya saben qué decir")
+    assert objection["response"]["said"].startswith("Sí, y además")
+    assert objection["after_said"].startswith("Eso ya lo tenemos con Pipedrive")
+    trimmed = {
+        "id": "m-9", "user_id": "u", "company_id": "c", "sales_motion_key": "discovery", "audio_duration": 600,
+        "created_at": "2026-10-21T08:00:00+00:00", "observations": shaped["playbook_observations"],
+        "call_type": "cold_first_contact", "reached_conversation": True, "outcome": None,
+        "objections": shaped["objections"], "reading": shaped["reading"], "summary": "s",
+    }
+    coached = rep_coaching.call_objections(rep_coaching.interaction_row(as_extraction(trimmed)), [])[0]
+    assert (coached["said"], coached["response_said"], coached["after_said"]) == (
+        objection["said"], objection["response"]["said"], objection["after_said"])
+
+
+def test_v9_reads_no_meaning_into_a_quote_it_was_not_asked_for():
+    shaped, _ = _run({**JUDGED, "objections": [{**JUDGED["objections"][0], "said": None}]})
+    assert shaped["objections"][0]["said"] is None and "said" not in (shaped["objections"][0]["response"] or {})

@@ -23,7 +23,9 @@ from app.services.intelligence.extract import _prospect_evidence as _prospect_wo
 logger = logging.getLogger(__name__)
 
 # v2 (2026-11-12): new objections (none of the playbook's answers is for them) and chances to dig deeper.
-FINDINGS_VERSION = "findings_v2"
+# v3 (2026-11-13): next to every quote, what the person meant in clean words (`said`, `answer_said`, `reply_said`,
+# `after_said`), and topics named in the third person, never in the prospect's voice.
+FINDINGS_VERSION = "findings_v3"
 FINDINGS_FLAG = "CALL_FINDINGS_ENABLED"
 PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / f"call_{FINDINGS_VERSION}.md"
 
@@ -40,6 +42,8 @@ _TOPIC_MAX = 60
 _WHY_MAX = 280
 _LINE_MAX = 240
 _WHAT_MAX = 120
+# What a person meant in a quote, in clean words: the quote is the proof, this is what the screen reads.
+_SAID_MAX = 220
 # What the model is shown of the company's material and of earlier topics: enough to judge, never the whole table.
 _MATERIAL_FIELDS = ("value_short", "pricing", "notes", "differentiators", "proofs", "competitors", "value_long")
 _MATERIAL_FIELD_MAX = 1800
@@ -161,6 +165,9 @@ def shape_findings(
         evidence[ref["id"]] = ref
         return ref
 
+    def said(item: dict, key: str, kept: dict | None) -> str | None:
+        return _sentence(item.get(key), _SAID_MAX) if kept is not None else None
+
     def items(key: str) -> list[dict]:
         return [item for item in raw.get(key) or [] if isinstance(item, dict)]
 
@@ -184,9 +191,11 @@ def shape_findings(
         questions.append({
             "topic": _canonical(topic, known),
             "quote": ref["quote"],
+            "said": said(item, "said", ref),
             # An answer the rep's own words do not show is not an answer.
             "answered": answered if answered in ("later", "no") or answer_ref is not None else "no",
             "answer": answer_ref["quote"] if answer_ref is not None else None,
+            "answer_said": said(item, "answer_said", answer_ref),
             "covered_by": covered if covered == "material" or covered in ids else None,
             # What to answer next time, from the playbook, the material or the rep's own right words; none means the
             # company has no answer to give yet.
@@ -212,7 +221,9 @@ def shape_findings(
             "topic": _canonical(topic, known),
             "kind": item.get("kind") if item.get("kind") in _SIGNAL else "other",
             "quote": ref["quote"],
+            "said": said(item, "said", ref),
             "reply": reply["quote"] if reply is not None else None,
+            "reply_said": said(item, "reply_said", reply),
             "why": why,
             "line": _sentence(item.get("line"), _LINE_MAX),
             "evidence_refs": [ref["id"], *([reply["id"]] if reply is not None else [])],
@@ -234,7 +245,9 @@ def shape_findings(
         worked.append({
             "topic": _canonical(topic, known),
             "quote": ref["quote"],
+            "said": said(item, "said", ref),
             "after_quote": after["quote"],
+            "after_said": said(item, "after_said", after),
             "why": why,
             "use_when": _sentence(item.get("use_when"), _WHY_MAX),
             "evidence_refs": [ref["id"], after["id"]],
@@ -254,6 +267,7 @@ def shape_findings(
             "what": what,
             "normal": normal,
             "quote": ref["quote"],
+            "said": said(item, "said", ref),
             "evidence_refs": [ref["id"]],
         })
 
@@ -273,7 +287,9 @@ def shape_findings(
         new_objections.append({
             "topic": _canonical(topic, known),
             "quote": ref["quote"],
+            "said": said(item, "said", ref),
             "reply": reply["quote"] if reply is not None else None,
+            "reply_said": said(item, "reply_said", reply),
             "after": item.get("after") if item.get("after") in _AFTER else "unknown",
             "better": _sentence(item.get("better"), _LINE_MAX),
             "evidence_refs": [ref["id"], *([reply["id"]] if reply is not None else [])],
@@ -376,24 +392,24 @@ def coach_findings(findings: Any, reading: Any = None, *, manager: bool = False)
         return None
     # The moment the call turned is already shown with what to say there: the same moment is not shown twice.
     moment = ((reading or {}).get("decisive_moment") or {}).get("quote") if isinstance(reading, dict) else None
-    keep = ("topic", "quote")
+    keep = ("topic", "quote", "said")
     questions = [
-        {**{k: item.get(k) for k in (*keep, "answered", "answer", "better")}, "no_answer": not item.get("better") and not item.get("covered_by")}
+        {**{k: item.get(k) for k in (*keep, "answered", "answer", "answer_said", "better")}, "no_answer": not item.get("better") and not item.get("covered_by")}
         for item in findings.get("questions") or []
         # The rep sees what needs work; the head of sales, opening a question from Equipo, sees every one.
         if isinstance(item, dict) and (manager or item.get("answered") != "yes") and not _same_words(item.get("quote"), moment)
     ]
     signals = [
-        {k: item.get(k) for k in (*keep, "kind", "reply", "why", "line")}
+        {k: item.get(k) for k in (*keep, "kind", "reply", "reply_said", "why", "line")}
         for item in findings.get("signals") or [] if isinstance(item, dict) and not _same_words(item.get("quote"), moment)
     ]
-    worked = [{k: item.get(k) for k in (*keep, "after_quote", "why", "use_when")} for item in findings.get("worked") or [] if isinstance(item, dict)]
+    worked = [{k: item.get(k) for k in (*keep, "after_quote", "after_said", "why", "use_when")} for item in findings.get("worked") or [] if isinstance(item, dict)]
     new_objections = [
-        {k: item.get(k) for k in (*keep, "reply", "after", "better")}
+        {k: item.get(k) for k in (*keep, "reply", "reply_said", "after", "better")}
         for item in findings.get("new_objections") or [] if isinstance(item, dict) and not _same_words(item.get("quote"), moment)
     ]
     concessions = [
-        {k: item.get(k) for k in ("kind", "what", "normal", "quote")}
+        {k: item.get(k) for k in ("kind", "what", "normal", "quote", "said")}
         for item in findings.get("concessions") or [] if manager and isinstance(item, dict) and item.get("what")
     ]
     if not (questions or signals or worked or concessions or new_objections):

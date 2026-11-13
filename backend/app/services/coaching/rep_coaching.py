@@ -144,6 +144,9 @@ def interaction_row(memo: dict) -> dict | None:
                 "resolution": item.get("resolution"),
                 "quote": item.get("quote") or None,
                 "response": response.get("text") or None,
+                # What each side meant in its quote, in clean words (C04 v11, 2026-11-13); None for older reads.
+                "said": item.get("said") or None,
+                "response_said": response.get("said") or None,
                 # C04 v9: what it really was and what would have served, written with the whole call read.
                 "nature": item.get("nature") or None,
                 "advice": item.get("advice") or None,
@@ -151,6 +154,7 @@ def interaction_row(memo: dict) -> dict | None:
                 # C04 v10: what happened right after the rep's reply, and the prospect's words that show it.
                 "after": item.get("after") or None,
                 "after_quote": item.get("after_quote") or None,
+                "after_said": item.get("after_said") or None,
             })
     return {
         "memo_id": str(memo.get("id") or ""),
@@ -327,8 +331,12 @@ def call_objections(row: dict, entries: list[dict]) -> list[dict]:
             "resolution": item.get("resolution") or "unknown",
             "after": item.get("after"),
             "after_quote": item.get("after_quote"),
+            # What the prospect (or the rep) meant in each quote, in clean words; None for calls read before it.
+            "after_said": item.get("after_said"),
             "quote": item.get("quote"),
+            "said": item.get("said"),
             "response": item.get("response"),
+            "response_said": item.get("response_said"),
             "nature": item.get("nature"),
             "advice": item.get("advice"),
             "line": item.get("line"),
@@ -419,6 +427,9 @@ def objection_breakdown(
                     "after_quote": item.get("after_quote"),
                     "quote": item.get("quote"),
                     "response": item.get("response"),
+                    "said": item.get("said"),
+                    "response_said": item.get("response_said"),
+                    "after_said": item.get("after_said"),
                 })
     for row in sorted(peer_rows or [], key=lambda r: r["observed_at"], reverse=True):
         if not row.get("is_conversation", True):
@@ -430,6 +441,7 @@ def objection_breakdown(
             if key in tally and len(tally[key]["worked"]) < WORKED_LIMIT:
                 tally[key]["worked"].append({
                     "quote": item.get("quote"), "response": item.get("response"), "after_quote": item.get("after_quote"),
+                    "said": item.get("said"), "response_said": item.get("response_said"), "after_said": item.get("after_said"),
                 })
     return [
         {

@@ -42,7 +42,8 @@ def test_what_colleagues_said_when_the_call_moved_on_is_shown_for_that_objection
         row([obj("es_caro", "advanced", category="price", response="¿Respecto a qué?")], memo="p3", user="u3"),  # not mine
     ]
     (item,) = engine.objection_breakdown(mine, ENTRIES, peer_rows=peers)
-    assert item["worked"] == [{"quote": "ahora no", "response": "¿Por qué, qué cambiaría para el año que viene?", "after_quote": "déjame mirarlo"}]
+    assert item["worked"] == [{"quote": "ahora no", "response": "¿Por qué, qué cambiaría para el año que viene?", "after_quote": "déjame mirarlo",
+                               "said": None, "response_said": None, "after_said": None}]
 
 
 def test_once_a_call_has_the_newer_reading_older_calls_are_left_out_instead_of_shown_as_unknown():

@@ -40,6 +40,8 @@ const V9_CALL: CoachCall = {
       key: "status_quo", category: "status_quo", label: null, how: "Respuesta genérica del playbook.", resolution: "open",
       quote: "Mis comerciales ya saben lo que tienen que decir, ya venden y llegan a sus números.",
       response: "Sí, exactamente. Si no te lo encuentras, obviamente no.",
+      said: "Mis comerciales ya saben qué decir: venden y llegan a sus números.",
+      response_said: "Sí, tienes razón: si no tenéis ese problema, no lo necesitáis.",
       nature: "sin_dolor",
       advice: "No había nada que rebatir. Le diste la razón y seguiste explicando; lo útil era comprobar una última hipótesis.",
       line: "Si ya llegan a sus números no te voy a vender nada; solo por curiosidad, ¿hay alguna reunión difícil en la que aún te consulten?",
@@ -48,6 +50,8 @@ const V9_CALL: CoachCall = {
       key: "competitor", category: "competitor", label: null, how: "Respuesta genérica del playbook.", resolution: "open",
       quote: "Todo eso ya lo tenemos con nuestro CRM, aunque los reportes ni los leo.",
       response: "Claro, al final te lo puedes montar igual.",
+      said: "Los informes ya los sacamos del CRM, aunque no los leo.",
+      response_said: "Claro, os lo podéis montar con lo que ya tenéis.",
       nature: "alternativa",
       advice: "Le diste la razón a su alternativa. La entrada era lo que él mismo dijo: que los reportes no los lee.",
       line: "Si los reportes no los lees, ¿qué tendría que decirte uno para que lo abrieras?",
@@ -56,7 +60,11 @@ const V9_CALL: CoachCall = {
   reading: {
     verdict: "Te dijo pronto que no tenía el problema y seguiste vendiendo.",
     pain: "absent",
-    decisive_moment: { quote: "Mis comerciales ya saben lo que tienen que decir, ya venden y llegan a sus números.", meaning: "Descarta el problema que vendías." },
+    decisive_moment: {
+      quote: "Mis comerciales ya saben lo que tienen que decir, ya venden y llegan a sus números.",
+      said: "Mis comerciales ya saben qué decir: venden y llegan a sus números.",
+      meaning: "Descarta el problema que vendías.",
+    },
     root_cause: "Vendiste control a alguien que no quiere decirle a su equipo qué decir.",
     main_error: "Seguiste explicando funcionalidades cuando ya te había dicho que con su equipo no lo necesita.",
     steer: {

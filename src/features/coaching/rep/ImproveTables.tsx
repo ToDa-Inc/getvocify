@@ -133,9 +133,9 @@ function Worked({ worked }: { worked: NonNullable<CoachObjectionBreakdown["worke
       <h4 className="text-[13px] font-medium text-muted-foreground">{p.coachWorkedTitle}</h4>
       {worked.map((example, index) => (
         <div key={index} className="space-y-2">
-          {example.quote ? <Bubble kind="prospect" caption={p.coachProspectSaid}>{example.quote}</Bubble> : null}
-          {example.response ? <Bubble kind="better" caption={p.coachColleagueReplied}>{example.response}</Bubble> : null}
-          {example.after_quote ? <Bubble kind="prospect" caption={p.coachTheyThenSaid}>{example.after_quote}</Bubble> : null}
+          {example.quote ? <Bubble kind="prospect" caption={p.coachProspectSaid} said={example.said}>{example.quote}</Bubble> : null}
+          {example.response ? <Bubble kind="better" caption={p.coachColleagueReplied} said={example.response_said}>{example.response}</Bubble> : null}
+          {example.after_quote ? <Bubble kind="prospect" caption={p.coachTheyThenSaid} said={example.after_said}>{example.after_quote}</Bubble> : null}
         </div>
       ))}
     </section>
@@ -145,7 +145,7 @@ function Worked({ worked }: { worked: NonNullable<CoachObjectionBreakdown["worke
 function ObjectionDetail({ objection, type }: { objection: CoachObjectionBreakdown; type: string }) {
   const moments: Moment[] = objection.occurrences.map((o) => ({
     memo_id: o.memo_id, observed_at: o.observed_at, tone: afterTone(o.after, o.resolution), quote: o.quote, response: o.response, reason: null, advice: null,
-    after: o.after ?? null, afterQuote: o.after_quote ?? null,
+    after: o.after ?? null, afterQuote: o.after_quote ?? null, said: o.said ?? null, responseSaid: o.response_said ?? null, afterSaid: o.after_said ?? null,
   }));
   return (
     <>

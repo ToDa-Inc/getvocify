@@ -52,6 +52,10 @@ export type CoachCallObjection = {
   after_quote?: string | null;
   quote: string | null;
   response: string | null;
+  /** C04 v11 (2026-11-13): what each quote meant, in clean words; the quote stays as the proof. Absent on older calls. */
+  said?: string | null;
+  response_said?: string | null;
+  after_said?: string | null;
   /** C04 v9: what it really was (no need, another tool, the idea itself...); absent on older calls. */
   nature?: CoachObjectionNature | null;
   /** C04 v9: what the reply did and what would have served better. */
@@ -68,7 +72,7 @@ export const UNANSWERED_KEY = "unanswered";
 export type CoachCallReading = {
   verdict: string | null;
   pain: "found" | "absent" | "not_reached" | "unclear" | null;
-  decisive_moment: { quote: string; meaning: string | null } | null;
+  decisive_moment: { quote: string; said?: string | null; meaning: string | null } | null;
   root_cause: string | null;
   /** The one thing that cost the call most. */
   main_error: string | null;
@@ -77,18 +81,19 @@ export type CoachCallReading = {
   /** The realistic best this call could have given, and whether the rep got it. */
   best_outcome: { what: string | null; got: boolean | null } | null;
 };
-/** C04 findings as the rep's Coaching shows them: each with what to do next time. Absent on calls read before them. */
+/** C04 findings as the rep's Coaching shows them: each with what to do next time. Absent on calls read before them.
+ * Each `*_said` (findings v3) is what that quote meant in clean words; absent on calls read before it. */
 export type CoachCallFindings = {
   /** Questions not fully answered; `better` is what to answer next time, none when the company has no answer yet. */
-  questions: { topic: string; quote: string; answered: "yes" | "partly" | "later" | "no"; answer: string | null; better: string | null; no_answer: boolean }[];
+  questions: { topic: string; quote: string; said?: string | null; answered: "yes" | "partly" | "later" | "no"; answer: string | null; answer_said?: string | null; better: string | null; no_answer: boolean }[];
   /** Doors the prospect opened that the rep let pass, with what the rep said right after and the line to try. */
-  signals: { topic: string; quote: string; kind: string; reply: string | null; why: string; line: string | null }[];
+  signals: { topic: string; quote: string; said?: string | null; kind: string; reply: string | null; reply_said?: string | null; why: string; line: string | null }[];
   /** What the rep said that moved the call on and the playbook does not have, and when to use it again. */
-  worked: { topic: string; quote: string; after_quote: string; why: string; use_when: string | null }[];
+  worked: { topic: string; quote: string; said?: string | null; after_quote: string; after_said?: string | null; why: string; use_when: string | null }[];
   /** Objections none of the playbook's answers is for: what they said, the reply, what followed, what to say instead. */
-  new_objections?: { topic: string; quote: string; reply: string | null; after: CoachAfter; better: string | null }[];
+  new_objections?: { topic: string; quote: string; said?: string | null; reply: string | null; reply_said?: string | null; after: CoachAfter; better: string | null }[];
   /** What the rep gave or relaxed, against what the company's material says is normal. Equipo's panel only. */
-  concessions?: { kind: string | null; what: string; normal: string | null; quote: string }[];
+  concessions?: { kind: string | null; what: string; normal: string | null; quote: string; said?: string | null }[];
 };
 export type CoachCall = {
   memo_id: string;
@@ -139,9 +144,9 @@ export type CoachObjectionBreakdown = {
   advanced?: number;
   stalled?: number;
   ended?: number;
-  occurrences: { memo_id: string; observed_at: string; resolution: "open" | "resolved" | "unknown"; after?: CoachAfter | null; after_quote?: string | null; quote: string | null; response: string | null }[];
+  occurrences: { memo_id: string; observed_at: string; resolution: "open" | "resolved" | "unknown"; after?: CoachAfter | null; after_quote?: string | null; quote: string | null; response: string | null; said?: string | null; response_said?: string | null; after_said?: string | null }[];
   /** What colleagues replied to this objection when the call moved on (only for a rep who may read the team's calls). */
-  worked?: { quote: string | null; response: string | null; after_quote: string | null }[];
+  worked?: { quote: string | null; response: string | null; after_quote: string | null; said?: string | null; response_said?: string | null; after_said?: string | null }[];
 };
 export type CoachCalls = {
   types: { key: string; label: string | null; conversations: number }[];

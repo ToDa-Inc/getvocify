@@ -26,10 +26,10 @@ head of sales who wrote the playbook would, and write it down:
 - pain: "found" (the prospect described a concrete problem of their own), "absent" (they said they do not have
   the problem being sold: the team already does it, they have no need), "not_reached" (the call never got to
   it) or "unclear".
-- decisive_moment: {quote, meaning}. The one moment after which the call could not go on as before (the
+- decisive_moment: {quote, said, meaning}. The one moment after which the call could not go on as before (the
   prospect rules out the problem, reveals a different one, hands the rep to someone else, gives the real
-  reason). quote is an exact substring of the prospect's words; meaning is 1-2 sentences in Spanish. null when
-  nothing like that happened.
+  reason). quote is an exact substring of the prospect's words; said is that quote as the prospect meant it (see
+  SAID below); meaning is 1-2 sentences in Spanish. null when nothing like that happened.
 - root_cause: 1-2 sentences in Spanish linking several moments in one cause. Check the opening first: what the
   rep promised or assumed in the first minutes, and whether the prospect later contradicts exactly that (a pitch
   about "everyone following the process word for word" to someone who believes each seller tells it their own
@@ -46,6 +46,14 @@ head of sales who wrote the playbook would, and write it down:
   meeting, a second problem to explore, a referral to someone else, permission to come back when something
   changes, or disqualifying cleanly), "got": true | false | null (whether the rep got it)}. Not every call
   can become a meeting: when the prospect has no need, say so.
+SAID. Quotes are exact words from speech recognition, and read alone they are often hard to follow ("Sí, sí, vale.
+estamos contentos porque estamos- lo tenemos conectado con el programa que tenemos"). Wherever a field asks for
+said, write what that person meant in that quote, in Spanish, in their own voice (first person, the way they would
+say it), with the same meaning: drop fillers, repetitions and cut words, and name what "eso", "lo", "el programa" or
+"otro" refers to when the call says it, so it reads on its own without the rest of the call ("Ya cambiamos de
+proveedor y estamos contentos: lo tenemos conectado con nuestro programa"). At most 25 words. Never add a fact, a
+number, a reason or an opinion the person did not say; when the quote is already clear, said repeats it.
+
 The reading never changes how a field below is judged: every rule below stands exactly as written. The reading
 makes the reasons, the advice and the objections precise and true to this call: advice that would make sense in
 any call is wrong, and advice that contradicts the reading (asking for a demo from someone who just said they do
@@ -84,9 +92,11 @@ point on it.
   asked something or accepted a next step), "stalled" (they repeated the objection, went short or the talk went round
   in circles), "ended" (they closed the topic or the call), "unknown".
   after_quote: the prospect's words that show it, an exact substring of the transcript; null when unknown.
+  after_said: after_quote as the prospect meant it (SAID); null when after_quote is null.
   One entry per distinct point, at the FIRST moment the prospect raised it: the same point said again a few
   turns later, in other words, is the same entry. A bare "No." is not an objection. quote is the prospect's
-  whole sentence that carries the point, not a fragment cut mid-thought.
+  whole sentence that carries the point, not a fragment cut mid-thought. said is that quote as the prospect meant
+  it (SAID).
   nature, for kind "objection" only (null for obstacles): what it really is, which decides good handling:
     "sin_dolor": they do not have the problem. Not something to rebut: stop pitching, check one last
       hypothesis with a question, or close well and leave a reason to come back.
@@ -105,6 +115,7 @@ point on it.
   only when the rep actually answered it. null when the rep never replied or you cannot find
   the exact words. Never paraphrase it and never reuse the prospect's own words as the reply. A bare "sí",
   "claro" or "vale" is not a reply: give the sentence where the rep actually answered, or null.
+  response_said: response as the rep meant it (SAID); null when response is null.
 - commitments: each concrete next action someone agreed to. An agreed meeting does not
   replace the other actions around it ("el lunes te llamo para confirmar").
   kind is call, email, send, meeting or other.
@@ -297,5 +308,5 @@ Return only this JSON, nothing before or after it:
           "callback": {"needed": false, "who_asked": null, "when": null, "when_text": null, "reason": null, "quote": null},
           "followup_email": {"needed": false, "kind": null, "content": null, "to": null, "quote": null},
           "referral": null, "hook": null}}
-Each objections entry is {"kind": "...", "category": "...", "nature": null, "objection_id": null, "resolution": "...", "after": null, "after_quote": null, "quote": "...", "response": null, "advice": null, "line": null}.
+Each objections entry is {"kind": "...", "category": "...", "nature": null, "objection_id": null, "resolution": "...", "after": null, "after_quote": null, "after_said": null, "quote": "...", "said": "...", "response": null, "response_said": null, "advice": null, "line": null}.
 Each playbook_observations entry is {"step_id": "...", "reason": "...", "status": "...", "quality": null, "quote": null, "advice": null}.

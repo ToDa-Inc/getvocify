@@ -528,6 +528,8 @@ _PAIN_READING = frozenset({"found", "absent", "not_reached", "unclear"})
 _ADVICE_MAX = 400
 _LINE_MAX = 280
 _BRANCHES_MAX = 3
+# v11: what a person meant in a quote, in clean words (the quote stays the proof).
+_SAID_MAX = 220
 
 
 def _sentence(value: Any, limit: int) -> str | None:
@@ -556,7 +558,7 @@ def _reading(memo_id: str, raw: Any, transcript: str, evidence: dict[str, dict])
         "verdict": _sentence(raw.get("verdict"), _ADVICE_MAX),
         "pain": raw.get("pain") if raw.get("pain") in _PAIN_READING else None,
         "decisive_moment": (
-            {"quote": ref["quote"], "meaning": _sentence(moment.get("meaning"), _ADVICE_MAX), "evidence_refs": [ref["id"]]}
+            {"quote": ref["quote"], "said": _sentence(moment.get("said"), _SAID_MAX), "meaning": _sentence(moment.get("meaning"), _ADVICE_MAX), "evidence_refs": [ref["id"]]}
             if ref is not None else None
         ),
         "root_cause": _sentence(raw.get("root_cause"), _ADVICE_MAX),
@@ -615,6 +617,8 @@ def shape_intelligence(
             if response_ref is not None:
                 evidence[response_ref["id"]] = response_ref
                 response = {"text": response_ref["quote"]}
+                if prompt_version in _COACHING_VERSIONS and _sentence(item.get("response_said"), _SAID_MAX):
+                    response["said"] = _sentence(item.get("response_said"), _SAID_MAX)
                 response_evidence_refs = [response_ref["id"]]
         entry = {
             "id": f"obj-{ref['id'][3:]}",
@@ -640,6 +644,7 @@ def shape_intelligence(
             after_ref = _prospect_evidence(memo_id, item.get("after_quote"), transcript) if isinstance(item.get("after_quote"), str) and item.get("after_quote").strip() else None
             entry["after"] = after if after == "unknown" or after_ref is not None else "unknown"
             entry["after_quote"] = after_ref["quote"] if after_ref is not None else None
+            entry["after_said"] = _sentence(item.get("after_said"), _SAID_MAX) if after_ref is not None and prompt_version in _COACHING_VERSIONS else None
             if after_ref is not None:
                 evidence[after_ref["id"]] = after_ref
         if prompt_version in _COACHING_VERSIONS and kind == "objection":
@@ -647,6 +652,7 @@ def shape_intelligence(
             entry["nature"] = item.get("nature") if item.get("nature") in _NATURE else None
             entry["advice"] = _sentence(item.get("advice"), _ADVICE_MAX)
             entry["line"] = _sentence(item.get("line"), _LINE_MAX)
+            entry["said"] = _sentence(item.get("said"), _SAID_MAX)
         objections.append(entry)
 
     commitments = []

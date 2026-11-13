@@ -1,8 +1,10 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Lightbulb, RotateCw, ThumbsDown } from "lucide-react";
+import { ArrowUpRight, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Lightbulb, Quote, RotateCw, ThumbsDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconAction } from "@/components/ui/icon-action";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { useDismissed } from "@/features/playbooks/hooks/useDismissed";
 import { useLanguage } from "@/lib/i18n";
@@ -30,6 +32,10 @@ export type Moment = {
   /** C04 v10: what happened right after the reply to an objection, and the prospect's words that show it. */
   after?: CoachAfter | null;
   afterQuote?: string | null;
+  /** C04 v11: what each quote meant, in clean words (the bubble reads it; the quote opens from an icon). */
+  said?: string | null;
+  responseSaid?: string | null;
+  afterSaid?: string | null;
 };
 
 /** The state as a small tag: green when it went well, amber halfway, red not. */
@@ -54,17 +60,47 @@ const BUBBLE: Record<BubbleKind, string> = {
   better: "rounded-br-md border border-success/25 bg-success/10",
 };
 
+/** The exact words behind a bubble that shows what was meant: a quote icon that opens them. */
+function ExactWords({ words }: { words: ReactNode }) {
+  const { t } = useLanguage();
+  const label = t.product.coachExactWords;
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button type="button" aria-label={label} className={cn(THEME_TOKENS.interaction.iconButton, THEME_TOKENS.motion.tapScale, "h-7 w-7")}>
+              <Quote aria-hidden className="h-3.5 w-3.5" strokeWidth={1.5} />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="top">{label}</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="start" className="w-72 p-3.5">
+        <p className="text-[13.5px] italic leading-relaxed text-foreground/85">«{words}»</p>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /** One turn of the exchange, the way a chat reads: the client on the left, the rep on the right, and the line to
  * say in green with a bulb. Whose turn it is shows by its side and colour, never by a caption over it: `caption`
- * is read by screen readers only. `actions` sit beside the bubble, away from the text. */
-export function Bubble({ kind, caption, children, actions }: { kind: BubbleKind; caption: string; children: ReactNode; actions?: ReactNode }) {
+ * is read by screen readers only. `actions` sit beside the bubble, away from the text. With `said` (what the quote
+ * meant, in clean words) the bubble reads that, and the exact words in `children` open from a quote icon. */
+export function Bubble({ kind, caption, said, children, actions }: { kind: BubbleKind; caption: string; said?: string | null; children: ReactNode; actions?: ReactNode }) {
   const right = kind !== "prospect";
+  const meant = said?.trim() && (typeof children !== "string" || said.trim() !== children.trim()) ? said.trim() : null;
   return (
     <div className={cn("flex flex-col", right ? "items-end" : "items-start")}>
       <span className="sr-only">{caption}</span>
       <div className={cn("flex max-w-[94%] items-center gap-1", right && "flex-row-reverse")}>
-        <div className={cn("min-w-0 rounded-2xl px-3.5 py-2 text-[14.5px] leading-snug text-foreground", BUBBLE[kind])}>{children}</div>
-        {actions ? <span className="flex shrink-0 items-center">{actions}</span> : null}
+        <div className={cn("min-w-0 rounded-2xl px-3.5 py-2 text-[14.5px] leading-snug text-foreground", BUBBLE[kind])}>{meant ?? children}</div>
+        {actions || meant ? (
+          <span className="flex shrink-0 items-center">
+            {meant ? <ExactWords words={children} /> : null}
+            {actions}
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -246,9 +282,9 @@ export function OccurrencePager({ type, kind, itemKey, how, moments, eager = tru
       <div className="space-y-2.5">
         {objection ? (
           <>
-            <Bubble kind="prospect" caption={p.coachProspectSaid}>{moment.quote ?? "—"}</Bubble>
-            {moment.response ? <Bubble kind="you" caption={p.coachYouReplied}>{moment.response}</Bubble> : null}
-            {moment.afterQuote ? <Bubble kind="prospect" caption={p.coachTheyThenSaid}>{moment.afterQuote}</Bubble> : null}
+            <Bubble kind="prospect" caption={p.coachProspectSaid} said={moment.said}>{moment.quote ?? "—"}</Bubble>
+            {moment.response ? <Bubble kind="you" caption={p.coachYouReplied} said={moment.responseSaid}>{moment.response}</Bubble> : null}
+            {moment.afterQuote ? <Bubble kind="prospect" caption={p.coachTheyThenSaid} said={moment.afterSaid}>{moment.afterQuote}</Bubble> : null}
           </>
         ) : moment.quote ? (
           <Bubble kind="you" caption={p.coachYouSaid}>{moment.quote}</Bubble>
