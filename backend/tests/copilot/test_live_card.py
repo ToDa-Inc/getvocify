@@ -681,7 +681,9 @@ def test_the_checks_are_asked_again_sooner_than_the_reading(monkeypatch):
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "shown"
     assert waits[live_card.SYSTEM] == live_card.HEDGE_S
     assert waits[live_card.FACT_SYSTEM] == waits[live_card.REPEAT_SYSTEM] == live_card.CHECK_HEDGE_S
-    assert live_card.CHECK_HEDGE_S == 0.8 < live_card.HEDGE_S == 1.5 and live_card.ROUTER_AFTER_S == 1.0
+    assert live_card.CHECK_HEDGE_S == 0.7 < live_card.HEDGE_S == 1.5 and live_card.ROUTER_AFTER_S == 0.5
+    # OpenRouter for the reading at 2 s, for a check at 1.2 s
+    assert live_card.HEDGE_S + live_card.ROUTER_AFTER_S == 2.0 and round(live_card.CHECK_HEDGE_S + live_card.ROUTER_AFTER_S, 2) == 1.2
 
 
 def test_putting_the_call_off_still_gets_its_card_and_no_model_judges_the_call_closing(monkeypatch):

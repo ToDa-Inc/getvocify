@@ -330,10 +330,12 @@ HEDGE_S = 1.5
 # The checks answer in about 0.4 s and are asked again sooner. With only Together asking again, 13 of 112 checks on
 # 13 Nov took over 2 s (up to 4.7 s) while the readings around them took 0.4-0.8 s: a stalled request to Together, and
 # the one asked again stalled too. With OpenRouter as their backup at 1 s, 1 of 292 had on 12 Nov.
-CHECK_HEDGE_S = 0.8
-# OpenRouter starts this long after the request was asked again (the reading at 2.5 s, a check at 1.8 s): a stall at
-# Together is caught by another provider. Since 12 Nov both serve the same model (DeepSeek V4.1 Flash).
-ROUTER_AFTER_S = 1.0
+CHECK_HEDGE_S = 0.7
+# OpenRouter starts this long after the request was asked again (the reading at 2 s, a check at 1.2 s): a stall at
+# Together is caught by another provider. Since 12 Nov both serve the same model (DeepSeek V4.1 Flash). At 2.5 s / 1.8 s
+# (13 Nov afternoon) a stall still cost 3.4-4.6 s, OpenRouter itself taking 1-2 s; 0.5 s earlier costs about $0.07 a day
+# at 32 calls (OpenRouter has no cached prompt: ~$0.004 a reading, ~$0.001 a check).
+ROUTER_AFTER_S = 0.5
 TIMEOUT_S = 20.0
 # The connections to the provider stay open between requests this long. A new connection per request cost about 0.15 s
 # each from the production region (2026-11-12), and a card makes several in a row (the reading, then its checks).
