@@ -44,7 +44,7 @@ from app.services.extraction import USER_NOTES_MAX_CHARS, ExtractionService
 from app.services.glossary import GlossaryService
 from app.services.crm_updates import CRMUpdatesService
 from app.services.crm_config import CRMConfigurationService
-from app.services.commitment_tasks import preview_kwargs as commitment_preview_kwargs
+from app.services.commitment_tasks import TASK_CRMS, preview_kwargs as commitment_preview_kwargs, proposes_tasks
 from app.services.deal_stage_confirm import preview_stage_kwargs
 from app.services.memo_approval import approve_memo_core, CRMSyncError
 from app.services.preview_targets import open_linked_deal_ids, resolve_preview_deal_selection
@@ -2021,6 +2021,7 @@ async def _build_approval_preview(
         asyncio.to_thread(preview_stage_kwargs, supabase, memo=memo_data, connection=conn, config=config),
         asyncio.to_thread(commitment_preview_kwargs, supabase, memo=memo_data, connection=conn),
     )
+    extraction, commitment_kwargs = _proposed_tasks(extraction, commitment_kwargs, config, conn, skip_deal=skip_deal)
     try:
         logger.info(
             "👁️ Get approval preview",
@@ -2081,6 +2082,17 @@ async def _build_approval_preview(
     except Exception as e:
         logger.warning("Call outcome availability check failed for memo %s: %s", memo_id, e)
     return preview
+
+
+def _proposed_tasks(
+    extraction: MemoExtraction, commitment_kwargs: dict, config, conn: dict, *, skip_deal: bool
+) -> tuple[MemoExtraction, dict]:
+    """The review proposes no task when the company turned tasks off (crm_configurations.create_tasks), nor in
+    Pipedrive when the call goes on no deal (it would land on the organization). The rep can still add one."""
+    if proposes_tasks(config, conn.get("provider"), skip_deal=skip_deal):
+        return extraction, commitment_kwargs
+    off = {"commitment_tasks": []} if conn.get("provider") in TASK_CRMS else {}
+    return extraction.model_copy(update={"nextSteps": []}), off
 
 
 def _preview_targets(
@@ -2266,6 +2278,13 @@ async def post_approval_preview(
         linked_open_deal_ids=open_linked_deal_ids(anchor),
     )
 
+    extraction, commitment_kwargs = _proposed_tasks(
+        extraction,
+        commitment_preview_kwargs(supabase, memo=memo_data, connection=conn),
+        config,
+        conn,
+        skip_deal=skip_deal,
+    )
     try:
         preview = await provider.build_preview(
             memo_id=memo_id,
@@ -2292,7 +2311,7 @@ async def post_approval_preview(
             include_unchanged=replay_written_fields(memo_data.get("status")),
             skip_deal=skip_deal,
             **preview_stage_kwargs(supabase, memo=memo_data, connection=conn, config=config),
-            **commitment_preview_kwargs(supabase, memo=memo_data, connection=conn),
+            **commitment_kwargs,
         )
     except Exception as e:
         logger.exception("Preview failed for memo %s: %s", memo_id, e)

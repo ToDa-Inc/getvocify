@@ -238,6 +238,7 @@ CREATE TABLE crm_configurations (
   -- Behavior settings
   auto_create_contacts BOOLEAN DEFAULT true,
   auto_create_companies BOOLEAN DEFAULT true,
+  create_tasks BOOLEAN NOT NULL DEFAULT true,
 
   -- Call outcome (migration 021). lost_reasons: editable list shown in the
   -- extension's Lost picker. lost_reason_deal_property: confirmed override

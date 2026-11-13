@@ -40,6 +40,14 @@ class CRMConfigurationRequest(BaseModel):
         default=True,
         description="Automatically create companies if not found"
     )
+    create_tasks: Optional[bool] = Field(
+        None,
+        description=(
+            "Whether Vocify proposes tasks from a call and writes them to the CRM. None keeps the "
+            "stored value, so a client that doesn't know the field (or a database before migration "
+            "088) is unaffected."
+        ),
+    )
     lost_reasons: list[str] = Field(
         default=["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"],
         description="Configured Lost reasons shown in the extension's Lost picker (plus a UI-only 'Other')",
@@ -112,6 +120,8 @@ class CRMConfigurationResponse(BaseModel):
     )
     auto_create_contacts: bool
     auto_create_companies: bool
+    # None only before migration 088 (the column's default is true): tasks are on.
+    create_tasks: Optional[bool] = None
     lost_reasons: list[str] = Field(
         default_factory=lambda: ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]
     )

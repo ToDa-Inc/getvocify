@@ -30,6 +30,8 @@ export interface CRMConfiguration {
   allowed_line_item_fields?: string[];
   auto_create_contacts: boolean;
   auto_create_companies: boolean;
+  /** Whether Vocify proposes the call's tasks and writes them; a task the rep adds is always written. null only before migration 088 (on); the backend keeps the stored value when it is unset. */
+  create_tasks?: boolean | null;
   /** Lost reasons shown in the extension's Lost picker (plus a UI-only "Other"). */
   lost_reasons?: string[];
   /**

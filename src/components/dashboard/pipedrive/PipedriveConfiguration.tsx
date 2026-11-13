@@ -9,7 +9,7 @@ import {
   type PipedriveObjectTab,
 } from "@/lib/api/pipedrive-setup";
 import { toast } from "sonner";
-import { Briefcase, Building2, Check, FilterX, Info, Search, UserPlus, UserRound } from "lucide-react";
+import { Briefcase, Building2, Check, FilterX, Info, ListChecks, Search, UserPlus, UserRound } from "lucide-react";
 import { VocifyLoader } from "@/components/ui/vocify-loader";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
@@ -259,6 +259,14 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
             checked={config.auto_create_companies}
             disabled={readOnly}
             onCheckedChange={(val) => setConfig((prev) => ({ ...prev, auto_create_companies: val }))}
+          />
+        </SettingsRow>
+        <SettingsRow icon={ListChecks} title="Tasks" description="From what was agreed on the call, on its deal">
+          <Switch
+            aria-label="Create tasks"
+            checked={config.create_tasks !== false}
+            disabled={readOnly}
+            onCheckedChange={(val) => setConfig((prev) => ({ ...prev, create_tasks: val }))}
           />
         </SettingsRow>
         <DealsRow

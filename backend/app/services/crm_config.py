@@ -128,6 +128,7 @@ class CRMConfigurationService:
             allowed_line_item_fields=config_data.get("allowed_line_item_fields") or ["name", "quantity", "price"],
             auto_create_contacts=config_data.get("auto_create_contacts", True),
             auto_create_companies=config_data.get("auto_create_companies", True),
+            create_tasks=config_data.get("create_tasks"),
             lost_reasons=config_data.get("lost_reasons") or [
                 "No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit",
             ],
@@ -210,6 +211,9 @@ class CRMConfigurationService:
         # migration 063 adds the column) never fails or resets the Head of Sales' choice.
         if config.deal_creation_rule is not None:
             config_data["deal_creation_rule"] = config.deal_creation_rule
+        # Same for the tasks switch (migration 088).
+        if config.create_tasks is not None:
+            config_data["create_tasks"] = config.create_tasks
         
         # Upsert configuration
         result = self.supabase.table("crm_configurations").upsert(
@@ -239,6 +243,7 @@ class CRMConfigurationService:
             or ["name", "quantity", "price"],
             auto_create_contacts=saved_config["auto_create_contacts"],
             auto_create_companies=saved_config["auto_create_companies"],
+            create_tasks=saved_config.get("create_tasks"),
             lost_reasons=saved_config.get("lost_reasons") or [
                 "No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit",
             ],

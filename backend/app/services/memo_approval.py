@@ -324,15 +324,20 @@ async def approve_memo_core(
     )
 
     commitment_kwargs: dict = {}
-    plan = commitment_tasks.sync_plan(
-        supabase,
-        memo=memo_data,
-        connection=crm_connection,
-        extraction=extraction,
-        reviewed=reviewed_extraction,
-    )
-    if plan is not None:
-        commitment_kwargs["commitment_tasks"], extraction = plan
+    if not commitment_tasks.proposes_tasks(config, crm_connection.get("provider"), skip_deal=skip_deal):
+        extraction = commitment_tasks.rep_added_only(
+            extraction, memo_data.get("extraction"), reviewed=reviewed_extraction
+        )
+    else:
+        plan = commitment_tasks.sync_plan(
+            supabase,
+            memo=memo_data,
+            connection=crm_connection,
+            extraction=extraction,
+            reviewed=reviewed_extraction,
+        )
+        if plan is not None:
+            commitment_kwargs["commitment_tasks"], extraction = plan
 
     sync_result = await provider.sync_memo(
         memo_id=memo_id,
@@ -469,7 +474,8 @@ async def write_confirmed_stage(
     )
     if not stage_kwargs.get("stage_confirm"):
         return
-    extraction_data = dict(memo_data.get("extraction") or {})
+    # Only the stage: the call's tasks were written when it was approved.
+    extraction_data = {**(memo_data.get("extraction") or {}), "nextSteps": []}
     if provider_name == "pipedrive":
         extraction_data["raw_extraction"] = {**(extraction_data.get("raw_extraction") or {}), "stage_id": stage_id}
     else:

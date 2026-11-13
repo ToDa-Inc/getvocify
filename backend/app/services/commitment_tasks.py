@@ -217,6 +217,38 @@ def sync_plan(
     return tasks, extraction.model_copy(update={"nextSteps": []})
 
 
+def proposes_tasks(config: Any, provider: Optional[str], *, skip_deal: bool) -> bool:
+    """Whether Vocify proposes and writes the call's tasks. No when the company turned them off
+    (crm_configurations.create_tasks), nor in Pipedrive for a call on no deal: there a task has
+    only the person and organization to sit on, and teams that work by deal don't want it there."""
+    if config is not None and getattr(config, "create_tasks", True) is False:
+        return False
+    return not (skip_deal and str(provider or "").lower() == "pipedrive")
+
+
+def rep_added_only(extraction: MemoExtraction, stored: Optional[dict], *, reviewed: bool) -> MemoExtraction:
+    """The company turned tasks off (crm_configurations.create_tasks): only a task the rep typed is written.
+    Unreviewed, that is none. Reviewed, a row whose text is one Vocify proposed (a stored nextStep or
+    commitment) goes, whatever the client sent; one the rep wrote stays, with its own schedule hint."""
+    if not reviewed:
+        return extraction.model_copy(update={"nextSteps": []})
+    stored = stored or {}
+    proposed = [str(s) for s in stored.get("nextSteps") or []]
+    block = stored.get("intelligence")
+    for item in (block.get("commitments") if isinstance(block, dict) else None) or []:
+        if isinstance(item, dict) and item.get("text"):
+            proposed += [str(item["text"]), _display(item["text"])]
+    keep = [i for i, step in enumerate(extraction.nextSteps or []) if not any(_same_text(step, p) for p in proposed)]
+    update: dict[str, Any] = {"nextSteps": [extraction.nextSteps[i] for i in keep]}
+    if extraction.raw_extraction is not None:
+        raw = dict(extraction.raw_extraction)
+        for key in (*_SCHEDULE_KEYS, "reviewedTaskDates"):
+            if isinstance(raw.get(key), list):
+                raw[key] = [raw[key][i] if i < len(raw[key]) else "" for i in keep]
+        update["raw_extraction"] = raw
+    return extraction.model_copy(update=update)
+
+
 def with_task_ids(extraction_data: dict, memo: dict, task_ids: dict[str, str]) -> dict:
     """A copy whose commitments carry the id of the CRM task written for them."""
     if not task_ids:
