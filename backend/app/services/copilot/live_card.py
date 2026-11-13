@@ -327,9 +327,13 @@ CARD_MODEL = "deepseek-ai/DeepSeek-V4.1-Flash"
 # as the backup) every stall cost the card at least 3 s: the 4 cards it won on Movertis calls on 12 Nov came at 4.7-5.5 s.
 # At 1 s nearly half the readings would be asked twice for 0.3 s less at the 95th percentile; 1.5 s asks 1 in 7 twice.
 HEDGE_S = 1.5
-# The three checks answer in about 0.4 s: a stalled one is asked again after 1 s (13 of 686 rounds in production
-# waited 3 s or more for the backup, and the card with them).
-CHECK_HEDGE_S = 1.0
+# The checks answer in about 0.4 s and are asked again sooner. With only Together asking again, 13 of 112 checks on
+# 13 Nov took over 2 s (up to 4.7 s) while the readings around them took 0.4-0.8 s: a stalled request to Together, and
+# the one asked again stalled too. With OpenRouter as their backup at 1 s, 1 of 292 had on 12 Nov.
+CHECK_HEDGE_S = 0.8
+# OpenRouter starts this long after the request was asked again (the reading at 2.5 s, a check at 1.8 s): a stall at
+# Together is caught by another provider. Since 12 Nov both serve the same model (DeepSeek V4.1 Flash).
+ROUTER_AFTER_S = 1.0
 TIMEOUT_S = 20.0
 # The connections to the provider stay open between requests this long. A new connection per request cost about 0.15 s
 # each from the production region (2026-11-12), and a card makes several in a row (the reading, then its checks).
@@ -794,8 +798,8 @@ async def _post(client: httpx.AsyncClient, url: str, headers: dict, payload: dic
 async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperature: float,
               hedge_s: float = HEDGE_S) -> tuple[Optional[dict], dict]:
     """(parsed JSON or None, {"model", "latency_ms", "error"}): the direct provider with the tested model and a strict
-    schema. Without an answer after `hedge_s` the same request goes to it a second time and the first answer wins: same
-    model, same card. OpenRouter (another snapshot of the model) only when every request to the direct one has failed."""
+    schema. Without an answer after `hedge_s` the same request goes to it a second time, and `ROUTER_AFTER_S` later to
+    OpenRouter (the same model); the first answer wins. Every request so far failed: the next one starts at once."""
     meta: dict[str, Any] = {"model": None, "latency_ms": None, "error": None}
     effort = live_reasoning()["reasoning"]["effort"]
     base = {
@@ -805,38 +809,36 @@ async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperat
     }
     started = time.perf_counter()
     async with _kept_open() as client:
-        # `timed`: started one after another, each once the ones before have gone `hedge_s` without an answer.
-        # `failover`: started only when nothing is running any more (every request so far failed).
-        timed: list[tuple[str, Callable[[], Any]]] = []
-        failover: list[tuple[str, Callable[[], Any]]] = []
+        # When each request starts, counted from the first: Together, Together again, then OpenRouter.
+        plan: list[tuple[float, str, Callable[[], Any]]] = []
         direct = live_direct()
         if direct:
             url, key, _ = direct
-            call = (f"direct:{CARD_MODEL}", lambda: _post(client, url, {"Authorization": f"Bearer {key}"},
-                                                         {**base, "model": CARD_MODEL, "reasoning_effort": effort}))
-            timed += [call, call]
+            call = lambda: _post(client, url, {"Authorization": f"Bearer {key}"}, {**base, "model": CARD_MODEL, "reasoning_effort": effort})
+            plan += [(0.0, f"direct:{CARD_MODEL}", call), (hedge_s, f"direct:{CARD_MODEL}", call)]
         router_key = (settings.OPENROUTER_API_KEY or "").strip()
         if router_key:
             model_r = (settings.COPILOT_MODEL or "").strip() or "deepseek/deepseek-v4.1-flash"
             headers = {"Authorization": f"Bearer {router_key}", "HTTP-Referer": settings.FRONTEND_URL, "X-Title": "Vocify Live Card"}
-            (failover if timed else timed).append((f"openrouter:{model_r}", lambda: _post(
+            plan.append((hedge_s + ROUTER_AFTER_S if plan else 0.0, f"openrouter:{model_r}", lambda: _post(
                 client, OPENROUTER_URL, headers, {**base, "model": model_r, "reasoning": {"effort": effort}, **live_provider()})))
-        if not timed:
+        if not plan:
             meta["error"] = "no model provider is configured"
             return None, meta
         running: dict[asyncio.Task, str] = {}
         errors: list[str] = []
 
-        def start(queue: list[tuple[str, Callable[[], Any]]]) -> None:
-            name, call = queue.pop(0)
+        def start_next() -> None:
+            _, name, call = plan.pop(0)
             running[asyncio.ensure_future(call())] = name
 
-        start(timed)
+        start_next()
         try:
             while running:
-                done, _ = await asyncio.wait(running, timeout=hedge_s if timed else None, return_when=asyncio.FIRST_COMPLETED)
+                wait = max(0.0, plan[0][0] - (time.perf_counter() - started)) if plan else None
+                done, _ = await asyncio.wait(running, timeout=wait, return_when=asyncio.FIRST_COMPLETED)
                 if not done:
-                    start(timed)
+                    start_next()
                     continue
                 for task in done:
                     name = running.pop(task)
@@ -855,8 +857,8 @@ async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperat
                             continue
                     meta.update(model=name, latency_ms=int((time.perf_counter() - started) * 1000))
                     return (parsed if isinstance(parsed, dict) else None), meta
-                if not running and (timed or failover):
-                    start(timed or failover)
+                if not running and plan:
+                    start_next()
         finally:
             for task in running:
                 task.cancel()

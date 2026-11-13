@@ -7,7 +7,8 @@ start writing. The answer itself is still written by the suggest model, for this
 
 from __future__ import annotations
 
-from typing import Optional
+import asyncio
+from typing import Any, Optional
 
 from app.services.llm.jev import JevClient
 
@@ -15,6 +16,9 @@ from app.services.llm.jev import JevClient
 MIN_CONFIDENCE = 0.5
 LATEST_CHARS = 1000
 CONVERSATION_CHARS = 6000
+# Without an answer in this long, the same question is asked again and the first answer wins (a failed one at once).
+# 420 checks on 13 Nov 2026: half in 0.25 s, 9 in 10 under 0.34 s, 9 over 1 s (up to 1.7 s); the card waits for it.
+AGAIN_S = 0.6
 
 OBJECTIONS: dict[str, str] = {
     "none": "Small talk, agreement, describing their situation, agreeing on a next step or a goodbye, or anything that is not pushback or a product question. Saying they are short of time but still going on with the call («dime, pero rápido») is not pushback. Not recognising who is calling or what it is about («no te ubico», «no caigo», «¿de qué?») is none. A complaint about the provider or tool they have today («nos sale a precio de oro para lo que da», «nadie lo mira») is none: it is about what they have, not pushback against the seller. Being happy with it and not wanting to change is pushback.",
@@ -84,7 +88,7 @@ async def read_turn(
     """{"finished", "objection"}; both None when the classifier can't be reached. When the turn means one
     of the playbook's own objections (`custom`), objection is "custom" with that entry's id and label."""
     questions = questions_for(custom)
-    answers = await JevClient()._post_systemone(
+    answers = await _asked_twice_if_slow(
         {"conversation": conversation[-CONVERSATION_CHARS:], "LATEST": latest[-LATEST_CHARS:]}, questions,
     )
     if not answers:
@@ -97,3 +101,23 @@ async def read_turn(
         entry_id = str(reading["objection"])
         reading = {**reading, "objection": "custom", "entry_id": entry_id, "label": custom[entry_id]["label"] or entry_id}
     return reading
+
+
+async def _asked_twice_if_slow(state: dict[str, Any], questions: dict) -> Optional[dict[str, Any]]:
+    """The classifier's answers, or None: asked once, and again when the first has not answered in AGAIN_S or failed."""
+    client = JevClient()
+    running = {asyncio.ensure_future(client._post_systemone(state, questions))}
+    again = True
+    try:
+        while running:
+            done, running = await asyncio.wait(running, timeout=AGAIN_S if again else None, return_when=asyncio.FIRST_COMPLETED)
+            answers = next((t.result() for t in done if t.result()), None)
+            if answers:
+                return answers
+            if again and (not done or not running):  # still waiting, or the only one failed
+                running.add(asyncio.ensure_future(client._post_systemone(state, questions)))
+                again = False
+        return None
+    finally:
+        for task in running:
+            task.cancel()

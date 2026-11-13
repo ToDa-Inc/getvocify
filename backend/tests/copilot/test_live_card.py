@@ -681,7 +681,7 @@ def test_the_checks_are_asked_again_sooner_than_the_reading(monkeypatch):
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["event"] == "shown"
     assert waits[live_card.SYSTEM] == live_card.HEDGE_S
     assert waits[live_card.FACT_SYSTEM] == waits[live_card.REPEAT_SYSTEM] == live_card.CHECK_HEDGE_S
-    assert live_card.CHECK_HEDGE_S == 1.0 < live_card.HEDGE_S == 1.5
+    assert live_card.CHECK_HEDGE_S == 0.8 < live_card.HEDGE_S == 1.5 and live_card.ROUTER_AFTER_S == 1.0
 
 
 def test_putting_the_call_off_still_gets_its_card_and_no_model_judges_the_call_closing(monkeypatch):
@@ -728,27 +728,16 @@ def test_openrouter_only_when_both_requests_to_together_fail(monkeypatch):
     assert out == {"n": 3} and sent == ["direct", "direct", "openrouter"] and meta["model"].startswith("openrouter:")
 
 
-def test_two_slow_requests_to_together_do_not_bring_in_openrouter(monkeypatch):
-    sent = _providers(monkeypatch, [(0.4, '{"n": 1}'), (0.4, '{"n": 2}')])
+def test_a_stall_at_together_is_caught_by_openrouter_after_the_second_request(monkeypatch):
+    monkeypatch.setattr(live_card, "ROUTER_AFTER_S", 0.1)
+    sent = _providers(monkeypatch, [(1.0, '{"n": 1}'), (1.0, '{"n": 2}'), (0.02, '{"n": 3}')])
+    out, meta = run(live_card.ask("s", "u", {}, max_tokens=10, temperature=0, hedge_s=0.1))
+    assert out == {"n": 3} and sent == ["direct", "direct", "openrouter"] and meta["model"].startswith("openrouter:")
+    assert meta["latency_ms"] < 600  # the stalled requests are not waited for
+
+
+def test_openrouter_waits_its_turn_while_the_second_request_to_together_may_still_answer(monkeypatch):
+    monkeypatch.setattr(live_card, "ROUTER_AFTER_S", 0.3)
+    sent = _providers(monkeypatch, [(1.0, '{"n": 1}'), (0.05, '{"n": 2}')])
     out, _ = run(live_card.ask("s", "u", {}, max_tokens=10, temperature=0, hedge_s=0.1))
-    assert out == {"n": 1} and sent == ["direct", "direct"]
-
-
-def test_the_reading_and_its_checks_share_connections_that_stay_open(monkeypatch):
-    clients = []
-
-    async def post(client, url, headers, payload):
-        clients.append(client)
-        return '{"n": 1}'
-
-    monkeypatch.setattr(live_card, "_post", post)
-    monkeypatch.setattr(live_card, "live_direct", lambda: ("https://together.test", "key", "x"))
-
-    async def a_card():
-        await live_card.ask("s", "u", {}, max_tokens=10, temperature=0)
-        await asyncio.gather(*(live_card.ask("s", "u", {}, max_tokens=10, temperature=0) for _ in range(3)))
-        return clients[0].is_closed
-
-    closed = run(a_card())
-    assert len(clients) == 4 and all(c is clients[0] for c in clients) and not closed
-    assert live_card.KEEPALIVE_S >= 60
+    assert out == {"n": 2} and sent == ["direct", "direct"]

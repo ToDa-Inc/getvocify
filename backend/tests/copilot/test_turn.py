@@ -396,3 +396,42 @@ def test_the_model_is_told_todays_date_in_the_reps_timezone_and_may_not_invent_o
     assert "Never write a day of the month" in MEETING_SYSTEM_PROMPT and "Give an hour only when" in MEETING_SYSTEM_PROMPT
     assert "TODAY: Thursday 2026-10-15 (Europe/Madrid)" in _prompt(today=today_line("Europe/Madrid", late))
     assert "TODAY: " in _prompt()
+
+
+def _timed_answers(monkeypatch, replies):
+    """`replies`: per request in the order sent, (delay in s, answers or None for a failure)."""
+    sent = []
+
+    async def fake_post(self, state, questions):
+        i = len(sent)
+        sent.append(i)
+        delay, answers = replies[i]
+        await asyncio.sleep(delay)
+        return answers
+
+    monkeypatch.setattr(JevClient, "_post_systemone", fake_post)
+    monkeypatch.setattr(JevClient, "is_available", property(lambda self: True))
+    return sent
+
+
+FINISHED_PRICE = {"turn": {"choice": "finished", "confidence": 0.9}, "objection": {"choice": "price", "confidence": 0.9}}
+
+
+def test_a_slow_turn_check_is_asked_again_and_the_first_answer_wins(monkeypatch):
+    monkeypatch.setattr(turn, "AGAIN_S", 0.05)
+    sent = _timed_answers(monkeypatch, [(1.0, None), (0.01, FINISHED_PRICE)])
+    assert _read() == {"finished": True, "objection": "price"} and sent == [0, 1]
+
+
+def test_a_turn_check_in_time_is_asked_once(monkeypatch):
+    monkeypatch.setattr(turn, "AGAIN_S", 0.2)
+    sent = _timed_answers(monkeypatch, [(0.01, FINISHED_PRICE)])
+    assert _read()["objection"] == "price" and sent == [0]
+
+
+def test_a_failed_turn_check_is_asked_again_at_once_and_two_failures_say_so(monkeypatch):
+    monkeypatch.setattr(turn, "AGAIN_S", 5.0)
+    sent = _timed_answers(monkeypatch, [(0.01, None), (0.01, FINISHED_PRICE)])
+    assert _read()["objection"] == "price" and sent == [0, 1]
+    sent = _timed_answers(monkeypatch, [(0.01, None), (0.01, None)])
+    assert _read() == {"finished": None, "objection": None} and sent == [0, 1]
