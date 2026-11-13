@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth";
 import { HosFilters } from "@/features/head-of-sales/HosFilters";
 import { TeamCoaching } from "@/features/head-of-sales/TeamCoaching";
+import { SuggestionsLink } from "@/features/playbooks/components/SuggestionsInbox";
 import { HOS_DEFAULT_PERIOD, type HosPeriod, type HosSalesRole } from "@/lib/head-of-sales";
 import { useLanguage } from "@/lib/i18n";
 import { usesRepHome } from "@/lib/nav";
@@ -32,6 +33,7 @@ export default function HeadOfSalesTeamPage() {
               <Link to="/dashboard/today">{p.hosGoToToday}</Link>
             </Button>
           ) : null}
+          <SuggestionsLink />
           <HosFilters
             period={period}
             salesRole={salesRole}

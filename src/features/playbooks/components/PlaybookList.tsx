@@ -7,6 +7,7 @@ import { ProcessNav, type NavChannel, type NavItem } from "@/features/playbooks/
 import { AddTypeMenu } from "@/features/playbooks/components/AddTypeMenu";
 import { GapAssistant } from "@/features/playbooks/components/GapAssistant";
 import { ImproveHub } from "@/features/playbooks/components/ImproveHub";
+import { SuggestionsInbox } from "@/features/playbooks/components/SuggestionsInbox";
 import { ImproveScreen } from "@/features/playbooks/components/ImproveQueue";
 import { salesProcessApi } from "@/features/sales-process/api";
 import { PROCESS_QUERY } from "@/features/sales-process/useSalesProcess";
@@ -38,8 +39,10 @@ import { cn } from "@/lib/utils";
 import { PlaybookDetailContext } from "@/features/playbooks/detailOverride";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
-/** The improvement views that exist today (the hub only offers these). */
-const IMPROVE_VIEWS: readonly ImproveView[] = ["assistant", "trial", "improve"];
+/** The improvement views that exist today (the hub only offers these). «Sugerencias» is every owner's and admin's: it reads
+ * the calls already read for everyone; the guided questions, the trial and the old improvements need the assistant. */
+const IMPROVE_VIEWS: readonly ImproveView[] = ["suggestions", "assistant", "trial", "improve"];
+const OPEN_VIEWS: readonly ImproveView[] = ["suggestions"];
 
 /**
  * "Vuestro proceso" (plan §14–16) as a list and a detail: on the left "Vuestra empresa" and
@@ -80,7 +83,8 @@ export function PlaybookList() {
   // The playbook assistant (guided questions, trial, improvements) is on per company and only for owner and admin.
   const assistantOn = canEdit && (user?.company?.features ?? []).includes("PLAYBOOK_ASSISTANT_ENABLED");
   const asked = viewFromParams(params);
-  const view = assistantOn && asked && IMPROVE_VIEWS.includes(asked) ? asked : null;
+  const views = assistantOn ? IMPROVE_VIEWS : canEdit ? OPEN_VIEWS : [];
+  const view = asked && views.includes(asked) ? asked : null;
   // The company's own sales process: its types in order, with no Llamadas / Reuniones split (spec 2026-10-17).
   const processOn = canEdit && (user?.company?.features ?? []).includes("SALES_PROCESS_ENABLED");
   const processQuery = useQuery({ queryKey: PROCESS_QUERY, queryFn: salesProcessApi.get, enabled: processOn, retry: false, staleTime: 30_000 });
@@ -385,11 +389,13 @@ export function PlaybookList() {
   // With the editable process, "Mejora tu playbook" only makes sense once something is written: not on the first, empty page.
   // Inside one of its views it stays, so there is always a way back.
   const showHub = !processOn || view !== null || items.some((item) => item.state !== "empty");
-  if (!assistantOn) return body;
+  if (!views.length) return body;
   return (
     <div className="space-y-4">
-      {showHub ? <ImproveHub view={view} views={IMPROVE_VIEWS} onView={(next) => (next ? setView(next) : closeView())} /> : null}
-      {view === "assistant" ? (
+      {showHub ? <ImproveHub view={view} views={views} onView={(next) => (next ? setView(next) : closeView())} /> : null}
+      {view === "suggestions" ? (
+        <SuggestionsInbox onChanged={() => void process.refresh()} />
+      ) : view === "assistant" ? (
         <GapAssistant
           motionKey={selected === COMPANY_ROW ? null : selected}
           onChanged={() => void process.refresh()}

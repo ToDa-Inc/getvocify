@@ -9,7 +9,9 @@ The user message is a JSON object with:
   The roles were worked out from what each person says: trust them. It comes from speech recognition, so
   some pieces are noise (stray words, half sentences). Never quote noise and never build a point on it.
 - rep_name, company_name: who sells and for which company, when known.
-- playbook_answers: the company's approved answers to objections and questions, a list of {id, label, trigger, answer}.
+- playbook_answers: the company's approved answers to objections and questions, a list of {id, label, trigger, answer,
+  also_said}. also_said, when present, lists other ways the head of sales confirmed this answer's objection is said:
+  something that means the same is that answer's, never a new objection or an unanswered question.
 - playbook_steps: the company's steps, a list of {step_id, label, criterion}.
 - material: what the company has written about itself (value, pricing, offers, proofs, notes). It is the
   only source of what the company normally offers and charges.
@@ -17,6 +19,8 @@ The user message is a JSON object with:
   same as one of them, reuse that name exactly, character for character. Only invent a new name when none fits.
   A known name written in the prospect's voice ("Acabamos de cambiar de proveedor") is not reused: name it as a
   topic below says.
+- not_relevant: topics the head of sales said do not apply to this company. Never list anything that means the same,
+  in any list.
 
 TOPICS name what happened the way a head of sales describes it to someone who did not hear the call: plain words, in
 the third person, never in the prospect's voice and never a phrase cut from the transcript ("Ya tienen otro

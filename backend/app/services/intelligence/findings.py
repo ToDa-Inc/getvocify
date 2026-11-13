@@ -112,13 +112,22 @@ def build_messages(
     known_topics: list[str] | None = None,
     rep_name: str | None = None,
     company_name: str | None = None,
+    criteria: dict | None = None,
 ) -> list[dict]:
+    # What the head of sales decided on earlier suggestions («Sugerencias»): topics they said do not apply, and topics an
+    # answer already covers, read here as more ways that answer's objection is said.
+    covered: dict[str, list[str]] = {}
+    for item in (criteria or {}).get("covered") or []:
+        answer = str(item.get("answer") or "").removeprefix("objection:").removeprefix("custom:")
+        if answer and item.get("topic"):
+            covered.setdefault(answer, []).append(str(item["topic"]))
     payload: dict = {
         "call": {key: (call or {}).get(key) for key in ("call_type", "phase_reached")},
         "rep_name": rep_name,
         "company_name": company_name,
         "playbook_answers": [
-            {key: str(item.get(key) or "") for key in ("id", "label", "trigger", "answer")}
+            {**{key: str(item.get(key) or "") for key in ("id", "label", "trigger", "answer")},
+             **({"also_said": covered[str(item["id"])]} if covered.get(str(item["id"])) else {})}
             for item in answers or [] if isinstance(item, dict) and item.get("id")
         ],
         "playbook_steps": [
@@ -127,6 +136,7 @@ def build_messages(
         ],
         "material": material or {},
         "known_topics": list(known_topics or [])[:KNOWN_TOPICS_MAX],
+        "not_relevant": list((criteria or {}).get("ignored") or []),
         "transcript": transcript,
     }
     return [
@@ -320,6 +330,7 @@ async def read_findings(
     known_topics: list[str] | None = None,
     rep_name: str | None = None,
     company_name: str | None = None,
+    criteria: dict | None = None,
 ) -> dict | None:
     """The findings of one call, or None when the call has none to give or the read failed: a failure never
     blocks the rest of the call's reading."""
@@ -327,7 +338,7 @@ async def read_findings(
         return None
     messages = build_messages(
         transcript, call=call, answers=answers, steps=steps, material=material, known_topics=known_topics,
-        rep_name=rep_name, company_name=company_name,
+        rep_name=rep_name, company_name=company_name, criteria=criteria,
     )
     effort = getattr(settings, "CALL_FINDINGS_EFFORT", None)
     try:

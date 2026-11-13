@@ -967,9 +967,17 @@ def _findings_inputs(supabase: Any, memo: dict) -> dict | None:
     company_id = memo.get("company_id")
     if not is_enabled(supabase, company_id, FINDINGS_FLAG):
         return None
+    from app.services.playbooks.suggestions import get_decision_store, reading_criteria
+
+    try:
+        # What the head of sales decided on earlier suggestions teaches this read (never blocks it).
+        criteria = reading_criteria(get_decision_store(supabase).all(str(company_id or "")))
+    except Exception:
+        criteria = None
     return {
         "material": compact_material(load_company_knowledge(supabase, company_id=str(company_id or ""))),
         "known_topics": load_known_topics(supabase, str(company_id or "")),
+        "criteria": criteria,
     }
 
 

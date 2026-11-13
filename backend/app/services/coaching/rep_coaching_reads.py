@@ -20,6 +20,7 @@ EXTRACTION_PARTS = (
     "outcome:extraction->intelligence->next->outcome,"
     "objections:extraction->intelligence->objections,"
     "reading:extraction->intelligence->reading,"
+    "findings:extraction->intelligence->findings,"
     "summary:extraction->>summary"
 )
 _MEMO_COLUMNS = _MEMO_BASE + "," + EXTRACTION_PARTS
@@ -30,7 +31,7 @@ def as_extraction(row: dict) -> dict:
     """The trimmed row back in the shape the coaching engine reads (extraction.intelligence...)."""
     if "extraction" in row or "observations" not in row:
         return row
-    out = {k: v for k, v in row.items() if k not in ("observations", "call_type", "reached_conversation", "outcome", "objections", "reading", "summary")}
+    out = {k: v for k, v in row.items() if k not in ("observations", "call_type", "reached_conversation", "outcome", "objections", "reading", "findings", "summary")}
     call = {k: row.get(k) for k in ("call_type", "reached_conversation") if row.get(k) is not None}
     intelligence = {"playbook_observations": row.get("observations")}
     if call:
@@ -41,6 +42,9 @@ def as_extraction(row: dict) -> dict:
         intelligence["objections"] = row["objections"]
     if isinstance(row.get("reading"), dict):
         intelligence["reading"] = row["reading"]
+    # What the head of sales looks for beyond the steps (findings.py): Coaching's call, Equipo's tables, «Sugerencias».
+    if isinstance(row.get("findings"), dict):
+        intelligence["findings"] = row["findings"]
     out["extraction"] = {"intelligence": intelligence, "summary": row.get("summary")}
     return out
 _PATTERN_COLUMNS = "memo_id,category,kind,resolution,response,superseded,created_at"

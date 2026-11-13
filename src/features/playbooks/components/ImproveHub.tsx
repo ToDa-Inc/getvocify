@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { assistantApi, isNotActivated, type GapSession } from "@/features/playbooks/assistantApi";
+import { SUGGESTIONS_QUERY, suggestionsApi } from "@/features/playbooks/suggestionsApi";
 import { useLanguage } from "@/lib/i18n";
 import type { ImproveView } from "@/lib/playbook-assistant";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
@@ -31,7 +32,7 @@ export type ImproveHubViewProps = {
 export function ImproveHubView({ view, views, line, primaryLabel, onView, onPrimary }: ImproveHubViewProps) {
   const { t } = useLanguage();
   const c = t.product.pb2.improve;
-  const label: Record<ImproveView, string> = { assistant: c.viewAssistant, trial: c.viewTrial, improve: c.viewImprove };
+  const label: Record<ImproveView, string> = { suggestions: c.viewSuggestions, assistant: c.viewAssistant, trial: c.viewTrial, improve: c.viewImprove };
   return (
     <section aria-labelledby="improve-hub" className={cn(card, "flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between md:p-5", THEME_TOKENS.motion.fadeIn)}>
       <div className="min-w-0 space-y-1">
@@ -68,7 +69,11 @@ export function ImproveHubView({ view, views, line, primaryLabel, onView, onPrim
  * The sentence and the main button for where the Head of Sales stands: questions still open come first, then the answers
  * the queue is waiting on, and otherwise the guided questions start from the top.
  */
-export function hubTexts(session: GapSession | null | undefined, notActivated: boolean, c: ReturnType<typeof useHubCopy>, queueAnswers = 0) {
+export function hubTexts(session: GapSession | null | undefined, notActivated: boolean, c: ReturnType<typeof useHubCopy>, queueAnswers = 0, suggestions = 0) {
+  // What the calls taught comes first: it is the work that improves the playbook from real conversations.
+  if (suggestions > 0) {
+    return { line: suggestions === 1 ? c.hubSuggestionsOne : c.hubSuggestions.replace("{count}", String(suggestions)), primary: c.hubOpenSuggestions, view: "suggestions" as const };
+  }
   if (notActivated) return { line: c.notActivated, primary: c.hubStartAssistant, view: "assistant" as const };
   const left = session ? Math.max(session.total - session.answered - session.skipped, 0) : 0;
   if (session && left > 0) {
@@ -87,9 +92,14 @@ function useHubCopy() {
 /** The hub wired to the company's open session of guided questions. */
 export function ImproveHub({ view, views, onView }: { view: ImproveView | null; views: readonly ImproveView[]; onView: (view: ImproveView | null) => void }) {
   const c = useHubCopy();
-  const current = useQuery({ queryKey: ASSISTANT_QUERY, queryFn: assistantApi.currentGaps, retry: false, staleTime: 60_000 });
+  const assistant = views.includes("assistant");
+  const current = useQuery({ queryKey: ASSISTANT_QUERY, queryFn: assistantApi.currentGaps, retry: false, staleTime: 60_000, enabled: assistant });
+  const suggestions = useQuery({ queryKey: SUGGESTIONS_QUERY, queryFn: suggestionsApi.list, retry: false, staleTime: 60_000, enabled: views.includes("suggestions") });
   // The queue of answers that keep failing, when the success rate is on: a quiet reminder, never an error.
   const stats = useQuery({ queryKey: STATS_QUERY, queryFn: assistantApi.improveStats, retry: false, staleTime: 60_000, enabled: views.includes("improve") });
-  const { line, primary, view: next } = hubTexts(current.data?.session, isNotActivated(current.error), c, stats.data?.queue?.answers ?? 0);
+  const waiting = suggestions.data?.suggestions.length ?? 0;
+  const texts = hubTexts(current.data?.session, isNotActivated(current.error), c, stats.data?.queue?.answers ?? 0, waiting);
+  // Without the assistant there is nothing else to start: the hub only opens the suggestions.
+  const { line, primary, view: next } = assistant || waiting ? texts : { line: c.hubSuggestionsNone, primary: c.hubOpenSuggestions, view: "suggestions" as const };
   return <ImproveHubView view={view} views={views} line={line} primaryLabel={primary} onView={onView} onPrimary={() => onView(next)} />;
 }

@@ -14,6 +14,7 @@ from app.api import (
     playbooks,
     playbook_intake,
     playbook_assistant,
+    playbook_suggestions,
     sales_process,
     playbook_insights,
     ask,
@@ -69,6 +70,7 @@ api_router.include_router(playbook_company.router)
 api_router.include_router(playbooks.router)
 api_router.include_router(playbook_intake.router)
 api_router.include_router(playbook_assistant.router)
+api_router.include_router(playbook_suggestions.router)
 api_router.include_router(sales_process.router)
 api_router.include_router(playbook_insights.router)
 api_router.include_router(ask.router)

@@ -206,3 +206,13 @@ def test_v11_each_quote_carries_what_was_meant_through_to_coaching():
 def test_v9_reads_no_meaning_into_a_quote_it_was_not_asked_for():
     shaped, _ = _run({**JUDGED, "objections": [{**JUDGED["objections"][0], "said": None}]})
     assert shaped["objections"][0]["said"] is None and "said" not in (shaped["objections"][0]["response"] or {})
+
+
+def test_the_trimmed_read_keeps_the_findings_for_coaching_equipo_and_suggestions():
+    findings = {"version": "findings_v3", "questions": [], "signals": [], "worked": [], "concessions": [],
+                "new_objections": [{"topic": "Ya tienen otro proveedor", "quote": "ya cambiamos", "after": "ended"}]}
+    trimmed = {"id": "m-9", "user_id": "u", "company_id": "c", "observations": [], "objections": [], "findings": findings, "summary": "s"}
+    assert as_extraction(trimmed)["extraction"]["intelligence"]["findings"] == findings
+    from app.services.coaching.rep_coaching_reads import EXTRACTION_PARTS
+
+    assert "findings:extraction->intelligence->findings" in EXTRACTION_PARTS

@@ -3,8 +3,8 @@
  * for, how a rate is written, what a document gave, and the little texts the screens build. No React, no I/O.
  */
 
-export type ImproveView = "assistant" | "trial" | "improve";
-const VIEWS: readonly ImproveView[] = ["assistant", "trial", "improve"];
+export type ImproveView = "suggestions" | "assistant" | "trial" | "improve";
+const VIEWS: readonly ImproveView[] = ["suggestions", "assistant", "trial", "improve"];
 
 /** The view `?view=` asks for, or null (the playbook as always). */
 export function viewFromParams(params: URLSearchParams): ImproveView | null {
