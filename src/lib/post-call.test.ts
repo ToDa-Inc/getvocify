@@ -146,8 +146,12 @@ describe("withEdits", () => {
 });
 
 describe("summaryLines", () => {
-  it("turns the note's markdown into a few plain lines", () => {
-    assert.equal(summaryLines("## Call\n- **Pain:** 6 h a week\n\n* Budget 12k\n1. Send proposal"), "Call\nPain: 6 h a week\nBudget 12k\nSend proposal");
+  it("keeps the note's shape in plain text: the outcome, a dot per fact, air before a heading", () => {
+    assert.equal(
+      summaryLines("**Resultado:** Quedan en hablar.\n\n- **Pain:** 6 h a week\n  - Solo en cierre\n* Budget 12k\n\n## Decisión\n1. Decide Marta"),
+      "Resultado: Quedan en hablar.\n• Pain: 6 h a week\n   • Solo en cierre\n• Budget 12k\n\nDecisión\n• Decide Marta",
+    );
+    assert.equal(summaryLines("## Call\n- a"), "Call\n• a");
     assert.equal(summaryLines("a\nb\nc", 2), "a\nb");
     assert.equal(summaryLines("  "), null);
   });
@@ -158,14 +162,17 @@ describe("summaryLines", () => {
 });
 
 describe("noteMarkdown", () => {
-  const original = "**Resultado:** Quedan en hablar.\n## Situación\n- 8 comerciales\n- Usan **Gong**";
+  const original = "**Resultado:** Quedan en hablar.\n## Situación\n- 8 comerciales\n  - 3 en Madrid\n- Usan **Gong**";
   it("keeps the markdown of the lines the rep left as they were", () => {
-    assert.equal(noteMarkdown(summaryLines(original)!, original), "**Resultado:** Quedan en hablar.\n\n## Situación\n\n- 8 comerciales\n\n- Usan **Gong**");
-  });
-  it("writes a changed or new line as plain text, one per line", () => {
     assert.equal(
-      noteMarkdown("Resultado: Reunión el martes.\nSituación\n8 comerciales\n\nPiden precio", original),
-      "Resultado: Reunión el martes.\n\n## Situación\n\n- 8 comerciales\n\nPiden precio",
+      noteMarkdown(summaryLines(original)!, original),
+      "**Resultado:** Quedan en hablar.\n\n## Situación\n\n- 8 comerciales\n\n  - 3 en Madrid\n\n- Usan **Gong**",
+    );
+  });
+  it("writes a changed or new line as plain text, and one under a dot as a bullet", () => {
+    assert.equal(
+      noteMarkdown("Resultado: Reunión el martes.\n\nSituación\n• 8 comerciales\n• Usan Salesforce\n\nPiden precio", original),
+      "Resultado: Reunión el martes.\n\n## Situación\n\n- 8 comerciales\n\n- Usan Salesforce\n\nPiden precio",
     );
     assert.equal(noteMarkdown("Una nota", null), "Una nota");
   });

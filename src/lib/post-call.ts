@@ -283,13 +283,24 @@ function plainLine(line: string): string {
   return line.replace(/^\s*(?:#+\s*|[-*•]\s+|\d+[.)]\s+)/, "").replace(/\*\*|__|`/g, "").trim();
 }
 
-/** The note's first lines as plain text, for the island's Notes tab. */
+const NOTE_HEADING = /^\s*#+\s+\S/;
+const NOTE_BULLET = /^(\s*)(?:[-*+•]|\d+[.)])\s+\S/;
+
+/**
+ * The note as the island's Notes tab shows it, in plain text: the outcome line as it is, each
+ * fact under a «•» (a nested one indented), and a blank line before each heading.
+ */
 export function summaryLines(markdown: string | null | undefined, max = Infinity): string | null {
-  const lines = String(markdown ?? "")
-    .split("\n")
-    .map(plainLine)
-    .filter(Boolean)
-    .slice(0, max);
+  const lines: string[] = [];
+  for (const raw of String(markdown ?? "").split("\n")) {
+    const plain = plainLine(raw);
+    if (!plain) continue;
+    if (lines.filter(Boolean).length >= max) break;
+    const bullet = NOTE_BULLET.exec(raw);
+    if (bullet) lines.push(`${bullet[1].length >= 2 ? "   " : ""}• ${plain}`);
+    else if (NOTE_HEADING.test(raw) && lines.length) lines.push("", plain);
+    else lines.push(plain);
+  }
   return lines.length ? lines.join("\n") : null;
 }
 
@@ -415,20 +426,21 @@ export function withAddedTasks(
 
 /**
  * The note the rep edited in the island, back as the note's markdown: a line they left as it
- * was keeps its heading, bullet and bold; a line they wrote or changed is plain text. Lines
- * are blank-line separated, so the CRM note keeps one line per line either way.
+ * was keeps its heading, bullet, indent and bold; a line they wrote or changed is plain text,
+ * or a bullet when it sits under a «•». Lines are blank-line separated, so the CRM note keeps
+ * one line per line either way.
  */
 export function noteMarkdown(text: string, original: string | null | undefined): string {
   const kept = new Map<string, string>();
   for (const line of String(original ?? "").split("\n")) {
     const plain = plainLine(line);
-    if (plain && !kept.has(plain)) kept.set(plain, line.trim());
+    if (plain && !kept.has(plain)) kept.set(plain, line.trimEnd());
   }
   return text
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => kept.get(line) ?? line)
+    .map((line) => kept.get(plainLine(line)) ?? (NOTE_BULLET.test(line) ? `- ${plainLine(line)}` : line))
     .join("\n\n");
 }
 
