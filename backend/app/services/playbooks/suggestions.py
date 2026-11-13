@@ -146,6 +146,8 @@ def build_suggestions(
                     group["examples"].append({
                         "memo_id": row.get("memo_id"), "observed_at": row.get("observed_at"), "rep": rep,
                         "turns": _exchange(kind, item), "after": item.get("after"),
+                        # The call in one line: the context when the item was read before it carried its own.
+                        "summary": " ".join(str(row.get("summary") or "").split())[:400] or None,
                     })
                 text, origin = _draft(kind, item)
                 # A colleague's words that worked beat a written line; the newest of each kind is kept.

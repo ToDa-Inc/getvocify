@@ -207,6 +207,8 @@ def shape_findings(
             "answer": answer_ref["quote"] if answer_ref is not None else None,
             "answer_said": said(item, "answer_said", answer_ref),
             "covered_by": covered if covered == "material" or covered in ids else None,
+            # What the head of sales needs to understand it without the call (CONTEXT).
+            "why": _sentence(item.get("why"), _WHY_MAX),
             # What to answer next time, from the playbook, the material or the rep's own right words; none means the
             # company has no answer to give yet.
             "better": _sentence(item.get("better"), _LINE_MAX),
@@ -301,6 +303,7 @@ def shape_findings(
             "reply": reply["quote"] if reply is not None else None,
             "reply_said": said(item, "reply_said", reply),
             "after": item.get("after") if item.get("after") in _AFTER else "unknown",
+            "why": _sentence(item.get("why"), _WHY_MAX),
             "better": _sentence(item.get("better"), _LINE_MAX),
             "evidence_refs": [ref["id"], *([reply["id"]] if reply is not None else [])],
         })
@@ -405,7 +408,7 @@ def coach_findings(findings: Any, reading: Any = None, *, manager: bool = False)
     moment = ((reading or {}).get("decisive_moment") or {}).get("quote") if isinstance(reading, dict) else None
     keep = ("topic", "quote", "said")
     questions = [
-        {**{k: item.get(k) for k in (*keep, "answered", "answer", "answer_said", "better")}, "no_answer": not item.get("better") and not item.get("covered_by")}
+        {**{k: item.get(k) for k in (*keep, "answered", "answer", "answer_said", "why", "better")}, "no_answer": not item.get("better") and not item.get("covered_by")}
         for item in findings.get("questions") or []
         # The rep sees what needs work; the head of sales, opening a question from Equipo, sees every one.
         if isinstance(item, dict) and (manager or item.get("answered") != "yes") and not _same_words(item.get("quote"), moment)
@@ -416,7 +419,7 @@ def coach_findings(findings: Any, reading: Any = None, *, manager: bool = False)
     ]
     worked = [{k: item.get(k) for k in (*keep, "after_quote", "after_said", "why", "use_when")} for item in findings.get("worked") or [] if isinstance(item, dict)]
     new_objections = [
-        {k: item.get(k) for k in (*keep, "reply", "reply_said", "after", "better")}
+        {k: item.get(k) for k in (*keep, "reply", "reply_said", "after", "why", "better")}
         for item in findings.get("new_objections") or [] if isinstance(item, dict) and not _same_words(item.get("quote"), moment)
     ]
     concessions = [

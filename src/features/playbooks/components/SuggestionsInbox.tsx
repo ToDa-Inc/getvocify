@@ -15,16 +15,25 @@ import {
   MessageSquareWarning,
   Sparkles,
   Trophy,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { Segmented } from "@/components/ui/segmented";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Toggle } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
-import { Bubble, StateTag } from "@/features/coaching/rep/OccurrencePager";
+import { Bubble } from "@/features/coaching/rep/OccurrencePager";
 import {
   SUGGESTIONS_QUERY,
   suggestionsApi,
@@ -38,6 +47,7 @@ import { useLanguage } from "@/lib/i18n";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/shared/lib/api-client";
+import { PAGINATION } from "@/shared/lib/constants";
 
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 const KINDS: readonly SuggestionKind[] = ["objection", "question", "worked", "opportunity"];
@@ -49,9 +59,7 @@ const TONE: Record<SuggestionKind, string> = {
   worked: "bg-success/10 text-success",
   opportunity: "bg-beige/15 text-beige",
 };
-// The ones that cost most show; the rest wait behind one quiet button, so the page says where to start.
-const TOP = 3;
-const REASONS: readonly DismissReason[] = ["isolated", "not_applicable", "covered"];
+const PAGE = PAGINATION.DEFAULT_PAGE_SIZE;
 
 function errorCode(error: unknown): string {
   if (error instanceof ApiError) {
@@ -138,86 +146,87 @@ function Meta({ suggestion, showType }: { suggestion: Suggestion; showType: bool
   return (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
       {parts.length ? <span className="tabular-nums">{parts.join(" · ")}</span> : null}
-      {suggestion.lost ? <StateTag tone="bad">{c.lost} · {suggestion.lost}</StateTag> : null}
-      {suggestion.unanswered ? <StateTag tone="bad">{c.unanswered} · {suggestion.unanswered}</StateTag> : null}
     </span>
   );
 }
 
-/** Set it aside with a reason in one tap; «Ya cubierta» asks which answer covers it. */
-function DismissChips({ suggestion, answers, busy, onDismiss }: {
-  suggestion: Suggestion; answers: SuggestionAnswer[]; busy: boolean; onDismiss: (reason: DismissReason, coveredBy?: string) => void;
+/** Set it aside from the row itself: a reason in one tap, «Ya cubierta» with the answer that covers it. */
+function DismissMenu({ answers, busy, onDismiss }: {
+  answers: SuggestionAnswer[]; busy: boolean; onDismiss: (reason: DismissReason, coveredBy?: string) => void;
 }) {
   const c = useCopy();
   const { t } = useLanguage();
   const categories = t.product.playbookObjectionCategories as Record<string, string>;
-  const [covered, setCovered] = useState(false);
+  const item = (reason: DismissReason) => (
+    <span className="flex flex-col">
+      <span className="text-[13.5px] text-foreground">{c.reasons[reason]}</span>
+      <span className="text-[12px] text-muted-foreground">{c.reasonsHint[reason]}</span>
+    </span>
+  );
   return (
-    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={c.dismiss}>
-      {REASONS.map((reason) =>
-        reason === "covered" && !answers.length ? null : (
-          <Tooltip key={reason}>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
-                <Toggle
-                  variant="chip"
-                  size="sm"
-                  disabled={busy}
-                  pressed={reason === "covered" && covered}
-                  onPressedChange={() => (reason === "covered" ? setCovered((now) => !now) : onDismiss(reason))}
-                >
-                  {c.reasons[reason]}
-                </Toggle>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="top">{c.reasonsHint[reason]}</TooltipContent>
-          </Tooltip>
-        ),
-      )}
-      {covered ? (
-        <Select onValueChange={(value) => onDismiss("covered", value)} disabled={busy}>
-          <SelectTrigger variant="chip" className="max-w-64" aria-label={c.coveredPick}>
-            <SelectValue placeholder={c.coveredPick} />
-          </SelectTrigger>
-          <SelectContent>
-            {answers.map((answer) => (
-              <SelectItem key={answer.id} value={answer.id}>
-                {answer.label || categories[answer.category] || answer.category}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : null}
-    </div>
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button type="button" aria-label={c.dismiss} disabled={busy} className={cn(THEME_TOKENS.interaction.iconButton, THEME_TOKENS.motion.tapScale, "h-8 w-8")}>
+              {busy ? <VocifySpinner size={12} /> : <X aria-hidden className="h-4 w-4" strokeWidth={1.5} />}
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="top">{c.dismiss}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-72">
+        {(["isolated", "not_applicable"] as const).map((reason) => (
+          <DropdownMenuItem key={reason} onSelect={() => onDismiss(reason)}>
+            {item(reason)}
+          </DropdownMenuItem>
+        ))}
+        {answers.length ? (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>{item("covered")}</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-80 w-64 overflow-y-auto">
+              {answers.map((answer) => (
+                <DropdownMenuItem key={answer.id} onSelect={() => onDismiss("covered", answer.id)}>
+                  {answer.label || categories[answer.category] || answer.category}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
-/** One suggestion: the row (kind icon, title, tags) and, open, the example call, the draft to take and the way out. */
-function SuggestionRow({ suggestion, answers, open, showType, top = false, onToggle, onDone }: {
+/** What a suggestion is about, in one line for the head of sales: the reading's context, else the call's summary. */
+function contextOf(suggestion: Suggestion): string | null {
+  return suggestion.why || suggestion.examples.find((e) => e.summary)?.summary || null;
+}
+
+/** One suggestion: the row (kind, title, its context, who) with the way out on the row itself, and, open, the call it came
+ * from and the draft to take into the playbook. */
+function SuggestionRow({ suggestion, answers, open, showType, onToggle, onDone }: {
   suggestion: Suggestion;
   answers: SuggestionAnswer[];
   open: boolean;
   showType: boolean;
-  /** One of the few that cost most: drawn a size up. */
-  top?: boolean;
   onToggle: () => void;
   onDone: (body: SuggestionsBody) => void;
 }) {
   const c = useCopy();
   const queryClient = useQueryClient();
   const [text, setText] = useState(suggestion.draft ?? "");
-  const [dismissing, setDismissing] = useState(false);
   useEffect(() => setText(suggestion.draft ?? ""), [suggestion.key, suggestion.draft]);
   const Icon = ICON[suggestion.kind];
   const answerKind = suggestion.kind === "objection" || suggestion.kind === "question";
   const where = (answerKind ? c.addAnswer : c.addConduct).replace("{type}", suggestion.motion_label);
+  const context = contextOf(suggestion);
   // «Completar con Vocify»: only for an answer with nothing to start from, and only from the company's own material.
   const complete = useMutation({
     mutationFn: () => suggestionsApi.draft(suggestion.key),
     onSuccess: ({ text: written }) => (written ? setText(written) : toast(c.draftNone)),
     onError: () => toast(c.draftNone),
   });
-
   const accept = useMutation({
     mutationFn: () => suggestionsApi.accept(suggestion.key, text.trim()),
     onSuccess: (body) => {
@@ -245,31 +254,33 @@ function SuggestionRow({ suggestion, answers, open, showType, top = false, onTog
 
   return (
     <li className="border-t border-border/50 first:border-t-0">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        className={cn("flex w-full items-start gap-3 px-4 py-3.5 text-left md:px-5", THEME_TOKENS.interaction.rowHover)}
-      >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full", TONE[suggestion.kind])}>
-              <Icon aria-hidden className="h-3.5 w-3.5" strokeWidth={1.5} />
-              <span className="sr-only">{c.kinds[suggestion.kind]}</span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top">{c.kinds[suggestion.kind]}</TooltipContent>
-        </Tooltip>
-        <span className="min-w-0 flex-1 space-y-1">
-          <span className={cn("block font-medium leading-snug text-foreground", top ? "text-[16px]" : "text-[15px]")}>{suggestion.title}</span>
-          <Meta suggestion={suggestion} showType={showType} />
+      <div className={cn("flex items-start gap-2 pr-3 md:pr-4", THEME_TOKENS.interaction.rowHover)}>
+        <button type="button" aria-expanded={open} onClick={onToggle} className="flex min-w-0 flex-1 items-start gap-3 py-3.5 pl-4 text-left md:pl-5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full", TONE[suggestion.kind])}>
+                <Icon aria-hidden className="h-3.5 w-3.5" strokeWidth={1.5} />
+                <span className="sr-only">{c.kinds[suggestion.kind]}</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">{c.kinds[suggestion.kind]}</TooltipContent>
+          </Tooltip>
+          <span className="min-w-0 flex-1 space-y-1">
+            <span className="block text-[15px] font-medium leading-snug text-foreground">{suggestion.title}</span>
+            {context ? <span className={cn("block text-[13.5px] leading-snug text-muted-foreground", !open && "line-clamp-2")}>{context}</span> : null}
+            <Meta suggestion={suggestion} showType={showType} />
+          </span>
+        </button>
+        <span className="mt-3 flex shrink-0 items-center gap-0.5">
+          <DismissMenu answers={answers} busy={dismiss.isPending} onDismiss={(reason, coveredBy) => dismiss.mutate({ reason, coveredBy })} />
+          <button type="button" aria-label={suggestion.title} aria-expanded={open} onClick={onToggle} className={cn(THEME_TOKENS.interaction.iconButton, "h-8 w-8")}>
+            <ChevronDown aria-hidden className={cn("h-4 w-4 transition-transform duration-150 motion-reduce:transition-none", open && "rotate-180")} />
+          </button>
         </span>
-        <ChevronDown aria-hidden className={cn("mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none", open && "rotate-180")} />
-      </button>
+      </div>
       {open ? (
         <div className={cn("space-y-4 px-4 pb-5 md:px-5 md:pl-[3.75rem]", THEME_TOKENS.motion.fadeIn)}>
           <Example suggestion={suggestion} />
-          {suggestion.why && suggestion.kind !== "worked" ? <p className="text-[13.5px] leading-snug text-muted-foreground">{suggestion.why}</p> : null}
           <div className="space-y-2">
             <div className="flex items-center justify-end gap-2">
               <DraftSource suggestion={suggestion} />
@@ -297,14 +308,7 @@ function SuggestionRow({ suggestion, answers, open, showType, top = false, onTog
               ) : null}
             </label>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {dismissing ? (
-              <DismissChips suggestion={suggestion} answers={answers} busy={busy} onDismiss={(reason, coveredBy) => dismiss.mutate({ reason, coveredBy })} />
-            ) : (
-              <Button type="button" variant="quiet" size="text" disabled={busy} onClick={() => setDismissing(true)}>
-                {c.dismiss}
-              </Button>
-            )}
+          <div className="flex justify-end">
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="inline-flex">
@@ -330,35 +334,27 @@ export type SuggestionsInboxViewProps = {
 
 /**
  * «Sugerencias»: what the team's calls taught, best first, for the head of sales to take into the playbook with their
- * own words or set aside with a reason Vocify learns from. One open at a time; the first one is open on arrival.
+ * own words or set aside from the row with a reason Vocify learns from. Every one is in the list (pages of the app's
+ * size); one is open at a time, the first on arrival.
  */
 export function SuggestionsInboxView({ body, onDone }: SuggestionsInboxViewProps) {
   const c = useCopy();
+  const { t } = useLanguage();
+  const pages = t.product.interactions;
   const [kind, setKind] = useState<SuggestionKind | "all">("all");
   const [openKey, setOpenKey] = useState<string | null>(body.suggestions[0]?.key ?? null);
-  const [expanded, setExpanded] = useState(false);
+  const [page, setPage] = useState(0);
   const present = KINDS.filter((k) => body.suggestions.some((s) => s.kind === k));
   const shown = body.suggestions.filter((s) => kind === "all" || s.kind === kind);
-  const first = shown.slice(0, TOP);
-  const rest = shown.slice(TOP);
+  const total = Math.max(1, Math.ceil(shown.length / PAGE));
+  const current = Math.min(page, total - 1);
+  const visible = shown.slice(current * PAGE, current * PAGE + PAGE);
   const showType = new Set(body.suggestions.map((s) => s.motion)).size > 1;
-  const row = (suggestion: Suggestion, top: boolean) => (
-    <SuggestionRow
-      key={suggestion.key}
-      suggestion={suggestion}
-      answers={body.answers[suggestion.motion] ?? []}
-      open={openKey === suggestion.key}
-      showType={showType}
-      top={top}
-      onToggle={() => setOpenKey((now) => (now === suggestion.key ? null : suggestion.key))}
-      onDone={(next) => {
-        const after = next.suggestions.filter((s) => kind === "all" || s.kind === kind);
-        setOpenKey(after[0]?.key ?? null);
-        onDone(next);
-      }}
-    />
-  );
   const count = (k: SuggestionKind | "all") => (k === "all" ? body.suggestions.length : body.suggestions.filter((s) => s.kind === k).length);
+  const goTo = (next: number) => {
+    setPage(next);
+    setOpenKey(shown[next * PAGE]?.key ?? null);
+  };
 
   return (
     <section aria-labelledby="suggestions-title" className="space-y-3">
@@ -387,8 +383,8 @@ export function SuggestionsInboxView({ body, onDone }: SuggestionsInboxViewProps
             onValueChange={(next) => {
               // The first of the kind opens, as the first of all does on arrival.
               setKind(next);
+              setPage(0);
               setOpenKey(body.suggestions.find((s) => next === "all" || s.kind === next)?.key ?? null);
-              setExpanded(false);
             }}
             options={[
               { value: "all", label: <span>{c.all} <span className="tabular-nums text-muted-foreground">{count("all")}</span></span> },
@@ -398,19 +394,25 @@ export function SuggestionsInboxView({ body, onDone }: SuggestionsInboxViewProps
         ) : null}
       </div>
       {shown.length ? (
-        <>
-          <ul className={cn(card, "overflow-hidden")}>{first.map((suggestion) => row(suggestion, true))}</ul>
-          {rest.length ? (
-            expanded ? (
-              <ul className={cn(card, "overflow-hidden")}>{rest.map((suggestion) => row(suggestion, false))}</ul>
-            ) : (
-              <Button type="button" variant="quiet" size="text" onClick={() => setExpanded(true)}>
-                <ChevronDown aria-hidden className="h-3.5 w-3.5" strokeWidth={1.5} />
-                {c.more.replace("{count}", String(rest.length))}
-              </Button>
-            )
-          ) : null}
-        </>
+        <ul className={cn(card, "overflow-hidden")}>
+          {visible.map((suggestion) => (
+            <SuggestionRow
+              key={suggestion.key}
+              suggestion={suggestion}
+              answers={body.answers[suggestion.motion] ?? []}
+              open={openKey === suggestion.key}
+              showType={showType}
+              onToggle={() => setOpenKey((now) => (now === suggestion.key ? null : suggestion.key))}
+              onDone={(next) => {
+                // The next one in line opens where the decided one was, so the list can be worked through without scrolling.
+                const left = next.suggestions.filter((s) => kind === "all" || s.kind === kind);
+                const at = shown.findIndex((s) => s.key === suggestion.key);
+                setOpenKey(openKey === suggestion.key ? (left[Math.min(Math.max(at, 0), left.length - 1)]?.key ?? null) : openKey);
+                onDone(next);
+              }}
+            />
+          ))}
+        </ul>
       ) : (
         <div className={cn(card, "flex flex-col items-center gap-2 px-6 py-12 text-center")}>
           <GraduationCap aria-hidden className="h-6 w-6 text-success" strokeWidth={1.5} />
@@ -418,6 +420,27 @@ export function SuggestionsInboxView({ body, onDone }: SuggestionsInboxViewProps
           <p className="max-w-sm text-[13px] text-muted-foreground">{c.emptyLine}</p>
         </div>
       )}
+      {total > 1 ? (
+        <Pagination aria-label={pages.pages}>
+          <PaginationContent className="gap-3">
+            <PaginationItem>
+              <Button variant="outline" size="sm" disabled={current === 0} onClick={() => goTo(current - 1)}>
+                <ChevronLeft aria-hidden />
+                {pages.previous}
+              </Button>
+            </PaginationItem>
+            <PaginationItem aria-current="page" className="text-[13px] tabular-nums text-muted-foreground">
+              {pages.page.replace("{n}", String(current + 1))} / {total}
+            </PaginationItem>
+            <PaginationItem>
+              <Button variant="outline" size="sm" disabled={current >= total - 1} onClick={() => goTo(current + 1)}>
+                {pages.next}
+                <ChevronRight aria-hidden />
+              </Button>
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      ) : null}
     </section>
   );
 }

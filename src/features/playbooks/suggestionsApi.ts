@@ -25,7 +25,8 @@ export type Suggestion = {
   lost: number;
   /** Questions: times nobody answered it. */
   unanswered: number;
-  examples: { memo_id: string; observed_at: string; rep: string; turns: SuggestionTurn[]; after: SuggestionAfter | null }[];
+  /** summary: the call in one line, the context when the item was read before it carried its own `why`. */
+  examples: { memo_id: string; observed_at: string; rep: string; turns: SuggestionTurn[]; after: SuggestionAfter | null; summary?: string | null }[];
   /** The ready draft: a colleague's words after which the call went on, else a line written from the playbook and the material. */
   draft: string | null;
   draft_from: "colleague" | "vocify" | null;

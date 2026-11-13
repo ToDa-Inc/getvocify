@@ -242,3 +242,9 @@ def test_the_draft_endpoint_writes_nothing_and_answers_null_when_it_cannot(clien
     response = client.post(f"/api/v1/playbook-assistant/suggestions/{first_question['key']}/draft")
     assert response.status_code == 200 and response.json() == {"text": None}
     assert client.store.all("co-1") == {}
+
+
+def test_the_call_line_is_plain_text_never_markdown():
+    assert api._call_line({"outcome": "Rechaza evaluar Vocify: plan ya definido.", "summary": "## Perfil"}) == "Rechaza evaluar Vocify: plan ya definido."
+    assert api._call_line({"summary": "## Perfil del contacto\n**Resultado:** No interesado.\n- más"}) == "Resultado: No interesado."
+    assert api._call_line({}) is None

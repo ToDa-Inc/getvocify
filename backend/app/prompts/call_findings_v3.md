@@ -22,6 +22,12 @@ The user message is a JSON object with:
 - not_relevant: topics the head of sales said do not apply to this company. Never list anything that means the same,
   in any list.
 
+CONTEXT. Every item carries why: one sentence in Spanish to the head of sales who did not hear the call, with what it
+needs to be understood on its own: the client's situation as the call said it (who they are, what they have or use, what
+is at stake), what "ellos", "eso" or "lo que tenemos" refers to, and what it cost or what it opened. Concrete to this
+call, never generic ("Flota de 107 grúas con contrato vigente: antes de cambiar quiere ver con su proveedor de software
+si se integra, y el comercial cambió de tema").
+
 TOPICS name what happened the way a head of sales describes it to someone who did not hear the call: plain words, in
 the third person, never in the prospect's voice and never a phrase cut from the transcript ("Ya tienen otro
 proveedor", not "Acabamos de implantar con otro"; "Precio por vehículo", not "cuánto me cuesta").
@@ -65,6 +71,7 @@ worked and in concessions).
      answered is "no" or "later".
    - covered_by: the id of the playbook_answers entry that answers this question; "material" when the
      material states the answer; null when neither does. Only when you are sure; when in doubt, null.
+   - why: as in CONTEXT.
    - better: only when answered is "no", "partly" or "later", or the answer was wrong: what the rep could have
      answered right then, spoken, first person, at most 35 words, in the rep's register. Built ONLY from
      playbook_answers, the material, or what the rep said correctly elsewhere in this call. null when none of them
@@ -136,6 +143,7 @@ worked and in concessions).
    - after: what happened right after the reply, a fact of the call: "advanced" (they kept talking, gave information
      or accepted a next step), "stalled" (they repeated it, went short, it went round in circles), "ended" (they
      closed the topic or the call), "unknown".
+   - why: as in CONTEXT.
    - better: what the rep could have said, spoken, first person, at most 35 words, using the prospect's own words,
      built only from the material, the playbook or what the rep said correctly elsewhere in the call; null when the
      reply already worked or nothing supports a better one.
@@ -146,8 +154,8 @@ Every text you write is in Spanish. Never invent a price, a name, a date, a feat
 
 Return only this JSON, nothing before or after it:
 {"questions": [], "signals": [], "worked": [], "concessions": [], "new_objections": []}
-Each questions entry is {"quote": "...", "said": "...", "topic": "...", "answered": "...", "answer": null, "answer_said": null, "covered_by": null, "better": null}.
+Each questions entry is {"quote": "...", "said": "...", "topic": "...", "answered": "...", "answer": null, "answer_said": null, "covered_by": null, "why": "...", "better": null}.
 Each signals entry is {"quote": "...", "said": "...", "reply": null, "reply_said": null, "kind": "...", "topic": "...", "why": "...", "line": "..."}.
 Each worked entry is {"quote": "...", "said": "...", "after_quote": "...", "after_said": "...", "topic": "...", "why": "...", "use_when": "..."}.
 Each concessions entry is {"quote": "...", "said": "...", "kind": "...", "what": "...", "normal": null}.
-Each new_objections entry is {"quote": "...", "said": "...", "topic": "...", "reply": null, "reply_said": null, "after": "...", "better": null}.
+Each new_objections entry is {"quote": "...", "said": "...", "topic": "...", "reply": null, "reply_said": null, "after": "...", "why": "...", "better": null}.

@@ -64,8 +64,16 @@ def _answers(supabase: Client, company_id: str, motions: set[str]) -> dict[str, 
     return out
 
 
-_ROW_COLUMNS = "id,user_id,sales_motion_key,capture_started_at,created_at,findings:extraction->intelligence->findings"
+_ROW_COLUMNS = "id,user_id,sales_motion_key,capture_started_at,created_at,outcome:extraction->intelligence->next->outcome->>text,summary:extraction->>summary,findings:extraction->intelligence->findings"
 _PAGE = 1000
+
+
+def _call_line(row: dict) -> str | None:
+    """The call in one plain line, as Coaching's list says it: how it ended, else the summary's first sentence (no markdown)."""
+    from app.services.coaching.rep_coaching import _first_plain_line
+
+    line = " ".join(str(row.get("outcome") or "").split()) or _first_plain_line(str(row.get("summary") or ""))
+    return line.replace("**", "").strip() or None
 
 
 def _rows(supabase: Client, company_id: str, user_ids: list[str], start: datetime) -> list[dict]:
@@ -90,7 +98,7 @@ def _rows(supabase: Client, company_id: str, user_ids: list[str], start: datetim
         {
             "memo_id": str(row["id"]), "user_id": str(row.get("user_id") or ""), "motion": row.get("sales_motion_key"),
             "observed_at": row.get("capture_started_at") or row.get("created_at"), "is_conversation": True,
-            "findings": row.get("findings"),
+            "findings": row.get("findings"), "summary": _call_line(row),
         }
         for row in rows
         if row.get("sales_motion_key") and row.get("sales_motion_key") != INTERNAL_KEY and isinstance(row.get("findings"), dict)
