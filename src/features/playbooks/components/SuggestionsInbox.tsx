@@ -42,9 +42,16 @@ import { ApiError } from "@/shared/lib/api-client";
 const card = `${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card}`;
 const KINDS: readonly SuggestionKind[] = ["objection", "question", "worked", "opportunity"];
 const ICON: Record<SuggestionKind, LucideIcon> = { objection: MessageSquareWarning, question: CircleHelp, worked: Trophy, opportunity: DoorOpen };
+// Each kind its own quiet colour, so the list reads at a glance: what pushes back, what they ask, what worked, what opens.
+const TONE: Record<SuggestionKind, string> = {
+  objection: "bg-warning/10 text-warning",
+  question: "bg-secondary text-foreground/70",
+  worked: "bg-success/10 text-success",
+  opportunity: "bg-beige/15 text-beige",
+};
+// The ones that cost most show; the rest wait behind one quiet button, so the page says where to start.
+const TOP = 3;
 const REASONS: readonly DismissReason[] = ["isolated", "not_applicable", "covered"];
-// The first few show; the rest wait behind one button so the page stays one screen.
-const FIRST = 8;
 
 function errorCode(error: unknown): string {
   if (error instanceof ApiError) {
@@ -79,6 +86,9 @@ function DraftSource({ suggestion }: { suggestion: Suggestion }) {
 
 /** One example call: the exchange as it happened (what was meant, the exact words behind a quote icon) and its date. */
 function Example({ suggestion }: { suggestion: Suggestion }) {
+  // A colleague's words that worked are the draft right below: shown once, there, with their name.
+  const isDraft = (quote: string, said: string | null) =>
+    suggestion.draft_from === "colleague" && !!suggestion.draft && (suggestion.draft === quote || suggestion.draft === said);
   const { t, language } = useLanguage();
   const c = useCopy();
   const p = t.product;
@@ -107,7 +117,7 @@ function Example({ suggestion }: { suggestion: Suggestion }) {
           </span>
         ) : null}
       </div>
-      {example.turns.map((turn, i) => (
+      {example.turns.filter((turn) => !(turn.who === "rep" && isDraft(turn.quote, turn.said))).map((turn, i) => (
         <Bubble key={i} kind={turn.who === "client" ? "prospect" : "you"} caption={turn.who === "client" ? p.coachProspectSaid : p.coachYouSaid} said={turn.said}>
           {turn.quote}
         </Bubble>
@@ -119,12 +129,15 @@ function Example({ suggestion }: { suggestion: Suggestion }) {
 /** The tags of a suggestion's row: how often, who, and what it cost. */
 function Meta({ suggestion, showType }: { suggestion: Suggestion; showType: boolean }) {
   const c = useCopy();
-  const calls = suggestion.count === 1 ? c.callOne : c.calls.replace("{count}", String(suggestion.count));
+  // How often only says something once it happened more than once; who, the first two names.
+  const parts = [
+    suggestion.count > 1 ? c.calls.replace("{count}", String(suggestion.count)) : null,
+    suggestion.reps.length ? suggestion.reps.slice(0, 2).join(", ") + (suggestion.reps.length > 2 ? ` +${suggestion.reps.length - 2}` : "") : null,
+    showType ? suggestion.motion_label : null,
+  ].filter(Boolean);
   return (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-      <span className="tabular-nums">{calls}</span>
-      {suggestion.reps.length ? <span>· {suggestion.reps.slice(0, 3).join(", ")}</span> : null}
-      {showType ? <span>· {suggestion.motion_label}</span> : null}
+      {parts.length ? <span className="tabular-nums">{parts.join(" · ")}</span> : null}
       {suggestion.lost ? <StateTag tone="bad">{c.lost} · {suggestion.lost}</StateTag> : null}
       {suggestion.unanswered ? <StateTag tone="bad">{c.unanswered} · {suggestion.unanswered}</StateTag> : null}
     </span>
@@ -180,11 +193,13 @@ function DismissChips({ suggestion, answers, busy, onDismiss }: {
 }
 
 /** One suggestion: the row (kind icon, title, tags) and, open, the example call, the draft to take and the way out. */
-function SuggestionRow({ suggestion, answers, open, showType, onToggle, onDone }: {
+function SuggestionRow({ suggestion, answers, open, showType, top = false, onToggle, onDone }: {
   suggestion: Suggestion;
   answers: SuggestionAnswer[];
   open: boolean;
   showType: boolean;
+  /** One of the few that cost most: drawn a size up. */
+  top?: boolean;
   onToggle: () => void;
   onDone: (body: SuggestionsBody) => void;
 }) {
@@ -196,6 +211,12 @@ function SuggestionRow({ suggestion, answers, open, showType, onToggle, onDone }
   const Icon = ICON[suggestion.kind];
   const answerKind = suggestion.kind === "objection" || suggestion.kind === "question";
   const where = (answerKind ? c.addAnswer : c.addConduct).replace("{type}", suggestion.motion_label);
+  // «Completar con Vocify»: only for an answer with nothing to start from, and only from the company's own material.
+  const complete = useMutation({
+    mutationFn: () => suggestionsApi.draft(suggestion.key),
+    onSuccess: ({ text: written }) => (written ? setText(written) : toast(c.draftNone)),
+    onError: () => toast(c.draftNone),
+  });
 
   const accept = useMutation({
     mutationFn: () => suggestionsApi.accept(suggestion.key, text.trim()),
@@ -220,7 +241,7 @@ function SuggestionRow({ suggestion, answers, open, showType, onToggle, onDone }
     },
     onError: (error) => toast(c.errors[errorCode(error)] ?? c.errors.unknown),
   });
-  const busy = accept.isPending || dismiss.isPending;
+  const busy = accept.isPending || dismiss.isPending || complete.isPending;
 
   return (
     <li className="border-t border-border/50 first:border-t-0">
@@ -232,7 +253,7 @@ function SuggestionRow({ suggestion, answers, open, showType, onToggle, onDone }
       >
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-secondary text-muted-foreground">
+            <span className={cn("mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full", TONE[suggestion.kind])}>
               <Icon aria-hidden className="h-3.5 w-3.5" strokeWidth={1.5} />
               <span className="sr-only">{c.kinds[suggestion.kind]}</span>
             </span>
@@ -240,7 +261,7 @@ function SuggestionRow({ suggestion, answers, open, showType, onToggle, onDone }
           <TooltipContent side="top">{c.kinds[suggestion.kind]}</TooltipContent>
         </Tooltip>
         <span className="min-w-0 flex-1 space-y-1">
-          <span className="block text-[15px] font-medium leading-snug text-foreground">{suggestion.title}</span>
+          <span className={cn("block font-medium leading-snug text-foreground", top ? "text-[16px]" : "text-[15px]")}>{suggestion.title}</span>
           <Meta suggestion={suggestion} showType={showType} />
         </span>
         <ChevronDown aria-hidden className={cn("mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none", open && "rotate-180")} />
@@ -259,12 +280,21 @@ function SuggestionRow({ suggestion, answers, open, showType, onToggle, onDone }
               <textarea
                 value={text}
                 rows={Math.min(6, Math.max(2, Math.ceil(text.length / 70)))}
-                placeholder={c.draftPlaceholder}
+                placeholder={complete.isPending ? c.completing : c.draftPlaceholder}
                 maxLength={1200}
                 disabled={busy}
                 onChange={(event) => setText(event.target.value)}
-                className="min-w-0 flex-1 resize-none bg-transparent text-[14.5px] font-medium leading-snug text-foreground placeholder:font-normal placeholder:text-muted-foreground focus:outline-none"
+                className={cn(
+                  "min-w-0 flex-1 resize-none bg-transparent text-[14.5px] font-medium leading-snug text-foreground placeholder:font-normal placeholder:text-muted-foreground focus:outline-none",
+                  complete.isPending && "ask-shimmer",
+                )}
               />
+              {answerKind && !text.trim() ? (
+                <Button type="button" variant="quiet" size="text" className="shrink-0 self-end" disabled={busy} onClick={() => complete.mutate()}>
+                  {complete.isPending ? <VocifySpinner size={12} /> : <Sparkles aria-hidden strokeWidth={1.5} />}
+                  {c.complete}
+                </Button>
+              ) : null}
             </label>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -280,7 +310,7 @@ function SuggestionRow({ suggestion, answers, open, showType, onToggle, onDone }
                 <span className="inline-flex">
                   <Button type="button" size="sm" disabled={busy || !text.trim()} onClick={() => accept.mutate()}>
                     {accept.isPending ? <VocifySpinner size={12} /> : <Check aria-hidden strokeWidth={1.75} />}
-                    {c.add}
+                    {c.addToPlaybook}
                   </Button>
                 </span>
               </TooltipTrigger>
@@ -309,15 +339,33 @@ export function SuggestionsInboxView({ body, onDone }: SuggestionsInboxViewProps
   const [expanded, setExpanded] = useState(false);
   const present = KINDS.filter((k) => body.suggestions.some((s) => s.kind === k));
   const shown = body.suggestions.filter((s) => kind === "all" || s.kind === kind);
-  const visible = expanded ? shown : shown.slice(0, FIRST);
+  const first = shown.slice(0, TOP);
+  const rest = shown.slice(TOP);
   const showType = new Set(body.suggestions.map((s) => s.motion)).size > 1;
+  const row = (suggestion: Suggestion, top: boolean) => (
+    <SuggestionRow
+      key={suggestion.key}
+      suggestion={suggestion}
+      answers={body.answers[suggestion.motion] ?? []}
+      open={openKey === suggestion.key}
+      showType={showType}
+      top={top}
+      onToggle={() => setOpenKey((now) => (now === suggestion.key ? null : suggestion.key))}
+      onDone={(next) => {
+        const after = next.suggestions.filter((s) => kind === "all" || s.kind === kind);
+        setOpenKey(after[0]?.key ?? null);
+        onDone(next);
+      }}
+    />
+  );
   const count = (k: SuggestionKind | "all") => (k === "all" ? body.suggestions.length : body.suggestions.filter((s) => s.kind === k).length);
 
   return (
     <section aria-labelledby="suggestions-title" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <h2 id="suggestions-title" className={THEME_TOKENS.typography.sectionTitle}>
+          {/* The hub above already names the view; the heading stays for screen readers. */}
+          <h2 id="suggestions-title" className="sr-only">
             {c.title}
           </h2>
           {body.learned ? (
@@ -336,7 +384,12 @@ export function SuggestionsInboxView({ body, onDone }: SuggestionsInboxViewProps
           <Segmented<SuggestionKind | "all">
             aria-label={c.filterLabel}
             value={kind}
-            onValueChange={setKind}
+            onValueChange={(next) => {
+              // The first of the kind opens, as the first of all does on arrival.
+              setKind(next);
+              setOpenKey(body.suggestions.find((s) => next === "all" || s.kind === next)?.key ?? null);
+              setExpanded(false);
+            }}
             options={[
               { value: "all", label: <span>{c.all} <span className="tabular-nums text-muted-foreground">{count("all")}</span></span> },
               ...present.map((k) => ({ value: k, label: <span>{c.kindsMany[k]} <span className="tabular-nums text-muted-foreground">{count(k)}</span></span> })),
@@ -345,23 +398,19 @@ export function SuggestionsInboxView({ body, onDone }: SuggestionsInboxViewProps
         ) : null}
       </div>
       {shown.length ? (
-        <ul className={cn(card, "overflow-hidden")}>
-          {visible.map((suggestion) => (
-            <SuggestionRow
-              key={suggestion.key}
-              suggestion={suggestion}
-              answers={body.answers[suggestion.motion] ?? []}
-              open={openKey === suggestion.key}
-              showType={showType}
-              onToggle={() => setOpenKey((now) => (now === suggestion.key ? null : suggestion.key))}
-              onDone={(next) => {
-                const after = next.suggestions.filter((s) => kind === "all" || s.kind === kind);
-                setOpenKey(after[0]?.key ?? null);
-                onDone(next);
-              }}
-            />
-          ))}
-        </ul>
+        <>
+          <ul className={cn(card, "overflow-hidden")}>{first.map((suggestion) => row(suggestion, true))}</ul>
+          {rest.length ? (
+            expanded ? (
+              <ul className={cn(card, "overflow-hidden")}>{rest.map((suggestion) => row(suggestion, false))}</ul>
+            ) : (
+              <Button type="button" variant="quiet" size="text" onClick={() => setExpanded(true)}>
+                <ChevronDown aria-hidden className="h-3.5 w-3.5" strokeWidth={1.5} />
+                {c.more.replace("{count}", String(rest.length))}
+              </Button>
+            )
+          ) : null}
+        </>
       ) : (
         <div className={cn(card, "flex flex-col items-center gap-2 px-6 py-12 text-center")}>
           <GraduationCap aria-hidden className="h-6 w-6 text-success" strokeWidth={1.5} />
@@ -369,12 +418,6 @@ export function SuggestionsInboxView({ body, onDone }: SuggestionsInboxViewProps
           <p className="max-w-sm text-[13px] text-muted-foreground">{c.emptyLine}</p>
         </div>
       )}
-      {!expanded && shown.length > FIRST ? (
-        <Button type="button" variant="quiet" size="text" onClick={() => setExpanded(true)}>
-          <ChevronDown aria-hidden className="h-3.5 w-3.5" strokeWidth={1.5} />
-          {c.more.replace("{count}", String(shown.length - FIRST))}
-        </Button>
-      ) : null}
     </section>
   );
 }

@@ -49,6 +49,8 @@ export const suggestionsApi = {
     api.post<SuggestionsBody & { status: string; motion: string; published: boolean }>(`${BASE}/${encodeURIComponent(key)}/accept`, { text }, SLOW),
   dismiss: (key: string, reason: DismissReason, coveredBy?: string) =>
     api.post<SuggestionsBody & { status: string }>(`${BASE}/${encodeURIComponent(key)}/dismiss`, { reason, covered_by: coveredBy ?? null }),
+  /** «Completar con Vocify»: an answer written from the company's material only; text null when it does not hold it. */
+  draft: (key: string) => api.post<{ text: string | null }>(`${BASE}/${encodeURIComponent(key)}/draft`, undefined, SLOW),
   undo: (key: string) => api.post<SuggestionsBody & { status: string }>(`${BASE}/${encodeURIComponent(key)}/undo`),
 };
 

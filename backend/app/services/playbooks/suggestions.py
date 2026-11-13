@@ -336,3 +336,68 @@ def find(suggestions: list[dict], key: str) -> dict:
         if suggestion["key"] == key:
             return suggestion
     raise SuggestionError("suggestion_not_found")
+
+
+# --- names and drafts -----------------------------------------------------------------------------------------------
+
+
+def display_name(name: Any) -> str:
+    """A member with no name in their profile shows as an email: «daniel.clavero@movertis.com» reads «Daniel Clavero»."""
+    text = " ".join(str(name or "").split())
+    if "@" not in text:
+        return text
+    local = text.split("@", 1)[0].replace(".", " ").replace("_", " ").replace("-", " ")
+    return " ".join(part[:1].upper() + part[1:] for part in local.split() if part)
+
+
+DRAFT_MAX_WORDS = 45
+_DRAFT_SYSTEM = (
+    "You write what a salesperson of the company would answer, right then in the call, to what the client said. Spoken, "
+    "first person, in Spanish, at most 45 words, in a natural register. It must actually answer it with facts from "
+    "material or playbook_answers, and you list those facts in `facts`, each copied word for word from them (a short "
+    "phrase, not a paraphrase). Never invent a price, a feature, a date, a customer, a number or a condition. When they "
+    "do not hold what the answer needs, or you would only be able to dodge it (\"depende\", \"lo miro y te digo\"), "
+    "write nothing. The material also holds instructions to the team (\"no inventar descuentos\", \"no prometer\"): they "
+    "guide you, they are never something to tell the client. Return only this JSON: {\"text\": \"...\", \"facts\": [\"...\"]} or {\"text\": null, \"facts\": []}."
+)
+
+
+def _fold(text: Any) -> str:
+    return " ".join(str(text or "").casefold().split())
+
+
+def _grounded(facts: Any, sources: list[str]) -> bool:
+    """Every fact the draft names is in the company's own text, word for word (case and spacing aside), and there is one."""
+    folded = [_fold(source) for source in sources if source]
+    quoted = [_fold(fact) for fact in facts or [] if _fold(fact)] if isinstance(facts, list) else []
+    return bool(quoted) and all(len(fact) >= 8 and any(fact in source for source in folded) for fact in quoted)
+
+
+async def write_draft(suggestion: dict, *, material: dict, answers: list[dict], company_name: Optional[str], llm: Any) -> Optional[str]:
+    """«Completar con Vocify» for an objection or a question that came with no draft: an answer written from the
+    company's own material and playbook only, or None when they do not hold it (then the head of sales writes it). The
+    facts it rests on must be found word for word in that text, or it is not shown."""
+    import json
+
+    from app.config import settings
+
+    shown_answers = [{k: a.get(k) for k in ("label", "trigger", "answer") if a.get(k)} for a in answers][:30]
+    payload = {
+        "company_name": company_name,
+        "kind": suggestion["kind"],
+        "topic": suggestion["title"],
+        "client_said": _client_words(suggestion),
+        "material": material,
+        "playbook_answers": shown_answers,
+    }
+    raw = await llm.chat_json(
+        [{"role": "system", "content": _DRAFT_SYSTEM}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+        model=settings.INTELLIGENCE_MODEL, temperature=0.1, timeout=45.0,
+    )
+    if not isinstance(raw, dict):
+        return None
+    text = " ".join(str(raw.get("text") or "").split())
+    sources = [str(v) for v in (material or {}).values()] + [str(a.get(k) or "") for a in shown_answers for k in ("answer", "trigger")]
+    if not text or len(text.split()) > DRAFT_MAX_WORDS * 2 or not _grounded(raw.get("facts"), sources):
+        return None
+    return text[:TEXT_MAX]

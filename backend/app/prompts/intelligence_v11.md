@@ -52,7 +52,9 @@ said, write what that person meant in that quote, in Spanish, in their own voice
 say it), with the same meaning: drop fillers, repetitions and cut words, and name what "eso", "lo", "el programa" or
 "otro" refers to when the call says it, so it reads on its own without the rest of the call ("Ya cambiamos de
 proveedor y estamos contentos: lo tenemos conectado con nuestro programa"). At most 25 words. Never add a fact, a
-number, a reason or an opinion the person did not say; when the quote is already clear, said repeats it.
+number, a reason or an opinion the person did not say; when the quote is already clear, said repeats it. said is what they SAID,
+cleaned, never a description of what they did or meant to do ("No le doy importancia y sigo con lo mío" describes; the
+words were "Ya, ya, pero lo que te decía es que…").
 
 The reading never changes how a field below is judged: every rule below stands exactly as written. The reading
 makes the reasons, the advice and the objections precise and true to this call: advice that would make sense in

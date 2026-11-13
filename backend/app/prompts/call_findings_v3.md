@@ -32,9 +32,15 @@ give, write what that person meant in it, in Spanish, in their own voice (first 
 it), with the same meaning: drop fillers, repetitions and cut words, and name what "eso", "lo", "el programa" or
 "otro" refers to when the call says it, so it reads on its own without the rest of the call ("Ya cambiamos de
 proveedor y estamos contentos: lo tenemos conectado con nuestro programa"). At most 25 words. Never add a fact, a
-number, a reason or an opinion the person did not say; when the quote is already clear, said repeats it. The field
+number, a reason or an opinion the person did not say; when the quote is already clear, said repeats it. said is what they SAID,
+cleaned, never a description of what they did or meant to do ("No le doy importancia y sigo con lo mío" describes; the
+words were "Ya, ya, pero lo que te decía es que…"). The field
 is said for quote, answer_said for answer, reply_said for reply and after_said for after_quote; null when the quote
 it goes with is null.
+
+First check whose sale this is. Findings are about the rep selling what company_name sells. When the call is
+something else (the people on the line are being shown or sold another vendor's product, a supplier's demo, an
+internal meeting, a training or a test of a tool), return every list empty.
 
 The bar for every item: would a good head of sales stop the recording there and say "mira esto"? If not,
 leave it out. Most calls have few items or none; an empty list is a correct answer, and padding a list with
@@ -94,7 +100,9 @@ worked and in concessions).
 3. worked: what the rep said or offered that clearly moved the call forward and that the playbook does not
    have: not in playbook_answers, not what a step asks. "Clearly moved it forward" is a fact of the call: right
    after it the prospect accepted, opened up, asked how to go ahead or dropped the objection. A reply that is the
-   playbook's answer in other words is not listed: the playbook already has it.
+   playbook's answer in other words is not listed: the playbook already has it. It must be a move other reps can
+   reuse with other clients: never a date set, a person to call, a call agreed or anything else that only makes
+   sense for this deal.
    - quote: the rep's words, an exact substring of one "You:" line.
    - after_quote: the prospect's words right after that show it worked, an exact substring of one "Them:" line.
    - topic: as in questions, naming the move ("Prueba de un mes sin permanencia").

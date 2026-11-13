@@ -199,3 +199,46 @@ def test_an_opening_in_one_call_is_that_deals_coaching_and_a_reply_is_not_listed
     titles = {s["title"]: s for s in engine.build_suggestions([reply], NAMES, {})}
     assert "Prueba de un mes" not in titles and titles["Compromiso de 12 meses"]["draft"] == "Te pongo un mes de prueba sin coste"
 
+
+
+def test_a_member_without_a_name_reads_as_a_name_not_an_email():
+    assert engine.display_name("daniel.clavero@movertis.com") == "Daniel Clavero"
+    assert engine.display_name("Naiara Segura") == "Naiara Segura"
+
+
+class _Draft:
+    def __init__(self, answer):
+        self.answer = answer
+
+    async def chat_json(self, messages, **_):
+        return self.answer
+
+
+def _draft(answer, material):
+    import asyncio
+
+    question = next(s for s in engine.build_suggestions(ROWS, NAMES, {}) if s["kind"] == "question")
+    return asyncio.run(engine.write_draft(question, material=material, answers=[], company_name="Movertis", llm=_Draft(answer)))
+
+
+def test_vocify_completes_an_answer_only_from_the_companys_own_words():
+    material = {"value_short": "Gestionamos los CAE de toda la flota desde la plataforma, con certificación MITECO."}
+    grounded = {"text": "Sí, los CAE los gestionamos desde la plataforma, con certificación.", "facts": ["Gestionamos los CAE de toda la flota"]}
+    assert _draft(grounded, material).startswith("Sí, los CAE")
+    # A fact that is not in the material, no fact at all, or nothing to say: nothing is shown.
+    assert _draft({"text": "Cuesta 9 € al mes.", "facts": ["9 € al mes"]}, material) is None
+    assert _draft({"text": "Depende, lo miro.", "facts": []}, material) is None
+    assert _draft({"text": None, "facts": []}, material) is None
+
+
+def test_the_draft_endpoint_writes_nothing_and_answers_null_when_it_cannot(client, monkeypatch):
+    first_question = next(s for s in client.get("/api/v1/playbook-assistant/suggestions").json()["suggestions"] if s["kind"] == "question")
+
+    async def nothing(*a, **k):
+        return None
+
+    monkeypatch.setattr(engine, "write_draft", nothing)
+    monkeypatch.setattr("app.services.copilot.load_grounding.load_company_knowledge", lambda *a, **k: {})
+    response = client.post(f"/api/v1/playbook-assistant/suggestions/{first_question['key']}/draft")
+    assert response.status_code == 200 and response.json() == {"text": None}
+    assert client.store.all("co-1") == {}

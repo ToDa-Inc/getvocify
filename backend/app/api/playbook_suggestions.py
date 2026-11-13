@@ -103,7 +103,7 @@ def _load(supabase: Client, membership: Membership) -> tuple[list[dict], dict[st
 
     # Everyone who sells counts here, managers too: a founder's call teaches as much as a rep's.
     reps = load_team_reps(supabase, membership.company_id)
-    names = {str(rep["userId"]): rep.get("name") or "" for rep in reps}
+    names = {str(rep["userId"]): engine.display_name(rep.get("name")) for rep in reps}
     if not names:
         return [], {}
     start = datetime.now(timezone.utc) - timedelta(days=engine.WINDOW_DAYS)
@@ -235,3 +235,38 @@ async def undo_dismissal(key: str, supabase: Client = Depends(get_supabase), mem
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": exc.code}) from exc
     except engine.SuggestionsUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={"code": "not_activated"}) from exc
+
+
+@router.post("/{key}/draft")
+async def draft_suggestion(key: str, supabase: Client = Depends(get_supabase), membership: Membership = Depends(get_membership)):
+    """«Completar con Vocify»: an answer for an objection or a question written from the company's material and playbook
+    only -> {text}; text is null when they do not hold it. Nothing is saved."""
+    from app.services.copilot.load_grounding import load_company_knowledge
+    from app.services.intelligence.extract import playbook_answers
+    from app.services.intelligence.findings import compact_material
+    from app.services.llm import LLMClient
+
+    require_manager(membership)
+
+    def gather() -> tuple[dict, dict, list[dict], Optional[str]]:
+        from app.services.coaching import rep_coaching_reads as reads
+
+        suggestions, _ = _load(supabase, membership)
+        suggestion = engine.find(suggestions, key)
+        if suggestion["kind"] not in _ANSWER_KINDS:
+            raise engine.SuggestionError("suggestion_not_found")
+        material = compact_material(load_company_knowledge(supabase, company_id=membership.company_id))
+        answers = playbook_answers(reads.load_published_playbook(supabase, membership.company_id, suggestion["motion"])["entries"])
+        rows = supabase.table("companies").select("name").eq("id", membership.company_id).limit(1).execute().data or []
+        return suggestion, material, answers, (rows[0].get("name") if rows else None)
+
+    try:
+        suggestion, material, answers, company_name = await run_in_threadpool(gather)
+    except engine.SuggestionError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": exc.code}) from exc
+    try:
+        text = await engine.write_draft(suggestion, material=material, answers=answers, company_name=company_name, llm=LLMClient())
+    except Exception:
+        text = None
+    return {"text": text}
+
