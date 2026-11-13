@@ -14,7 +14,6 @@ import { FollowupCard } from "@/components/dashboard/FollowupCard";
 import { DoneMark } from "@/components/dashboard/DoneMark";
 import { CoachingScore } from "@/components/dashboard/memos/CoachingScore";
 import { MemoTypePill } from "@/features/playbooks/components/MemoTypePill";
-import { ContactBrief } from "@/components/dashboard/memos/ContactBrief";
 import { InteractionObjections } from "@/components/dashboard/memos/InteractionObjections";
 import { MeetingProposalReview } from "@/components/dashboard/memos/MeetingProposalReview";
 import { PostInteractionBrief } from "@/components/dashboard/memos/PostInteractionBrief";
@@ -610,13 +609,6 @@ const MemoDetail = () => {
                       offsetMs={Math.round(currentTime * 1000)}
                     />
                   ) : null
-                }
-                noteExtra={
-                  <>
-                    {memo?.hubspotContactId || memo?.hubspot_contact_id ? (
-                      <ContactBrief contactId={String(memo.hubspotContactId || memo.hubspot_contact_id)} afterCall />
-                    ) : null}
-                  </>
                 }
                 tasksLead={
                   isOwnMemo && id ? (

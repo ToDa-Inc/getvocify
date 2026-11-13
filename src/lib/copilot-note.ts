@@ -45,11 +45,39 @@ function inlineHtml(text: string) {
   return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 }
 
+type NoteItem = { text: string; bullet: boolean; children: string[] };
+
+/** `**Resultado:** how the call ended`: the note's first line, set apart from the facts under it. */
+const LEAD_LINE = /^\*\*([^*:]{1,24}):\*\*\s*(\S.*)$/;
+
+function itemsHtml(items: NoteItem[]) {
+  let html = "";
+  let list: string[] = [];
+  const closeList = () => {
+    if (list.length) html += `<ul>${list.join("")}</ul>`;
+    list = [];
+  };
+  for (const item of items) {
+    if (!item.bullet) {
+      closeList();
+      html += `<p>${inlineHtml(item.text)}</p>`;
+      continue;
+    }
+    const kids = item.children.length
+      ? `<ul>${item.children.map((c) => `<li>${inlineHtml(c)}</li>`).join("")}</ul>`
+      : "";
+    list.push(`<li>${inlineHtml(item.text)}${kids}</li>`);
+  }
+  closeList();
+  return html;
+}
+
 export function renderCopilotNoteHtml(markdown: string) {
   const lines = String(stripNextStepsSection(markdown) || "").split(/\r?\n/);
-  const sections: { title: string; items: { text: string; children: string[] }[] }[] = [];
+  const sections: { title: string; items: NoteItem[] }[] = [];
   let current: (typeof sections)[number] | null = null;
-  let lastItem: { text: string; children: string[] } | null = null;
+  let lastItem: NoteItem | null = null;
+  let lead = "";
 
   for (const raw of lines) {
     const line = raw.replace(/\s+$/, "");
@@ -60,49 +88,35 @@ export function renderCopilotNoteHtml(markdown: string) {
       sections.push(current);
       continue;
     }
-    const nested = isNestedListItem(line);
-    const bullet = isListItem(line);
     if (!current) {
+      const match = lead ? null : LEAD_LINE.exec(line.trim());
+      if (match) {
+        lead = `<p data-note-lead><span>${escapeHtml(match[1])}</span>${inlineHtml(match[2])}</p>`;
+        continue;
+      }
       current = { title: "", items: [] };
       sections.push(current);
     }
-    if (!bullet) {
-      lastItem = { text: line.trim(), children: [] };
+    if (!isListItem(line)) {
+      lastItem = { text: line.trim(), bullet: false, children: [] };
       current.items.push(lastItem);
       continue;
     }
     const text = stripListMarker(line);
-    if (nested && lastItem) {
+    if (isNestedListItem(line) && lastItem) {
       lastItem.children.push(text);
     } else {
-      lastItem = { text, children: [] };
+      lastItem = { text, bullet: true, children: [] };
       current.items.push(lastItem);
     }
   }
 
-  const hasHeadings = sections.some((s) => s.title);
-  if (!hasHeadings) {
-    const text = String(markdown || "").trim();
-    if (!text) return "";
-    return text
-      .split(/\n{2,}/)
-      .map((p) => `<p>${inlineHtml(p.trim())}</p>`)
-      .join("");
-  }
-
-  return sections
-    .map((section) => {
-      const heading = section.title ? `<h3>${inlineHtml(section.title)}</h3>` : "";
-      if (!section.items.length) return heading;
-      const lis = section.items.map((item) => {
-        const kids = item.children.length
-          ? `<ul>${item.children.map((c) => `<li>${inlineHtml(c)}</li>`).join("")}</ul>`
-          : "";
-        return `<li>${inlineHtml(item.text)}${kids}</li>`;
-      });
-      return `${heading}<ul>${lis.join("")}</ul>`;
-    })
-    .join("");
+  return (
+    lead +
+    sections
+      .map((section) => (section.title ? `<h3>${inlineHtml(section.title)}</h3>` : "") + itemsHtml(section.items))
+      .join("")
+  );
 }
 
 export function memoContactName(memo: { extraction?: { contactName?: string | null; companyName?: string | null } | null } | null) {

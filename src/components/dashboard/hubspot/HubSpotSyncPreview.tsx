@@ -86,8 +86,6 @@ interface HubSpotSyncPreviewProps {
   tabBar?: ReactNode;
   /** Top of the note panel (the rep's own note and objections: never below the fold). */
   noteLead?: ReactNode;
-  /** Bottom of the note panel. */
-  noteExtra?: ReactNode;
   /** Top of the tasks panel. */
   tasksLead?: ReactNode;
   /** Panels the page owns (email, coaching). Hidden, never unmounted, so drafts survive. */
@@ -184,7 +182,6 @@ export const HubSpotSyncPreview = ({
   activeTab = null,
   tabBar = null,
   noteLead = null,
-  noteExtra = null,
   tasksLead = null,
   tabPanels = null,
   paneled = false,
@@ -1550,7 +1547,6 @@ export const HubSpotSyncPreview = ({
         ) : tabbed ? (
           <p className="text-sm text-muted-foreground px-1">No note from this call.</p>
         ) : null}
-        {tabbed ? noteExtra : null}
       </div>
 
       {/* 4. CRM FIELDS SECTION */}
