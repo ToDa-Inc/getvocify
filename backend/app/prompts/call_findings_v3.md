@@ -109,7 +109,8 @@ worked and in concessions).
    after it the prospect accepted, opened up, asked how to go ahead or dropped the objection. A reply that is the
    playbook's answer in other words is not listed: the playbook already has it. It must be a move other reps can
    reuse with other clients: never a date set, a person to call, a call agreed or anything else that only makes
-   sense for this deal.
+   sense for this deal. A move that was the reply to an objection listed in new_objections is that objection's reply,
+   never listed again here.
    - quote: the rep's words, an exact substring of one "You:" line.
    - after_quote: the prospect's words right after that show it worked, an exact substring of one "Them:" line.
    - topic: as in questions, naming the move ("Prueba de un mes sin permanencia").
