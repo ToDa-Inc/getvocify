@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlignLeft, Check, MessageSquareText } from "lucide-react";
+import { AlignLeft, Briefcase, Building2, Check, MessageSquareText, UserRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/features/auth";
-import { crmApi, crmKeys, SESSION_QUERY_STALE_MS, type CallNoteSettings, type CRMConfiguration } from "@/lib/api/crm";
+import { CALL_TARGETS, crmApi, crmKeys, SESSION_QUERY_STALE_MS, type CallNoteSettings, type CallTarget, type CRMConfiguration } from "@/lib/api/crm";
 import { useLanguage } from "@/lib/i18n";
 import { productText } from "@/lib/product-catalog";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SettingsRow } from "@/components/ui/settings-card";
 import { Switch } from "@/components/ui/switch";
+import { Toggle } from "@/components/ui/toggle";
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 
 /**
@@ -149,6 +150,60 @@ export const ReviewRow = ({
   </SettingsRow>
 );
 
+/**
+ * Where a call is saved: its note, call activity and tasks go on the chosen records it has. Any of the three, never
+ * none (the last one can't be switched off). Without the deal, calls neither update nor create deals.
+ */
+const TARGET_ICONS: Record<CallTarget, LucideIcon> = { deal: Briefcase, company: Building2, contact: UserRound };
+
+export const CallTargetsRow = ({
+  labels,
+  value,
+  disabled,
+  onChange,
+}: {
+  labels: Record<CallTarget, string>;
+  value: CRMConfiguration["call_targets"];
+  disabled?: boolean;
+  onChange: (next: CallTarget[]) => void;
+}) => {
+  const on = value?.length ? value : CALL_TARGETS;
+  return (
+    <SettingsRow
+      title="Save the call on"
+      description={on.includes("deal") ? "Note, call and tasks" : `Note, call and tasks. ${labels.deal}s are left as they are.`}
+      below={
+        <div className="flex flex-wrap gap-2">
+          {CALL_TARGETS.map((target) => {
+            const pressed = on.includes(target);
+            const Icon = pressed ? Check : TARGET_ICONS[target];
+            return (
+              <Toggle
+                key={target}
+                variant="chip"
+                size="sm"
+                className="gap-1.5"
+                pressed={pressed}
+                disabled={disabled}
+                aria-label={`Save the call on the ${labels[target].toLowerCase()}`}
+                title={pressed && on.length === 1 ? "The call needs somewhere to go" : undefined}
+                onPressedChange={(next) => {
+                  // The last one stays on (looks on, simply doesn't switch off).
+                  if (!next && on.length === 1) return;
+                  onChange(CALL_TARGETS.filter((t) => (t === target ? next : on.includes(t))));
+                }}
+              >
+                <Icon className="h-3.5 w-3.5" strokeWidth={1.5} />
+                {labels[target]}
+              </Toggle>
+            );
+          })}
+        </div>
+      }
+    />
+  );
+};
+
 type DealRule = NonNullable<CRMConfiguration["deal_creation_rule"]>;
 const WHEN_RULES: DealRule[] = ["always", "meeting_booked", "follow_up_or_meeting"];
 
@@ -163,27 +218,33 @@ export const DealsRow = ({
   icon,
   rule,
   disabled,
+  notOnDeals = false,
   onRuleChange,
   children,
 }: {
   icon: LucideIcon;
   rule: CRMConfiguration["deal_creation_rule"];
   disabled?: boolean;
+  /** "Save the call on" leaves deals out: calls neither update nor create one, whatever this says. */
+  notOnDeals?: boolean;
   onRuleChange: (rule: DealRule) => void;
   children: ReactNode;
 }) => {
   const { t } = useLanguage();
+  // The switch is for every company; "When" (by the call's outcome) needs the after-call flow.
   const ruleEnabled = useDealRuleEnabled();
   const current: DealRule = rule ?? "always";
-  const on = !ruleEnabled || current !== "never";
+  const on = current !== "never" && !notOnDeals;
   return (
     <SettingsRow
       icon={icon}
       title="Deals"
       description={
-        on
-          ? "When the contact has none. A deal that already exists is always updated."
-          : "Never: calls land on the contact. Existing deals are still updated."
+        notOnDeals
+          ? "Off while calls aren't saved on deals"
+          : on
+            ? "When the contact has none. A deal that already exists is always updated."
+            : "Never: calls land on the contact. Existing deals are still updated."
       }
       below={
         on ? (
@@ -210,14 +271,12 @@ export const DealsRow = ({
         ) : null
       }
     >
-      {ruleEnabled ? (
-        <Switch
-          aria-label="Create deals"
-          checked={on}
-          disabled={disabled}
-          onCheckedChange={(next) => onRuleChange(next ? "always" : "never")}
-        />
-      ) : null}
+      <Switch
+        aria-label="Create deals"
+        checked={on}
+        disabled={disabled || notOnDeals}
+        onCheckedChange={(next) => onRuleChange(next ? "always" : "never")}
+      />
     </SettingsRow>
   );
 };

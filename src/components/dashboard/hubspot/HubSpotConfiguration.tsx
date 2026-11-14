@@ -15,7 +15,7 @@ import { classifyFillPolicy, FILL_POLICY_LABELS, type FillPolicy } from "@/lib/f
 import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
 import {
   CallNoteRows,
-  DealsRow,
+  CallTargetsRow, DealsRow,
   FieldsRow,
   ReviewRow,
   SaveStatus,
@@ -303,6 +303,12 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
           disabled={readOnly}
           onAutoWriteChange={(val) => setConfig((prev) => ({ ...prev, auto_sync_hubspot_calls: val }))}
         />
+        <CallTargetsRow
+          labels={{ deal: "Deal", company: "Company", contact: "Contact" }}
+          value={config.call_targets}
+          disabled={readOnly}
+          onChange={(next) => setConfig((prev) => ({ ...prev, call_targets: next }))}
+        />
       </SettingsSection>
 
       <SettingsSection label="What Vocify creates">
@@ -333,6 +339,7 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
         <DealsRow
           icon={Briefcase}
           rule={config.deal_creation_rule}
+          notOnDeals={Boolean(config.call_targets?.length) && !config.call_targets?.includes("deal")}
           disabled={readOnly}
           onRuleChange={(rule) => setConfig((prev) => ({ ...prev, deal_creation_rule: rule }))}
         >

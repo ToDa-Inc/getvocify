@@ -104,6 +104,7 @@ class PipedriveCRMProvider:
         stage_confirm: bool = False,
         commitment_tasks: Optional[list] = None,
         conversation: Optional[dict] = None,
+        link_to: Optional[frozenset] = None,
     ) -> SyncResult:
         del lost_reason, lost_reason_deal_property, lost_lead_status_value, on_hold_lead_status_value
         if call_outcome:
@@ -137,6 +138,7 @@ class PipedriveCRMProvider:
             stage_confirm=stage_confirm,
             commitment_tasks=commitment_tasks,
             conversation=conversation,
+            link_to=link_to,
         )
 
     async def build_preview(

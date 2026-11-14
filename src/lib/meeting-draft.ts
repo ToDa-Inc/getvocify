@@ -11,6 +11,8 @@ export type MeetingDraft = {
   notes?: string;
   /** The CRM contact on screen when the call started; the memo is born with it. */
   contact?: { hubspotId: string; name: string | null };
+  /** The deal or company open on screen when the call started; the call is saved there too. */
+  record?: { dealId?: string; companyId?: string };
   /** Where the call happened, as the Mac saw it: the app or page, and whether that makes it a call or a meeting. */
   source?: CallSourceInfo;
   /** The channel the rep switched to on the island (types by channel); absent, `source` decides. */

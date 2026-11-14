@@ -248,7 +248,7 @@ def fresh_flags():
 
 
 def test_flag_off_approve_ignores_the_outcome_and_creates_the_deal_as_today(monkeypatch):
-    env = _Env(monkeypatch, flags=False, config=_config(deal_creation_rule="never"))
+    env = _Env(monkeypatch, flags=False, config=_config(deal_creation_rule="always"))
     response = env.approve(rep_outcome="follow_up", is_new_deal=True)
     assert response.status_code == 200
     [call] = env.provider.calls
@@ -256,6 +256,20 @@ def test_flag_off_approve_ignores_the_outcome_and_creates_the_deal_as_today(monk
     assert call["is_new_deal"] is True and call["skip_deal"] is False
     assert response.json()["after_call"] is None
     assert "rep_outcome" not in env.memo
+
+
+def test_flag_off_never_still_creates_no_deal(monkeypatch):
+    env = _Env(monkeypatch, flags=False, config=_config(deal_creation_rule="never"))
+    env.approve(is_new_deal=True)
+    [call] = env.provider.calls
+    assert call["skip_deal"] is True and call["is_new_deal"] is False
+
+
+def test_flag_off_an_outcome_rule_is_today_behaviour(monkeypatch):
+    env = _Env(monkeypatch, flags=False, config=_config(deal_creation_rule="meeting_booked"))
+    env.approve(is_new_deal=True)
+    [call] = env.provider.calls
+    assert call["is_new_deal"] is True and call["skip_deal"] is False
 
 
 def test_flag_off_the_after_call_endpoints_are_404(monkeypatch):

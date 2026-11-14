@@ -179,6 +179,11 @@ class UploadResponse(BaseModel):
 class ApproveMemoRequest(BaseModel):
     """Request body for approving a memo"""
     deal_id: Optional[str] = Field(None, description="Deal ID to update (None = create new)")
+    call_targets: Optional[List[Literal["deal", "company", "contact"]]] = Field(
+        None,
+        min_length=1,
+        description="Where this call is saved, as the rep left it in the review; None = the company's setting",
+    )
     is_new_deal: bool = Field(default=False, description="Whether to create a new deal")
     contact_id: Optional[str] = Field(
         None,

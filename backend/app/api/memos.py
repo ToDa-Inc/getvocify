@@ -48,6 +48,7 @@ from app.services.commitment_tasks import TASK_CRMS, preview_kwargs as commitmen
 from app.services.deal_stage_confirm import preview_stage_kwargs
 from app.services.memo_approval import approve_memo_core, CRMSyncError
 from app.services.preview_targets import open_linked_deal_ids, resolve_preview_deal_selection
+from app.services.call_targets import ALL as CALL_TARGETS, targets_for as call_targets_for
 from app.services.hubspot.preview import replay_written_fields
 from app.services.memo_crm import get_memo_crm_or_none_with_hubspot_refresh
 from app.services.hubspot import HubSpotClient, SyncResult
@@ -930,6 +931,9 @@ class UploadTranscriptRequest(BaseModel):
     notes: Optional[str] = None
     # The CRM contact the call was with, known live from the record on screen (desktop).
     hubspot_contact_id: Optional[str] = Field(default=None, pattern=r"^\d{1,32}$")
+    # The deal or company open on screen when the call was recorded (desktop): the call is saved there.
+    hubspot_deal_id: Optional[str] = Field(default=None, pattern=r"^\d{1,32}$")
+    crm_company_id: Optional[str] = Field(default=None, pattern=r"^\d{1,32}$")
     # The app the call happened in, as the desktop saw it (e.g. "Google Meet", "Zoom"): context
     # for reading the call's type.
     call_source: Optional[str] = Field(default=None, max_length=60)
@@ -1111,9 +1115,16 @@ async def upload_transcript_and_extract(
     if body.hubspot_contact_id:
         # Born with its contact: playbook routing, extraction and the review target use it.
         payload["hubspot_contact_id"] = body.hubspot_contact_id
+    if body.hubspot_deal_id:
+        payload["hubspot_deal_id"] = body.hubspot_deal_id
+    meta: dict = {}
     call_source = (body.call_source or "").strip()
     if call_source:
-        payload["pipeline_meta"] = {"call_source": call_source}
+        meta["call_source"] = call_source
+    if body.crm_company_id:
+        meta["crm_company_id"] = body.crm_company_id
+    if meta:
+        payload["pipeline_meta"] = meta
     user_notes = (body.notes or "").strip()[:USER_NOTES_MAX_CHARS] or None
     if user_notes:
         # Only written when present, so memos without notes never depend on migration 073.
@@ -1688,6 +1699,10 @@ async def approve_memo(
 class ApproveContactRequest(BaseModel):
     # Built like the review screen builds it when the rep unticked fields; absent = as extracted.
     extraction: Optional[MemoExtraction] = None
+    # The deal the island's preview landed on (the contact's only open deal): saved where it was shown.
+    deal_id: Optional[str] = None
+    # Where the rep left this call in the island's "Saved on" chips; None = the company's setting.
+    call_targets: Optional[List[Literal["deal", "company", "contact"]]] = Field(None, min_length=1)
 
 
 @router.post("/{memo_id}/approve-contact", response_model=Union[Memo, SyncResult])
@@ -1715,8 +1730,14 @@ async def approve_memo_for_contact(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Not ready to approve yet")
     payload = approval_payload_for_auto_sync(
         contact_id=contact_id,
-        deal_id=memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id"),
+        deal_id=memo_data.get("hubspot_deal_id")
+        or memo_data.get("matched_deal_id")
+        or ((body.deal_id or "").strip() if body else None),
     )
+    # The company open on screen during the call, when there was one.
+    payload.company_id = str((memo_data.get("pipeline_meta") or {}).get("crm_company_id") or "") or None
+    if body and body.call_targets:
+        payload.call_targets = body.call_targets
     if body and body.extraction:
         payload.extraction = body.extraction
     return await approve_memo(memo_id, payload, supabase, user_id)
@@ -1880,6 +1901,8 @@ async def get_approval_preview(
         contact_id = None
 
     memo_data = await asyncio.to_thread(_require_readable_memo, supabase, str(memo_id), user_id)
+    # A deal the rep picked for this call (not the memo's own): shown even where the company doesn't work by deal.
+    deal_asked = bool(deal_id or create_new_deal) and not skip_deal
 
     deal_id, create_new_deal, contact_id = _preview_targets(
         memo_data, deal_id=deal_id, create_new_deal=create_new_deal, skip_deal=skip_deal, contact_id=contact_id
@@ -1893,11 +1916,12 @@ async def get_approval_preview(
         create_new_deal=create_new_deal,
         skip_deal=skip_deal,
         contact_id=contact_id,
+        deal_asked=deal_asked,
     )
     if fresh:
         preview = await build()
     else:
-        key = _preview_key(user_id, memo_id, memo_data, deal_id, create_new_deal, skip_deal, contact_id)
+        key = _preview_key(user_id, memo_id, memo_data, deal_id, create_new_deal, skip_deal, contact_id, deal_asked)
         # A copy: what the cache holds is shared with the next caller.
         preview = (await _PREVIEW_CACHE.get_or_build(key, build)).model_copy(deep=True)
 
@@ -1934,6 +1958,7 @@ async def _build_approval_preview(
     create_new_deal: bool,
     skip_deal: bool,
     contact_id: Optional[str],
+    deal_asked: bool = False,
 ) -> ApprovalPreview:
     """What approving this memo would change in the CRM, read from the CRM as it is now."""
     extraction_data = memo_data.get("extraction")
@@ -2021,6 +2046,12 @@ async def _build_approval_preview(
         asyncio.to_thread(preview_stage_kwargs, supabase, memo=memo_data, connection=conn, config=config),
         asyncio.to_thread(commitment_preview_kwargs, supabase, memo=memo_data, connection=conn),
     )
+    targets, selected_deal_id, create_new, skip_deal = _shown_targets(
+        config, conn, selected_deal_id, create_new, skip_deal, asked_deal=deal_asked
+    )
+    # "Never create deals": a call with no deal is shown on the contact, as the approval will write it.
+    if create_new and not create_new_deal and conn.get("provider") != "salesforce" and getattr(config, "deal_creation_rule", None) == "never":
+        create_new, skip_deal = False, True
     extraction, commitment_kwargs = _proposed_tasks(extraction, commitment_kwargs, config, conn, skip_deal=skip_deal)
     try:
         logger.info(
@@ -2065,6 +2096,7 @@ async def _build_approval_preview(
     # build_preview, which is provider-generic) so the extension gets them
     # in the same round-trip as everything else. Falls back to the same
     # default crm_configurations ships with when there's no config row yet.
+    preview.call_targets = [t for t in CALL_TARGETS if t in targets]
     preview.lost_reasons = list(
         config.lost_reasons if config and config.lost_reasons else
         ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]
@@ -2082,6 +2114,17 @@ async def _build_approval_preview(
     except Exception as e:
         logger.warning("Call outcome availability check failed for memo %s: %s", memo_id, e)
     return preview
+
+
+def _shown_targets(config, conn: dict, selected_deal_id, create_new: bool, skip_deal: bool, *, asked_deal: bool):
+    """Where the call is saved, and the deal choice as the approval will apply it: without "deal" no deal is shown,
+    unless the rep picked one for this call (asked_deal), which then saves it on the deal too."""
+    targets = call_targets_for(config)
+    if asked_deal:
+        return targets | {"deal"}, selected_deal_id, create_new, skip_deal
+    if "deal" not in targets and conn.get("provider") != "salesforce":
+        return targets, None, False, True
+    return targets, selected_deal_id, create_new, skip_deal
 
 
 def _proposed_tasks(
@@ -2113,8 +2156,11 @@ def _preview_targets(
     return deal_id, create_new_deal, contact_id
 
 
-def _preview_key(user_id, memo_id, memo_data, deal_id, create_new_deal, skip_deal, contact_id) -> tuple:
-    return (str(user_id), str(memo_id), memo_fingerprint(memo_data), deal_id, bool(create_new_deal), bool(skip_deal), contact_id)
+def _preview_key(user_id, memo_id, memo_data, deal_id, create_new_deal, skip_deal, contact_id, deal_asked=False) -> tuple:
+    return (
+        str(user_id), str(memo_id), memo_fingerprint(memo_data), deal_id, bool(create_new_deal), bool(skip_deal), contact_id,
+        bool(deal_asked),
+    )
 
 
 _PREVIEW_CACHE: PreviewCache = PreviewCache()
@@ -2197,6 +2243,7 @@ async def post_approval_preview(
     deal_id = payload.deal_id if payload else None
     create_new_deal = bool(payload.create_new_deal) if payload else False
     skip_deal = bool(payload.skip_deal) if payload else False
+    deal_asked = bool(deal_id or create_new_deal) and not skip_deal
     contact_id = payload.contact_id if payload else None
     if deal_id == "":
         deal_id = None
@@ -2277,6 +2324,11 @@ async def post_approval_preview(
         skip_deal=skip_deal,
         linked_open_deal_ids=open_linked_deal_ids(anchor),
     )
+    targets, selected_deal_id, create_new, skip_deal = _shown_targets(
+        config, conn, selected_deal_id, create_new, skip_deal, asked_deal=deal_asked
+    )
+    if create_new and not create_new_deal and conn.get("provider") != "salesforce" and getattr(config, "deal_creation_rule", None) == "never":
+        create_new, skip_deal = False, True
 
     extraction, commitment_kwargs = _proposed_tasks(
         extraction,
@@ -2320,6 +2372,7 @@ async def post_approval_preview(
             detail=f"Failed to build preview: {str(e)}",
         ) from e
 
+    preview.call_targets = [t for t in CALL_TARGETS if t in targets]
     preview.lost_reasons = list(
         config.lost_reasons if config and config.lost_reasons else
         ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]

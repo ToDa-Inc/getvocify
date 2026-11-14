@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  savedOnFrom,
   callTypeFrom,
   changesFrom,
   crmForType,
@@ -379,5 +380,22 @@ describe("tasks the rep moved or added in the island", () => {
     assert.deepEqual(newTasksFrom([{ title: "A", due: "2026-10-20", time: "7:5" }]), [{ title: "A", due: "2026-10-20" }]);
     assert.deepEqual(newTasksFrom([{ title: "A", due: "2026-10-20", time: "07:05" }]), [{ title: "A", due: "2026-10-20", time: "07:05" }]);
     assert.deepEqual(taskEditsFrom({ k: { due: "2026-13-40" }, j: { due: "2026-10-20" }, t: { title: "  Nuevo   texto " } }), { j: { due: "2026-10-20" }, t: { title: "Nuevo texto" } });
+  });
+});
+
+describe("savedOnFrom", () => {
+  const preview = {
+    selected_deal: { deal_name: "Rosca 2027" },
+    selected_contact: { name: "Ana", company_name: "Movertis" },
+  };
+  it("lists the chosen records the call has, deal first", () => {
+    assert.deepEqual(savedOnFrom({ ...preview, call_targets: ["deal"] }), [{ kind: "deal", name: "Rosca 2027" }]);
+    assert.deepEqual(savedOnFrom({ ...preview, call_targets: ["company", "contact"] }).map((r) => r.kind), ["company", "contact"]);
+  });
+  it("falls back to every record it has when none of the chosen ones is there", () => {
+    assert.deepEqual(savedOnFrom({ selected_contact: { name: "Ana" }, call_targets: ["deal"] }), [{ kind: "contact", name: "Ana" }]);
+  });
+  it("is empty without a preview", () => {
+    assert.deepEqual(savedOnFrom(null), []);
   });
 });

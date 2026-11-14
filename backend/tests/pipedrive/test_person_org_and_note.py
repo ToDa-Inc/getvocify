@@ -175,3 +175,21 @@ def test_hubspot_note_without_the_summary_has_no_missing_summary_line():
     body = format_hubspot_note_body(summary=None, transcript="S1: hola que tal", include_summary=False)
     assert "Sin resumen" not in body and "No summary" not in body
     assert "hola que tal" in body
+
+
+@pytest.mark.asyncio
+async def test_a_company_that_works_by_organization_gets_the_note_there_only():
+    svc, client = _svc(_PersonInOrg())
+    result = await svc.sync_memo(
+        memo_id=uuid4(),
+        user_id="u1",
+        connection_id="c1",
+        extraction=MemoExtraction(summary="Llamada de seguimiento"),
+        skip_deal=True,
+        contact_id="20",
+        create_note=True,
+        link_to=frozenset({"company"}),
+    )
+    assert result.success is True
+    note = next(p for p in client.posts if p[0] == "/notes")
+    assert note[1].get("org_id") == 66 and "person_id" not in note[1] and "deal_id" not in note[1]

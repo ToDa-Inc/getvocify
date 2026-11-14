@@ -239,6 +239,7 @@ CREATE TABLE crm_configurations (
   auto_create_contacts BOOLEAN DEFAULT true,
   auto_create_companies BOOLEAN DEFAULT true,
   create_tasks BOOLEAN NOT NULL DEFAULT true,
+  call_targets TEXT[] NOT NULL DEFAULT ARRAY['deal', 'company', 'contact']::TEXT[] CHECK (cardinality(call_targets) > 0 AND call_targets <@ ARRAY['deal', 'company', 'contact']::TEXT[]),
 
   -- Call outcome (migration 021). lost_reasons: editable list shown in the
   -- extension's Lost picker. lost_reason_deal_property: confirmed override

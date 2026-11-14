@@ -8,6 +8,8 @@ from uuid import UUID
 
 
 DealCreationRule = Literal["always", "meeting_booked", "follow_up_or_meeting", "never"]
+# The CRM records a call is saved on (migration 090).
+CallTarget = Literal["deal", "company", "contact"]
 
 
 class CRMConfigurationRequest(BaseModel):
@@ -46,6 +48,14 @@ class CRMConfigurationRequest(BaseModel):
             "Whether Vocify proposes tasks from a call and writes them to the CRM. None keeps the "
             "stored value, so a client that doesn't know the field (or a database before migration "
             "088) is unaffected."
+        ),
+    )
+    call_targets: Optional[list[CallTarget]] = Field(
+        None,
+        min_length=1,
+        description=(
+            "Which records a call is saved on (note, call activity, tasks): deal, company, contact. "
+            "Without deal, calls neither update nor create deals. None keeps the stored value."
         ),
     )
     lost_reasons: list[str] = Field(
@@ -122,6 +132,8 @@ class CRMConfigurationResponse(BaseModel):
     auto_create_companies: bool
     # None only before migration 088 (the column's default is true): tasks are on.
     create_tasks: Optional[bool] = None
+    # None only before migration 090 (the column's default is all three).
+    call_targets: Optional[list[str]] = None
     lost_reasons: list[str] = Field(
         default_factory=lambda: ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]
     )

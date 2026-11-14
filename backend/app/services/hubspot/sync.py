@@ -32,6 +32,7 @@ from .companies import HubSpotCompanyService
 from .deals import HubSpotDealService, HUBSPOT_READ_ONLY_DEAL_PROPERTIES
 from .call_entry import CALL_BODY_ACTION, write_to_placed_call
 from .call_outcome import CallOutcomeContext, apply_call_outcome
+from app.services.call_targets import ALL as ALL_TARGETS, pick
 from .account_info import (
     build_contact_record_url,
     build_deal_record_url,
@@ -526,9 +527,11 @@ class HubSpotSyncService:
         on_hold_lead_status_value: Optional[str] = None,
         stage_confirm: bool = False,
         commitment_tasks: Optional[list] = None,
+        link_to: Optional[frozenset] = None,
     ) -> SyncResult:
         """
         Sync a voice memo extraction to HubSpot CRM.
+        link_to: the records the call's note is associated with (call_targets.pick); None = every one it has.
         
         Supports both creating new deals and updating existing deals.
         Filters properties based on allowed_*_fields whitelists.
@@ -1314,6 +1317,11 @@ class HubSpotSyncService:
             if company_id:
                 result.company_id = company_id
             tasks_target_id = deal_id or contact_id or company_id
+            # The records the tasks are associated with, as "Save the call on" chooses (the deal is already out when
+            # the company doesn't work by deal: skip_deal).
+            _, task_contact_id, task_company_id = pick(
+                link_to or ALL_TARGETS, deal_id=deal_id, contact_id=contact_id, company_id=company_id
+            )
             tasks_target_type = "deal" if deal_id else ("contact" if contact_id else None)
             if tasks_target_id:
                 logger.info(
@@ -1342,8 +1350,8 @@ class HubSpotSyncService:
                     connection_id=connection_id,
                     deal_id=deal_id,
                     is_new_deal=is_new_deal,
-                    contact_id=contact_id,
-                    company_id=company_id,
+                    contact_id=task_contact_id,
+                    company_id=task_company_id,
                     hubspot_owner_id=hubspot_owner_id,
                     previous_updates=previous_updates,
                 )
@@ -1461,8 +1469,8 @@ class HubSpotSyncService:
                                     subject=formatted.subject,
                                     due_date=due,
                                     deal_id=deal_id,
-                                    contact_id=contact_id,
-                                    company_id=company_id,
+                                    contact_id=task_contact_id,
+                                    company_id=task_company_id,
                                     body=build_task_body(
                                         step=add_op.subject,
                                         summary=extraction.summary,
@@ -1572,8 +1580,8 @@ class HubSpotSyncService:
                             batch = await self.tasks.create_tasks_from_extraction(
                                 extraction,
                                 deal_id=deal_id,
-                                contact_id=contact_id,
-                                company_id=company_id,
+                                contact_id=task_contact_id,
+                                company_id=task_company_id,
                                 hubspot_owner_id=hubspot_owner_id,
                                 existing_subjects=existing_subjects,
                             )
@@ -1701,14 +1709,17 @@ class HubSpotSyncService:
                             if hubspot_owner_id:
                                 note_properties["hubspot_owner_id"] = hubspot_owner_id
 
-                            # (object_type, object_id, associationTypeId) for every object we have
+                            # (object_type, object_id, associationTypeId) for every chosen record the call has
+                            on_deal, on_contact, on_company = pick(
+                                link_to or ALL_TARGETS, deal_id=deal_id, contact_id=contact_id, company_id=company_id
+                            )
                             note_targets: list[tuple[str, str, int]] = []
-                            if deal_id:
-                                note_targets.append(("deals", str(deal_id), self.associations.NOTE_TO_DEAL))
-                            if contact_id:
-                                note_targets.append(("contacts", str(contact_id), self.associations.NOTE_TO_CONTACT))
-                            if company_id:
-                                note_targets.append(("companies", str(company_id), self.associations.NOTE_TO_COMPANY))
+                            if on_deal:
+                                note_targets.append(("deals", str(on_deal), self.associations.NOTE_TO_DEAL))
+                            if on_contact:
+                                note_targets.append(("contacts", str(on_contact), self.associations.NOTE_TO_CONTACT))
+                            if on_company:
+                                note_targets.append(("companies", str(on_company), self.associations.NOTE_TO_COMPANY))
 
                             logger.info(
                                 "🎯 Note association targets resolved",

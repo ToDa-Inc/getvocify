@@ -11,7 +11,7 @@ from supabase import Client
 
 from app.logging_config import log_domain, DOMAIN_MEMO
 from app.models.memo import Memo, MemoExtraction, ApproveMemoRequest
-from app.services import after_call, commitment_tasks
+from app.services import after_call, call_targets, commitment_tasks
 from app.services.followup_logic import SKIPPED_SCREENING
 from app.services.crm_config import CRMConfigurationService
 from app.services.deal_stage_confirm import STAGE_FIELD, stage_sync_kwargs
@@ -257,15 +257,19 @@ async def approve_memo_core(
         auto_create_companies = None
         auto_create_contacts = None
 
-    # Lista 4 T4 (E10, E11), AFTER_CALL_FLOW_ENABLED: the rep's after-call outcome becomes the
-    # sync's call_outcome, and the company's deal rule decides whether a contact without a
-    # deal gets one - for every approval, so the rule holds whichever client approves.
+    # The company's deal rule decides whether a contact without a deal gets one, for every approval
+    # (island, review, auto-approve). "Never" needs no flag; the outcome-based rules (meeting booked,
+    # follow-up) need the rep's after-call outcome, AFTER_CALL_FLOW_ENABLED (Lista 4 T4, E10, E11).
     outcome_status_overrides: dict = {}
-    if is_enabled(supabase, memo_data.get("company_id") or crm_connection.get("company_id"), AFTER_CALL_FLAG):
+    after_call_on = is_enabled(supabase, memo_data.get("company_id") or crm_connection.get("company_id"), AFTER_CALL_FLAG)
+    rule = getattr(config, "deal_creation_rule", None) if config else None
+    if not after_call_on and rule != "never":
+        rule = None
+    has_deal = bool(deal_id) and not is_new_deal and not skip_deal
+    provider_name = (crm_connection.get("provider") or "").lower()
+    force_skip = provider_name != "salesforce" and after_call.must_skip_deal(rule, None, has_deal=has_deal)
+    if after_call_on:
         rep_outcome = getattr(payload, "rep_outcome", None) if payload else None
-        rule = getattr(config, "deal_creation_rule", None) if config else None
-        has_deal = bool(deal_id) and not is_new_deal and not skip_deal
-        provider_name = (crm_connection.get("provider") or "").lower()
         if rep_outcome:
             plan = after_call.approval_plan(
                 rep_outcome=rep_outcome,
@@ -281,10 +285,12 @@ async def approve_memo_core(
                 key: plan[key] for key in ("lost_lead_status_value", "on_hold_lead_status_value") if key in plan
             }
             force_skip = plan["skip_deal"]
-        else:
-            force_skip = provider_name != "salesforce" and after_call.must_skip_deal(rule, None, has_deal=has_deal)
-        if force_skip:
-            skip_deal, is_new_deal, deal_id = True, False, None
+    # A company (or a call) that doesn't work by deal: no deal is updated or created from it.
+    targets = call_targets.targets_for(config, getattr(payload, "call_targets", None) if payload else None)
+    if "deal" not in targets and provider_name != "salesforce":
+        force_skip = True
+    if force_skip:
+        skip_deal, is_new_deal, deal_id = True, False, None
 
     if deal_id and not is_new_deal and not skip_deal:
         auto_create_contact_company = False
@@ -298,6 +304,19 @@ async def approve_memo_core(
         auto_create_companies = False
     elif payload is not None and payload.create_company is True and not company_id:
         auto_create_companies = True
+
+    # A record the call isn't saved on is left alone: not created and none of its fields written (the deal is
+    # already out above). It only gets the note when the call has nowhere else to go (call_targets.pick).
+    if provider_name in ("hubspot", "pipedrive"):
+        raw = dict(extraction.raw_extraction or {})
+        if "contact" not in targets:
+            auto_create_contacts, allowed_contact_fields = False, []
+            raw.pop("contact_properties", None)
+        if "company" not in targets:
+            auto_create_companies, allowed_company_fields = False, []
+            raw.pop("company_properties", None)
+        if raw != (extraction.raw_extraction or {}):
+            extraction = extraction.model_copy(update={"raw_extraction": raw})
 
     try:
         provider = build_crm_provider(supabase, crm_connection)
@@ -367,6 +386,7 @@ async def approve_memo_core(
         **stage_kwargs,
         **commitment_kwargs,
         **({"conversation": conversation_for_crm(supabase, memo_data)} if crm_connection.get("provider") == "pipedrive" else {}),
+        **({"link_to": targets} if provider_name in ("hubspot", "pipedrive") else {}),
     )
 
     if not sync_result.success:

@@ -129,6 +129,7 @@ class CRMConfigurationService:
             auto_create_contacts=config_data.get("auto_create_contacts", True),
             auto_create_companies=config_data.get("auto_create_companies", True),
             create_tasks=config_data.get("create_tasks"),
+            call_targets=config_data.get("call_targets"),
             lost_reasons=config_data.get("lost_reasons") or [
                 "No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit",
             ],
@@ -214,6 +215,9 @@ class CRMConfigurationService:
         # Same for the tasks switch (migration 088).
         if config.create_tasks is not None:
             config_data["create_tasks"] = config.create_tasks
+        if config.call_targets is not None:
+            # Stored in a fixed order, without repeats.
+            config_data["call_targets"] = [t for t in ("deal", "company", "contact") if t in config.call_targets]
         
         # Upsert configuration
         result = self.supabase.table("crm_configurations").upsert(
@@ -244,6 +248,7 @@ class CRMConfigurationService:
             auto_create_contacts=saved_config["auto_create_contacts"],
             auto_create_companies=saved_config["auto_create_companies"],
             create_tasks=saved_config.get("create_tasks"),
+            call_targets=saved_config.get("call_targets"),
             lost_reasons=saved_config.get("lost_reasons") or [
                 "No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit",
             ],

@@ -60,7 +60,7 @@ import { CALL_UPLOAD_RETRY_DELAYS_MS, withTransientRetries } from "@/lib/transie
 import { addJob, dropJob, forIsland, patchJob, stateOfMemo, stopAutoOpen, type AfterCallJob } from "@/lib/after-call-jobs";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, desktopPlatform, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
-import { detectedCallContact, islandCallContact, islandRecordContact, latestOnly, type CallPreview } from "@/lib/call-contact";
+import { detectedCallContact, islandCallContact, islandRecordContact, latestOnly, onScreenRecord, type CallPreview } from "@/lib/call-contact";
 import { contactRecordUrl } from "@/lib/today";
 import {
   POST_CALL_GIVE_UP_MS,
@@ -75,6 +75,7 @@ import {
   newTasksFrom,
   noteMarkdown,
   retypedTo,
+  savedOnFrom,
   summaryLines,
   tasksForApprove,
   taskEditsFrom,
@@ -306,6 +307,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     proposed: ProposedUpdate[];
     /** The memo's CRM contact, when it has one. */
     contactId?: string;
+    /** The deal the preview landed on (the contact's only open deal): the save goes there too. */
+    dealId?: string;
     undoTimer?: number;
     /** Every type the call could be, in the order the memo page lists them. */
     typeOrder?: string[];
@@ -576,6 +579,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         speakersVerified: true,
         notes: draft.notes,
         hubspotContactId: draft.contact?.hubspotId,
+        hubspotDealId: draft.record?.dealId,
+        crmCompanyId: draft.record?.companyId,
         participants: meetingParticipants(draft.transcript),
         recordingStartedAt: new Date(draft.startedAt).toISOString(),
         captureId: draft.id,
@@ -870,10 +875,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       const contactId = memo.hubspotContactId || undefined;
       // The CRM changes are the slow part (the preview reads the CRM). It starts now, and the card
       // shows what is already known - the type, the call note, the meeting - without waiting for it.
-      const previewRequest: Promise<{ proposed_updates?: ProposedUpdate[] } | null> =
+      const previewRequest: Promise<
+        | ({ proposed_updates?: ProposedUpdate[]; selected_deal?: { deal_id?: string; deal_name?: string | null } | null } & Parameters<typeof savedOnFrom>[0])
+        | null
+      > =
         memo.status === "pending_review"
           ? (crmApi.getPreview(memoId, undefined, contactId ? { contactId } : undefined).catch(() => null) as Promise<
-              { proposed_updates?: ProposedUpdate[] } | null
+              | ({ proposed_updates?: ProposedUpdate[]; selected_deal?: { deal_id?: string; deal_name?: string | null } | null } & Parameters<typeof savedOnFrom>[0])
+              | null
             >)
           : Promise.resolve(null);
       // The lead status is offered on every call: its options come from the CRM's contact fields.
@@ -906,11 +915,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       if (run.cancelled || !postCallRef.current) return;
       const proposed = withLeadStatus(preview?.proposed_updates, await leadStatusRequest);
       postCallRef.current.proposed = proposed;
+      postCallRef.current.dealId = preview?.selected_deal?.deal_id || undefined;
       const crm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, proposed);
       postCallRef.current.crm = crm;
       showPostCall({
         ...crmForType(type?.key, crm),
         crmUrl: crm.stage === "done" ? contactUrlRef.current(contactId) : null,
+        savedOn: savedOnFrom(preview),
       });
 
       // The email draft is written after the CRM changes: the card says it's on its way,
@@ -1077,6 +1088,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           // The note as the rep left it in the island; absent when they didn't touch it.
           const note = typeof action.note === "string" ? action.note : null;
           const added = newTasksFrom(action.tasks);
+          // Where the rep left the call in the card's "Saved on" chips; absent when they didn't change it.
+          const targets = (Array.isArray(action.targets) ? action.targets : []).filter(
+            (t): t is "deal" | "company" | "contact" => t === "deal" || t === "company" || t === "contact",
+          );
           const kept = current.state.changes.length - omit.filter((key) => current.state.changes.some((c) => c.key === key)).length + added.length;
           // Nothing ticked is still a save when the rep wrote a note or added a task: they go to the CRM on their own.
           if (kept <= 0 && !note?.trim()) return;
@@ -1093,7 +1108,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
                 summary: current.state.noAnswer ? "" : note !== null ? noteMarkdown(note, memo.extraction?.summary) : memo.extraction?.summary ?? "",
                 ...tasksForApprove(memo.extraction, current.proposed, omit, taskEditsFrom(action.taskEdits), added),
               });
-              const result = (await memosApi.approveForContact(memoId, extraction)) as { deal_warning?: string | null };
+              const result = (await memosApi.approveForContact(memoId, extraction, current.dealId, targets)) as { deal_warning?: string | null };
               if (current.run.cancelled) return;
               if (result?.deal_warning) {
                 // Written, but without the deal (no default stage saved): the card says so instead of "Updated".
@@ -1289,6 +1304,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
                 speakersVerified: true,
                 notes: draft.notes,
                 hubspotContactId: draft.contact?.hubspotId,
+                hubspotDealId: draft.record?.dealId,
+                crmCompanyId: draft.record?.companyId,
                 callSource: VOCIFY_CALL_SOURCE.name,
                 salesMotionKey: draft.type,
                 typeSource: draft.typeSource ?? "vocify",
@@ -1506,11 +1523,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       const startedAt = Date.now();
       const callContact = call ? call.contact : options?.contact ?? callContactRef.current;
       const callSource = call ? VOCIFY_CALL_SOURCE : callSourceRef.current;
+      // The deal or company the rep has open: the call is saved there (a Vocify call keeps its own contact only).
+      const record = call ? undefined : onScreenRecord(onScreenRef.current);
       vocifyCallRef.current = call ?? null;
       draftRef.current = {
         id: newDraftId(),
         startedAt,
         ...(callContact ? { contact: callContact } : {}),
+        ...(record ? { record } : {}),
         ...(callSource ? { source: callSource } : {}),
       };
       phoneDraftRef.current = !call && phoneCallRef.current ? draftRef.current.id : null;

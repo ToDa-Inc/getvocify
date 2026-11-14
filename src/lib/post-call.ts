@@ -142,7 +142,35 @@ export type PostCall = {
   type?: PostCallType | null;
   /** The updated record in the CRM, once written. */
   crmUrl?: string | null;
+  /** Where the call is saved (note, call, tasks), deal first: the records the preview landed on that the company saves on. */
+  savedOn?: SavedOn[] | null;
 };
+
+export type SavedOn = { kind: "deal" | "company" | "contact"; name: string };
+
+type TargetPreview = {
+  call_targets?: string[] | null;
+  selected_deal?: { deal_name?: string | null } | null;
+  selected_contact?: { name?: string | null; email?: string | null; company_name?: string | null } | null;
+};
+
+/**
+ * Where the call is saved, as the approval will write it (backend call_targets.pick): the chosen records the call
+ * has, else every one it has, so the card never says "nowhere".
+ */
+export function savedOnFrom(preview: TargetPreview | null | undefined): SavedOn[] {
+  if (!preview) return [];
+  const have: SavedOn[] = [];
+  const deal = text(preview.selected_deal?.deal_name);
+  if (deal) have.push({ kind: "deal", name: deal });
+  const company = text(preview.selected_contact?.company_name);
+  if (company) have.push({ kind: "company", name: company });
+  const contact = text(preview.selected_contact?.name) || text(preview.selected_contact?.email);
+  if (contact) have.push({ kind: "contact", name: contact });
+  const chosen = new Set(preview.call_targets?.length ? preview.call_targets : ["deal", "company", "contact"]);
+  const picked = have.filter((record) => chosen.has(record.kind));
+  return picked.length ? picked : have;
+}
 
 type Update = ProposedUpdate & { extraction_confidence?: number | null };
 

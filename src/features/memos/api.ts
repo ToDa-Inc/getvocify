@@ -119,6 +119,9 @@ export const memosApi = {
       notes?: string;
       /** The HubSpot contact the call was with, known live (desktop). */
       hubspotContactId?: string;
+      /** The deal or company open on screen during the call (desktop): the call is saved there. */
+      hubspotDealId?: string;
+      crmCompanyId?: string;
       /** The app the call happened in (desktop), e.g. "Google Meet". */
       callSource?: string;
       /** The call type when the call ended (desktop), and who chose it. */
@@ -142,6 +145,8 @@ export const memosApi = {
       speakers_verified: Boolean(options.speakersVerified),
       notes: options.notes?.trim() || undefined,
       hubspot_contact_id: options.hubspotContactId || undefined,
+      hubspot_deal_id: options.hubspotDealId || undefined,
+      crm_company_id: options.crmCompanyId || undefined,
       call_source: options.callSource || undefined,
       sales_motion_key: options.salesMotionKey || undefined,
       type_source: options.salesMotionKey ? options.typeSource ?? 'rep' : undefined,
@@ -199,8 +204,17 @@ export const memosApi = {
    * One click right after a call (Mac notch island): exactly what auto-approve sends, for a
    * memo that knows its contact. Anything that needs a choice is refused: use review.
    */
-  approveForContact: (id: string, extraction?: Record<string, unknown>): Promise<Memo> => {
-    return api.post<Memo>(`/memos/${id}/approve-contact`, extraction ? { extraction } : {});
+  approveForContact: (
+    id: string,
+    extraction?: Record<string, unknown>,
+    dealId?: string,
+    callTargets?: ("deal" | "company" | "contact")[],
+  ): Promise<Memo> => {
+    return api.post<Memo>(`/memos/${id}/approve-contact`, {
+      ...(extraction ? { extraction } : {}),
+      ...(dealId ? { deal_id: dealId } : {}),
+      ...(callTargets?.length ? { call_targets: callTargets } : {}),
+    });
   },
 
   approve: (id: string, payload?: ApproveMemoPayload): Promise<Memo> => {

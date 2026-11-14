@@ -38,6 +38,18 @@ export function islandRecordContact(
 }
 
 /**
+ * The deal or company open on screen when a recording starts: the call is saved there (and on its contact).
+ * HubSpot and Pipedrive record ids only; anything else (a list, a lead, another account) gives none.
+ */
+export function onScreenRecord(onScreen: CallPreview | null | undefined): { dealId?: string; companyId?: string } | undefined {
+  const record = onScreen?.record;
+  if (!record || (record.provider !== "hubspot" && record.provider !== "pipedrive") || !/^\d{1,32}$/.test(record.record_id)) return undefined;
+  if (record.object_type === "deal") return { dealId: record.record_id };
+  if (record.object_type === "company") return { companyId: record.record_id };
+  return undefined;
+}
+
+/**
  * The contact a detected call (Mac app + CRM page) is with, for the recording that follows. HubSpot contact or
  * Pipedrive person: the memo keeps either id in the same column.
  */

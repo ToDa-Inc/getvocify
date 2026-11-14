@@ -19,6 +19,9 @@ export interface CRMSchema {
   pipelines?: Pipeline[];
 }
 
+export type CallTarget = "deal" | "company" | "contact";
+export const CALL_TARGETS: CallTarget[] = ["deal", "company", "contact"];
+
 export interface CRMConfiguration {
   default_pipeline_id: string;
   default_pipeline_name: string;
@@ -32,6 +35,8 @@ export interface CRMConfiguration {
   auto_create_companies: boolean;
   /** Whether Vocify proposes the call's tasks and writes them; a task the rep adds is always written. null only before migration 088 (on); the backend keeps the stored value when it is unset. */
   create_tasks?: boolean | null;
+  /** Where a call is saved (its note, call activity and tasks); null before migration 090 = all three. */
+  call_targets?: CallTarget[] | null;
   /** Lost reasons shown in the extension's Lost picker (plus a UI-only "Other"). */
   lost_reasons?: string[];
   /**

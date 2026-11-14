@@ -32,6 +32,7 @@ from .object_properties import (
 from .schema import PipedriveSchemaService, company_write_props, contact_write_props, flatten_record, merged_contact_list, props_changed_from_record
 from .search import PipedriveSearchService, primary_email
 from .task_dates import commitment_due, next_step_due
+from app.services.call_targets import ALL as ALL_TARGETS, pick
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +173,10 @@ class PipedriveSyncService:
         stage_confirm: bool = False,
         commitment_tasks: Optional[list] = None,
         conversation: Optional[dict] = None,
+        link_to: Optional[frozenset] = None,
     ) -> SyncResult:
-        """stage_confirm: the stage is the one the rep confirmed (raw_extraction.stage_id);
+        """link_to: the records the call (note, call activity, tasks) is saved on (call_targets.pick); None = all.
+        stage_confirm: the stage is the one the rep confirmed (raw_extraction.stage_id);
         an existing deal's stage is written only when it differs from the current one.
         commitment_tasks (COMMITMENT_TASKS_ENABLED): one activity per commitment, with its date,
         before the nextSteps the rep edited."""
@@ -378,6 +381,8 @@ class PipedriveSyncService:
                     data={"deal_id": deal_id},
                 )
 
+            # Where the call itself goes (the records above are still written as approved).
+            on_deal, on_person, on_org = pick(link_to or ALL_TARGETS, deal_id=deal_id, contact_id=person_id, company_id=org_id)
             parts = await load_note_parts(self.supabase, connection_id) if create_note else NoteParts()
             if create_note and not parts.any:
                 logger.info(
@@ -404,14 +409,14 @@ class PipedriveSyncService:
                         action_type="create_note",
                         resource_type="note",
                     ) as tracked:
-                        note_id = await self.notes.create(content, deal_id=deal_id, person_id=person_id, org_id=org_id, author_id=owner_id)
+                        note_id = await self.notes.create(content, deal_id=on_deal, person_id=on_person, org_id=on_org, author_id=owner_id)
                         if not note_id:
                             raise PipedriveError("Pipedrive note was not created.", error_code="PIPEDRIVE_NOTE_FAILED")
                         tracked.data = {"note_id": note_id}
                         tracked.resource_id = note_id
                     # Written with the note (so a retry never logs it twice): the call itself, with the summary.
                     if conversation and extraction.summary and parts.summary:
-                        await self._log_conversation(conversation, extraction, deal_id, person_id, org_id, owner_id, memo_id, transcript)
+                        await self._log_conversation(conversation, extraction, on_deal, on_person, on_org, owner_id, memo_id, transcript)
                 landed.append("note")
             elif create_note:
                 logger.warning(
@@ -434,7 +439,7 @@ class PipedriveSyncService:
                     created_n = 0
                     for task, subject, due in planned:
                         aid = await self.activities.create_next_step(
-                            subject, deal_id=deal_id, person_id=person_id, org_id=org_id, owner_id=owner_id, **due
+                            subject, deal_id=on_deal, person_id=on_person, org_id=on_org, owner_id=owner_id, **due
                         )
                         if aid:
                             created_n += 1

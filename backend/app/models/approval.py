@@ -153,6 +153,8 @@ class ApprovalPreview(BaseModel):
     # round-trip as everything else instead of a separate config fetch.
     # "Other" (free text) is UI-only and deliberately not included here.
     lost_reasons: list[str] = Field(default_factory=list)
+    # Where the call is saved (crm_configurations.call_targets): deal, company, contact, in that order.
+    call_targets: list[str] = Field(default_factory=lambda: ["deal", "company", "contact"])
     # Per-outcome gate - see CallOutcomeAvailability above. Set from the API
     # layer (app/api/memos.py) alongside lost_reasons, same round-trip
     # reasoning: the extension must not show a button for an outcome that

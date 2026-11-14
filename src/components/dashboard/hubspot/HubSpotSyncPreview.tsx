@@ -29,7 +29,9 @@ import {
   Briefcase,
   Building,
   Ban,
+  UserRound,
 } from "lucide-react";
+import { Toggle } from "@/components/ui/toggle";
 import { Switch } from "@/components/ui/switch";
 import { ExtractionDatePicker } from "@/components/dashboard/crm/ExtractionDatePicker";
 import { formatCrmDateForDisplay, formatTaskDue, isCrmDateField } from "@/lib/crm-date";
@@ -209,6 +211,19 @@ export const HubSpotSyncPreview = ({
   const [selectedDealId, setSelectedDealId] = useState<string | null>(initialDealId || null);
   const [isNewDealRequested, setIsNewDealRequested] = useState(false);
   const [isSkipDealRequested, setIsSkipDealRequested] = useState(false);
+  /** The company and contact this call is saved on besides its deal; null = the company's setting. */
+  const [alsoOn, setAlsoOn] = useState<("company" | "contact")[] | null>(null);
+  useEffect(() => setAlsoOn(null), [memoId]);
+  // Records the company doesn't save calls on start with their fields off too (the rep can switch them back).
+  const companyTargets = (preview?.call_targets as string[] | undefined)?.join(",") ?? "";
+  useEffect(() => {
+    if (!companyTargets) return;
+    const off = [
+      ...(!companyTargets.includes("company") ? ["companies"] : []),
+      ...(!companyTargets.includes("contact") ? ["contacts"] : []),
+    ];
+    if (off.length) setOffSections((prev) => [...new Set([...prev, ...off])]);
+  }, [memoId, companyTargets]);
 
   // UI pickers open state
   const [contactPickerOpen, setContactPickerOpen] = useState(false);
@@ -667,6 +682,11 @@ export const HubSpotSyncPreview = ({
   const showContactPicker = !readOnly && (contactPickerOpen || !displayContactName);
   const needsContactDecision = !selectedContact && contactCandidates.length > 0 && !displayContactName;
   const skipDeal = !!preview?.skip_deal || isSkipDealRequested;
+  const companyName = selectedContact?.company_name || preview?.selected_contact?.company_name || null;
+  const contactName = selectedContact?.name || preview?.selected_contact?.name || null;
+  const shownAlsoOn = alsoOn ?? ((preview?.call_targets ?? ["deal", "company", "contact"]).filter((t: string) => t !== "deal") as ("company" | "contact")[]);
+  // Only records the call has; without a deal at least one stays, so the call is never saved nowhere.
+  const savedAlsoOn = shownAlsoOn.filter((t) => (t === "company" ? companyName : contactName));
   const dealMatch = preview?.selected_deal;
   const isNewDeal = (preview?.is_new_deal ?? false) || isNewDealRequested;
   const currentDealId = preview?.selected_deal?.deal_id ?? selectedDealId;
@@ -726,6 +746,8 @@ export const HubSpotSyncPreview = ({
       const contactId = selectedContact?.contact_id || preview?.selected_contact?.contact_id;
       const companyId = selectedContact?.company_id || preview?.selected_contact?.company_id;
       const effectiveSkipDeal = skipDeal && !isNewDeal && !currentDealId;
+      // Where this call is saved, as the rep left it; empty (nothing it has) leaves it to the company's setting.
+      const callTargets = [...(effectiveSkipDeal ? [] : ["deal"]), ...savedAlsoOn];
       const result = await crmApi.approveSync(
         memoId,
         currentDealId ?? undefined,
@@ -736,7 +758,7 @@ export const HubSpotSyncPreview = ({
           companyId,
           skipDeal: effectiveSkipDeal,
           createCompany: Boolean(preview?.new_company && !companyId),
-          extra: approveExtra,
+          extra: { ...(approveExtra ?? {}), ...(callTargets.length ? { call_targets: callTargets } : {}) },
         },
       );
       toast.success(effectiveSkipDeal ? "Contact updated successfully!" : "CRM updated successfully!");
@@ -899,11 +921,14 @@ export const HubSpotSyncPreview = ({
                 <Switch
                   aria-label={`Write ${sectionLabel}`}
                   checked={!sectionOff}
-                  onCheckedChange={(on) =>
+                  onCheckedChange={(on) => {
                     setOffSections((prev) =>
                       on ? prev.filter((s) => s !== currentObject) : [...prev, String(currentObject)],
-                    )
-                  }
+                    );
+                    // Writing a record's fields again puts the call back on it.
+                    const target = currentObject === "companies" ? "company" : currentObject === "contacts" ? "contact" : null;
+                    if (on && target && !shownAlsoOn.includes(target)) setAlsoOn([...shownAlsoOn, target]);
+                  }}
                   className="scale-75"
                 />
               ) : null}
@@ -1515,6 +1540,42 @@ export const HubSpotSyncPreview = ({
             />
           </div>
         )}
+        {!dealPickerOpen && (companyName || contactName) ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11.5px] text-muted-foreground">{skipDeal ? "Saved on" : "Also on"}</span>
+            {([
+              ["company", companyName, Building],
+              ["contact", contactName, UserRound],
+            ] as const).map(([target, name, Icon]) => {
+              if (!name) return null;
+              const pressed = savedAlsoOn.includes(target);
+              const ChipIcon = pressed ? Check : Icon;
+              return (
+                <Toggle
+                  key={target}
+                  variant="chip"
+                  size="sm"
+                  pressed={pressed}
+                  disabled={readOnly}
+                  aria-label={`Save this call on ${name}`}
+                  title={pressed && skipDeal && savedAlsoOn.length === 1 ? "The call needs somewhere to go" : undefined}
+                  onPressedChange={(next) => {
+                    // The last place the call goes stays on (looks on, simply doesn't switch off).
+                    if (!next && skipDeal && savedAlsoOn.length === 1) return;
+                    setAlsoOn((["company", "contact"] as const).filter((t) => (t === target ? next : shownAlsoOn.includes(t))));
+                    // A record the call isn't saved on is left alone: its fields go with it.
+                    const section = target === "company" ? "companies" : "contacts";
+                    setOffSections((prev) => (next ? prev.filter((s) => s !== section) : [...new Set([...prev, section])]));
+                  }}
+                  className="h-7 gap-1 px-2.5 text-xs"
+                >
+                  <ChipIcon className="h-3 w-3" strokeWidth={1.5} />
+                  <span className="max-w-[140px] truncate">{name}</span>
+                </Toggle>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
       </div>
 

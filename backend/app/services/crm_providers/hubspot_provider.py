@@ -168,6 +168,7 @@ class HubSpotCRMProvider:
         on_hold_lead_status_value: Optional[str] = None,
         stage_confirm: bool = False,
         commitment_tasks: Optional[list] = None,
+        link_to: Optional[frozenset] = None,
     ) -> SyncResult:
         # default_stage_name is a label; Salesforce resolves labels via picklist lookup.
         # HubSpot's CRM Configuration screen already stores canonical IDs, so we use
@@ -201,6 +202,7 @@ class HubSpotCRMProvider:
             on_hold_lead_status_value=on_hold_lead_status_value,
             stage_confirm=stage_confirm,
             commitment_tasks=commitment_tasks,
+            link_to=link_to,
         )
 
     async def build_preview(
