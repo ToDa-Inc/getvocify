@@ -248,3 +248,29 @@ def test_the_call_line_is_plain_text_never_markdown():
     assert api._call_line({"outcome": "Rechaza evaluar Vocify: plan ya definido.", "summary": "## Perfil"}) == "Rechaza evaluar Vocify: plan ya definido."
     assert api._call_line({"summary": "## Perfil del contacto\n**Resultado:** No interesado.\n- más"}) == "Resultado: No interesado."
     assert api._call_line({}) is None
+
+
+def test_the_conversation_around_a_moment_is_the_turns_before_and_after_its_own():
+    turns = [{"who": w, "text": t} for w, t in [
+        ("rep", "Hola, soy Ana."), ("client", "Dime."), ("rep", "Te llamo por la flota."),
+        ("client", "Eh, no, ahora ya cambiamos para otro."), ("rep", "Ah, ya cambiasteis."), ("client", "Sí."), ("rep", "Vale, gracias."),
+    ]]
+    window = engine.moment_window(turns, ["ahora ya cambiamos para otro", "Ah, ya cambiasteis"])
+    assert [t["text"] for t in window] == ["Dime.", "Te llamo por la flota.", "Eh, no, ahora ya cambiamos para otro.", "Ah, ya cambiasteis.", "Sí.", "Vale, gracias."]
+    assert [t["moment"] for t in window] == [False, False, True, True, False, False]
+    assert engine.moment_window(turns, ["nadie dijo esto"]) == []
+
+
+def test_another_version_is_asked_with_the_one_on_screen_and_what_the_rep_said():
+    import asyncio
+
+    seen = {}
+
+    class _Seen:
+        async def chat_json(self, messages, **_):
+            seen["payload"] = messages[-1]["content"]
+            return {"text": None, "facts": []}
+
+    question = next(s for s in engine.build_suggestions(ROWS, NAMES, {}) if s["kind"] == "objection")
+    asyncio.run(engine.write_draft(question, material={}, answers=[], company_name="X", llm=_Seen(), avoid="La de antes."))
+    assert '"write_a_different_one_than": "La de antes."' in seen["payload"] and "what_the_rep_said" in seen["payload"]

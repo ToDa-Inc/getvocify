@@ -34,6 +34,8 @@ export type Suggestion = {
   use_when: string | null;
 };
 
+export type MomentTurn = { who: "client" | "rep"; text: string; moment: boolean };
+
 export type SuggestionAnswer = { id: string; label: string | null; category: string };
 
 export type SuggestionsBody = {
@@ -51,7 +53,9 @@ export const suggestionsApi = {
   dismiss: (key: string, reason: DismissReason, coveredBy?: string) =>
     api.post<SuggestionsBody & { status: string }>(`${BASE}/${encodeURIComponent(key)}/dismiss`, { reason, covered_by: coveredBy ?? null }),
   /** «Completar con Vocify»: an answer written from the company's material only; text null when it does not hold it. */
-  draft: (key: string) => api.post<{ text: string | null }>(`${BASE}/${encodeURIComponent(key)}/draft`, undefined, SLOW),
+  draft: (key: string, avoid?: string) => api.post<{ text: string | null }>(`${BASE}/${encodeURIComponent(key)}/draft`, avoid ? { avoid } : undefined, SLOW),
+  /** The couple of turns before and after a moment of a call, so it reads in context. */
+  moment: (memoId: string, quotes: string[]) => api.post<{ turns: MomentTurn[] }>(`${BASE}/moment`, { memo_id: memoId, quotes }),
   undo: (key: string) => api.post<SuggestionsBody & { status: string }>(`${BASE}/${encodeURIComponent(key)}/undo`),
 };
 

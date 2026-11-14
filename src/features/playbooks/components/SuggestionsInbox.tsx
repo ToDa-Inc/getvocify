@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import * as SheetPrimitive from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GraduationCap, Lightbulb, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, GraduationCap, Lightbulb, RotateCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,6 +29,7 @@ import {
   type Suggestion,
   type SuggestionAnswer,
   type SuggestionKind,
+  type MomentTurn,
   type SuggestionsBody,
 } from "@/features/playbooks/suggestionsApi";
 import { useLanguage } from "@/lib/i18n";
@@ -199,6 +200,18 @@ function ListRow({ suggestion, selected, answers, dismissing, onOpen, onDismiss 
   );
 }
 
+/** A turn just before or after the moment, quieter than the moment itself: there to read it in context. */
+function Around({ turn }: { turn: MomentTurn }) {
+  const right = turn.who === "rep";
+  return (
+    <div className={cn("flex", right ? "justify-end" : "justify-start")}>
+      <p className={cn("max-w-[85%] rounded-2xl px-3 py-1.5 text-[13px] leading-snug text-muted-foreground", right ? "rounded-br-md bg-foreground/[0.03]" : "rounded-bl-md bg-secondary/35")}>
+        {turn.text}
+      </p>
+    </div>
+  );
+}
+
 /** The call a suggestion came from: who and when once (the date opens the call), and the exchange as it happened. */
 function Moment({ suggestion }: { suggestion: Suggestion }) {
   const c = useCopy();
@@ -208,11 +221,24 @@ function Moment({ suggestion }: { suggestion: Suggestion }) {
   const [index, setIndex] = useState(0);
   useEffect(() => setIndex(0), [suggestion.key]);
   const example = suggestion.examples[Math.min(index, suggestion.examples.length - 1)];
+  const quotes = example?.turns.map((turn) => turn.quote) ?? [];
+  const around = useQuery({
+    queryKey: ["suggestion-moment", example?.memo_id, ...quotes],
+    queryFn: () => suggestionsApi.moment(example!.memo_id, quotes),
+    enabled: !!example && quotes.length > 0,
+    staleTime: Infinity,
+    retry: false,
+  });
   if (!example) return null;
   // A colleague's words that worked are the draft below: shown there once, not again as their bubble.
   const isDraft = (quote: string, said: string | null) =>
     suggestion.draft_from === "colleague" && !!suggestion.draft && (suggestion.draft === quote || suggestion.draft === said);
   const total = suggestion.examples.length;
+  const nearby = around.data?.turns ?? [];
+  const first = nearby.findIndex((turn) => turn.moment);
+  const last = nearby.length - 1 - [...nearby].reverse().findIndex((turn) => turn.moment);
+  const before = first > 0 ? nearby.slice(0, first) : [];
+  const after = first >= 0 && last < nearby.length - 1 ? nearby.slice(last + 1) : [];
   return (
     <section className="space-y-2.5">
       <div className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
@@ -232,11 +258,13 @@ function Moment({ suggestion }: { suggestion: Suggestion }) {
           </span>
         ) : null}
       </div>
+      {before.map((turn, i) => <Around key={`b${i}`} turn={turn} />)}
       {example.turns.filter((turn) => !(turn.who === "rep" && isDraft(turn.quote, turn.said))).map((turn, i) => (
         <Bubble key={i} kind={turn.who === "client" ? "prospect" : "you"} caption={turn.who === "client" ? p.coachProspectSaid : p.coachYouSaid} said={turn.said}>
           {turn.quote}
         </Bubble>
       ))}
+      {after.map((turn, i) => <Around key={`a${i}`} turn={turn} />)}
     </section>
   );
 }
@@ -266,8 +294,9 @@ function Panel({ suggestion, position, total, answers, decide, onMove, onClose }
   // Whose words the draft is, only when it is not the rep already named over the call above (a value is shown once).
   const said = suggestion.draft_from === "colleague" ? suggestion.examples.find((e) => e.after === "advanced")?.rep || suggestion.reps[0] || "" : "";
   const colleague = said && said !== suggestion.examples[0]?.rep ? said : "";
+  const writable = answerKind || suggestion.kind === "opportunity";
   const complete = useMutation({
-    mutationFn: () => suggestionsApi.draft(suggestion.key),
+    mutationFn: (avoid?: string) => suggestionsApi.draft(suggestion.key, avoid),
     onSuccess: ({ text: written }) => (written ? setText(written) : toast(c.draftNone)),
     onError: () => toast(c.draftNone),
   });
@@ -358,12 +387,18 @@ function Panel({ suggestion, position, total, answers, decide, onMove, onClose }
                   )}
                 />
               </label>
-              {answerKind && !text.trim() ? (
+              {writable ? (
                 <div className="flex justify-end">
-                  <Button type="button" variant="quiet" size="text" disabled={busy} onClick={() => complete.mutate()}>
-                    {complete.isPending ? <VocifySpinner size={12} /> : null}
-                    {c.complete}
-                  </Button>
+                  {text.trim() ? (
+                    <IconAction label={c.regenerate} pending={complete.isPending} disabled={busy} onClick={() => complete.mutate(text.trim())}>
+                      <RotateCw className="h-3.5 w-3.5" strokeWidth={1.5} />
+                    </IconAction>
+                  ) : (
+                    <Button type="button" variant="quiet" size="text" disabled={busy} onClick={() => complete.mutate(undefined)}>
+                      {complete.isPending ? <VocifySpinner size={12} /> : null}
+                      {c.complete}
+                    </Button>
+                  )}
                 </div>
               ) : null}
             </section>

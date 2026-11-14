@@ -245,8 +245,18 @@ async def undo_dismissal(key: str, supabase: Client = Depends(get_supabase), mem
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={"code": "not_activated"}) from exc
 
 
+class DraftRequest(BaseModel):
+    # «Otra versión»: the draft on screen, so the new one says it differently.
+    avoid: Optional[str] = Field(default=None, max_length=engine.TEXT_MAX)
+
+
+_DRAFT_KINDS = frozenset({"objection", "question", "opportunity"})
+
+
 @router.post("/{key}/draft")
-async def draft_suggestion(key: str, supabase: Client = Depends(get_supabase), membership: Membership = Depends(get_membership)):
+async def draft_suggestion(
+    key: str, body: Optional[DraftRequest] = None, supabase: Client = Depends(get_supabase), membership: Membership = Depends(get_membership),
+):
     """«Completar con Vocify»: an answer for an objection or a question written from the company's material and playbook
     only -> {text}; text is null when they do not hold it. Nothing is saved."""
     from app.services.copilot.load_grounding import load_company_knowledge
@@ -261,7 +271,7 @@ async def draft_suggestion(key: str, supabase: Client = Depends(get_supabase), m
 
         suggestions, _ = _load(supabase, membership)
         suggestion = engine.find(suggestions, key)
-        if suggestion["kind"] not in _ANSWER_KINDS:
+        if suggestion["kind"] not in _DRAFT_KINDS:
             raise engine.SuggestionError("suggestion_not_found")
         material = compact_material(load_company_knowledge(supabase, company_id=membership.company_id))
         answers = playbook_answers(reads.load_published_playbook(supabase, membership.company_id, suggestion["motion"])["entries"])
@@ -273,8 +283,33 @@ async def draft_suggestion(key: str, supabase: Client = Depends(get_supabase), m
     except engine.SuggestionError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": exc.code}) from exc
     try:
-        text = await engine.write_draft(suggestion, material=material, answers=answers, company_name=company_name, llm=LLMClient())
+        text = await engine.write_draft(
+            suggestion, material=material, answers=answers, company_name=company_name, llm=LLMClient(), avoid=body.avoid if body else None,
+        )
     except Exception:
         text = None
     return {"text": text}
+
+
+class MomentRequest(BaseModel):
+    memo_id: str = Field(..., max_length=64)
+    quotes: list[str] = Field(..., min_length=1, max_length=4)
+
+
+@router.post("/moment")
+async def suggestion_moment(body: MomentRequest, supabase: Client = Depends(get_supabase), membership: Membership = Depends(get_membership)):
+    """The conversation around a suggestion's moment -> {turns: [{who, text, moment}]}: the couple of turns before and after
+    its own, so it reads in context. Only a call of the head of sales' company; [] when the words are not found."""
+    require_manager(membership)
+
+    def run() -> dict:
+        rows = (
+            supabase.table("memos").select("id,transcript,extraction").eq("id", body.memo_id)
+            .eq("company_id", membership.company_id).limit(1).execute().data or []
+        )
+        if not rows:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={"code": "call_not_found"})
+        return {"turns": engine.moment_window(engine.conversation_turns(rows[0]), [q[:600] for q in body.quotes])}
+
+    return await run_in_threadpool(run)
 

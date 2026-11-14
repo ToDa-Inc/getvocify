@@ -360,7 +360,9 @@ _DRAFT_SYSTEM = (
     "phrase, not a paraphrase). Never invent a price, a feature, a date, a customer, a number or a condition. When they "
     "do not hold what the answer needs, or you would only be able to dodge it (\"depende\", \"lo miro y te digo\"), "
     "write nothing. The material also holds instructions to the team (\"no inventar descuentos\", \"no prometer\"): they "
-    "guide you, they are never something to tell the client. Return only this JSON: {\"text\": \"...\", \"facts\": [\"...\"]} or {\"text\": null, \"facts\": []}."
+    "guide you, they are never something to tell the client. what_the_rep_said is what the rep answered in the call: "
+    "do better than it, never repeat it. When write_a_different_one_than is given, say it another way (another angle or "
+    "another fact), never a reworded copy of it. Return only this JSON: {\"text\": \"...\", \"facts\": [\"...\"]} or {\"text\": null, \"facts\": []}."
 )
 
 
@@ -375,7 +377,9 @@ def _grounded(facts: Any, sources: list[str]) -> bool:
     return bool(quoted) and all(len(fact) >= 8 and any(fact in source for source in folded) for fact in quoted)
 
 
-async def write_draft(suggestion: dict, *, material: dict, answers: list[dict], company_name: Optional[str], llm: Any) -> Optional[str]:
+async def write_draft(
+    suggestion: dict, *, material: dict, answers: list[dict], company_name: Optional[str], llm: Any, avoid: Optional[str] = None,
+) -> Optional[str]:
     """«Completar con Vocify» for an objection or a question that came with no draft: an answer written from the
     company's own material and playbook only, or None when they do not hold it (then the head of sales writes it). The
     facts it rests on must be found word for word in that text, or it is not shown."""
@@ -392,9 +396,16 @@ async def write_draft(suggestion: dict, *, material: dict, answers: list[dict], 
         "material": material,
         "playbook_answers": shown_answers,
     }
+    if avoid:
+        # «Otra versión»: the head of sales has this one and wants a different way to say it, on the same facts.
+        payload["write_a_different_one_than"] = avoid[:TEXT_MAX]
+    rep = next((t for e in suggestion.get("examples") or [] for t in e.get("turns") or [] if t.get("who") == "rep"), None)
+    if rep:
+        payload["what_the_rep_said"] = rep.get("said") or rep.get("quote")
     raw = await llm.chat_json(
         [{"role": "system", "content": _DRAFT_SYSTEM}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-        model=settings.INTELLIGENCE_MODEL, temperature=0.1, timeout=45.0,
+        # Another version needs room to say it another way; the facts check below still holds it to the company's words.
+        model=settings.INTELLIGENCE_MODEL, temperature=0.7 if avoid else 0.1, timeout=45.0,
     )
     if not isinstance(raw, dict):
         return None
@@ -403,3 +414,46 @@ async def write_draft(suggestion: dict, *, material: dict, answers: list[dict], 
     if not text or len(text.split()) > DRAFT_MAX_WORDS * 2 or not _grounded(raw.get("facts"), sources):
         return None
     return text[:TEXT_MAX]
+
+
+# --- the conversation around a moment -------------------------------------------------------------------------------
+
+AROUND = 2
+TURN_MAX = 420
+
+
+def conversation_turns(memo: dict) -> list[dict]:
+    """The call as [{who: rep|client, text}], with the roles the call reading worked out; [] when it has none."""
+    from app.services.intelligence import extract as ex
+    from app.services.intelligence.call_reading import relabel, split_turns
+
+    reused = ex._stored_reading(memo)
+    if reused is not None:
+        text = reused[1]
+    else:
+        intel = ((memo.get("extraction") or {}).get("intelligence") or {}) if isinstance(memo.get("extraction"), dict) else {}
+        call = intel.get("call") if isinstance(intel.get("call"), dict) else None
+        turns = split_turns(str(memo.get("transcript") or ""))
+        if not call or not call.get("rep_turns") or len(turns) < 2:
+            return []
+        text = relabel(turns, call)
+    out = []
+    for block in text.split("\n\n"):
+        label, _, said = block.partition(":")
+        if label.strip() in ("You", "Them") and said.strip():
+            out.append({"who": "rep" if label.strip() == "You" else "client", "text": " ".join(said.split())})
+    return out
+
+
+def moment_window(turns: list[dict], quotes: list[str], *, around: int = AROUND) -> list[dict]:
+    """The few turns before and after the moment's own (the ones holding its quotes), each marked `moment` or not; [] when
+    the quotes are not found in the call."""
+    folded = [" ".join(str(q or "").casefold().split()) for q in quotes if str(q or "").strip()]
+    hits = [i for i, turn in enumerate(turns) if any(q and q in " ".join(turn["text"].casefold().split()) for q in folded)]
+    if not hits:
+        return []
+    start, end = max(0, min(hits) - around), min(len(turns), max(hits) + around + 1)
+    return [
+        {"who": turn["who"], "text": turn["text"][:TURN_MAX] + ("…" if len(turn["text"]) > TURN_MAX else ""), "moment": i in hits}
+        for i, turn in enumerate(turns[start:end], start)
+    ]
