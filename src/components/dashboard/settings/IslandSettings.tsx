@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { EyeOff, PanelRight, PanelTop, SunMoon } from "lucide-react";
+import { EyeOff, FastForward, PanelRight, PanelTop, SunMoon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
 import { Switch } from "@/components/ui/switch";
@@ -26,7 +26,8 @@ export const IslandSettings = () => {
   const placement = island?.setPlacement && state?.placement ? state.placement : null;
   const visible = island?.setVisible && typeof state?.visible === "boolean" ? state.visible : null;
   const hiddenFromCapture = island?.setHiddenFromCapture && typeof state?.hiddenFromCapture === "boolean" ? state.hiddenFromCapture : null;
-  if (!island || !state || (!appearance && !placement && visible === null && hiddenFromCapture === null)) return null;
+  const finishOnStop = island?.setFinishOnStop && typeof state?.finishOnStop === "boolean" ? state.finishOnStop : null;
+  if (!island || !state || (!appearance && !placement && visible === null && hiddenFromCapture === null && finishOnStop === null)) return null;
 
   const appearances: { value: IslandAppearance; label: string }[] = [
     { value: "auto", label: t.product.islandAppearanceAuto },
@@ -87,6 +88,15 @@ export const IslandSettings = () => {
             checked={hiddenFromCapture}
             onCheckedChange={(on) => void island.setHiddenFromCapture?.(on).then(merge)}
             aria-label={t.product.islandHideFromCaptureTitle}
+          />
+        </SettingsRow>
+      ) : null}
+      {finishOnStop !== null ? (
+        <SettingsRow icon={FastForward} title={t.product.islandFinishOnStopTitle} description={t.product.islandFinishOnStopHelper}>
+          <Switch
+            checked={finishOnStop}
+            onCheckedChange={(on) => void island.setFinishOnStop?.(on).then(merge)}
+            aria-label={t.product.islandFinishOnStopTitle}
           />
         </SettingsRow>
       ) : null}

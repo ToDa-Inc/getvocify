@@ -12,7 +12,7 @@ export type IslandAppearance = "auto" | "light" | "dark";
 /** Where the island sits: the notch at the top, or a strip at the side of the screen. */
 export type IslandPlacement = "notch" | "side";
 /** What the island's settings report; each app reports only the settings it has. */
-export type IslandState = { appearance?: IslandAppearance; visible?: boolean; placement?: IslandPlacement; hiddenFromCapture?: boolean };
+export type IslandState = { appearance?: IslandAppearance; visible?: boolean; placement?: IslandPlacement; hiddenFromCapture?: boolean; finishOnStop?: boolean };
 
 /**
  * Where the desktop app's self-update stands. `ready`: downloaded, the app restarts into it as soon as nothing is being
@@ -162,6 +162,8 @@ export type VocifyDesktopBridge = {
     setPlacement?(placement: IslandPlacement): Promise<IslandState>;
     /** Leaves the island out of screen shares and screenshots. Missing in older builds. */
     setHiddenFromCapture?(on: boolean): Promise<IslandState>;
+    /** Stop and hang-up finish the recording at once, without the countdown. Missing in older builds. */
+    setFinishOnStop?(on: boolean): Promise<IslandState>;
   };
   /** The global record shortcut. Missing in older builds. */
   shortcut?: {
