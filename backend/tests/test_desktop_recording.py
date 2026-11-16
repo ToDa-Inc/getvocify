@@ -1,4 +1,4 @@
-"""A desktop call's audio is kept by the live service and its memo is written from the whole call."""
+"""A desktop call's audio is kept by the live service and attached to its memo, never transcribed again."""
 
 import asyncio
 import subprocess
@@ -35,9 +35,30 @@ class FakeStorage:
         return FakeBucket(self.store)
 
 
+class FakeTable:
+    def __init__(self, db):
+        self.db = db
+
+    def update(self, payload):
+        self.payload = payload
+        return self
+
+    def eq(self, column, value):
+        self.id = value
+        return self
+
+    def execute(self):
+        self.db.memos[self.id] = self.payload
+
+
 class FakeSupabase:
     def __init__(self):
         self.storage = FakeStorage()
+        self.memos = {}
+
+    def table(self, name):
+        assert name == "memos"
+        return FakeTable(self)
 
 
 def tone(seconds, hz):
@@ -93,69 +114,34 @@ def _stored(db, user, cap, start, end):
     return new
 
 
-def test_the_memo_is_written_from_the_whole_call(monkeypatch, quick):
-    db = FakeSupabase()
-    path = _stored(db, "u1", "cap-12345678", 1_700_000_000_000, 1_700_000_300_000)
-    seen = {}
-
-    async def transcribe_audio(audio, **kwargs):
-        seen.update(kwargs, channels=channels_of(audio))
-
-        class R:
-            text = "SPEAKER: S1\nHola Gabriel, ¿qué tal?\n\nSPEAKER: S2\nBien, todo lo tenemos interno."
-            model = "microsoft/mai-transcribe-2"
-
-        return R()
+def _no_transcription(monkeypatch):
+    async def transcribe_audio(*args, **kwargs):
+        raise AssertionError("a desktop call is not transcribed a second time")
 
     monkeypatch.setattr("app.services.stt_batch.transcribe_audio", transcribe_audio)
-    whole = asyncio.run(desktop_recording.whole_call_transcript(
-        db, user_id="u1", capture_id="cap-12345678", sent_at_ms=1_700_000_301_000, live_transcript="SPEAKER: S1\nHola"))
-    assert whole and "todo lo tenemos interno" in whole.transcript and whole.recording_path == path
-    assert seen["source"] == "desktop_call" and seen["rep_channel"] == 0 and seen["channels"] == 2
+
+
+def test_the_recording_is_attached_to_the_memo_without_transcribing_it(monkeypatch, quick):
+    _no_transcription(monkeypatch)
+    db = FakeSupabase()
+    path = _stored(db, "u1", "cap-12345678", 1_700_000_000_000, 1_700_000_300_000)
+    asyncio.run(desktop_recording.attach_recording(db, "m1", user_id="u1", capture_id="cap-12345678", sent_at_ms=1_700_000_301_000))
+    assert db.memos["m1"] == {"recording_path": path, "audio_duration": 300.0}
 
 
 def test_a_call_whose_connection_came_back_is_put_back_together_in_order(monkeypatch, quick):
+    _no_transcription(monkeypatch)
     db = FakeSupabase()
     _stored(db, "u1", "cap-12345678", 1_700_000_000_000, 1_700_000_100_000)
     _stored(db, "u1", "cap-12345678", 1_700_000_110_000, 1_700_000_200_000)
-    lengths = []
-
-    async def transcribe_audio(audio, **kwargs):
-        lengths.append(len(audio))
-
-        class R:
-            text = "SPEAKER: S1\nUno dos tres."
-            model = "m"
-
-        return R()
-
-    monkeypatch.setattr("app.services.stt_batch.transcribe_audio", transcribe_audio)
-    whole = asyncio.run(desktop_recording.whole_call_transcript(
-        db, user_id="u1", capture_id="cap-12345678", sent_at_ms=1_700_000_201_000, live_transcript=""))
-    assert whole and whole.recording_path == "u1/live-cap-12345678-call." + whole.recording_path.rsplit(".", 1)[1]
-    assert len(lengths) == 1  # one transcription of the joined call
+    asyncio.run(desktop_recording.attach_recording(db, "m1", user_id="u1", capture_id="cap-12345678", sent_at_ms=1_700_000_201_000))
+    path = db.memos["m1"]["recording_path"]
+    assert path.startswith("u1/live-cap-12345678-call.") and path in db.storage.store
+    assert channels_of(db.storage.store[path]) == 2 and db.memos["m1"]["audio_duration"] == 190.0
 
 
-def test_no_recording_keeps_the_live_transcript(quick, monkeypatch):
+def test_no_recording_leaves_the_memo_as_it_is(quick, monkeypatch):
     monkeypatch.setattr(desktop_recording, "WAIT_S", 0.05)
-    whole = asyncio.run(desktop_recording.whole_call_transcript(
-        FakeSupabase(), user_id="u1", capture_id="cap-12345678", sent_at_ms=1, live_transcript="x"))
-    # (wait_s is long in production; here the poll finds nothing and the deadline is what ends it)
-    assert whole is None
-
-
-def test_a_whole_call_much_shorter_than_the_live_one_is_not_trusted(monkeypatch, quick):
     db = FakeSupabase()
-    _stored(db, "u1", "cap-12345678", 1_700_000_000_000, 1_700_000_300_000)
-
-    async def transcribe_audio(audio, **kwargs):
-        class R:
-            text = "SPEAKER: S1\nHola."
-            model = "m"
-
-        return R()
-
-    monkeypatch.setattr("app.services.stt_batch.transcribe_audio", transcribe_audio)
-    live = "SPEAKER: S1\n" + " ".join(["palabra"] * 80)
-    assert asyncio.run(desktop_recording.whole_call_transcript(
-        db, user_id="u1", capture_id="cap-12345678", sent_at_ms=1_700_000_301_000, live_transcript=live)) is None
+    asyncio.run(desktop_recording.attach_recording(db, "m1", user_id="u1", capture_id="cap-12345678", sent_at_ms=1))
+    assert db.memos == {}

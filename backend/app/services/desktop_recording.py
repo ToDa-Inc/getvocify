@@ -1,12 +1,9 @@
-"""A desktop call's memo is written from the whole call, not from its live transcript.
+"""A desktop call's recording, attached to its memo for playback.
 
-The live service keeps each session's audio (live_recording.py). When the desktop sends the finished call, this waits
-for that recording, transcribes it whole with the file STT (MAI-2: rep on channel 0, the other side on channel 1) and
-hands back that transcript. Anything missing or failing gives None, and the memo keeps its live transcript: a call is
-never lost or held up for good by this.
+The live service keeps each session's audio (live_recording.py). The memo is written from the live transcript the
+desktop sends, at once; this only waits for the recording to be stored (rep on channel 0, the other side on channel
+1), joins a call whose connection came back into one file, and sets it on the memo. Nothing is transcribed again.
 """
-
-from __future__ import annotations
 
 import asyncio
 import logging
@@ -16,7 +13,6 @@ import shutil
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -26,19 +22,9 @@ WAIT_S = 90.0
 POLL_S = 2.0
 # A session that ended this long before the call was sent is not its last one.
 LAST_SESSION_SLACK_MS = 60_000
-# A whole-call transcript far shorter than the live one means the recording missed part of the call.
-MIN_WORD_RATIO = 0.5
 
 _PART = re.compile(r"^live-(?P<capture>[A-Za-z0-9-]+)-(?P<start>\d{13})-(?P<end>\d{13})\.(?P<ext>ogg|flac)$")
 MIMES = {"ogg": "audio/ogg", "flac": "audio/flac"}
-
-
-@dataclass
-class WholeCall:
-    transcript: str
-    recording_path: str
-    model: Optional[str]
-    seconds: float
 
 
 def _parts(supabase: Any, user_id: str, capture_id: str) -> list[dict]:
@@ -106,46 +92,27 @@ def _join(blobs: list[tuple[bytes, str]]) -> tuple[bytes, str]:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _words(text: str) -> int:
-    return len(re.findall(r"\w+", re.sub(r"SPEAKER:\s*S\d+", " ", text or "")))
-
-
-async def whole_call_transcript(
-    supabase: Any, *, user_id: str, capture_id: str, sent_at_ms: int, live_transcript: str
-) -> Optional[WholeCall]:
-    """The call transcribed whole, or None (no recording, a failure, or a recording that missed part of the call)."""
-    parts = await wait_for_recording(supabase, user_id, capture_id, sent_at_ms)
-    if not parts:
-        logger.info("Desktop recording: none for %s; the memo keeps its live transcript", capture_id)
-        return None
+async def attach_recording(supabase: Any, memo_id: str, *, user_id: str, capture_id: str, sent_at_ms: int) -> None:
+    """Set the call's recording and its real length on the memo once the live service has stored it; nothing if none."""
     try:
-        blobs = [(await asyncio.to_thread(_download, supabase, p["path"]), p["ext"]) for p in parts]
-        audio, ext = await asyncio.to_thread(_join, blobs)
+        parts = await wait_for_recording(supabase, user_id, capture_id, sent_at_ms)
+        if not parts:
+            logger.info("Desktop recording: none for %s; memo %s has no audio", capture_id, memo_id)
+            return
         path = parts[0]["path"]
         if len(parts) > 1:
             from app.services.storage import CALL_RECORDINGS_BUCKET
 
+            blobs = [(await asyncio.to_thread(_download, supabase, p["path"]), p["ext"]) for p in parts]
+            audio, ext = await asyncio.to_thread(_join, blobs)
             path = f"{user_id}/live-{capture_id}-call.{ext}"
             await asyncio.to_thread(
                 supabase.storage.from_(CALL_RECORDINGS_BUCKET).upload,
                 path=path, file=audio, file_options={"content-type": MIMES[ext], "upsert": "true"},
             )
-        from app.services.stt_batch import transcribe_audio
-
-        stt = await transcribe_audio(
-            audio, content_type=MIMES[ext], user_id=user_id, diarization=True, source="desktop_call", rep_channel=0
+        seconds = sum(p["end"] - p["start"] for p in parts) / 1000
+        await asyncio.to_thread(
+            lambda: supabase.table("memos").update({"recording_path": path, "audio_duration": seconds}).eq("id", memo_id).execute()
         )
     except Exception:
-        logger.exception("Desktop recording: whole-call transcription of %s failed; the memo keeps its live transcript", capture_id)
-        return None
-    text = (stt.text or "").strip()
-    live_words, whole_words = _words(live_transcript), _words(text)
-    if not text or (live_words >= 30 and whole_words < live_words * MIN_WORD_RATIO):
-        logger.warning(
-            "Desktop recording: %s whole-call transcript has %d words against %d live; keeping the live one",
-            capture_id, whole_words, live_words,
-        )
-        return None
-    seconds = sum(p["end"] - p["start"] for p in parts) / 1000
-    logger.info("Desktop recording: %s transcribed whole (%d words, live had %d)", capture_id, whole_words, live_words)
-    return WholeCall(transcript=text, recording_path=path, model=getattr(stt, "model", None), seconds=seconds)
+        logger.exception("Desktop recording: could not attach %s to memo %s", capture_id, memo_id)

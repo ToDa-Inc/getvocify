@@ -1171,26 +1171,6 @@ async def upload_transcript_and_extract(
     if body.sales_motion_key:
         _pin_picked_type(supabase, created, body.sales_motion_key.strip(), body.type_source)
 
-    if body.capture_id and body.speakers_verified and not call_row:
-        # A desktop call: written from its whole recording once the live service has stored it (falls back to this
-        # live transcript). Runs on its own so the desktop gets its answer now.
-        asyncio.create_task(
-            _whole_call_then_extract(
-                str(memo_id),
-                user_id,
-                supabase,
-                capture_id=body.capture_id,
-                sent_at_ms=int(time.time() * 1000),
-                live_transcript=transcript,
-                live_raw=transcript_raw,
-                stt_meta=stt_meta,
-                field_specs=field_specs,
-                source_type=source_type,
-                user_notes=user_notes,
-            )
-        )
-        return UploadResponse(id=str(memo_id), status="extracting", statusUrl=f"/api/v1/memos/{memo_id}")
-
     await start_extraction_from_transcript(
         str(memo_id),
         user_id,
@@ -1201,63 +1181,19 @@ async def upload_transcript_and_extract(
         extra_update={"transcript_raw": transcript_raw, "transcript_stt_meta": stt_meta},
         user_notes=user_notes,
     )
+    if body.capture_id and body.speakers_verified and not call_row:
+        # A desktop call: its note is written from the live transcript above, at once. The live service's
+        # recording is only attached for playback once it is stored; it is not transcribed a second time.
+        from app.services.desktop_recording import attach_recording
+
+        asyncio.create_task(
+            attach_recording(supabase, str(memo_id), user_id=user_id, capture_id=body.capture_id, sent_at_ms=int(time.time() * 1000))
+        )
 
     return UploadResponse(
         id=str(memo_id),
         status="extracting",
         statusUrl=f"/api/v1/memos/{memo_id}"
-    )
-
-
-async def _whole_call_then_extract(
-    memo_id: str,
-    user_id: str,
-    supabase: Client,
-    *,
-    capture_id: str,
-    sent_at_ms: int,
-    live_transcript: str,
-    live_raw: str,
-    stt_meta: dict,
-    field_specs: Optional[list[dict]],
-    source_type: str,
-    user_notes: Optional[str],
-) -> None:
-    """The memo's note from the whole call when its recording is there; from the live transcript otherwise."""
-    from app.services.desktop_recording import whole_call_transcript
-    from app.services.transcript_sanitize import sanitize_user_transcript
-
-    transcript, raw, meta, extra = live_transcript, live_raw, dict(stt_meta), {}
-    try:
-        whole = await whole_call_transcript(
-            supabase, user_id=user_id, capture_id=capture_id, sent_at_ms=sent_at_ms, live_transcript=live_transcript
-        )
-        if whole:
-            raw = whole.transcript
-            transcript = await sanitize_user_transcript(raw, user_id, supabase, speakers_verified=True)
-            meta = {
-                **meta,
-                "provider": "openrouter",
-                "model": whole.model,
-                "speakers": "channels",
-                "diarization": "channel",
-                "channels": 2,
-                "whole_call": True,
-                "live_words": len(live_transcript.split()),
-            }
-            extra = {"recording_path": whole.recording_path, "audio_duration": whole.seconds}
-    except Exception:
-        logger.exception("Memo %s: whole-call transcription failed, written from the live transcript", memo_id)
-        transcript, raw, meta, extra = live_transcript, live_raw, dict(stt_meta), {}
-    await start_extraction_from_transcript(
-        memo_id,
-        user_id,
-        transcript,
-        supabase,
-        field_specs=field_specs,
-        source_type=source_type,
-        extra_update={"transcript_raw": raw, "transcript_stt_meta": meta, **extra},
-        user_notes=user_notes,
     )
 
 
