@@ -61,11 +61,11 @@ def world(monkeypatch):
     def update_memo_row(_db, memo_id, payload):
         w.updates.append(payload)
 
-    async def glossary(*_a, **_k):
+    def glossary(*_a, **_k):
         return []
 
-    async def context(*_a, **_k):
-        return "", {}
+    async def crm_values(*_a, **_k):
+        return {}
 
     async def read_first(_db, _memo, transcript, **_k):
         await asyncio.sleep(0.2)
@@ -90,8 +90,9 @@ def world(monkeypatch):
     nothing = lambda *_a, **_k: None  # noqa: E731
     monkeypatch.setattr("app.services.pipeline_lease.update_memo_row", update_memo_row)
     monkeypatch.setattr("app.services.pipeline_meta.persist_pipeline_meta", persist)
-    monkeypatch.setattr("app.services.glossary.GlossaryService.get_user_glossary", glossary, raising=False)
-    monkeypatch.setattr("app.services.extraction_context.load_extraction_llm_context", context)
+    monkeypatch.setattr("app.services.glossary.GlossaryService.user_glossary", glossary)
+    monkeypatch.setattr("app.services.extraction_context.load_product_context", lambda *_a, **_k: "")
+    monkeypatch.setattr("app.services.extraction_context.load_existing_crm_values", crm_values)
     monkeypatch.setattr("app.services.session_entities.load_stt_profile", lambda *_a, **_k: {"full_name": "Toni"})
     monkeypatch.setattr(memos_api, "_read_call_first", read_first)
     monkeypatch.setattr(memos_api, "schedule_followup", nothing)

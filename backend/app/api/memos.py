@@ -305,6 +305,7 @@ async def _read_call_first(
     profile: Optional[dict],
     call_date: Optional[str],
     speakers_verified: bool = False,
+    memo: Optional[dict] = None,
 ) -> tuple[Optional[dict], str]:
     """C04 v8 pipeline (INTELLIGENCE_CALL_READING_ENABLED): read the call before the CRM pass,
     so the note and the fields know who said what and what kind of call it was. Off, or on any
@@ -315,10 +316,11 @@ async def _read_call_first(
     from app.services.llm import LLMClient
 
     try:
-        rows = supabase.table("memos").select(
-            "id,company_id,user_id,hubspot_contact_id,created_at,interaction_kind,source,source_type,pipeline_meta"
-        ).eq("id", str(memo_id)).limit(1).execute().data or []
-        memo = rows[0] if rows else {}
+        if memo is None:
+            rows = supabase.table("memos").select(
+                "id,company_id,user_id,hubspot_contact_id,created_at,interaction_kind,source,source_type,pipeline_meta"
+            ).eq("id", str(memo_id)).limit(1).execute().data or []
+            memo = rows[0] if rows else {}
         if not memo or not is_enabled(supabase, memo.get("company_id"), CALL_READING_FLAG):
             return None, transcript
         if speakers_verified and _type_chosen_on_the_island(memo.get("pipeline_meta")):
@@ -407,7 +409,7 @@ async def extract_memo_async(
 
         glossary_service = GlossaryService(supabase)
 
-        from app.services.extraction_context import load_extraction_llm_context, load_product_context
+        from app.services.extraction_context import load_product_context
         from app.services.session_entities import load_stt_profile
         from app.services.transcript_sanitize import (
             cancel_transcript_patch,
@@ -422,7 +424,11 @@ async def extract_memo_async(
 
         fetched = (
             supabase.table("memos")
-            .select("transcript_stt_meta,created_at,source,source_type,hubspot_contact_id")
+            # Everything the extraction, its context and the call reading read of the memo, in one read.
+            .select(
+                "id,company_id,user_id,transcript_stt_meta,created_at,source,source_type,interaction_kind,"
+                "hubspot_contact_id,hubspot_deal_id,matched_deal_id,pipeline_meta"
+            )
             .eq("id", memo_id)
             .limit(1)
             .execute()
@@ -433,14 +439,20 @@ async def extract_memo_async(
 
         with pipeline_run(run_id=run_id, trigger=trigger) as stages:
             t_context = time.perf_counter()
-            glossary = await glossary_service.get_user_glossary(user_id)
+            # Independent reads, at the same time and off the event loop (each is a blocking
+            # Supabase round trip); the CRM's current values are read alongside them.
+            from app.services.extraction_context import load_existing_crm_values
+
+            reads = [
+                asyncio.to_thread(glossary_service.user_glossary, user_id),
+                asyncio.to_thread(load_stt_profile, supabase, user_id),
+                asyncio.to_thread(load_product_context, supabase, user_id),
+            ]
             if existing_values is None:
-                product_context, existing_values = await load_extraction_llm_context(
-                    supabase, user_id, memo_id=memo_id, field_specs=field_specs
-                )
-            else:
-                product_context = load_product_context(supabase, user_id)
-            profile = load_stt_profile(supabase, user_id)
+                reads.append(load_existing_crm_values(supabase, user_id, memo_row, field_specs))
+            glossary, profile, product_context, *crm_values = await asyncio.gather(*reads)
+            if existing_values is None:
+                existing_values = crm_values[0]
             record_stage(
                 "context",
                 t_context,
@@ -467,7 +479,7 @@ async def extract_memo_async(
                 t_reading = time.perf_counter()
                 call_reading, for_extraction = await _read_call_first(
                     supabase, memo_id, clean, profile=profile, call_date=call_date,
-                    speakers_verified=verified,
+                    speakers_verified=verified, memo=memo_row,
                 )
                 record_stage("reading", t_reading, applied=call_reading is not None)
                 extraction = await extraction_service.extract(
@@ -520,16 +532,19 @@ async def extract_memo_async(
                 datetime.utcnow().isoformat(),
             ),
         )
-        schedule_followup(supabase, memo_id)
+        schedule_followup(supabase, memo_id, company_id=(memo_row or {}).get("company_id"))
         from app.services.memo_extraction_hooks import run_post_extraction_hooks
 
+        # The hooks schedule C04 on this loop, so they stay on it; the pure bookkeeping below runs
+        # off it, so the island asking whether the memo is ready gets its answer meanwhile.
         run_post_extraction_hooks(
             supabase,
             memo_id=memo_id,
             extraction=extraction_data,
         )
         from app.services.intelligence.worker import record_enqueue
-        record_enqueue(
+        await asyncio.to_thread(
+            record_enqueue,
             supabase,
             {"id": memo_id, "user_id": user_id, "extraction": extraction_data},
         )
@@ -538,7 +553,8 @@ async def extract_memo_async(
             schedule_preview_prewarm(supabase, memo_id, user_id)
         # Saving the memo, its hooks and the follow-up: the time between extraction and "ready".
         stages.append(record_stage("finish", t_finish))
-        persist_pipeline_meta(
+        await asyncio.to_thread(
+            persist_pipeline_meta,
             supabase,
             memo_id,
             stages,
@@ -573,7 +589,7 @@ async def extract_memo_async(
             raise
     finally:
         if owned:
-            release_pipeline_run(supabase, memo_id, run_id)
+            await asyncio.to_thread(release_pipeline_run, supabase, memo_id, run_id)
 
 
 async def start_extraction_from_transcript(
@@ -1083,14 +1099,14 @@ async def upload_transcript_and_extract(
             existing = str(call_row["memo_id"])
             return UploadResponse(id=existing, status="extracting", statusUrl=f"/api/v1/memos/{existing}")
     stored_kind = _stored_interaction_kind(body.interaction_kind)
-    from app.services.transcript_sanitize import raw_speaker_count, sanitize_user_transcript
+    from app.services.transcript_sanitize import raw_speaker_count, sanitize_transcript_now
 
     transcript_raw = transcript
-    transcript = await sanitize_user_transcript(
-        transcript_raw, user_id, supabase, speakers_verified=body.speakers_verified
+    # The transcript's repair (blocking reads + CPU) runs off the event loop while the CRM's fields load.
+    transcript, field_specs = await asyncio.gather(
+        asyncio.to_thread(sanitize_transcript_now, transcript_raw, user_id, supabase, speakers_verified=body.speakers_verified),
+        _curated_field_specs_for_primary_crm(supabase, user_id),
     )
-
-    field_specs = await _curated_field_specs_for_primary_crm(supabase, user_id)
     stt_meta = {
         "provider": "upload",
         "raw_speaker_count": raw_speaker_count(transcript_raw),

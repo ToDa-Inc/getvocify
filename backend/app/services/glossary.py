@@ -17,6 +17,10 @@ class GlossaryService:
         """
         Fetch the shared company glossary (falls back to legacy user_profiles).
         """
+        return self.user_glossary(user_id)
+
+    def user_glossary(self, user_id: str) -> List[Dict[str, Any]]:
+        """The glossary, read in the calling thread (a blocking read; asyncio.to_thread it from async code)."""
         company_id = self._company_id_for_user(user_id)
         table = "companies" if company_id else "user_profiles"
         key_col = "id"

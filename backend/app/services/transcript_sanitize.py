@@ -791,15 +791,6 @@ async def sanitize_user_transcript(
     speakers_verified: bool = False,
 ) -> str:
     """Load glossary + CRM names, then cheap deterministic repair (no LLM)."""
-    from app.services.glossary import GlossaryService
-    from app.services.session_entities import load_stt_profile
-
-    glossary_svc = GlossaryService(supabase)
-    glossary = await glossary_svc.get_user_glossary(user_id)
-    profile = load_stt_profile(supabase, user_id)
-    extra = [n for n in (profile.get("full_name"), profile.get("company_name")) if n]
-    langs = profile.get("stt_languages") or ["es"]
-    spoken = langs[0] if langs else "es"
     values = existing_values
     if values is None and memo_data is not None:
         try:
@@ -809,6 +800,30 @@ async def sanitize_user_transcript(
         except Exception:
             values = {}
     source = (memo_data or {}).get("source") or (memo_data or {}).get("source_type") or ""
+    return sanitize_transcript_now(
+        transcript, user_id, supabase, values=values, source=source, speakers_verified=speakers_verified
+    )
+
+
+def sanitize_transcript_now(
+    transcript: str,
+    user_id: str,
+    supabase: Any,
+    *,
+    values: Optional[dict[str, Any]] = None,
+    source: str = "",
+    speakers_verified: bool = False,
+) -> str:
+    """sanitize_user_transcript once the CRM values are known: blocking reads (glossary, profile)
+    and a CPU repair, so async code runs it with asyncio.to_thread."""
+    from app.services.glossary import GlossaryService
+    from app.services.session_entities import load_stt_profile
+
+    glossary = GlossaryService(supabase).user_glossary(user_id)
+    profile = load_stt_profile(supabase, user_id)
+    extra = [n for n in (profile.get("full_name"), profile.get("company_name")) if n]
+    langs = profile.get("stt_languages") or ["es"]
+    spoken = langs[0] if langs else "es"
     cleaned, _ = prepare_transcript_for_extraction(
         transcript,
         glossary,

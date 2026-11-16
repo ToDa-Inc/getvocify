@@ -11,7 +11,7 @@ def _run(source_type, speakers_verified=False, notes=None):
     insert.return_value.execute.return_value.data = [{"id": "memo-1"}]
     extract = AsyncMock()
     with (
-        patch("app.services.transcript_sanitize.sanitize_user_transcript", AsyncMock(side_effect=lambda t, *_, **__: t)),
+        patch("app.services.transcript_sanitize.sanitize_transcript_now", side_effect=lambda t, *_, **__: t),
         patch.object(memos, "_curated_field_specs_for_primary_crm", AsyncMock(return_value=None)),
         patch.object(memos, "start_extraction_from_transcript", extract),
     ):
@@ -78,7 +78,7 @@ def _run_call(call_row, *, claim="memo-1", outcome="connected"):
     insert.return_value.execute.return_value.data = [{"id": "memo-1"}]
     extract, finalize = AsyncMock(), AsyncMock()
     with (
-        patch("app.services.transcript_sanitize.sanitize_user_transcript", AsyncMock(side_effect=lambda t, *_, **__: t)),
+        patch("app.services.transcript_sanitize.sanitize_transcript_now", side_effect=lambda t, *_, **__: t),
         patch.object(memos, "_curated_field_specs_for_primary_crm", AsyncMock(return_value=None)),
         patch.object(memos, "start_extraction_from_transcript", extract),
         patch.object(memos, "find_user_call", MagicMock(return_value=call_row)),

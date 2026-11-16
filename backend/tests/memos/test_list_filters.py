@@ -218,14 +218,14 @@ def _upload_stubs(monkeypatch):
     async def fake_specs(*_a, **_k):
         return []
 
-    async def fake_sanitize(text, *_a, **_k):
+    def fake_sanitize(text, *_a, **_k):
         return text
 
     async def fake_start(*_a, **_k):
         return None
 
     monkeypatch.setattr(memos_api, "_curated_field_specs_for_primary_crm", fake_specs)
-    monkeypatch.setattr("app.services.transcript_sanitize.sanitize_user_transcript", fake_sanitize)
+    monkeypatch.setattr("app.services.transcript_sanitize.sanitize_transcript_now", fake_sanitize)
     monkeypatch.setattr(memos_api, "start_extraction_from_transcript", fake_start)
 
 
