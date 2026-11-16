@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, MessagesSquare, PhoneOff, Search, ShieldAlert } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, CalendarCheck, ChevronDown, ListChecks, MessagesSquare, PhoneOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Segmented } from "@/components/ui/segmented";
 import { Tile } from "@/features/coaching/rep/CoachKpis";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -29,7 +30,7 @@ import {
 } from "@/lib/team-coaching";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
-import { TeamFindings } from "./TeamFindings";
+import { Attention, Reps } from "./TeamPeople";
 import { useTeamCoaching } from "./useTeamCoaching";
 
 /** The same visual code as the reps' Coaching: colour only where it means something. */
@@ -87,43 +88,22 @@ function TotalCell({ evaluated, adherence }: { evaluated: number; adherence: num
   );
 }
 
-/** 1. Do they follow the playbook: the team's %, then every rep against every step. */
+/** The steps by rep, folded: the detail behind the playbook % of the tiles and of each rep's row. */
 function Follow({ data, period }: { data: TeamCoachingBody; period: HosPeriod }) {
   const { t } = useLanguage();
   const p = t.product;
   const { follow } = data;
-  // The big number is the sum of the table under it, and is there only with enough behind it.
-  const showRate = hasRate(follow.evaluated, follow.adherence);
-  const showBefore = showRate && hasRate(follow.prev_evaluated, follow.prev_adherence);
-  const trend = showBefore ? trendOf(follow.adherence, follow.prev_adherence) : null;
-  const TrendIcon = trend === "up" ? ArrowUp : trend === "down" ? ArrowDown : ArrowRight;
   const teamCells: Record<string, TeamStepCell> = Object.fromEntries(follow.steps.map((step) => [step.step_id, step]));
+  if (!follow.reps.length) return null;
   return (
-    <section aria-labelledby="team-follow" className="space-y-5 px-3">
-      <div className="flex flex-wrap items-end justify-between gap-6">
-        <SectionHead
-          id="team-follow"
-          title={p.teamFollowHeading}
-          meta={fill(follow.reps.length === 1 ? p.teamFollowMetaOne : p.teamFollowMeta, { count: follow.conversations, reps: follow.reps.length })}
-        />
-        {showRate ? (
-          <div className="text-right">
-            <p className="text-3xl font-semibold leading-none tabular-nums text-foreground">{formatPercent(follow.adherence)}</p>
-            {showBefore ? (
-              <p className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
-                {fill(p.teamFollowBefore, { value: formatPercent(follow.prev_adherence) })}
-                {trend ? (
-                  <TrendIcon
-                    aria-hidden
-                    className={cn("h-3.5 w-3.5", trend === "up" ? "text-success" : trend === "down" ? "text-destructive" : "")}
-                    strokeWidth={2}
-                  />
-                ) : null}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+    <Collapsible asChild>
+      <section aria-labelledby="team-follow" className="space-y-4 px-3">
+      <CollapsibleTrigger className="group flex w-full items-center gap-2 text-left">
+        <h2 id="team-follow" className={THEME_TOKENS.typography.sectionTitle}>{p.teamStepsFold}</h2>
+        <span className="text-[13px] text-muted-foreground">{follow.steps.length}</span>
+        <ChevronDown aria-hidden className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180 motion-reduce:transition-none" strokeWidth={1.5} />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
       {follow.reps.length ? (
         // Many steps scroll inside the table, never the page.
         <div className="-mx-3 overflow-x-auto px-3">
@@ -191,7 +171,9 @@ function Follow({ data, period }: { data: TeamCoachingBody; period: HosPeriod })
           </table>
         </div>
       ) : null}
-    </section>
+      </CollapsibleContent>
+      </section>
+    </Collapsible>
   );
 }
 
@@ -331,30 +313,35 @@ function Activity({ data }: { data: TeamCoachingBody }) {
   const { t } = useLanguage();
   const p = t.product;
   const activity = data.activity!;
-  const newObjections = data.findings?.new_objections ?? [];
-  const opportunities = data.findings?.opportunities ?? [];
+  const { follow } = data;
+  const showRate = hasRate(follow.evaluated, follow.adherence);
+  const trend = showRate && hasRate(follow.prev_evaluated, follow.prev_adherence) ? trendOf(follow.adherence, follow.prev_adherence) : null;
+  const TrendIcon = trend === "up" ? ArrowUp : trend === "down" ? ArrowDown : ArrowRight;
   const reasons = p.teamNotReached as Record<string, string>;
   const rest = activity.not_reached.filter((item) => item.count && reasons[item.reason]);
   const missed = rest.reduce((sum, item) => sum + item.count, 0);
   return (
-    <div className="grid grid-cols-2 divide-border/50 border-y border-border/50 md:grid-cols-4 md:divide-x" data-testid="team-activity">
+    <div className={cn("grid grid-cols-2 divide-border/50 border-y border-border/50 md:divide-x", activity.meetings ? "md:grid-cols-4" : "md:grid-cols-3")} data-testid="team-activity">
       <Tile
         icon={<MessagesSquare aria-hidden size={13} strokeWidth={1.5} />}
         label={p.coachKpiConversations}
         value={String(activity.conversations)}
         sub={fill(p.teamKpiOfCalls, { total: activity.calls })}
       />
+      {/* A company that marks no meetings would read «0» as a failure: the tile shows once there is one. */}
+      {activity.meetings ? <Tile icon={<CalendarCheck aria-hidden size={13} strokeWidth={1.5} />} label={p.teamMeetingsColumn} value={String(activity.meetings)} /> : null}
       <Tile
-        icon={<ShieldAlert aria-hidden size={13} strokeWidth={1.5} />}
-        label={p.teamNewObjections}
-        value={String(newObjections.length)}
-        sub={newObjections.length ? fill(p.teamKpiTimes, { count: newObjections.reduce((sum, item) => sum + item.count, 0) }) : null}
-      />
-      <Tile
-        icon={<Search aria-hidden size={13} strokeWidth={1.5} />}
-        label={p.teamOpportunities}
-        value={String(opportunities.length)}
-        sub={opportunities.length ? fill(p.teamKpiTimes, { count: opportunities.reduce((sum, item) => sum + item.count, 0) }) : null}
+        icon={<ListChecks aria-hidden size={13} strokeWidth={1.5} />}
+        label={p.teamKpiPlaybook}
+        value={showRate ? formatPercent(follow.adherence) : "—"}
+        sub={
+          trend ? (
+            <span className="inline-flex items-center gap-1">
+              {fill(p.teamFollowBefore, { value: formatPercent(follow.prev_adherence) })}
+              <TrendIcon aria-hidden className={cn("h-3.5 w-3.5", trend === "up" ? "text-success" : trend === "down" ? "text-destructive" : "")} strokeWidth={2} />
+            </span>
+          ) : null
+        }
       />
       <Tile
         icon={<PhoneOff aria-hidden size={13} strokeWidth={1.5} />}
@@ -386,45 +373,61 @@ function Activity({ data }: { data: TeamCoachingBody }) {
 
 /** Equipo: do they follow the playbook, does it work, why we lose. One interaction type at a time, on
  * one plane, with the reps' Coaching's visual code. */
-export function TeamCoaching({ period, salesRole }: { period: HosPeriod; salesRole: HosSalesRole }) {
+export function TeamCoaching({ period, salesRole, filters }: { period: HosPeriod; salesRole: HosSalesRole; filters?: React.ReactNode }) {
   const { t } = useLanguage();
   const p = t.product;
   const [type, setType] = useState<string | null>(null);
   const query = useTeamCoaching(period, salesRole, type);
+  const name = (key: string, label: string | null) => label || p.pb2.typeLabels[key as keyof typeof p.pb2.typeLabels] || motionLabel(key, p.motions);
+  // The call types and the period share one row, whatever the state below it.
+  const toolbar = (types?: TeamCoachingBody["types"], value?: string | null) => (
+    <div className="flex flex-wrap items-center justify-between gap-3 px-3">
+      {types && types.length > 1 && value ? (
+        <Segmented value={value} onValueChange={setType} options={types.map((option) => ({ value: option.key, label: name(option.key, option.label) }))} aria-label={p.coachTypeLabel} />
+      ) : (
+        <span />
+      )}
+      {filters}
+    </div>
+  );
   if (query.isError) {
     return (
+      <div className="space-y-10">
+      {toolbar()}
       <div className="flex flex-wrap items-center gap-3 px-3" role="alert">
         <p className={THEME_TOKENS.typography.body}>{p.teamReadFailed}</p>
         <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()}>
           {p.coachRetry}
         </Button>
       </div>
+      </div>
     );
   }
   if (!query.data) {
     return (
-      <div className={THEME_TOKENS.interaction.pageLoad}>
-        <VocifyLoader size="lg" label={p.teamLoading} />
+      <div className="space-y-10">
+        {toolbar()}
+        <div className={THEME_TOKENS.interaction.pageLoad}>
+          <VocifyLoader size="lg" label={p.teamLoading} />
+        </div>
       </div>
     );
   }
   const data = query.data;
-  if (!data.type) return <p className={`px-3 ${THEME_TOKENS.typography.body}`}>{p.teamNoType}</p>;
-  const name = (key: string, label: string | null) => label || p.pb2.typeLabels[key as keyof typeof p.pb2.typeLabels] || motionLabel(key, p.motions);
+  if (!data.type) {
+    return (
+      <div className="space-y-10">
+        {toolbar()}
+        <p className={`px-3 ${THEME_TOKENS.typography.body}`}>{p.teamNoType}</p>
+      </div>
+    );
+  }
   return (
     <div className={cn("space-y-14 transition-opacity", query.isPlaceholderData && "opacity-60")} aria-busy={query.isPlaceholderData} data-testid="team-coaching">
-      {data.types.length > 1 ? (
-        <div className="px-3">
-          <Segmented
-            value={data.type}
-            onValueChange={setType}
-            options={data.types.map((option) => ({ value: option.key, label: name(option.key, option.label) }))}
-            aria-label={p.coachTypeLabel}
-          />
-        </div>
-      ) : null}
+      {toolbar(data.types, data.type)}
       {data.activity?.calls ? <div className="px-3"><Activity data={data} /></div> : null}
-      <TeamFindings data={data} />
+      <Attention data={data} />
+      <Reps data={data} period={period} />
       <Follow data={data} period={period} />
       {worksHasVerdict(data.works) || data.losses.total ? (
         <div className="grid gap-12 px-3 lg:grid-cols-2 lg:gap-14">

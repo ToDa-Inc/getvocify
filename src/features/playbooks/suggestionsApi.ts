@@ -44,6 +44,8 @@ export type SuggestionsBody = {
   answers: Record<string, SuggestionAnswer[]>;
   /** How many the head of sales has taken into the playbook so far. */
   learned: number;
+  /** Everything decided so far (taken in or set aside): with what waits, how far the head of sales is. */
+  decided?: number;
 };
 
 export const suggestionsApi = {

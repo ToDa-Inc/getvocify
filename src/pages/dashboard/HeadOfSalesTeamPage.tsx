@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth";
 import { HosFilters } from "@/features/head-of-sales/HosFilters";
 import { TeamCoaching } from "@/features/head-of-sales/TeamCoaching";
-import { SuggestionsLink } from "@/features/playbooks/components/SuggestionsInbox";
 import { HOS_DEFAULT_PERIOD, type HosPeriod, type HosSalesRole } from "@/lib/head-of-sales";
 import { useLanguage } from "@/lib/i18n";
 import { usesRepHome } from "@/lib/nav";
@@ -26,14 +25,18 @@ export default function HeadOfSalesTeamPage() {
     <main className={`w-full space-y-10 ${THEME_TOKENS.motion.fadeIn}`}>
       <header className="flex flex-wrap items-center justify-between gap-4 px-3">
         <h1 className={THEME_TOKENS.typography.pageTitle}>{p.teamTitle}</h1>
-        <div className="flex flex-wrap items-center gap-3">
-          {/* T13: a Head of Sales who also sells keeps a way to their own day, off the menu. */}
-          {usesRepHome(user?.company) ? (
-            <Button asChild variant="quiet" size="text">
-              <Link to="/dashboard/today">{p.hosGoToToday}</Link>
-            </Button>
-          ) : null}
-          <SuggestionsLink />
+        {/* T13: a Head of Sales who also sells keeps a way to their own day, off the menu. */}
+        {usesRepHome(user?.company) ? (
+          <Button asChild variant="quiet" size="text">
+            <Link to="/dashboard/today">{p.hosGoToToday}</Link>
+          </Button>
+        ) : null}
+      </header>
+      {/* One row of filters: the call type (inside Equipo, it knows them) on the left, the period on the right. */}
+      <TeamCoaching
+        period={period}
+        salesRole={salesRole}
+        filters={
           <HosFilters
             period={period}
             salesRole={salesRole}
@@ -41,9 +44,8 @@ export default function HeadOfSalesTeamPage() {
             onSalesRole={setSalesRole}
             showRoles={features.includes("SALES_ROLES_ENABLED")}
           />
-        </div>
-      </header>
-      <TeamCoaching period={period} salesRole={salesRole} />
+        }
+      />
     </main>
   );
 }

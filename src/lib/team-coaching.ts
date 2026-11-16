@@ -131,3 +131,27 @@ export function lossesLine(p: Product, losses: TeamCoaching["losses"]): string {
   if (losses.by_source.crm_lost) parts.push(fill(p.teamLossesCrm, { count: losses.by_source.crm_lost }));
   return parts.join(" · ");
 }
+
+/** A member with no name in their profile shows as an email: «daniel.clavero@movertis.com» reads «Daniel Clavero». */
+export function displayName(name: string): string {
+  const text = name.trim();
+  if (!text.includes("@")) return text;
+  return text
+    .split("@")[0]
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+/** The step a rep does least, as the Head of Sales' first coaching point: the lowest rate among the steps with at least two
+ * calls to judge, and only when it is under 60 %; null when nothing stands out. */
+export function weakestStep(rep: TeamRep, steps: { step_id: string; label: string }[]): { label: string; rate: number } | null {
+  let worst: { label: string; rate: number } | null = null;
+  for (const step of steps) {
+    const cell = rep.steps[step.step_id];
+    if (!cell || cell.applicable < 2 || cell.rate === null || cell.rate >= 0.6) continue;
+    if (!worst || cell.rate < worst.rate) worst = { label: step.label, rate: cell.rate };
+  }
+  return worst;
+}

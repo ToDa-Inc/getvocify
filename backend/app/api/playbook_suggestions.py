@@ -126,6 +126,8 @@ def _body(supabase: Client, membership: Membership) -> dict:
         "suggestions": suggestions,
         "answers": _answers(supabase, membership.company_id, {s["motion"] for s in suggestions}),
         "learned": sum(1 for d in decisions.values() if d.get("decision") == "accepted"),
+        # Everything the head of sales has decided so far (taken in or set aside): with what waits, how far they are.
+        "decided": len(decisions),
     }
 
 

@@ -392,9 +392,10 @@ export function PlaybookList() {
   if (!views.length) return body;
   return (
     <div className="space-y-4">
-      {showHub ? <ImproveHub view={view} views={views} onView={(next) => (next ? setView(next) : closeView())} /> : null}
+      {/* «Sugerencias» carries its own header (and the way back): the hub over it would be a second one. */}
+      {showHub && view !== "suggestions" ? <ImproveHub view={view} views={views} onView={(next) => (next ? setView(next) : closeView())} /> : null}
       {view === "suggestions" ? (
-        <SuggestionsInbox onChanged={() => void process.refresh()} />
+        <SuggestionsInbox onChanged={() => void process.refresh()} onBack={closeView} />
       ) : view === "assistant" ? (
         <GapAssistant
           motionKey={selected === COMPANY_ROW ? null : selected}

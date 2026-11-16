@@ -100,6 +100,16 @@ def _same_words(a: Any, b: Any) -> bool:
     return bool(left and right) and (left in right or right in left)
 
 
+def _whole_words(text: Any, cut_at: int = 280) -> Optional[str]:
+    """A context line read before the limit grew could stop mid-word at 280 characters: it ends at a whole word, with «…»."""
+    line = " ".join(str(text or "").split())
+    if not line:
+        return None
+    if len(line) < cut_at:
+        return line
+    return line[: line.rfind(" ")].rstrip(",;:") + "…" if " " in line else line
+
+
 def _score(group: dict) -> int:
     weight = {"objection": 3, "question": 3, "worked": 3, "opportunity": 2}[group["kind"]]
     return group["count"] * weight + 2 * group.get("lost", 0) + 2 * group.get("unanswered", 0)
@@ -153,7 +163,7 @@ def build_suggestions(
                 # A colleague's words that worked beat a written line; the newest of each kind is kept.
                 if text and (group["draft"] is None or (origin == "colleague" and group["draft_from"] != "colleague")):
                     group["draft"], group["draft_from"] = text[:TEXT_MAX], origin
-                group["why"] = group["why"] or item.get("why")
+                group["why"] = group["why"] or _whole_words(item.get("why"))
                 group["use_when"] = group["use_when"] or item.get("use_when")
     shown = []
     for group in groups.values():

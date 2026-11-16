@@ -39,7 +39,7 @@ _CONCESSION = frozenset({"price", "discount", "trial", "free", "payment", "commi
 # More than this in one call is padding, not findings.
 _LIMITS = {"questions": 8, "signals": 3, "worked": 4, "concessions": 4, "new_objections": 4}
 _TOPIC_MAX = 60
-_WHY_MAX = 280
+_WHY_MAX = 480
 _LINE_MAX = 240
 _WHAT_MAX = 120
 # What a person meant in a quote, in clean words: the quote is the proof, this is what the screen reads.

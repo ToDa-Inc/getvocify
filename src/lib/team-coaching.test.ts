@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { productCatalog } from "./product-catalog.ts";
-import { causeLabel, cellValue, goalsMarked, hasRate, heatTone, lossesLine, worksHasVerdict, type TeamCoaching } from "./team-coaching.ts";
+import { causeLabel, cellValue, displayName, goalsMarked, hasRate, heatTone, lossesLine, weakestStep, worksHasVerdict, type TeamCoaching } from "./team-coaching.ts";
 
 const ES = productCatalog.ES;
 const EN = productCatalog.EN;
@@ -62,5 +62,22 @@ describe("why we lose", () => {
     const keys = Object.keys(EN).filter((key) => key.startsWith("team") && key !== "teamCauseObstacles");
     for (const key of keys) assert.ok(key in ES, `ES missing ${key}`);
     assert.deepEqual(Object.keys(ES.teamCauseObstacles).sort(), Object.keys(EN.teamCauseObstacles).sort());
+  });
+});
+
+describe("Equipo's people", () => {
+  it("reads an email as a name", () => {
+    assert.equal(displayName("daniel.clavero@movertis.com"), "Daniel Clavero");
+    assert.equal(displayName("Naiara Segura"), "Naiara Segura");
+  });
+
+  it("names a rep's weakest step only when it stands out with enough calls", () => {
+    const steps = [{ step_id: "a", label: "Apertura" }, { step_id: "b", label: "Pain principal" }, { step_id: "c", label: "Cierre" }];
+    const rep = {
+      user_id: "u", name: "Ana", adherence: 0.6, conversations: 10, evaluated: 9, meetings: 1,
+      steps: { a: { done: 9, applicable: 10, rate: 0.9 }, b: { done: 2, applicable: 6, rate: 0.33 }, c: { done: 0, applicable: 1, rate: 0 } },
+    };
+    assert.deepEqual(weakestStep(rep, steps), { label: "Pain principal", rate: 0.33 });
+    assert.equal(weakestStep({ ...rep, steps: { a: rep.steps.a } }, steps), null);
   });
 });
