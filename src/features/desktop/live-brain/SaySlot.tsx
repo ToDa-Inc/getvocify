@@ -147,9 +147,12 @@ export function SaySlot({
           >
             <div className={cn("flex min-w-0 items-center gap-1.5", older > 0 ? "pr-9" : "pr-1")}>
               <SayTag kind={kind} label={copy.compact.kinds[kind]} />
-              {current.title ? <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">{quoted(current.title)}</span> : null}
+              {!current.read && current.title ? <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">{quoted(current.title)}</span> : null}
             </div>
-            <p className={cn("select-text text-[14px] leading-snug text-foreground", kind === "explore" ? "text-foreground/90" : "font-medium")}>{pointSays(current)}</p>
+            {/* A suggestion's interpretation: what just happened and where to go. It is read first, whole, so it takes the
+                place of their words on the first line (those are cut to one line). */}
+            {current.read ? <p data-read className="select-text text-[12.5px] font-medium leading-snug text-beige">{current.read}</p> : null}
+            <p className={cn("select-text text-[14px] leading-snug text-foreground", kind === "explore" && !current.read ? "text-foreground/90" : "font-medium")}>{pointSays(current)}</p>
             <div className="flex items-center gap-2 pt-0.5">
               {current.source?.label ? <span className="min-w-0 truncate text-[11px] text-muted-foreground">{current.source.label}</span> : null}
               <span className="flex-1" />

@@ -45,8 +45,9 @@ def reading(call=CALL, **kw):
 
 
 def answer(line="Entiendo, ¿qué os preocupa más del precio: el coste por usuario o justificarlo ante dirección?", **kw):
-    return {"their_latest": "Pone el precio como freno.", "understanding_confidence": "high", "action": "deepen",
-            "card_on_screen": "no_card", "because": "el precio nos preocupa bastante", "decision": "card", "line": line,
+    return {"their_latest": "Pone el precio como freno.", "understanding_confidence": "high", "asked": "none",
+            "because": "el precio nos preocupa bastante", "kind": "deepen", "card_on_screen": "no_card", "decision": "card",
+            "read": "El freno es el precio. Ve a qué parte les pesa.", "line": line,
             "source": "context", "source_quote": "", **kw}
 
 
@@ -110,10 +111,14 @@ def test_the_reading_is_told_the_objection_they_raised_and_its_approved_answer(m
     snapshot = {**SNAPSHOT, "entries": SNAPSHOT["entries"] + [
         {"entry_id": "objection:custom:es_caro", "label": "Es caro", "guidance": "¿Respecto a qué te parece caro?"}]}
     note = live_card.spotted("objection:custom:es_caro", snapshot)
-    assert "THEY JUST RAISED: «Es caro»" in note and "¿Respecto a qué te parece caro?" in note and "never instead of it" in note
+    # What the turn check matched is knowledge for the reading, not an order: «ya usamos Gong» said as information is not
+    # something to argue against (Dani's ratings, 2026-11-16).
+    assert "THE TURN CHECK MATCHED their last words with «Es caro»" in note and "¿Respecto a qué te parece caro?" in note
+    assert "a match alone does not call for a card" in note
     assert "Plan desde 49 €" in live_card.spotted("price", snapshot)
     assert live_card.spotted("none", snapshot) == "" and live_card.spotted(None, snapshot) == ""
-    assert live_card.spotted("trust", snapshot) == "\n\nTHEY JUST RAISED: an objection (trust). Answer it before anything else."
+    assert "an objection (trust)" in live_card.spotted("trust", snapshot) and "no approved answer" in live_card.spotted("trust", snapshot)
+    assert "a direct question" in live_card.spotted("question", snapshot)
     seen = []
 
     async def ask(system, user, schema, *, max_tokens, temperature, hedge_s=None):
@@ -127,7 +132,7 @@ def test_the_reading_is_told_the_objection_they_raised_and_its_approved_answer(m
 
     monkeypatch.setattr(live_card, "ask", ask)
     run(live_card.read_card(reading(reason="turn_end", objection="price"), CTX))
-    assert "THEY JUST RAISED" in seen[0] and "Plan desde 49 €" in seen[0]
+    assert "THE TURN CHECK MATCHED" in seen[0] and "Plan desde 49 €" in seen[0]
 
 
 def test_a_listening_sound_is_not_an_intervention():
@@ -306,15 +311,44 @@ def test_the_repeat_check_reads_the_latest_turns_and_runs_on_the_first_card_too(
     assert "another topic" in live_card.REPEAT_SYSTEM and "An echo" in live_card.REPEAT_SYSTEM
 
 
-def test_the_reading_writes_their_latest_words_then_the_move_then_the_card():
-    # What it weighs (what is happening, hypotheses, the unknown, the situation) is not written: the card came at 1.3 s
-    # with those fields and at 0.8 s without, deciding the same. The card is never written before the move.
+def test_the_reading_writes_their_latest_words_then_the_kind_then_the_read_and_the_card():
+    # What they said, what it asks of the rep and the kind of card come before the card; a suggestion's interpretation
+    # ("read") comes before its words. The card is never written before the decision.
     fields = live_card.SCHEMA["required"]
     assert fields == list(live_card.SCHEMA["properties"]) == [
-        "their_latest", "understanding_confidence", "action", "card_on_screen", "because", "decision", "line", "source", "source_quote"]
-    for gone in ('"what_is_happening"', '"observed"', '"hypotheses"', '"unknown"', '"situation"', '"last_move"'):
+        "their_latest", "understanding_confidence", "asked", "because", "kind", "card_on_screen", "decision", "read", "line",
+        "source", "source_quote"]
+    for gone in ('"what_is_happening"', '"observed"', '"hypotheses"', '"unknown"', '"situation"', '"last_move"', '"action"'):
         assert gone not in live_card.SYSTEM
-    assert "you do not write them" in live_card.SYSTEM and "company's SITUATIONS" in live_card.SYSTEM
+    assert "company's SITUATIONS" in live_card.SYSTEM
+
+
+def test_the_prompt_holds_what_dani_asked_of_the_cards():
+    system = " ".join(live_card.SYSTEM.split())
+    # 43 cards rated on Vocify's calls (2026-11-14 and 16): reading between the lines is what he values most, the push is
+    # good and giving up is not, a goodbye is worth nothing, what only the rep knows and the obvious get no card, and a
+    # second card on the same thing seconds later is noise.
+    for rule in ("READ BETWEEN THE LINES", "Never a card that gives up for the rep", "whose only job is to say goodbye",
+                 "Never concede for the rep that it does not fit", "What only the rep knows or decides", "The obvious: what any rep says without help", "A move already made.",
+                 "A second card on the same thing seconds later is noise"):
+        assert rule in system, rule
+    assert "the line ASKS about it, it never states as a fact" in system
+
+
+def test_a_suggestion_carries_its_interpretation_and_an_answer_does_not(monkeypatch):
+    fake_model(monkeypatch, answer())
+    point = run(live_card.read_card(reading(reason="turn_end"), CTX))["points"][0]
+    assert point["read"] == "El freno es el precio. Ve a qué parte les pesa." and point["title"]
+    fake_model(monkeypatch, answer(kind="answer", read="No debería llevar interpretación."))
+    assert run(live_card.read_card(reading(reason="turn_end"), CTX))["points"][0]["read"] is None
+
+
+def test_the_fact_check_also_reads_the_rest_of_what_the_company_wrote():
+    # A card that says an approved answer in other words without citing it was dropped as «states what no source says».
+    sources = live_card.sources_text(CTX, "discovery")
+    also = live_card.also_approved(sources, "")
+    assert "APPROVED ANSWERS" in also and len(also) <= live_card.ALSO_APPROVED_CHARS
+    assert "ALSO APPROVED" in live_card.FACT_SYSTEM and "supports the line exactly as the SOURCE does" in " ".join(live_card.FACT_SYSTEM.split())
 
 
 def test_a_card_that_names_a_day_nobody_said_gets_one_more_try(monkeypatch):
@@ -390,11 +424,10 @@ def test_a_new_card_waits_its_turn_unless_they_asked_or_objected(monkeypatch):
     result = run(live_card.read_card(reading(reason="turn_end", objection="price", cards=used), CTX))
     assert result["moment"] == "them_urgent" and result["event"] == "shown"
     # Nor is a card that answers what they raised when the turn check saw nothing («ya trabajamos con Granola»: its card
-    # came 27 s late on a real call, 2026-11-11). The reading says so itself: its move is "answer" or "clarify".
-    for move in ("answer", "clarify"):
-        fake_model(monkeypatch, answer(action=move))
-        result = run(live_card.read_card(reading(reason="turn_end", objection="none", cards=used), CTX))
-        assert result["moment"] == "them_end" and result["event"] == "shown"
+    # came 27 s late on a real call, 2026-11-11). The reading says so itself: its kind is "answer".
+    fake_model(monkeypatch, answer(kind="answer"))
+    result = run(live_card.read_card(reading(reason="turn_end", objection="none", cards=used), CTX))
+    assert result["moment"] == "them_end" and result["event"] == "shown"
 
 
 def test_a_note_about_what_to_do_is_not_a_card():
@@ -404,17 +437,21 @@ def test_a_note_about_what_to_do_is_not_a_card():
     assert live_card.says_as_is("Entiendo, te pregunto por el seguimiento: ¿quién lo lleva?")
 
 
-def test_a_card_rests_on_their_own_words(monkeypatch):
+def test_a_card_that_reads_between_the_lines_is_shown_and_the_log_says_whether_it_quotes_them(monkeypatch):
+    # "because" not found word for word in what they said used to drop the card. The three cards that rule took off that
+    # Dani saw were ones he wanted (2026-11-14), so it is logged and no longer decides.
     fake_model(monkeypatch, answer(because="nos falla el seguimiento de cada reunión"))
     result = run(live_card.read_card(reading(reason="turn_end"), CTX))
-    assert result["event"] == "drop:no_reason_in_their_words" and result["points"] == []
+    assert result["event"] == "shown" and result["trace"]["because_in_their_words"] is False
+    fake_model(monkeypatch, answer())
+    assert run(live_card.read_card(reading(reason="turn_end"), CTX))["trace"]["because_in_their_words"] is True
 
 
 def test_the_prompts_hold_the_hierarchy_the_situations_and_the_proposal_rule():
     assert "When they disagree, the higher level wins" in live_card.SYSTEM
-    # The situation is weighed, no longer written: its rule stays word for word.
-    assert "which of the company's SITUATIONS fits this moment" in live_card.SYSTEM
-    assert "your action does what it says to do and nothing it says not to do" in " ".join(live_card.SYSTEM.split())
+    # The situation is weighed, not written: when one fits, the card does what it says.
+    assert "which of the company's SITUATIONS fits this moment" in " ".join(live_card.SYSTEM.split())
+    assert "the card does what it says to do and nothing it says not to do" in " ".join(live_card.SYSTEM.split())
     assert "asks again what they already answered" in live_card.FACT_SYSTEM and "General knowledge" in live_card.FACT_SYSTEM
     # What they say about the seller's product is not a source for it: «Exacto: Fireflies captura…» confirmed their guess
     # (real meeting, 2026-11-11); the check let it pass in 1 of 3 runs before this line, in 0 of 3 with it.
@@ -551,7 +588,7 @@ def test_an_automatic_answer_no_source_supports_is_dropped_not_rewritten(monkeyp
         meta = {"model": "direct:test", "latency_ms": 10, "error": None}
         if system == live_card.SYSTEM:
             seen.append(user)
-            return answer(line="La instalación no os obliga a parar furgonetas, se hace en un rato.", action="answer"), meta
+            return answer(line="La instalación no os obliga a parar furgonetas, se hace en un rato.", kind="answer"), meta
         if system == live_card.FACT_SYSTEM:
             return {"unsupported": True, "what": ""}, meta
         return {"repeats": False, "same_as": "", "why": ""}, meta
@@ -622,17 +659,17 @@ def test_a_response_replaces_a_card_the_rep_has_not_used_but_never_one_just_show
     # A response to what they raised takes the screen: flagged by the turn check, or said by the reading's own move
     # («¿cuántos sois en la empresa?» got nothing behind a card 10 s old, real call, 2026-11-11).
     assert event(10, objection="price")["event"] == "replace"
-    assert event(10, action="answer")["event"] == "replace" and event(10, action="clarify")["event"] == "replace"
+    assert event(10, kind="answer")["event"] == "replace"
     # Over a card of the reading's own initiative, at once: a deeper question appeared 0.6 s before «me parece bastante
     # caro» was read, and the price went unanswered behind it (replay of a real call, 2026-11-11).
-    assert event(1, objection="price")["event"] == "replace" and event(1, action="answer")["event"] == "replace"
+    assert event(1, objection="price")["event"] == "replace" and event(1, kind="answer")["event"] == "replace"
     # Over a card that was itself a response, not before it could be read: one card changed three times in 6 s while the
     # same objection was still being said.
     assert event(3, objection="price", on_screen_responds=True)["event"] == "drop:card_on_screen_too_new"
-    assert event(3, action="answer", on_screen_responds=True)["event"] == "drop:card_on_screen_too_new"
-    assert event(10, action="answer", on_screen_responds=True)["event"] == "replace"
+    assert event(3, kind="answer", on_screen_responds=True)["event"] == "drop:card_on_screen_too_new"
+    assert event(10, kind="answer", on_screen_responds=True)["event"] == "replace"
     # The same card reworded waits like any other.
-    assert event(10, action="answer", card_on_screen="update")["event"] == "drop:card_on_screen_too_new"
+    assert event(10, kind="answer", card_on_screen="update")["event"] == "drop:card_on_screen_too_new"
     # A «¿no?» closing their sentence is a question to the code, not a response: a deeper question replaced an answer 1.3 s
     # after it appeared (real meeting, 2026-11-11). The reading's own move decides.
     tagged = turns(("you", CALL[0]["text"], 0.0),
@@ -644,13 +681,13 @@ def test_a_response_replaces_a_card_the_rep_has_not_used_but_never_one_just_show
         fake_model(monkeypatch, answer(**{"card_on_screen": "replace", "because": "nos cuesta que lo lleven a cabo", **reading_out}))
         return run(live_card.read_card(reading(call=tagged, reason="turn_end", objection="none", cards=on), CTX))
 
-    result = tag_event(10, action="deepen")
+    result = tag_event(10, kind="deepen")
     assert result["moment"] == "them_urgent" and result["event"] == "drop:card_on_screen_too_new"
-    assert tag_event(10, action="answer")["event"] == "replace"
+    assert tag_event(10, kind="answer")["event"] == "replace"
     # The log says how old the card on screen was, its kind, and whether the client says the kind at all.
     assert result["trace"]["on_screen"] == {"age_s": 10.0, "responds": True, "client_says_kind": True}
     # The card says which kind it is, for the next reading: a response, or the reading's own initiative.
-    assert event(10, action="answer")["points"][0]["responds"] is True
+    assert event(10, kind="answer")["points"][0]["responds"] is True
     fake_model(monkeypatch, answer())
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["points"][0]["responds"] is False
 

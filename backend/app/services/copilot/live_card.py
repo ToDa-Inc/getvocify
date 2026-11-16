@@ -8,10 +8,12 @@ The rules only say how to read and decide, the same for any company: what was sa
 company's goals, then its criterion and situations (its own or Vocify's buenas prácticas, imported), then the approved
 answers and the examples as ways to say things. Anything about selling lives in the playbook, not here.
 
-- One reading: it weighs what is happening, what they said, what is only supposed, what is unknown and which of the
-  company's situations fits, and writes their latest words, an action (clarify, deepen, answer, add value, next step,
-  listen), what happens to the card on screen, and a card that rests on their own words, or silence (DeepSeek, strict
-  JSON).
+- One reading, right when the other side stops talking: of all they just said, is there something worth the rep's
+  attention in the next seconds? It writes their latest words, what they ask of the rep, the kind of card (an answer, or
+  a suggestion that deepens, redirects or advances) or none, what happens to the card on screen, and for a suggestion
+  its interpretation ("read") before the words to say (DeepSeek, strict JSON). Since 2026-11-16, after Dani rated 43 of
+  its cards on Vocify's calls: it may read between the lines, it keeps the sale moving and never gives up or says
+  goodbye for the rep, it never answers what only the rep knows, and the obvious gets no card.
 - Code checks what can be checked: at most 35 words, a fact cited from the playbook really is there, no number an
   answer invents, no weekday nobody said, not the same text as a card already shown, not after their goodbye.
 - The small gate, in parallel: facts (only against the approved text and the conversation) and a
@@ -49,7 +51,7 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "strategic_engine_20261111_blanks"
+PROMPT_VERSION = "earn_the_card_20261116"
 
 # ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
 # The reading weighs what is happening, what was said, its hypotheses, what is unknown and the situation without writing
@@ -75,9 +77,9 @@ What you read has four levels. When they disagree, the higher level wins:
 3. HOW THE COMPANY WANTS VOCIFY TO DECIDE: its general criterion and its situations, when present.
 4. APPROVED ANSWERS and every example (of the steps, of the situations): ways to say things well. Use one when it fits
    this moment. Its facts count as a source; its tactic (pitching a capability, asking for a meeting now) is only a
-   suggestion and never overrides levels 1 to 3. Never recite an example as is. When THEY JUST RAISED names an objection
-   and its approved answer, the card answers that objection with it ("action" answer, "source" its id): the goal of the
-   call comes after the answer, never instead of it. Use only the part of an approved answer that fits what they said;
+   suggestion and never overrides levels 1 to 3. Never recite an example as is. When THE TURN CHECK MATCHED names an
+   objection and its approved answer, that answer is there to answer well with when answering is the move; it does not
+   by itself call for a card. Use only the part of an approved answer that fits what they said;
    leave out the parts written for another case (a contract end date when they have no provider).
 
 A DEMO: when the rep is showing Vocify to the other side and asks them to play an objection or a question so it can be
@@ -86,48 +88,144 @@ Read it as a real objection or question and answer it like one, from the SOURCES
 silence because it is staged or because the one who said it is a colleague and not a buyer. Outside a demo this
 changes nothing.
 
-How to decide. Steps 1 to 5 are what you weigh before answering: you do not write them. Your answer starts at step
-6 and follows this order:
-1. What is happening, and how sure you are of what they meant.
-2. What they have actually said that matters now, in their words.
-3. Your hypotheses: plausible readings you are not sure of. You may reason from them, but a card never states or
-   presupposes them as facts: no question that takes for granted a failure, a loss or a gap they did not mention.
-4. The most important thing still not known that could change the next commercial decision.
-5. The situation: which of the company's SITUATIONS fits this moment, decided again now from what they have said, above
-   all their latest words (often none fits, or there are no situations). When one
-   fits, your action does what it says to do and nothing it says not to do.
-6. "their_latest": what they just said, in a few words, and what it answers when it answers the last card or the rep's
-   own move. A move already made is not made again, not even reworded; respond to their answer. THE THREAD shows the
-   direction followed so far: keep it, each card building on the last, until what they said since contradicts it or
-   has already answered it; then change direction. The same angle at most twice. "understanding_confidence" is "low"
-   when the words are garbled, the meaning is ambiguous or it may be irony.
-7. "action", the move that helps most now:
-   - clarify: what they just said is ambiguous and the ambiguity changes how you read the opportunity;
-   - deepen: understand how something works, what it gives them, what it costs when it happens or whether it is a
-     priority, whichever matters now (no fixed order);
-   - answer: they asked something; answer it first. About the seller's company or product only from the SOURCES; what a
-     general term means or how something usually works, from common knowledge;
-   - add_value: they have shown a concrete need the offer covers; connect only that part of the offer. A question that
-     steers toward what the offer does is add_value too, and needs that need;
-   - next_step: a step the rep would not think of on their own, that what they said calls for (bring in the person who
-     decides, a visit they mentioned, who to send it to). Proposing the meeting, a day or a time to call is the rep's job:
-     never a card for it;
-   - listen: the rep is handling it, they are mid-explanation, or nothing is worth saying now.
-   Persist while finding out still has value and they are receptive; change angle when one stops giving anything new;
-   respect a clear no. When one of the company's situations describes this moment, act as it says. No checklist: a
-   qualification question only when its answer matters for a decision now.
-8. "card_on_screen": when a CARD ON SCREEN is listed, what happens to it given what was said since: "keep" (still the
-   best move), "update" (same intention, its words are now out of date), "replace" (a materially better move appeared),
-   "invalid" (what they just said makes it wrong: it contradicts them, they answered it or closed that topic),
-   "withdraw" (no longer the best move and there is nothing better). "no_card" when none is listed.
-9. "because": for a card, their words that make it the move now, copied exactly from what they said (at least three
-   words); "" for silence. A card with no such words is not shown.
-10. "decision": "card" only when there is something to show (a new card, an update or a replacement); otherwise
-   "silence". "line" is then the card itself: the words the rep says, nothing else.
+What you are for. You read the call right when the other side stops talking, before the rep replies. You cannot know what
+the rep will say next and you do not try to. One question governs everything: of all they just said, is there something
+important and actionable enough to deserve the rep's attention in the next seconds? If there is, the single most useful
+move. If there is not, silence. The rep already has a next reasonable question of their own: a card that adds one more
+plausible question is noise, and noise teaches the rep to stop looking at the cards. A whole call has a handful of
+moments worth a card, not one per turn. Silence is the usual answer.
 
-The card: one sentence the rep can say as is, in the language of the call, at most 20 words, natural and respectful,
-built from their words. It is the rep's own words to them, never an instruction or a note about what to do («explorar
-qué pasa…», «cambiar de la comparación a…»): the playbook's guidance tells you what to do, the card says it.
+THREE OUTPUTS
+- An answer, in one of three cases:
+  · They asked the rep something directly about the seller's company, product, price or terms, and wait for the answer.
+    It deserves its answer even with no problem or need behind it.
+  · They gave an objection as the reason not to go on. A bare objection, with nothing more valuable in the same words,
+    is answered and not passed over («no es buen momento», «ya tenemos algo parecido», «mándamelo por correo»), with
+    the approved answer when the playbook has one.
+  · They called out something about this call itself that puts trust at risk (that it is a cold call, where the rep got
+    their number, that the rep got something about them wrong). Acknowledge it plainly and give the concrete reason
+    for the call; never deny it or go on as if it had not been said.
+  It answers with what the company knows: about the seller's company or product only from the SOURCES; when they do not
+  say it, silence (the rep answers). A question about THEIR side (why they think, want or do something) is never
+  answered for them, not even when the words of the question appear in their turn: only they know. When their reason
+  matters, the move is to ask them for it (a suggestion), never to state it.
+- A suggestion: they revealed something, and there is a concrete move that brings the call closer to its goal. Three
+  kinds:
+  · deepen · They named, or their words let you see, something of their own that is worth understanding and is not
+    understood yet: a problem, a priority, a result they want, a change they are going through. Do: stay there with one
+    question about what happens or what it costs them, before pitching or changing topic. Avoid: answering with the
+    product at once.
+  · redirect · What they said questions the angle the rep sells on, or shows a more promising one: the problem the rep
+    assumes is not theirs but they pointed somewhere else; they see more value in another team, use or moment; there is
+    an impediment that changes the case. Do: drop the angle that lost its ground and go where they pointed, in their
+    words. A no is a no to the angle, not to the sale: look in everything they have said for what they did admit or
+    value. Avoid: the same argument in other words; proving them wrong.
+  · advance · They gave a concrete condition for how to go on: who else must see it, what they need to pass on, the
+    order of the steps, what they would need to check or try, a fear of committing; or they showed interest and the
+    next step toward the goal of the call is there to be taken. Do: make it concrete and easy, lower the risk with what
+    the SOURCES really offer, and ask for the step the playbook's goal names (a short meeting, the person who decides)
+    when it has not been asked for yet. Avoid: naming a day or an hour nobody said; asking again for a step THE THREAD
+    shows was already asked for and they have not answered.
+- Silence: everything else.
+
+READ BETWEEN THE LINES. The most valuable card is the one the rep would not have seen alone: what their words imply
+about their situation, even when they did not put it that way («tardan en arrancar» said in passing; a deal they
+mention that went wrong; a doubt behind a polite yes). You may build a suggestion on such a reading when their words
+really point there. Two conditions: the "read" says it as what you see in their words, never as something they
+confirmed; and the line ASKS about it, it never states as a fact a failure, a loss, a person, a team or a number they
+did not mention. A sentence cut off before it says the thing («es que no me gusta cómo tienen los-») has not said it
+yet: silence, they are about to.
+
+A SUGGESTION MUST EARN ITS PLACE. It needs all three:
+1. Concrete. It rests on specific words of theirs: a problem, priority, situation, person, condition or step they
+   named or clearly pointed at. Not concrete: a generality («siempre hay cosas que mejorar», «sí, a veces pasa»,
+   «depende», «como todo el mundo»), a yes to what the rep suggested, a description of how they work with nothing in it
+   that goes wrong, costs or matters to them.
+2. Relevant. It matters for the goal of this call and for what the company sells (the SOURCES). A problem the offer has
+   nothing to do with is not a signal. The goal also says how far to go: when the goal is to get a meeting, one question
+   that makes the meeting worth having is enough; when the goal is to qualify or build the opportunity, go deeper.
+3. New. It was not on the table before these words, and THE THREAD shows no card made for it. What was already true
+   before (they had already named the problem, already rejected the angle, already said how they would decide) is not a
+   moment now. When their words simply answer what the rep just asked, the rep is already there: silence.
+An answer needs none of these three.
+
+KEEP THE SALE MOVING
+- A doubt about the fit, a put-off or a request to send something («mándame un correo», «ahora no», «no lo veo claro»)
+  is not the end of the call. The card answers it and keeps the next step alive, as the company's approved answer or
+  situation says (send it AND agree when to look at it together; understand what is behind the doubt; a short meeting).
+- Never a card that gives up for the rep («si lo ves, lo retomamos cuando encaje», «cuando os cambie la prioridad,
+  aquí estoy»), and never a card whose only job is to say goodbye, thank them or leave the door open: the rep knows how
+  to close a call. When they have clearly and repeatedly refused, with their reason, and nothing they said opens
+  another angle: silence, not a farewell.
+- Never concede for the rep that it does not fit («con tres vendedores no tiene sentido», «no es vuestro caso»):
+  whether there is a fit is the rep's call. Their reason for doubting is something to understand or to answer, not to
+  agree with.
+- Never the same argument a second time. When an answer did not land, the next card changes angle or asks; it does not
+  say it again in other words.
+
+WHAT NEVER GETS A CARD
+- What only the rep knows or decides: a question about the rep personally or about what the rep will do («¿esquías?»,
+  «¿desde dónde llamas?», «¿cómo te llamabas?», «¿me lo mandas tú?»). The rep answers it: silence.
+- The obvious: what any rep says without help (their own name or company when asked who is calling, a yes or a no,
+  thanks, confirming what was just agreed, repeating something they did not hear).
+- A move already made. THE THREAD and the [card shown] lines of the LOG are the moves the rep already has: the same
+  request, proposal, question or answer is never written again, reworded or not (the meeting was already proposed, the
+  email already promised, the price already given, that question already suggested). When their new words come back to
+  the same thing (they ask it again, insist, repeat the objection, add a detail that does not change the move), the
+  card they already saw is still the move: "keep" when it is the CARD ON SCREEN, and no new card either way. Their new
+  words get a card only when they call for a DIFFERENT move; otherwise silence. A second card on the same thing
+  seconds later is noise.
+
+TWO LIMITS ON EVERY CARD
+- No commercial terms the SOURCES do not state: a trial, how long it lasts, no lock-in, a discount, a price, a
+  delivery date. When they ask for one the SOURCES do not confirm, the line welcomes the request and asks what they
+  would need from it, or says the rep will confirm the conditions. It does not say yes to the terms.
+- A card never names a day, a date or an hour nobody said in the call.
+
+WHEN SEVERAL THINGS COME IN THE SAME WORDS
+1. A direct question is not ignored. When they asked something and the SOURCES answer it, the card answers; the same
+   sentence may link the answer to a need they named in those same words.
+2. Otherwise, what changes the opportunity most wins. A need they call important, another use for the product, a real
+   barrier or a clear way to move forward outweighs a secondary objection.
+3. Not everything gets a response. Naming the tool, the provider or the way they work today is information about their
+   situation, not a request to argue against it, even when the playbook has an approved answer for it. An objection is
+   answered when it is what stands between the rep and the goal right now: they give it as the reason not to go on, not
+   to consider it or to end the call, and nothing more valuable came with it.
+
+THE COMPANY'S SITUATIONS. Before you write, weigh which of the company's SITUATIONS fits this moment, decided again
+now from what they have said, above all their latest words (often none fits, or there are no situations). When one
+fits, the card does what it says to do and nothing it says not to do. A situation never brings back a card this prompt
+says never to write (a goodbye, a move already made, what only the rep knows).
+
+How to decide. Write each step, briefly, in this order:
+1. "their_latest": what they just said, in at most 15 words.
+2. "understanding_confidence": "low" when the words are garbled, the meaning is ambiguous or it may be irony.
+3. "asked": what their latest words ask of the rep. "direct_question": they asked something and wait for the answer.
+   "objection": they give a reason not to go on, as such. "mention": they name their tool, provider, situation or way
+   of working as information, whether or not the playbook has an answer for it. "none": nothing of the kind (also a
+   recorded menu, an assistant, someone only routing the call, small talk, logistics, agreeing).
+4. "because": the words of theirs the card rests on, copied from what they said: the question they asked, the
+   objection they gave, or the thing they named or let you see. "" when there is nothing concrete, relevant and new:
+   then "kind" is "none".
+5. "kind": "answer", "deepen", "redirect", "advance" or "none", by the rules above. "none" is the usual answer.
+6. "card_on_screen": when a CARD ON SCREEN is listed, what happens to it given what was said since: "keep" (still the
+   move, also when they came back to the same thing), "update" (same intention, its words are now out of date),
+   "replace" (a materially better move appeared), "invalid" (what was said makes it wrong: it contradicts them, they
+   answered it or closed that topic), "withdraw" (no longer the best move and there is nothing better). "no_card" when
+   none is listed.
+7. "decision": "card" only when "kind" is not "none" and there is something to show (a new card, an update or a
+   replacement); otherwise "silence".
+8. "read": for a suggestion, what just happened and what it means for this sale, said to the rep in the language of the
+   call in at most 12 words: one observation and where to go («Lo que le importa es el plazo, no el precio. Ve ahí.»).
+   It never presents as said what they did not say, and never a fact about the product. "" for an answer and for
+   silence.
+9. "line": for a card, the words the rep says now; "" for silence. For a suggestion the line does what the read says.
+   For an answer it answers what they asked, from the SOURCES. An approved answer is used only when "kind" is "answer",
+   never because it is the nearest text. A move already made is not made again, not even reworded.
+
+The card ("line"): one sentence the rep can say as is, in the language of the call, at most 20 words, natural and
+respectful, built from their words. It is the rep's own words to them, never an instruction or a note about what to do
+(«explorar qué pasa…», «cambiar de la comparación a…»): the playbook's guidance tells you what to do, the card says it.
 The company writes its examples with blanks in square brackets («Hola [cliente], soy [nombre] de…», «[cargo]», «[fecha]»)
 and with one person's own details («Soy Toni, uno de los founders»). A card never has a bracket or a blank in it. Fill
 one only with what THE CONVERSATION says (their name, their company, a date they gave); otherwise say the line without
@@ -136,76 +234,26 @@ Movertis…», not «Soy [tu nombre] de Movertis…»), unless the conversation 
 
 Notes on the data: a fact about the product, prices, customers or results only when the SOURCES say it ("source": the
 entry id as written before " · ", "offer" or "knowledge"; "source_quote": the verbatim text of the SOURCES); otherwise
-"source" is "context" and "source_quote" is "". A card never proposes a day, a date or an hour: the rep agrees them with
-the prospect. It may repeat one already said in the call, as the CALENDAR names it."""
+"source" is "context" and "source_quote" is "". A card never names a day, a date or an hour of its own: the rep agrees
+them with the prospect. It may repeat one already said in the call, as the CALENDAR names it."""
+KINDS = ("answer", "deepen", "redirect", "advance", "none")
 SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": [
-        "their_latest",
-        "understanding_confidence",
-        "action",
-        "card_on_screen",
-        "because",
-        "decision",
-        "line",
-        "source",
-        "source_quote"
-    ],
+    "type": "object", "additionalProperties": False,
+    "required": ["their_latest", "understanding_confidence", "asked", "because", "kind", "card_on_screen", "decision", "read",
+                 "line", "source", "source_quote"],
     "properties": {
-        "their_latest": {
-            "type": "string"
-        },
-        "understanding_confidence": {
-            "type": "string",
-            "enum": [
-                "high",
-                "medium",
-                "low"
-            ]
-        },
-        "action": {
-            "type": "string",
-            "enum": [
-                "clarify",
-                "deepen",
-                "answer",
-                "add_value",
-                "next_step",
-                "listen"
-            ]
-        },
-        "card_on_screen": {
-            "type": "string",
-            "enum": [
-                "no_card",
-                "keep",
-                "update",
-                "replace",
-                "invalid",
-                "withdraw"
-            ]
-        },
-        "because": {
-            "type": "string"
-        },
-        "decision": {
-            "type": "string",
-            "enum": [
-                "card",
-                "silence"
-            ]
-        },
-        "line": {
-            "type": "string"
-        },
-        "source": {
-            "type": "string"
-        },
-        "source_quote": {
-            "type": "string"
-        }
-    }
+        "their_latest": {"type": "string"},
+        "understanding_confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        "asked": {"type": "string", "enum": ["direct_question", "objection", "mention", "none"]},
+        "because": {"type": "string"},
+        "kind": {"type": "string", "enum": list(KINDS)},
+        "card_on_screen": {"type": "string", "enum": ["no_card", "keep", "update", "replace", "invalid", "withdraw"]},
+        "decision": {"type": "string", "enum": ["card", "silence"]},
+        "read": {"type": "string"},
+        "line": {"type": "string"},
+        "source": {"type": "string"},
+        "source_quote": {"type": "string"},
+    },
 }
 REPEAT_SYSTEM = """A live assistant wants to show a salesperson ONE new card during a call. A card is worth the screen only
 when it gives the salesperson a move they do not already have. You get the cards already shown in this call, the latest
@@ -259,7 +307,10 @@ Each kind of content has its own source:
   an hour, a name) that differs from what the other side said («lunes a las 10» when they said «11») contradicts it.
 "unsupported" is also true when THE LINE is not words the salesperson can say as is to the other side: a note about
 what to do («explorar qué pasa…», «ahora toca saber por qué…»), a label or a fragment.
-"unsupported" is true when the line states something of the first two kinds that its source does not say, states
+ALSO APPROVED, when present, is the rest of what the company has written (its offer, its knowledge, its approved
+answers): it supports the line exactly as the SOURCE does. A line that says in other words what an approved answer or
+the offer says («no va de enseñar a vender a quien ya sabe» for an answer that says so) is supported.
+"unsupported" is true when the line states something of the first two kinds that neither says, states
 something about the other side that THE CONVERSATION contradicts, or contradicts what the seller said. Answer JSON
 {"unsupported": true|false, "what": "at most 8 words"}."""
 FACT_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["unsupported", "what"],
@@ -290,7 +341,7 @@ MIN_GAP_S = 30.0
 # check or the code saw a question or an objection. The limits used to open only for what the turn check flagged, and it
 # flagged neither «ya estamos trabajando con Granola» (its card came 27 s late, behind the 30 s) nor «¿cuántos sois en la
 # empresa?» (no card: the one on screen was 10 s old). Real call, 2026-11-11.
-RESPONDS = ("answer", "clarify")
+RESPONDS = ("answer",)  # the reading's "kind"
 # A response replaces at once a card of the reading's own initiative: a deeper question appeared 0.6 s before «me parece
 # bastante caro» was read, and in a replay with one floor for every card the price went unanswered for 17 s and the next
 # objection was lost behind its late answer. A card that was itself a response is given this long first: a flagged
@@ -307,6 +358,10 @@ MAX_CARD_WORDS = 35
 MIN_CARD_WORDS = 4  # «card», «their_latest» or a playbook id in the line is not a card
 SOURCE_QUOTE_WORDS, SAME_TEXT = 6, 0.7
 FACT_TURNS, FACT_CHARS = 400, 12000
+# The rest of the company's approved text the fact check may rest a line on, besides the source the card cites. A card
+# that reworded an approved answer without citing it was dropped as «states what no source says» (Dani, 2026-11-16: 4 of
+# the 4 cards this check took off that he saw were fine to show).
+ALSO_APPROVED_BLOCKS, ALSO_APPROVED_CHARS = ("OFFER (", "COMPANY KNOWLEDGE (", "APPROVED ANSWERS"), 14000
 REPEAT_TURNS = 6  # the latest turns the repeat check reads, for an echo or a move the seller just made
 THREAD_CARDS, THREAD_WORDS = 3, 45
 GOODBYES = ("hasta luego", "hasta mañana", "hasta pronto", "hasta otra", "adiós", "adios", "chao", "chau", "un saludo",
@@ -606,19 +661,22 @@ def thread(turns: list[dict], end: list[float], shown: list[dict], now: float) -
 
 
 def spotted(objection: Optional[str], snapshot: Optional[dict]) -> str:
-    """What the turn check saw in their last turn, for the reading: the objection and, when the playbook has one, its approved
-    answer. The reading was never told, and answered «vale un pastón» with the meeting instead of the price answer."""
+    """What the turn check matched in their last turn, told to the reading as knowledge: the objection and, when the playbook
+    has one, its approved answer. Whether answering it is the move is the reading's decision («ya usamos Gong» said as
+    information is a mention, not something to argue against)."""
     if not objection or objection == "none":
         return ""
+    if objection == "question":
+        return "\n\nTHE TURN CHECK SAW: a direct question in their last words."
     entry_id = objection if objection.startswith("objection:") else f"objection:{objection}"
     entry = next((e for e in (snapshot or {}).get("entries") or []
                   if isinstance(e, dict) and e.get("entry_id") == entry_id and str(e.get("guidance") or "").strip()), None)
     if not entry:
-        return f"\n\nTHEY JUST RAISED: an objection ({objection}). Answer it before anything else."
+        return f"\n\nTHE TURN CHECK MATCHED their last words with an objection ({objection}). The playbook has no approved answer for it."
     name = entry.get("label") or entry.get("category") or objection
-    return (f"\n\nTHEY JUST RAISED: «{name}». ITS APPROVED ANSWER ({entry_id}): {brain._clip(entry.get('guidance'), 600)}\n"
-            "Answer this objection first, with the part of that answer that fits what they said, in their words; the next step "
-            "comes after it, never instead of it.")
+    return (f"\n\nTHE TURN CHECK MATCHED their last words with «{name}». ITS APPROVED ANSWER ({entry_id}): "
+            f"{brain._clip(entry.get('guidance'), 600)}\nIt is there to answer with when answering is the move (\"asked\" and the "
+            "priority rules decide that); a match alone does not call for a card.")
 
 
 def reading_input(sources: str, turns: list[dict], end: list[float], now: float, shown: list[dict],
@@ -868,11 +926,20 @@ async def ask(system: str, user: str, schema: dict, *, max_tokens: int, temperat
     return None, meta
 
 
-async def fact_check(card: dict, conversation: str) -> tuple[Optional[dict], dict]:
-    """A line states nothing its approved source or the conversation does not say."""
-    source = card.get("authorized") or card.get("source_quote") or "(none: this line has no approved source)"
+def also_approved(sources: str, cited: str) -> str:
+    """The company's offer, knowledge and approved answers, without the part the card already cites."""
+    blocks = source_blocks(sources)
+    text = "\n\n".join(blocks[h] for h in ALSO_APPROVED_BLOCKS if blocks.get(h) and blocks[h] not in cited)
+    return text[:ALSO_APPROVED_CHARS]
+
+
+async def fact_check(card: dict, conversation: str, sources: str = "") -> tuple[Optional[dict], dict]:
+    """A line states nothing the company's approved text or the conversation does not say."""
+    source = card.get("authorized") or card.get("source_quote") or "(none: this line cites no approved source)"
     stated = " ".join(asserted(card["say"]).split()).strip(" .:;,")
-    user = (f"SOURCE: «{source}»\nTHE CONVERSATION (latest last):\n{conversation or '-'}\nTHE LINE: «{card['say']}»\n"
+    also = also_approved(sources, source)
+    user = (f"SOURCE: «{source}»\n" + (f"ALSO APPROVED:\n{also}\n" if also else "")
+            + f"THE CONVERSATION (latest last):\n{conversation or '-'}\nTHE LINE: «{card['say']}»\n"
             f"WHAT THE LINE STATES OUTSIDE ITS QUESTIONS: «{stated or '(nothing: only questions)'}»"
             + (f"\nWHAT ITS QUESTIONS OFFER TO SHOW THE PRODUCT DOING (a claim, judged like a statement): «{offered(card['say'])}»"
                if offered(card["say"]) else ""))
@@ -912,7 +979,7 @@ async def vet(out: dict, turns: list[dict], end: list[float], now: float, shown:
     # side putting the call off («Llámame la semana que viene… no quiero hablar ahora»), and it added nothing to the rep's
     # decisions. A card after their goodbye is still held back by after_goodbye.
     facts, repeat = await asyncio.gather(
-        fact_check(card, conversation_lines(turns, end, now, n=FACT_TURNS, chars=FACT_CHARS)),
+        fact_check(card, conversation_lines(turns, end, now, n=FACT_TURNS, chars=FACT_CHARS), sources),
         repeat_check(card["say"], shown, turns, end, now),
     )
     checks = {"facts": facts[0], "repeat": repeat[0],
@@ -928,7 +995,7 @@ async def vet(out: dict, turns: list[dict], end: list[float], now: float, shown:
 
 
 def _card_point(card: dict, call_id: str, turns: list[dict], now: float, labels: dict[str, str], responds: bool = False,
-                visible_t: Optional[float] = None) -> dict:
+                visible_t: Optional[float] = None, read: Optional[str] = None) -> dict:
     """The card as a point of the shared state (shared/live-call/state.js): an approved answer is a "Respuesta", any
     other move a "Puedes preguntar" (kind deepen)."""
     them = [t for t in turns if t["who"] == "them"]
@@ -944,6 +1011,9 @@ def _card_point(card: dict, call_id: str, turns: list[dict], now: float, labels:
         "tag_key": source if entry else "question",
         "tag": label.removeprefix("Playbook · ") if entry else None,
         "title": " ".join(said["text"].split()[-TITLE_WORDS:]),
+        # A suggestion's interpretation: what just happened and where to go, shown above the words to say. None for an
+        # answer. A window that does not know the field shows the card as before.
+        "read": " ".join((read or "").split()) or None,
         "turn_ids": [said["id"]],
         "said_at": round(now, 1),
         "decision": None, "decision_note": None,
@@ -1014,8 +1084,10 @@ async def read_card(body: Any, ctx: Any) -> dict:
         return finish("silence")
     if out.get("understanding_confidence") == "low":  # not sure what was meant (garbled, ambiguous, irony): no card
         return finish("low_confidence")
-    if moment != "asked" and not rests_on_their_words(out, turns):
-        return finish("drop:no_reason_in_their_words")
+    # Whether "because" is found word for word in what they said is logged, no longer a reason to drop the card: a card
+    # that reads between the lines rests on their words without quoting them, and the three cards this rule took off that
+    # Dani saw (2026-11-14) were ones he wanted, one of them his favourite.
+    trace["because_in_their_words"] = rests_on_their_words(out, turns)
     # The card responds to what they just raised, or is the reading's own initiative: only the second is paced. A response
     # is what the reading's own move says is one, what the turn check flagged, or what the rep asked for. A «¿no?» at the
     # end of their sentence is not enough to take the screen: it let a deeper question replace an answer 1.3 s after it
@@ -1023,7 +1095,7 @@ async def read_card(body: Any, ctx: Any) -> dict:
     flagged = bool(body.objection and body.objection != "none")
 
     def responding(reading: dict) -> bool:
-        return moment == "asked" or flagged or reading.get("action") in RESPONDS
+        return moment == "asked" or flagged or reading.get("kind") in RESPONDS
 
     responds = responding(out)
     if not pending and not (responds or moment == "them_urgent") and shown and now - shown[-1]["visible_t"] < MIN_GAP_S:
@@ -1096,7 +1168,8 @@ async def read_card(body: Any, ctx: Any) -> dict:
     # The card appears when the reading ends, not when it was asked for: a reading of 4.1 s made its card look 4.1 s older
     # than it was to the next reading, and the 8 s it is given before another response replaces it were cut to 4.
     appears = now + (time.perf_counter() - started)
-    result["points"] = [_card_point(card, body.call_id, turns, now, labels, responds=responding(out), visible_t=appears)]
+    result["points"] = [_card_point(card, body.call_id, turns, now, labels, responds=responding(out), visible_t=appears,
+                                    read=out.get("read") if out.get("kind") != "answer" else None)]
     # One card on screen: whatever was still open fades where it is ("gone"), replaced or not.
     result["closed"] = [{"id": s["id"], "outcome": "gone"} for s in shown if s.get("open", True)]
     trace["replaces"] = replaces

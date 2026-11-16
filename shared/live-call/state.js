@@ -21,6 +21,7 @@
  * @property {string} tag_key           "question", an objection type, or a playbook entry's id.
  * @property {string | null} tag        The playbook entry's name when the tag is one; else null (the UI names the kind).
  * @property {string} title             Their words, verbatim, short.
+ * @property {string | null} [read]     A suggestion's interpretation (what just happened, where to go); absent or null for an answer.
  * @property {string[]} turn_ids        The turns it comes from.
  * @property {number} said_at           Seconds into the call.
  * @property {Decision | null} decision Null when there is no state or playbook to justify one: only the answer.
