@@ -213,12 +213,20 @@ export const useDealRuleEnabled = () => {
   return Boolean(user?.company?.features?.includes("AFTER_CALL_FLOW_ENABLED"));
 };
 
+/** The records a call without a deal goes on, in words: "the person and the organization". */
+export const callRecordsText = (targets: CRMConfiguration["call_targets"], labels: Record<CallTarget, string>): string => {
+  const on = targets?.length ? targets : CALL_TARGETS;
+  const names = (["contact", "company"] as const).filter((t) => on.includes(t)).map((t) => `the ${labels[t].toLowerCase()}`);
+  return names.join(" and ") || `the ${labels.contact.toLowerCase()}`;
+};
+
 /** Deals in "What Vocify creates": a switch (with the rule) and, while on, where new deals go. */
 export const DealsRow = ({
   icon,
   rule,
   disabled,
   notOnDeals = false,
+  withoutDeal = "the contact",
   onRuleChange,
   children,
 }: {
@@ -227,6 +235,8 @@ export const DealsRow = ({
   disabled?: boolean;
   /** "Save the call on" leaves deals out: calls neither update nor create one, whatever this says. */
   notOnDeals?: boolean;
+  /** Where a call without a deal goes (callRecordsText), for the "never" line. */
+  withoutDeal?: string;
   onRuleChange: (rule: DealRule) => void;
   children: ReactNode;
 }) => {
@@ -243,8 +253,8 @@ export const DealsRow = ({
         notOnDeals
           ? "Off while calls aren't saved on deals"
           : on
-            ? "When the contact has none. A deal that already exists is always updated."
-            : "Never: calls land on the contact. Existing deals are still updated."
+            ? "When the call has none. A deal that already exists is always updated."
+            : `Never. A call without a deal goes on ${withoutDeal}; existing deals are still updated.`
       }
       below={
         on ? (

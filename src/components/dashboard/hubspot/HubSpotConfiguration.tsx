@@ -15,7 +15,7 @@ import { classifyFillPolicy, FILL_POLICY_LABELS, type FillPolicy } from "@/lib/f
 import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
 import {
   CallNoteRows,
-  CallTargetsRow, DealsRow,
+  CallTargetsRow, callRecordsText, DealsRow,
   FieldsRow,
   ReviewRow,
   SaveStatus,
@@ -340,6 +340,7 @@ export const HubSpotConfiguration = ({ onSaved, readOnly = false }: HubSpotConfi
           icon={Briefcase}
           rule={config.deal_creation_rule}
           notOnDeals={Boolean(config.call_targets?.length) && !config.call_targets?.includes("deal")}
+          withoutDeal={callRecordsText(config.call_targets, { deal: "Deal", company: "Company", contact: "Contact" })}
           disabled={readOnly}
           onRuleChange={(rule) => setConfig((prev) => ({ ...prev, deal_creation_rule: rule }))}
         >

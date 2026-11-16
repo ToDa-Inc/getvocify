@@ -17,7 +17,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
 import {
   CallNoteRows,
-  CallTargetsRow, DealsRow,
+  CallTargetsRow, callRecordsText, DealsRow,
   FieldsRow,
   ReviewRow,
   SaveStatus,
@@ -267,7 +267,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
             onCheckedChange={(val) => setConfig((prev) => ({ ...prev, auto_create_companies: val }))}
           />
         </SettingsRow>
-        <SettingsRow icon={ListChecks} title="Tasks" description="From what was agreed on the call, on its deal">
+        <SettingsRow icon={ListChecks} title="Tasks" description="From what was agreed on the call">
           <Switch
             aria-label="Create tasks"
             checked={config.create_tasks !== false}
@@ -279,6 +279,7 @@ export const PipedriveConfiguration = ({ onSaved, readOnly = false }: PipedriveC
           icon={Briefcase}
           rule={config.deal_creation_rule}
           notOnDeals={Boolean(config.call_targets?.length) && !config.call_targets?.includes("deal")}
+          withoutDeal={callRecordsText(config.call_targets, { deal: "Deal", company: "Organization", contact: "Person" })}
           disabled={readOnly}
           onRuleChange={(rule) => setConfig((prev) => ({ ...prev, deal_creation_rule: rule }))}
         >
