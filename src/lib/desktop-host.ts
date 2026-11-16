@@ -88,6 +88,10 @@ export type VocifyDesktopBridge = {
       error?: string;
     }>;
   };
+  /** The end of the app's log, which the dashboard sends to Vocify by itself. Missing in older builds; null without a log. */
+  diagnostics?: {
+    log(): Promise<{ platform: "win32" | "darwin"; version: string; log: string } | null>;
+  };
   /** CRM pages open in the rep's browsers. Missing in builds older than the call contact. */
   crm?: {
     pages(options?: { ask?: boolean }): Promise<{

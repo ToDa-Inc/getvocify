@@ -129,6 +129,26 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
     getDesktopBridge()?.shell.setState({ onScreen: onScreen && briefRef.current ? { ...onScreen, brief: briefRef.current } : onScreen });
   }, [canDial, callerId, onPhone]);
 
+  // The app's log goes to Vocify by itself, so a rep never copies anything: soon after start (it carries what happened
+  // before a freeze or a crash) and every 30 minutes. A failed send waits for the next one.
+  useEffect(() => {
+    const diagnostics = getDesktopBridge()?.diagnostics;
+    if (!diagnostics) return;
+    const send = () => {
+      if (!api.getToken()) return;
+      void diagnostics
+        .log()
+        .then((sent) => (sent?.log ? api.post("/desktop/diagnostics", sent) : null))
+        .catch(() => null);
+    };
+    const first = setTimeout(send, 30_000);
+    const every = setInterval(send, 30 * 60_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, []);
+
   // The island's call commands.
   useEffect(() => {
     const bridge = getDesktopBridge();

@@ -50,6 +50,7 @@ from app.api import (
     after_call,
     mcp_access,
     demo,
+    desktop_diagnostics,
 )
 
 api_router = APIRouter()
@@ -92,6 +93,7 @@ api_router.include_router(crm.router)
 api_router.include_router(crm_field_permissions.router)
 api_router.include_router(calls.router)
 api_router.include_router(live_calls.router)
+api_router.include_router(desktop_diagnostics.router)
 api_router.include_router(hubspot_recordings.router)
 api_router.include_router(crm_salesforce.router, prefix="/api/v1/crm")
 api_router.include_router(crm_pipedrive.router, prefix="/api/v1/crm")
