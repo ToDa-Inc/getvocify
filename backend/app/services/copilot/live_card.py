@@ -995,7 +995,7 @@ async def vet(out: dict, turns: list[dict], end: list[float], now: float, shown:
 
 
 def _card_point(card: dict, call_id: str, turns: list[dict], now: float, labels: dict[str, str], responds: bool = False,
-                visible_t: Optional[float] = None, read: Optional[str] = None) -> dict:
+                visible_t: Optional[float] = None, read: Optional[str] = None, quote: Optional[str] = None) -> dict:
     """The card as a point of the shared state (shared/live-call/state.js): an approved answer is a "Respuesta", any
     other move a "Puedes preguntar" (kind deepen)."""
     them = [t for t in turns if t["who"] == "them"]
@@ -1014,6 +1014,9 @@ def _card_point(card: dict, call_id: str, turns: list[dict], now: float, labels:
         # A suggestion's interpretation: what just happened and where to go, shown above the words to say. None for an
         # answer. A window that does not know the field shows the card as before.
         "read": " ".join((read or "").split()) or None,
+        # What an answer answers: their own words, as the reading copied them (the question they asked, the objection
+        # they gave). Shown above the answer, on their side. None for a suggestion, or when the words are not theirs.
+        "quote": " ".join((quote or "").split()).strip("«»\"“” ") or None,
         "turn_ids": [said["id"]],
         "said_at": round(now, 1),
         "decision": None, "decision_note": None,
@@ -1169,7 +1172,8 @@ async def read_card(body: Any, ctx: Any) -> dict:
     # than it was to the next reading, and the 8 s it is given before another response replaces it were cut to 4.
     appears = now + (time.perf_counter() - started)
     result["points"] = [_card_point(card, body.call_id, turns, now, labels, responds=responding(out), visible_t=appears,
-                                    read=out.get("read") if out.get("kind") != "answer" else None)]
+                                    read=out.get("read") if out.get("kind") != "answer" else None,
+                                    quote=out.get("because") if out.get("kind") == "answer" and trace.get("because_in_their_words") else None)]
     # One card on screen: whatever was still open fades where it is ("gone"), replaced or not.
     result["closed"] = [{"id": s["id"], "outcome": "gone"} for s in shown if s.get("open", True)]
     trace["replaces"] = replaces

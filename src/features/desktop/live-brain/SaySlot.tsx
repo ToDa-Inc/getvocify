@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, History, Info, MessageCircleQuestion, Reply } from "lucide-react";
+import { Check, History, Info, Lightbulb, MessageCircleQuestion, Reply } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { pointSays } from "@/lib/live-brain";
 import { cn } from "@/lib/utils";
@@ -145,13 +145,25 @@ export function SaySlot({
               flashId === current.id && "ring-2 ring-beige/50",
             )}
           >
-            <div className={cn("flex min-w-0 items-center gap-1.5", older > 0 ? "pr-9" : "pr-1")}>
-              <SayTag kind={kind} label={copy.compact.kinds[kind]} />
-              {!current.read && current.title ? <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">{quoted(current.title)}</span> : null}
-            </div>
-            {/* A suggestion's interpretation: what just happened and where to go. It is read first, whole, so it takes the
-                place of their words on the first line (those are cut to one line). */}
-            {current.read ? <p data-read className="select-text text-[12.5px] font-medium leading-snug text-beige">{current.read}</p> : null}
+            {/* One shape for every card (2026-11-16): a small first line saying why it is here, then the words to say,
+                large, always in the same place. A suggestion: the reading's interpretation, whole. An answer: their own
+                words as a small bubble on their side, so the card reads as the reply to it. A card from before these
+                fields existed keeps its kind and their last words. */}
+            {current.read ? (
+              <p data-read className={cn("flex items-start gap-1.5 text-[12px] leading-snug text-muted-foreground", older > 0 ? "pr-9" : "pr-1")}>
+                <Lightbulb className="mt-[2px] h-3 w-3 shrink-0" strokeWidth={1.5} aria-hidden />
+                <span className="select-text">{current.read}</span>
+              </p>
+            ) : current.quote ? (
+              <p data-quote className={cn("flex", older > 0 ? "pr-9" : "pr-1")}>
+                <span className="line-clamp-2 select-text rounded-[10px] rounded-bl-[3px] bg-foreground/[0.07] px-2 py-[3px] text-[12px] leading-snug text-foreground/80">{current.quote}</span>
+              </p>
+            ) : (
+              <div className={cn("flex min-w-0 items-center gap-1.5", older > 0 ? "pr-9" : "pr-1")}>
+                <SayTag kind={kind} label={copy.compact.kinds[kind]} />
+                {current.title ? <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">{quoted(current.title)}</span> : null}
+              </div>
+            )}
             <p className={cn("select-text text-[14px] leading-snug text-foreground", kind === "explore" && !current.read ? "text-foreground/90" : "font-medium")}>{pointSays(current)}</p>
             <div className="flex items-center gap-2 pt-0.5">
               {current.source?.label ? <span className="min-w-0 truncate text-[11px] text-muted-foreground">{current.source.label}</span> : null}

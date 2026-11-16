@@ -343,6 +343,17 @@ def test_a_suggestion_carries_its_interpretation_and_an_answer_does_not(monkeypa
     assert run(live_card.read_card(reading(reason="turn_end"), CTX))["points"][0]["read"] is None
 
 
+def test_an_answer_carries_their_own_words_and_a_suggestion_does_not(monkeypatch):
+    # What the answer answers, shown above it: the words of theirs the reading copied, without its quote marks.
+    fake_model(monkeypatch, answer(kind="answer", because="«el precio nos preocupa bastante»"))
+    assert run(live_card.read_card(reading(reason="turn_end"), CTX))["points"][0]["quote"] == "el precio nos preocupa bastante"
+    # Words that are not found in what they said are not shown as theirs.
+    fake_model(monkeypatch, answer(kind="answer", because="les parece carísimo todo"))
+    assert run(live_card.read_card(reading(reason="turn_end"), CTX))["points"][0]["quote"] is None
+    fake_model(monkeypatch, answer())
+    assert run(live_card.read_card(reading(reason="turn_end"), CTX))["points"][0]["quote"] is None
+
+
 def test_the_fact_check_also_reads_the_rest_of_what_the_company_wrote():
     # A card that says an approved answer in other words without citing it was dropped as «states what no source says».
     sources = live_card.sources_text(CTX, "discovery")
