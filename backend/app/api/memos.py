@@ -2096,7 +2096,7 @@ async def _build_approval_preview(
     # build_preview, which is provider-generic) so the extension gets them
     # in the same round-trip as everything else. Falls back to the same
     # default crm_configurations ships with when there's no config row yet.
-    preview.call_targets = [t for t in CALL_TARGETS if t in targets]
+    _apply_call_targets(preview, targets, conn)
     preview.lost_reasons = list(
         config.lost_reasons if config and config.lost_reasons else
         ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]
@@ -2114,6 +2114,15 @@ async def _build_approval_preview(
     except Exception as e:
         logger.warning("Call outcome availability check failed for memo %s: %s", memo_id, e)
     return preview
+
+
+def _apply_call_targets(preview: ApprovalPreview, targets, conn: dict) -> None:
+    """Where the call is saved, on the preview; a record it isn't saved on is left alone (memo_approval), so none of its
+    fields are proposed either."""
+    preview.call_targets = [t for t in CALL_TARGETS if t in targets]
+    left_out = {obj for target, obj in (("contact", "contacts"), ("company", "companies")) if target not in targets}
+    if left_out and conn.get("provider") != "salesforce":
+        preview.proposed_updates = [u for u in preview.proposed_updates if (u.object_type or "deals") not in left_out]
 
 
 def _shown_targets(config, conn: dict, selected_deal_id, create_new: bool, skip_deal: bool, *, asked_deal: bool):
@@ -2372,7 +2381,7 @@ async def post_approval_preview(
             detail=f"Failed to build preview: {str(e)}",
         ) from e
 
-    preview.call_targets = [t for t in CALL_TARGETS if t in targets]
+    _apply_call_targets(preview, targets, conn)
     preview.lost_reasons = list(
         config.lost_reasons if config and config.lost_reasons else
         ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]

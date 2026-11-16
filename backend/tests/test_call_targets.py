@@ -80,3 +80,21 @@ def test_a_record_the_call_isnt_saved_on_is_left_alone(monkeypatch):
     assert call["auto_create_companies"] is False and call["allowed_company_fields"] == []
     raw = call["extraction"].raw_extraction or {}
     assert "company_properties" not in raw and raw["contact_properties"] == {"jobtitle": "COO"}
+
+
+
+def test_the_preview_proposes_no_fields_for_a_record_the_call_isnt_saved_on():
+    from app.api.memos import _apply_call_targets
+    from app.models.approval import ApprovalPreview, ProposedUpdate
+
+    def update(obj):
+        return ProposedUpdate(field_name="f", field_label="F", new_value="v", extraction_confidence=0.9, object_type=obj)
+
+    preview = ApprovalPreview.model_construct(proposed_updates=[update("companies"), update("contacts"), update("deals")])
+    _apply_call_targets(preview, frozenset({"deal", "contact"}), {"provider": "pipedrive"})
+    assert [u.object_type for u in preview.proposed_updates] == ["contacts", "deals"]
+    assert preview.call_targets == ["deal", "contact"]
+
+    preview = ApprovalPreview.model_construct(proposed_updates=[update("companies")])
+    _apply_call_targets(preview, frozenset({"contact"}), {"provider": "salesforce"})
+    assert len(preview.proposed_updates) == 1, "Salesforce keeps every field"
