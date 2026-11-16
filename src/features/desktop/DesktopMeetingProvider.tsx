@@ -191,6 +191,9 @@ export type DesktopMeeting = {
   expectPhoneCall: (call: { contact: MeetingDraft["contact"] | null; source: CallSourceInfo } | null) => void;
   /** The CRM record the island offers on screen; the island's Record takes its contact. Null when the offer is gone. */
   offerOnScreen: (preview: CallPreview | null) => void;
+  /** The CRM record in the frontmost browser, offered or not (Vocify may not be the one dialing: Ringover, Aircall). A
+   * recording takes its contact and its deal or company; the after-call card shows where it goes before saving. */
+  notePage: (preview: CallPreview | null) => void;
   stop: () => Promise<void>;
   retryPending: () => Promise<void>;
 };
@@ -294,6 +297,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const callContactRef = useRef<MeetingDraft["contact"] | null>(null);
   /** The CRM record the island offers on screen right now. */
   const onScreenRef = useRef<CallPreview | null>(null);
+  /** The CRM record in the frontmost browser, whether or not the island offers to call it. */
+  const pageRef = useRef<CallPreview | null>(null);
+  /** The deal or company of the call the island detected (its CRM page). */
+  const callRecordRef = useRef<{ dealId?: string; companyId?: string } | null>(null);
   /** Where the detected call happens (app or page), as the Mac told us. */
   const callSourceRef = useRef<CallSourceInfo | null>(null);
   /** The island opened a call on the rep's phone: the next recording is that call. */
@@ -340,6 +347,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     id: string;
     startedAt: number;
     contact?: MeetingDraft["contact"];
+    record?: MeetingDraft["record"];
     source?: CallSourceInfo;
     channel?: MeetingDraft["channel"];
     type?: string;
@@ -1529,7 +1537,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       const callContact = call ? call.contact : options?.contact ?? callContactRef.current;
       const callSource = call ? VOCIFY_CALL_SOURCE : callSourceRef.current;
       // The deal or company the rep has open: the call is saved there (a Vocify call keeps its own contact only).
-      const record = call ? undefined : onScreenRecord(onScreenRef.current);
+      const record = call ? undefined : callRecordRef.current ?? onScreenRecord(onScreenRef.current ?? pageRef.current);
       vocifyCallRef.current = call ?? null;
       draftRef.current = {
         id: newDraftId(),
@@ -1931,7 +1939,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       } else if (name === "listen" || (name === "toggle" && current === "idle")) {
         navigate(ROUTES.RECORD);
         // Record on the island's offer is with the contact it shows, unless a call was detected.
-        void startRef.current(undefined, { contact: islandRecordContact(callContactRef.current, onScreenRef.current) });
+        void startRef.current(undefined, { contact: islandRecordContact(callContactRef.current, onScreenRef.current ?? pageRef.current) });
       } else if (name === "pause") {
         pauseRef.current();
       } else if (name === "resume") {
@@ -1961,8 +1969,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         .post<CallPreview>("/live-calls/preview", { page_urls: urls })
         .then((preview) => {
           if (!lookups.isLatest(ticket)) return;
-          // The next recording takes this contact (a HubSpot contact or a Pipedrive person).
+          // The next recording takes this contact (a HubSpot contact or a Pipedrive person) and the deal or company on screen.
           callContactRef.current = detectedCallContact(preview);
+          callRecordRef.current = onScreenRecord(preview) ?? null;
           bridge.shell.setState({ callContact: islandCallContact(preview) });
           // The rep may have pressed Record before the page was read: the recording takes it too.
           const draft = draftRef.current;
@@ -1970,6 +1979,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             draft.contact = callContactRef.current;
             setContact(callContactRef.current);
           }
+          if (draft && !draft.record && callRecordRef.current) draft.record = callRecordRef.current;
         })
         .catch(() => {
           // No name: the island keeps showing the app.
@@ -1983,6 +1993,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (!bridge?.crm?.onCallEnded) return;
     return bridge.crm.onCallEnded(() => {
       callContactRef.current = null;
+      callRecordRef.current = null;
       callSourceRef.current = null;
       phoneCallRef.current = false;
       bridge.shell.setState({ callContact: null });
@@ -2140,6 +2151,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const offerOnScreen = useCallback((preview: CallPreview | null) => {
     onScreenRef.current = preview;
   }, []);
+  const notePage = useCallback((preview: CallPreview | null) => {
+    pageRef.current = preview;
+  }, []);
 
   const value = useMemo<DesktopMeeting>(
     () => ({
@@ -2176,10 +2190,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       followCall,
       expectPhoneCall,
       offerOnScreen,
+      notePage,
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, voices, people, changeVoices, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallType, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, voices, people, changeVoices, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallType, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, notePage, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

@@ -81,6 +81,7 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
       previewRef.current = null;
       briefRef.current = null;
       meetingRef.current.offerOnScreen(null);
+      meetingRef.current.notePage(null);
       bridge.shell.setState({ onScreen: null });
       if (!urls.length || !api.getToken()) return;
       const show = () => {
@@ -95,6 +96,8 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
           if (!lookups.isLatest(ticket)) return;
           shownKey = key;
           previewRef.current = preview;
+          // Kept whether or not the island offers to call it: a recording made on this page belongs to its record.
+          meetingRef.current.notePage(preview);
           const contactId = preview.callee?.contact_id;
           briefRef.current = contactId ? { state: "loading" } : null;
           show();

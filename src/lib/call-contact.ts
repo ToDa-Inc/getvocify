@@ -55,7 +55,11 @@ export function onScreenRecord(onScreen: CallPreview | null | undefined): { deal
  */
 export function detectedCallContact(preview: CallPreview): { hubspotId: string; name: string | null } | null {
   const crm = preview.provider === "hubspot" || preview.provider === "pipedrive";
-  return crm && preview.contact_id ? { hubspotId: preview.contact_id, name: preview.contact_name?.trim() || null } : null;
+  if (!crm) return null;
+  if (preview.contact_id) return { hubspotId: preview.contact_id, name: preview.contact_name?.trim() || null };
+  // A deal or company page: the person it is called at (Pipedrive works by deal; the call is with the deal's person).
+  const callee = preview.callee;
+  return callee?.contact_id ? { hubspotId: callee.contact_id, name: callee.name?.trim() || null } : null;
 }
 
 /**
