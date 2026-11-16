@@ -51,7 +51,7 @@ from app.services.llm.shared import extract_json
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "earn_the_card_20261116"
+PROMPT_VERSION = "earn_the_card_20261116b"
 
 # ---------- the prompts, word for word as tested (evals/strategic/run_engine.py) ----------
 # The reading weighs what is happening, what was said, its hypotheses, what is unknown and the situation without writing
@@ -68,7 +68,8 @@ What you read has four levels. When they disagree, the higher level wins:
 1. THE CONVERSATION and the fixed rules. What they said, what was agreed (a day, an email, a person), what they asked
    and is still unanswered, the limits they set. Facts about the product, prices, customers or results only from the
    SOURCES (OFFER, COMPANY KNOWLEDGE and the facts inside an approved answer). Never invent facts, commitments or
-   actions the rep has not done; never contradict a day, a preference or a limit they set. When they ask something only
+   actions the rep has not done; the rep alone controls sending, calling and writing, so never promise that something will
+   be solved, installed, visited or decided, nor a deadline for it: ask what suits them instead; never contradict a day, a preference or a limit they set. When they ask something only
    the company can answer (how you got their contact, a price, a policy), that comes before anything else: answer it
    only from the SOURCES; when they do not say it, "silence" (the rep answers), never a card that goes on past it.
 2. THE COMPANY'S GOALS: the goal of the call (with what else counts as good and when to stop pursuing it), WHAT TO FIND
@@ -297,6 +298,10 @@ Each kind of content has its own source:
     when the seller can simply do it and it fits what was said («te mando la información hoy» after they asked for it).
     What it adds still needs THE CONVERSATION: a person nobody mentioned («con vuestra directora comercial»), or a date
     stated as already agreed («quedamos en enero») when they did not agree it.
+    Only sending (also a price, a quote or a proposal), calling and writing are the seller's own. Solving the problem («eso lo arreglo yo»), setting a
+    visit, an installation or any work someone else does, a deadline for it («hoy mismo te confirmo el montaje»), or
+    guaranteeing an outcome is a commitment of the company, like a guarantee: unsupported unless the SOURCE or what
+    the other side agreed supports it. Asking when it suits them, or who should be there, promises nothing.
 - About the other side (their tools, team, situation, what they said or asked): THE CONVERSATION supports it. Naming a
   tool they said they use is not a claim about that tool.
   Their own description or guess of how the SELLER's product works is not a source. When the line confirms it as true
