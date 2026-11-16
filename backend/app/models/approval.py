@@ -155,6 +155,9 @@ class ApprovalPreview(BaseModel):
     lost_reasons: list[str] = Field(default_factory=list)
     # Where the call is saved (crm_configurations.call_targets): deal, company, contact, in that order.
     call_targets: list[str] = Field(default_factory=lambda: ["deal", "company", "contact"])
+    # The island may offer "+ New deal": the call has a contact but no deal, it is saved on deals and the company lets
+    # Vocify create them. Off by default in the island; the approval still applies the company's rule.
+    deal_creatable: bool = False
     # Per-outcome gate - see CallOutcomeAvailability above. Set from the API
     # layer (app/api/memos.py) alongside lost_reasons, same round-trip
     # reasoning: the extension must not show a button for an outcome that

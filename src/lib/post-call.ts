@@ -144,6 +144,8 @@ export type PostCall = {
   crmUrl?: string | null;
   /** Where the call is saved (note, call, tasks), deal first: the records the preview landed on that the company saves on. */
   savedOn?: SavedOn[] | null;
+  /** The call has no deal and the company lets Vocify create one: the card offers "+ New deal", off until ticked. */
+  dealCreatable?: boolean;
 };
 
 export type SavedOn = { kind: "deal" | "company" | "contact"; name: string };

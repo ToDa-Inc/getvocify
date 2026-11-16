@@ -98,3 +98,48 @@ def test_the_preview_proposes_no_fields_for_a_record_the_call_isnt_saved_on():
     preview = ApprovalPreview.model_construct(proposed_updates=[update("companies")])
     _apply_call_targets(preview, frozenset({"contact"}), {"provider": "salesforce"})
     assert len(preview.proposed_updates) == 1, "Salesforce keeps every field"
+
+
+def test_the_island_creates_the_deal_only_when_the_rep_ticks_it(monkeypatch):
+    from tests.test_after_call_http import MEMO
+
+    def approve(body):
+        env = _Env(monkeypatch, provider="pipedrive", config=_config(call_targets=["deal", "contact"]))
+        assert env.client().post(f"/api/v1/memos/{MEMO}/approve-contact", json=body).status_code == 200
+        [call] = env.provider.calls
+        return call
+
+    untouched, ticked = approve({}), approve({"new_deal": True})
+    assert untouched["skip_deal"] is True and untouched["is_new_deal"] is False
+    assert ticked["is_new_deal"] is True and ticked["skip_deal"] is False
+
+
+def test_a_ticked_new_deal_still_obeys_never_create(monkeypatch):
+    from tests.test_after_call_http import MEMO
+
+    env = _Env(monkeypatch, provider="pipedrive", config=_config(deal_creation_rule="never"))
+    env.client().post(f"/api/v1/memos/{MEMO}/approve-contact", json={"new_deal": True})
+    [call] = env.provider.calls
+    assert call["skip_deal"] is True and call["is_new_deal"] is False
+
+
+def test_the_island_is_offered_a_new_deal_only_when_the_company_allows_it():
+    from types import SimpleNamespace
+
+    from app.api.memos import _apply_call_targets
+    from app.models.approval import ApprovalPreview, ContactMatch
+
+    def offered(targets, rule="always", stage="s1", deal=None, provider="pipedrive"):
+        preview = ApprovalPreview.model_construct(
+            proposed_updates=[], selected_deal=deal, selected_contact=ContactMatch(contact_id="20", name="Ana")
+        )
+        config = SimpleNamespace(deal_creation_rule=rule, default_stage_id=stage, default_stage_name=None)
+        _apply_call_targets(preview, frozenset(targets), {"provider": provider}, config)
+        return preview.deal_creatable
+
+    assert offered({"deal", "contact"}) is True
+    assert offered({"contact"}) is False, "calls aren't saved on deals"
+    assert offered({"deal"}, rule="never") is False
+    assert offered({"deal"}, rule="meeting_booked") is False, "the island has no outcome to decide with"
+    assert offered({"deal"}, stage=None) is False, "Pipedrive needs a stage for a new deal"
+    assert offered({"deal"}, provider="salesforce") is False

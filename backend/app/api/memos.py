@@ -55,6 +55,7 @@ from app.services.hubspot import HubSpotClient, SyncResult
 from app.services.hubspot.deal_field_names import normalize_hubspot_allowed_deal_fields
 from app.models.memo import Memo, MemoCreate, MemoUpdate, UploadResponse, MemoExtraction, ApproveMemoRequest, RecordOutcomeRequest
 from app.api import after_call as after_call_api
+from app.services import after_call
 from app.models.crm_update import CRMUpdate
 from app.models.approval import ApprovalPreview, DealMatch, PreviewRequest
 from app.logging_config import log_domain, DOMAIN_MEMO
@@ -1703,6 +1704,8 @@ class ApproveContactRequest(BaseModel):
     deal_id: Optional[str] = None
     # Where the rep left this call in the island's "Saved on" chips; None = the company's setting.
     call_targets: Optional[List[Literal["deal", "company", "contact"]]] = Field(None, min_length=1)
+    # The rep ticked "+ New deal" in the island: a call without a deal gets one (the company's deal rule still applies).
+    new_deal: bool = False
 
 
 @router.post("/{memo_id}/approve-contact", response_model=Union[Memo, SyncResult])
@@ -1738,6 +1741,8 @@ async def approve_memo_for_contact(
     payload.company_id = str((memo_data.get("pipeline_meta") or {}).get("crm_company_id") or "") or None
     if body and body.call_targets:
         payload.call_targets = body.call_targets
+    if body and body.new_deal and not payload.deal_id:
+        payload.is_new_deal, payload.skip_deal = True, False
     if body and body.extraction:
         payload.extraction = body.extraction
     return await approve_memo(memo_id, payload, supabase, user_id)
@@ -2096,7 +2101,7 @@ async def _build_approval_preview(
     # build_preview, which is provider-generic) so the extension gets them
     # in the same round-trip as everything else. Falls back to the same
     # default crm_configurations ships with when there's no config row yet.
-    _apply_call_targets(preview, targets, conn)
+    _apply_call_targets(preview, targets, conn, config)
     preview.lost_reasons = list(
         config.lost_reasons if config and config.lost_reasons else
         ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]
@@ -2116,10 +2121,20 @@ async def _build_approval_preview(
     return preview
 
 
-def _apply_call_targets(preview: ApprovalPreview, targets, conn: dict) -> None:
+def _apply_call_targets(preview: ApprovalPreview, targets, conn: dict, config=None) -> None:
     """Where the call is saved, on the preview; a record it isn't saved on is left alone (memo_approval), so none of its
-    fields are proposed either."""
+    fields are proposed either. Also whether the island may offer to create the call's deal."""
     preview.call_targets = [t for t in CALL_TARGETS if t in targets]
+    provider = (conn.get("provider") or "").lower()
+    has_stage = provider != "pipedrive" or bool(config and (config.default_stage_id or config.default_stage_name))
+    preview.deal_creatable = (
+        provider in ("hubspot", "pipedrive")
+        and "deal" in targets
+        and after_call.normalize_rule(getattr(config, "deal_creation_rule", None)) == after_call.DEAL_RULE_ALWAYS
+        and preview.selected_deal is None
+        and preview.selected_contact is not None
+        and has_stage
+    )
     left_out = {obj for target, obj in (("contact", "contacts"), ("company", "companies")) if target not in targets}
     if left_out and conn.get("provider") != "salesforce":
         preview.proposed_updates = [u for u in preview.proposed_updates if (u.object_type or "deals") not in left_out]
@@ -2381,7 +2396,7 @@ async def post_approval_preview(
             detail=f"Failed to build preview: {str(e)}",
         ) from e
 
-    _apply_call_targets(preview, targets, conn)
+    _apply_call_targets(preview, targets, conn, config)
     preview.lost_reasons = list(
         config.lost_reasons if config and config.lost_reasons else
         ["No budget", "No response", "Chose a competitor", "Bad timing", "Not a fit"]

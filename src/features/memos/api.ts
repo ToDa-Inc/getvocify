@@ -209,11 +209,13 @@ export const memosApi = {
     extraction?: Record<string, unknown>,
     dealId?: string,
     callTargets?: ("deal" | "company" | "contact")[],
+    newDeal = false,
   ): Promise<Memo> => {
     return api.post<Memo>(`/memos/${id}/approve-contact`, {
       ...(extraction ? { extraction } : {}),
       ...(dealId ? { deal_id: dealId } : {}),
       ...(callTargets?.length ? { call_targets: callTargets } : {}),
+      ...(newDeal ? { new_deal: true } : {}),
     });
   },
 

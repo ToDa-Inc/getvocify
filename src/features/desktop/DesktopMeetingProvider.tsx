@@ -922,6 +922,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         ...crmForType(type?.key, crm),
         crmUrl: crm.stage === "done" ? contactUrlRef.current(contactId) : null,
         savedOn: savedOnFrom(preview),
+        dealCreatable: (preview as { deal_creatable?: boolean } | null)?.deal_creatable === true,
       });
 
       // The email draft is written after the CRM changes: the card says it's on its way,
@@ -1093,8 +1094,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             (t): t is "deal" | "company" | "contact" => t === "deal" || t === "company" || t === "contact",
           );
           const kept = current.state.changes.length - omit.filter((key) => current.state.changes.some((c) => c.key === key)).length + added.length;
-          // Nothing ticked is still a save when the rep wrote a note or added a task: they go to the CRM on their own.
-          if (kept <= 0 && !note?.trim()) return;
+          // Nothing ticked is still a save when the call has a note (Vocify's or the rep's) or a task: they go to the CRM
+          // on their own. A call nobody answered has no note.
+          const hasNote = Boolean(note?.trim()) || (!current.state.noAnswer && Boolean(current.state.summary?.trim()));
+          // "+ New deal" ticked in the card: the call gets a deal (the company's rule still applies).
+          const newDeal = action.newDeal === true;
+          if (kept <= 0 && !hasNote && !newDeal) return;
           showPostCall({ stage: "applying", undoUntil: Date.now() + UNDO_MS });
           current.undoTimer = window.setTimeout(async () => {
             if (current.run.cancelled) return;
@@ -1108,7 +1113,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
                 summary: current.state.noAnswer ? "" : note !== null ? noteMarkdown(note, memo.extraction?.summary) : memo.extraction?.summary ?? "",
                 ...tasksForApprove(memo.extraction, current.proposed, omit, taskEditsFrom(action.taskEdits), added),
               });
-              const result = (await memosApi.approveForContact(memoId, extraction, current.dealId, targets)) as { deal_warning?: string | null };
+              const result = (await memosApi.approveForContact(memoId, extraction, current.dealId, targets, newDeal)) as { deal_warning?: string | null };
               if (current.run.cancelled) return;
               if (result?.deal_warning) {
                 // Written, but without the deal (no default stage saved): the card says so instead of "Updated".
