@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Flag, MessageCircleQuestion } from "lucide-react";
+import { Check, ChevronRight, Flag, MessageCircleQuestion } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { DataChip, StepRow, StepsView } from "@/lib/live-brain";
 import { cn } from "@/lib/utils";
@@ -82,23 +82,6 @@ function Asked({ ask, item, fallback, copy }: { ask: StepAsk; item: Item; fallba
   }
   const text = mine.question ?? fallback;
   return text ? <Question text={text} /> : <p className="text-[12.5px] text-muted-foreground">{copy.compact.noQuestion}</p>;
-}
-
-/** The call's steps as one line: covered, where the call is now, still to come. No number: a "2/6" reads as a score. */
-function ProgressLine({ rows }: { rows: StepRow[] }) {
-  return (
-    <div className="flex items-center gap-1 px-3" aria-hidden>
-      {rows.map((row) => (
-        <span
-          key={`${row.kind}:${row.id}`}
-          className={cn(
-            "h-1 flex-1 rounded-full transition-colors duration-500 motion-reduce:transition-none",
-            row.state === "done" ? "bg-beige" : row.state === "current" ? "bg-beige/45 animate-pulse motion-reduce:animate-none" : "bg-border",
-          )}
-        />
-      ))}
-    </div>
-  );
 }
 
 /** What a step shows when it is open: covered, the words that covered it; else what it asks, its parts as heard, and a
@@ -268,7 +251,7 @@ function ChipBody({
 }
 
 /**
- * Pasos, the compact window's main tab (2026-11-10): a line of progress, then the playbook's steps as equal rows that tick
+ * Pasos, the compact window's main tab (2026-11-10): the playbook's steps as equal rows that tick
  * themselves as the call covers them. No step is forced open: the one the call is on carries «Ahora». A tap on any step or
  * on something to find out opens it in place; a pending one is asked to the brain at once, a question written from what
  * has been said. What they say shows inside its chip. Nothing hides behind a hover.
@@ -295,6 +278,8 @@ export function StepsPane({
   const ref = useRef<HTMLDivElement>(null);
   const [opened, setOpened] = useState<Item | null>(null);
   const [asked, setAsked] = useState<Item | null>(null);
+  // The rep's own choice for the row of things to find out; none until they press it (then it follows the call).
+  const [find, setFind] = useState<boolean | null>(null);
   const current = view.rows.find((row) => row.state === "current") ?? null;
   const currentChip = view.data.find((chip) => chip.state === "current") ?? null;
   const currentKey = current ? `step:${current.id}` : currentChip ? `data:${currentChip.id}` : null;
@@ -354,10 +339,11 @@ export function StepsPane({
 
   const openChip = opened?.kind === "data" ? view.data.find((chip) => chip.id === opened.id) ?? null : null;
   const chipShown = openChip;
+  // Open when the rep opens it, or on its own while what the call is on is something to find out.
+  const findOpen = find ?? (Boolean(currentChip) && !current);
   return (
     <div ref={ref} className="relative h-full overflow-y-auto px-2.5 pb-4 pt-3">
-      {view.rows.length ? <ProgressLine rows={view.rows} /> : null}
-      <div className="mt-2.5 flex flex-col gap-0.5">
+      <div className="flex flex-col gap-0.5">
         {view.rows.length ? (
           view.rows.map((row) => (
             <StepItem
@@ -379,35 +365,50 @@ export function StepsPane({
       </div>
 
       {view.data.length ? (
-        <div {...(currentChip && !current ? { "data-current": true } : {})} className="mt-4 space-y-2 px-3">
-          <div className="flex h-5 items-center gap-2">
-            <p className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{copy.compact.toFind}</p>
-            {noted.length ? (
-              <span key={noted.join()} className="inline-flex min-w-0 items-center gap-1 text-[11.5px] text-beige animate-in fade-in slide-in-from-left-1 duration-300 motion-reduce:animate-none">
-                <Check className="h-3 w-3 shrink-0" strokeWidth={2} />
-                <span className="truncate">{copy.compact.noted(noted.join(", "))}</span>
-              </span>
+        <div {...(currentChip && !current ? { "data-current": true } : {})} className="mt-0.5 flex flex-col gap-1">
+          {/* What to find out is one more row of the list: the count says how many they have told us, a tap opens the chips. */}
+          <div className={cn("group rounded-xl px-3 transition-colors duration-200 motion-reduce:transition-none", findOpen ? "bg-secondary/50 py-2" : "py-1 hover:bg-secondary/60")}>
+            <button
+              type="button"
+              onClick={() => setFind(!findOpen)}
+              aria-expanded={findOpen}
+              className="flex h-7 w-full min-w-0 items-center gap-2.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/60"
+            >
+              <ChevronRight className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none", findOpen && "rotate-90")} strokeWidth={1.5} aria-hidden />
+              <span className={cn("shrink-0 text-[13px]", findOpen || currentChip ? "font-medium text-foreground" : "text-foreground/80")}>{copy.compact.toFind}</span>
+              {noted.length ? (
+                <span key={noted.join()} className="inline-flex min-w-0 items-center gap-1 text-[11.5px] text-beige animate-in fade-in slide-in-from-left-1 duration-300 motion-reduce:animate-none">
+                  <Check className="h-3 w-3 shrink-0" strokeWidth={2} />
+                  <span className="truncate">{copy.compact.noted(noted.join(", "))}</span>
+                </span>
+              ) : null}
+              <span className="flex-1" />
+              <span className="shrink-0 text-[11.5px] tabular-nums text-muted-foreground">{view.data.filter((chip) => chip.state === "done").length}/{view.data.length}</span>
+            </button>
+            {findOpen ? (
+              <div className="flex flex-col gap-2 pb-0.5 pl-[26px] pt-1 animate-in fade-in duration-200 motion-reduce:animate-none">
+                <div className="flex flex-wrap gap-1.5">
+                  {view.data.map((chip) => (
+                    <Chip key={chip.id} chip={chip} open={same(opened, "data", chip.id)} onToggle={() => toggle("data", chip.id, chip.state !== "done")} />
+                  ))}
+                </div>
+                {chipShown ? (
+                  <ChipBody
+                    key={chipShown.id}
+                    chip={chipShown}
+                    current={chipShown.state === "current"}
+                    suggestion={view.suggestion}
+                    asked={same(asked, "data", chipShown.id)}
+                    ask={ask}
+                    copy={copy}
+                    onAsk={() => askFor("data", chipShown.id)}
+                    onTick={() => onTick(chipShown.id, "data")}
+                    onUntick={() => onUntick(chipShown.id, "data")}
+                  />
+                ) : null}
+              </div>
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {view.data.map((chip) => (
-              <Chip key={chip.id} chip={chip} open={same(opened, "data", chip.id)} onToggle={() => toggle("data", chip.id, chip.state !== "done")} />
-            ))}
-          </div>
-          {chipShown ? (
-            <ChipBody
-              key={chipShown.id}
-              chip={chipShown}
-              current={chipShown.state === "current"}
-              suggestion={view.suggestion}
-              asked={same(asked, "data", chipShown.id)}
-              ask={ask}
-              copy={copy}
-              onAsk={() => askFor("data", chipShown.id)}
-              onTick={() => onTick(chipShown.id, "data")}
-              onUntick={() => onUntick(chipShown.id, "data")}
-            />
-          ) : null}
         </div>
       ) : null}
     </div>

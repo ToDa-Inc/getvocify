@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Maximize2, MessageSquareReply, Pause, Play, ScrollText, Square, X } from "lucide-react";
+import { ChevronDown, Maximize2, MessageSquareReply, Pause, Play, ScrollText, Sparkles, Square, X } from "lucide-react";
 import { IconAction } from "@/components/ui/icon-action";
 import {
   DropdownMenu,
@@ -61,6 +61,11 @@ export function CompactLiveView({
   const [pane, setPane] = useState<Pane>(null);
   const [tab, setTab] = useState<Tab>("steps");
   const view = useMemo(() => stepsView(brain.state.progress, brain.playbook, copy.goal), [brain.state.progress, brain.playbook, copy.goal]);
+  // Steps done out of the playbook's steps (the goal and what to find out are not counted), on the tab.
+  const stepCount = useMemo(() => {
+    const steps = view.rows.filter((row) => row.kind === "step");
+    return { done: steps.filter((row) => row.state === "done").length, total: steps.length };
+  }, [view.rows]);
   const recap = brain.asks.recap;
   const responder = brain.asks.responder;
   const toggle = (next: Exclude<Pane, null>) => setPane((current) => (current === next ? null : next));
@@ -140,6 +145,7 @@ export function CompactLiveView({
           <TabsList className={cn(THEME_TOKENS.interaction.segmentList, "grid w-full grid-cols-2 flex-nowrap gap-0.5 rounded-full p-0.5")}>
             <TabsTrigger value="steps" className={cn(THEME_TOKENS.interaction.segmentTab, "mb-0 h-7 justify-center px-2 text-[12px]")}>
               {copy.compact.steps}
+              {stepCount.total > 0 ? <span className="pl-1.5 text-[11.5px] tabular-nums text-muted-foreground">{stepCount.done}/{stepCount.total}</span> : null}
             </TabsTrigger>
             <TabsTrigger value="transcript" className={cn(THEME_TOKENS.interaction.segmentTab, "mb-0 h-7 justify-center px-2 text-[12px]")}>
               {copy.compact.transcript}
@@ -224,8 +230,8 @@ function TypeMenu({
 }) {
   const menu = meeting.typeMenu;
   const channel = menu?.channel ?? null;
-  const channelLabel = channel?.options.find((option) => option.key === channel.selected)?.label ?? null;
-  const label = [channelLabel, typeName ?? copy.compact.noType].filter(Boolean).join(" · ");
+  // Only the chosen type: the channel is in the menu, not in front of the name.
+  const label = typeName ?? copy.compact.noType;
   return (
     <DropdownMenu>
       <Tooltip>
@@ -236,7 +242,7 @@ function TypeMenu({
               className="inline-flex h-7 min-w-0 max-w-full items-center gap-1 rounded-full px-2 text-[12px] text-foreground transition-colors duration-150 hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/60 motion-reduce:transition-none"
             >
               <span className="min-w-0 truncate">{label}</span>
-              {menu && meeting.callType.proposed ? <span className="shrink-0 text-[11px] text-muted-foreground">· {copy.compact.proposed}</span> : null}
+              {menu && meeting.callType.proposed ? <Sparkles className="h-3 w-3 shrink-0 text-beige" strokeWidth={1.5} aria-label={copy.compact.proposed} /> : null}
               <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={1.5} />
             </button>
           </DropdownMenuTrigger>
