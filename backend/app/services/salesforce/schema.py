@@ -54,6 +54,11 @@ class SalesforceSchemaService:
         return d
 
     async def _from_db_cache(self, object_type: str) -> Optional[dict[str, Any]]:
+        from app.services.hot_cache import SCHEMAS
+
+        held = SCHEMAS.get((self.connection_id, object_type))
+        if held is not None:
+            return held
         try:
             r = (
                 self.supabase.table("crm_schemas")
@@ -74,12 +79,16 @@ class SalesforceSchemaService:
                 return None
             props = row.get("properties")
             if isinstance(props, dict) and props.get("fields"):
+                SCHEMAS.put((self.connection_id, object_type), props)
                 return props
             return None
         except Exception:
             return None
 
     async def _save_db_cache(self, object_type: str, describe: dict[str, Any]) -> None:
+        from app.services.hot_cache import SCHEMAS
+
+        SCHEMAS.put((self.connection_id, object_type), describe)
         try:
             self.supabase.table("crm_schemas").upsert(
                 {

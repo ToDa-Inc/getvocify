@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from app.services.hot_cache import changes_members
+
 ACTIVE = "active"
 CLOSED = "closed"
 CANCELLED = "cancelled"
@@ -326,6 +328,7 @@ def get_handoff(supabase: Any, *, company_id: str, handoff_id: str) -> Optional[
     return rows[0] if rows else None
 
 
+@changes_members
 def release_member_handoffs(
     supabase: Any,
     *,

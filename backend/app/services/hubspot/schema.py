@@ -85,6 +85,10 @@ class HubSpotSchemaService:
         else:
             self._cache.clear()
             self._cache_timestamps.clear()
+        from app.services.hot_cache import SCHEMAS
+
+        for kind in [object_type] if object_type else ["contacts", "companies", "deals", "line_items"]:
+            SCHEMAS.forget((self.connection_id, kind))
     
     async def get_properties(
         self,
@@ -172,7 +176,11 @@ class HubSpotSchemaService:
         """Get schema from database cache if valid"""
         if not self.supabase or not self.connection_id:
             return None
-        
+        from app.services.hot_cache import SCHEMAS
+
+        held = SCHEMAS.get((self.connection_id, object_type))
+        if held is not None:
+            return held
         try:
             result = self.supabase.table("crm_schemas").select("*").eq(
                 "connection_id", self.connection_id
@@ -197,11 +205,13 @@ class HubSpotSchemaService:
             if schema_data.get("pipelines"):
                 pipelines = [HubSpotPipeline(**p) for p in schema_data["pipelines"]]
             
-            return CRMSchema(
+            schema = CRMSchema(
                 object_type=object_type,
                 properties=properties,
                 pipelines=pipelines,
             )
+            SCHEMAS.put((self.connection_id, object_type), schema)
+            return schema
         except Exception:
             # If DB cache fails, return None (fall back to API)
             return None
@@ -224,6 +234,9 @@ class HubSpotSchemaService:
                 "fetched_at": datetime.utcnow().isoformat(),
             }
             
+            from app.services.hot_cache import SCHEMAS
+
+            SCHEMAS.put((self.connection_id, object_type), schema)
             self.supabase.table("crm_schemas").upsert(
                 cache_data,
                 on_conflict="connection_id,object_type",

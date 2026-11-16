@@ -79,3 +79,15 @@ def _no_live_help_context_left_behind():
     live_context.clear()
     playbook_objections._cache.clear()
     playbook_objections._company.clear()
+
+
+@pytest.fixture(autouse=True)
+def _empty_hot_caches():
+    """The in-process caches would carry one test's memberships and schemas into the next."""
+    from app.services import hot_cache
+
+    for cache in (hot_cache.MEMBERSHIPS, hot_cache.MEMBER_LISTS, hot_cache.SCHEMAS):
+        cache.forget()
+    yield
+    for cache in (hot_cache.MEMBERSHIPS, hot_cache.MEMBER_LISTS, hot_cache.SCHEMAS):
+        cache.forget()

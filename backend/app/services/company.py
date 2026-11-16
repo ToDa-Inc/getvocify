@@ -28,6 +28,7 @@ from app.emails.templates import (
     build_removed_email_html,
 )
 from app.integrations.resend_client import ResendClientError, get_resend_client, get_resend_from_email
+from app.services.hot_cache import changes_members
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +168,21 @@ class CompanyService:
         self.supabase = supabase
 
     def get_membership(self, user_id: str) -> Optional[Membership]:
+        """The rep's membership. A found one is held a few seconds (hot_cache.MEMBERSHIPS): every
+        request reads it, often several times. None is never held, so a rep who just joined is seen."""
+        from dataclasses import replace
+
+        from app.services.hot_cache import MEMBERSHIPS
+
+        held = MEMBERSHIPS.get(str(user_id))
+        if held is not None:
+            return replace(held)
+        found = self._read_membership(user_id)
+        if found is not None:
+            MEMBERSHIPS.put(str(user_id), replace(found))
+        return found
+
+    def _read_membership(self, user_id: str) -> Optional[Membership]:
         try:
             result = (
                 self.supabase.table("company_members")
@@ -318,6 +334,7 @@ class CompanyService:
                 detail="No seats available. Remove a member or revoke a pending invite first.",
             )
 
+    @changes_members
     def create_company_for_owner(
         self,
         *,
@@ -424,6 +441,19 @@ class CompanyService:
         }
 
     def list_members(self, company_id: str, *, include_sales_fields: bool = False) -> List[dict]:
+        """The company's members with their names and emails, held a few seconds (hot_cache.MEMBER_LISTS)."""
+        import copy
+
+        from app.services.hot_cache import MEMBER_LISTS
+
+        key = (str(company_id), include_sales_fields)
+        held = MEMBER_LISTS.get(key)
+        if held is None:
+            held = self._read_members(company_id, include_sales_fields=include_sales_fields)
+            MEMBER_LISTS.put(key, held)
+        return copy.deepcopy(held)
+
+    def _read_members(self, company_id: str, *, include_sales_fields: bool = False) -> List[dict]:
         select_cols = "id, user_id, role, status, created_at"
         if include_sales_fields:
             select_cols += ", sales_role, handoff_ae_user_id, visibility"
@@ -746,6 +776,7 @@ class CompanyService:
             raise HTTPException(status_code=404, detail="Invite not found or expired")
         return rows[0]
 
+    @changes_members
     def accept_invite(
         self,
         *,
@@ -812,6 +843,7 @@ class CompanyService:
         )
         return int(result.count or 0)
 
+    @changes_members
     def update_member_role(
         self,
         *,
@@ -841,6 +873,7 @@ class CompanyService:
         )
         return (result.data or [target])[0]
 
+    @changes_members
     def update_member_profile(
         self,
         *,
@@ -912,6 +945,7 @@ class CompanyService:
             self._release_handoffs(company_id, str(target["user_id"]), as_ae_only=True)
         return (result.data or [target])[0]
 
+    @changes_members
     def remove_member(
         self,
         *,
@@ -1074,6 +1108,7 @@ class CompanyService:
         )
         return (result.data or [{}])[0]
 
+    @changes_members
     def admin_set_member_role(self, company_id: str, member_id: str, role: str) -> dict:
         if role not in ("owner", "admin", "member"):
             raise HTTPException(status_code=400, detail="Invalid role")
@@ -1093,6 +1128,7 @@ class CompanyService:
         )
         return (result.data or [target])[0]
 
+    @changes_members
     def admin_remove_member(self, company_id: str, member_id: str) -> dict:
         target = self._get_member_row(company_id, member_id)
         if target["role"] == "owner" and self.count_owners(company_id) <= 1:
@@ -1104,6 +1140,7 @@ class CompanyService:
         ).execute()
         return target
 
+    @changes_members
     def transfer_member(
         self,
         *,

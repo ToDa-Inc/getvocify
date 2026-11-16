@@ -20,6 +20,7 @@ from app.services.admin_accounts import (
 )
 from app.services.admin_session import mint_session_for_email
 from app.services.company import CompanyService
+from app.services.hot_cache import changes_members
 from app.services.recovery import RecoveryService
 from app.services.usage import report as usage_report
 from pydantic import BaseModel, EmailStr, Field
@@ -505,6 +506,7 @@ async def update_company_admin(
 
 
 @router.post("/companies")
+@changes_members
 async def create_company_admin(
     body: AdminCreateCompanyRequest,
     supabase: Client = Depends(get_supabase),
@@ -537,6 +539,7 @@ class AdminAddMemberRequest(BaseModel):
 
 
 @router.post("/companies/{company_id}/members")
+@changes_members
 async def add_member_to_company_admin(
     company_id: UUID,
     body: AdminAddMemberRequest,

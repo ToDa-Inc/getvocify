@@ -258,6 +258,11 @@ class PipedriveSchemaService:
         return core
 
     async def _from_db_cache(self, object_type: str) -> Optional[list[dict[str, Any]]]:
+        from app.services.hot_cache import SCHEMAS
+
+        held = SCHEMAS.get((self.connection_id, object_type))
+        if held is not None:
+            return held
         try:
             r = (
                 self.supabase.table("crm_schemas")
@@ -277,15 +282,18 @@ class PipedriveSchemaService:
             if (datetime.now(timezone.utc) - ft).total_seconds() > 86400:
                 return None
             props = row.get("properties")
-            if isinstance(props, list):
-                return props
-            if isinstance(props, dict) and isinstance(props.get("fields"), list):
-                return props["fields"]
-            return None
+            fields = props if isinstance(props, list) else props.get("fields") if isinstance(props, dict) else None
+            if not isinstance(fields, list):
+                return None
+            SCHEMAS.put((self.connection_id, object_type), fields)
+            return fields
         except Exception:
             return None
 
     async def _save_db_cache(self, object_type: str, fields: list[dict[str, Any]]) -> None:
+        from app.services.hot_cache import SCHEMAS
+
+        SCHEMAS.put((self.connection_id, object_type), fields)
         try:
             self.supabase.table("crm_schemas").upsert(
                 {
