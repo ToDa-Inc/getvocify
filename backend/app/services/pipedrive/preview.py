@@ -226,6 +226,16 @@ class PipedrivePreviewService:
                         if name:
                             selected_deal = selected_deal.model_copy(update={"stage": name})
 
+            if not is_new_deal and not stage_confirm:
+                # An existing deal is offered a stage only when the call names one of its own pipeline: the company's
+                # default stage is for new deals, and another pipeline's stage would move the deal to that pipeline.
+                deal_props.pop("stage_id", None)
+                own_pipeline = str(current["pipeline_id"]) if current.get("pipeline_id") is not None else None
+                if extraction.dealStage and own_pipeline and "stage_id" in allowed_fields:
+                    own_stage = await self.schema.resolve_stage_id(extraction.dealStage, None, own_pipeline)
+                    if own_stage:
+                        deal_props["stage_id"] = own_stage
+
             if stage_confirm:
                 # The stage is chosen from the deal's own pipeline (F14), not written as a plain field.
                 deal_props.pop("stage_id", None)

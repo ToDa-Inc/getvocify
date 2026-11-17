@@ -349,11 +349,13 @@ class PipedriveSyncService:
                     update_fields = {
                         k: v for k, v in filtered.items() if (k in allowed_fields or k == "org_id") and k != "person_id"
                     }
-                    if stage_confirm:
-                        update_fields.pop("stage_id", None)
-                        new_stage = await self._stage_change(confirmed_stage, current)
-                        if new_stage:
-                            update_fields["stage_id"] = int(new_stage)
+                    # An existing deal moves only to the stage the review showed and the rep kept, and only within its
+                    # own pipeline: the company's default stage is for new deals, and a stage of another pipeline would
+                    # move the deal to that pipeline (Movertis, 2026-11-17: a sales deal ended up in the SDR pipeline).
+                    update_fields.pop("stage_id", None)
+                    new_stage = await self._stage_change(confirmed_stage_choice(extraction), current)
+                    if new_stage:
+                        update_fields["stage_id"] = int(new_stage)
                     payload = self.schema.split_write_payload(update_fields)
                     if payload:
                         await self.client.patch(f"/deals/{deal_id}", json_body=payload)

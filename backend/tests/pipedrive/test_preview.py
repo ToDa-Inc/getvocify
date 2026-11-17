@@ -78,6 +78,10 @@ async def test_a_stage_row_shows_the_stage_name_not_its_number():
         def map_extraction_to_deal_fields(self, extraction, **k):
             return {"title": "Existing", "stage_id": 196}
 
+        async def resolve_stage_id(self, value, default_stage_id, pipeline_id):
+            # The deal's stage is looked up in the deal's own pipeline (7) only.
+            return "196" if (value, pipeline_id) == ("Demo", "7") else None
+
         async def list_stages(self, pipeline_id=None):
             assert pipeline_id == "7"
             return [{"id": 195, "name": "Contactado"}, {"id": 196, "name": "Demo"}]
@@ -90,7 +94,7 @@ async def test_a_stage_row_shows_the_stage_name_not_its_number():
     preview = await svc.build_preview(
         memo_id=uuid4(),
         transcript="hello",
-        extraction=MemoExtraction(companyName="Acme"),
+        extraction=MemoExtraction(companyName="Acme", dealStage="Demo"),
         matched_deals=[],
         selected_deal_id="58848",
         allowed_fields=["title", "stage_id"],

@@ -223,3 +223,47 @@ async def test_a_new_deal_is_created_in_the_stage_the_rep_picked():
     )
     deal_post = next(body for path, body in client.posts if path == "/deals")
     assert deal_post["stage_id"] == 12
+
+
+# Flag off, an existing deal (Movertis, 2026-11-17): a call that named no stage moved a sales deal into the SDR pipeline,
+# because the company's default stage (for new deals, in another pipeline) was offered and written.
+
+
+@pytest.mark.asyncio
+async def test_flag_off_existing_deal_is_not_offered_the_default_stage():
+    preview = await _preview(MemoExtraction(), deal_id="8", allowed=("value", "stage_id"))
+    assert _stage_row(preview) is None
+
+
+@pytest.mark.asyncio
+async def test_flag_off_existing_deal_is_not_offered_another_pipelines_stage():
+    preview = await _preview(MemoExtraction(dealStage="Lead"), deal_id="8", allowed=("value", "stage_id"))
+    assert _stage_row(preview) is None
+
+
+@pytest.mark.asyncio
+async def test_flag_off_existing_deal_is_offered_a_named_stage_of_its_own_pipeline():
+    preview = await _preview(MemoExtraction(dealStage="Partner meeting"), deal_id="8", allowed=("value", "stage_id"))
+    assert _stage_row(preview).new_value in ("22", "Partner meeting")
+
+
+@pytest.mark.asyncio
+async def test_flag_off_sync_never_moves_an_existing_deal_to_the_default_stage():
+    client = await _sync(MemoExtraction(dealAmount=200), deal_id="8", allowed=("value", "stage_id"))
+    assert _patched_stage(client) == [None]
+
+
+@pytest.mark.asyncio
+async def test_flag_off_sync_never_moves_an_existing_deal_to_another_pipeline():
+    client = await _sync(
+        MemoExtraction(dealAmount=200, raw_extraction={"stage_id": "11"}), deal_id="8", allowed=("value", "stage_id")
+    )
+    assert _patched_stage(client) == [None]
+
+
+@pytest.mark.asyncio
+async def test_flag_off_sync_writes_the_kept_stage_of_the_deals_own_pipeline():
+    client = await _sync(
+        MemoExtraction(dealAmount=200, raw_extraction={"stage_id": "22"}), deal_id="8", allowed=("value", "stage_id")
+    )
+    assert _patched_stage(client) == [22]
