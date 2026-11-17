@@ -23,6 +23,9 @@ _VOLATILE_MEMO_KEYS = frozenset({
     "pipeline_run_id",
     "pipeline_run_started_at",
     "followup",
+    # The follow-up draft's lease: set about a second after the memo is ready and cleared when the
+    # draft lands, so counting it made every preview built at "ready" useless (2026-11-17).
+    "followup_run_started_at",
     "recording_path",
     "audio_url",
     "audio_duration",

@@ -114,7 +114,14 @@ async def _value(v):
 
 def test_the_fingerprint_changes_with_the_memo_and_ignores_what_changes_constantly():
     memo = {"id": "m", "status": "pending_review", "extraction": {"summary": "x"}, "pipeline_meta": {"a": 1}, "followup": None}
-    same = {**memo, "pipeline_meta": {"a": 2}, "followup": {"status": "ready"}, "recording_path": "p"}
+    same = {
+        **memo,
+        "pipeline_meta": {"a": 2},
+        "followup": {"status": "ready"},
+        "recording_path": "p",
+        # The follow-up draft takes its lease a second after "ready": the preview built then still holds.
+        "followup_run_started_at": "2026-11-17T12:53:51+00:00",
+    }
     assert memo_fingerprint(memo) == memo_fingerprint(same)
     for changed in (
         {**memo, "status": "approved"},
