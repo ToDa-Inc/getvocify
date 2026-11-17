@@ -37,23 +37,27 @@ class HubSpotMatchingService:
         self.client = client
         self.search = search_service
         self.associations = associations_service or HubSpotAssociationService(client)
+        self._company_deals: dict[tuple[str, int], list[dict]] = {}
     
     async def find_matching_deals(
         self,
         extraction: MemoExtraction,
         limit: int = 3,
         pipeline_id: Optional[str] = None,
+        known_anchor=None,
     ) -> list[DealMatch]:
         """
         Find existing deals that match the extraction.
 
         Contact-first: when a real email resolves to a HubSpot contact, prefer
         deals associated to that contact. Then fall back to company/deal-name strategies.
+        `known_anchor` is the contact the caller already locked: it is used as is, not
+        looked up again from the extraction.
         """
         matches: list[DealMatch] = []
 
         # Strategy 0 (highest): deals linked to email-matched contact
-        anchor = await self.resolve_contact_anchor(
+        anchor = known_anchor or await self.resolve_contact_anchor(
             extraction, limit_deals=limit, pipeline_id=pipeline_id
         )
         if anchor and anchor.deal_matches:
@@ -169,6 +173,48 @@ class HubSpotMatchingService:
                 terms.append(parts[-1])
         return terms[:3]
 
+    async def _read_company_deals(self, company_name: str, limit: int) -> list[dict]:
+        """The deals linked to the companies named like `company_name`, as HubSpot returns them."""
+        companies = []
+        for term in self._company_search_terms(company_name):
+            companies = await self.search.search(
+                "companies",
+                [Filter(propertyName="name", operator="CONTAINS_TOKEN", value=term)],
+                properties=["name"],
+                limit=5,
+            )
+            if companies:
+                break
+        logger.info("Match: company search %r -> %d companies", company_name, len(companies or []))
+        if not companies:
+            return []
+
+        all_deal_ids: list[str] = []
+        for comp in companies:
+            comp_id = comp.get("id")
+            if not comp_id:
+                continue
+            # HubSpot v4 uses plural: companies, deals
+            ids = await self.associations.get_associations("companies", str(comp_id), "deals")
+            logger.info("Match: company %s -> %d deal associations: %s", comp_id, len(ids), ids[:5])
+            all_deal_ids.extend(ids)
+
+        if not all_deal_ids:
+            logger.info("Match: no deal associations for company %r", company_name)
+            return []
+
+        # Fetch deal details (batch read); a few extra for the pipeline filter
+        response = await self.client.post(
+            "/crm/v3/objects/deals/batch/read",
+            data={
+                "inputs": [{"id": did} for did in all_deal_ids[: limit * 2]],
+                "properties": ["dealname", "amount", "dealstage", "closedate", "hs_lastmodifieddate", "pipeline"],
+            },
+        )
+        if not response or "results" not in response:
+            return []
+        return list(response.get("results", []))
+
     async def _find_by_company_association(
         self,
         company_name: str,
@@ -181,52 +227,12 @@ class HubSpotMatchingService:
         Tries multiple search terms (full name, first word) for better match.
         """
         try:
-            companies = []
-            for term in self._company_search_terms(company_name):
-                companies = await self.search.search(
-                    "companies",
-                    [Filter(propertyName="name", operator="CONTAINS_TOKEN", value=term)],
-                    properties=["name"],
-                    limit=5,
-                )
-                if companies:
-                    break
-            logger.info("Match: company search %r -> %d companies", company_name, len(companies or []))
-            if not companies:
-                return []
-            
-            all_deal_ids: list[str] = []
-            for comp in companies:
-                comp_id = comp.get("id")
-                if not comp_id:
-                    continue
-                # HubSpot v4 uses plural: companies, deals
-                ids = await self.associations.get_associations(
-                    "companies", str(comp_id), "deals"
-                )
-                logger.info("Match: company %s -> %d deal associations: %s", comp_id, len(ids), ids[:5])
-                all_deal_ids.extend(ids)
-            
-            if not all_deal_ids:
-                logger.info("Match: no deal associations for company %r", company_name)
-                return []
-            
-            # Fetch deal details (batch read)
-            deal_ids = all_deal_ids[:limit * 2]  # fetch a few extra for pipeline filter
-            props = ["dealname", "amount", "dealstage", "closedate", "hs_lastmodifieddate", "pipeline"]
-            
-            batch_url = "/crm/v3/objects/deals/batch/read"
-            batch_body = {
-                "inputs": [{"id": did} for did in deal_ids],
-                "properties": props,
-            }
-            response = await self.client.post(batch_url, data=batch_body)
-            
-            if not response or "results" not in response:
-                return []
-            
+            # The same company's deals, read once: the retry without a pipeline filter reuses them.
+            key = (company_name, limit)
+            if key not in self._company_deals:
+                self._company_deals[key] = await self._read_company_deals(company_name, limit)
             matches = []
-            for deal_data in response.get("results", []):
+            for deal_data in self._company_deals[key]:
                 deal_id = deal_data.get("id")
                 if not deal_id:
                     continue

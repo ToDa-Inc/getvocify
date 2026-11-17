@@ -84,6 +84,7 @@ class CRMDealMatchProtocol(Protocol):
         extraction: MemoExtraction,
         limit: int = 3,
         pipeline_id: Optional[str] = None,
+        known_anchor=None,
     ) -> list[DealMatch]: ...
 
     async def resolve_contact_anchor(

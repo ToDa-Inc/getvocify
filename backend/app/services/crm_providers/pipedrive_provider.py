@@ -192,6 +192,7 @@ class PipedriveCRMProvider:
         extraction: MemoExtraction,
         limit: int = 3,
         pipeline_id: Optional[str] = None,
+        known_anchor=None,
     ) -> list[DealMatch]:
         return await PipedriveMatchingService(self._search()).find_matching_deals(
             extraction, limit=limit, pipeline_id=pipeline_id

@@ -84,3 +84,45 @@ def test_a_contacts_deals_are_read_at_once_and_one_failing_read_is_only_counted(
 
     assert [d.deal_id for d in deals] == ["d1", "d2"]
     assert clock.most == 3
+
+
+def test_a_locked_contact_is_not_looked_up_again_and_the_company_is_read_once():
+    """A contact with no deals (2026-11-17, 12:26): the fuzzy deal search looked the contact up again by name
+    and searched the company twice (with and without the pipeline filter), and HubSpot answered 429."""
+    from app.models.memo import MemoExtraction
+    from app.services.hubspot.matching import HubSpotMatchingService
+
+    calls = []
+
+    class Search:
+        async def search(self, object_type, filters, properties=None, limit=10):
+            calls.append((object_type, filters[0].propertyName))
+            if object_type == "companies":
+                return [{"id": "co1"}]
+            return []
+
+    class Assoc:
+        async def get_associations(self, from_type, object_id, to_type):
+            calls.append(("assoc", object_id))
+            return ["d9"]
+
+    class Client:
+        async def post(self, path, data=None):
+            calls.append(("batch", path))
+            return {"results": [{"id": "d9", "properties": {"dealname": "Other", "pipeline": "other"}}]}
+
+    service = HubSpotMatchingService(Client(), Search(), Assoc())
+
+    async def no_lookup(*a, **k):
+        raise AssertionError("the locked contact was looked up again")
+
+    service.resolve_contact_anchor = no_lookup
+    anchor = type("Anchor", (), {"deal_matches": []})()
+    extraction = MemoExtraction(companyName="Acme", contactName="José")
+
+    deals = asyncio.run(service.find_matching_deals(extraction, limit=5, pipeline_id="main", known_anchor=anchor))
+
+    # Filtered out by the pipeline first, then offered by the retry without it: the same deal, read once.
+    assert [d.deal_id for d in deals] == ["d9"]
+    assert calls.count(("companies", "name")) == 1
+    assert calls.count(("batch", "/crm/v3/objects/deals/batch/read")) == 1

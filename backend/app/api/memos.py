@@ -2218,7 +2218,11 @@ async def _deals_and_identity(provider, extraction, *, pipeline_id, contact_id):
     anchor = identity.selected if identity is not None else None
     if anchor is not None and anchor.deal_matches:
         return [], identity
-    return await provider.find_matching_deals(extraction, limit=5, pipeline_id=pipeline_id), identity
+    # The contact is locked and has no deals: the fuzzy search starts from it instead of finding it again.
+    matches = await provider.find_matching_deals(
+        extraction, limit=5, pipeline_id=pipeline_id, known_anchor=anchor
+    )
+    return matches, identity
 
 
 @router.post("/{memo_id}/preview", response_model=ApprovalPreview)

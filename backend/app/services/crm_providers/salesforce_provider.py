@@ -194,6 +194,7 @@ class SalesforceCRMProvider:
         extraction: MemoExtraction,
         limit: int = 3,
         pipeline_id: Optional[str] = None,
+        known_anchor=None,
     ) -> list[DealMatch]:
         m = SalesforceMatchingService(self._client, self._search())
         return await m.find_matching_deals(extraction, limit=limit, pipeline_id=pipeline_id)

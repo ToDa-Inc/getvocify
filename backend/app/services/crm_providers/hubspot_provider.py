@@ -256,13 +256,16 @@ class HubSpotCRMProvider:
         extraction: MemoExtraction,
         limit: int = 3,
         pipeline_id: Optional[str] = None,
+        known_anchor=None,
     ) -> list[DealMatch]:
         matching = HubSpotMatchingService(
             self._client,
             self._search_service(),
             HubSpotAssociationService(self._client),
         )
-        return await matching.find_matching_deals(extraction, limit=limit, pipeline_id=pipeline_id)
+        return await matching.find_matching_deals(
+            extraction, limit=limit, pipeline_id=pipeline_id, known_anchor=known_anchor
+        )
 
     async def resolve_contact_anchor(
         self,

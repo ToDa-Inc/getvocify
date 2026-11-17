@@ -11,6 +11,7 @@ class _Provider:
         self.identity, self.deals = identity, deals
         self.searched = 0
         self.resolved_with = None
+        self.known_anchor = None
 
     async def resolve_identity(self, extraction, **kwargs):
         self.resolved_with = kwargs["preferred_contact_id"]
@@ -18,6 +19,7 @@ class _Provider:
 
     async def find_matching_deals(self, extraction, **kwargs):
         self.searched += 1
+        self.known_anchor = kwargs.get("known_anchor")
         return self.deals
 
 
@@ -38,8 +40,10 @@ def test_a_known_contact_with_linked_deals_skips_the_name_search():
 
 def test_a_known_contact_without_deals_still_gets_the_name_matches():
     provider = _Provider(_identity([]), deals=["fuzzy"])
-    matches, _ = _run(provider, "c1")
+    matches, identity = _run(provider, "c1")
     assert matches == ["fuzzy"] and provider.searched == 1
+    # The name search starts from the contact already locked; it does not look it up again.
+    assert provider.known_anchor is identity.selected
 
 
 def test_no_contact_searches_both_ways():
