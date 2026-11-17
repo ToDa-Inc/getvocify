@@ -1,5 +1,6 @@
 import { LIVE_STT_SAMPLE_RATE, floatToPcm16 } from "@/features/recording/live-stt";
 import type { MeetingSpeaker } from "@/lib/meeting-transcript";
+import { base64Of } from "@/lib/pcm-base64";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8888/api/v1";
 /** The live transcription service, apart from the API so nothing there can stall a call. */
@@ -34,10 +35,7 @@ export function liveAuthMessage(ticket: string): string {
 }
 
 export function encodeChannelAudio(channel: MeetingSpeaker, pcm: ArrayBuffer): string {
-  const bytes = new Uint8Array(pcm);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return JSON.stringify({ type: "AddChannelAudio", channel, data: btoa(binary) });
+  return JSON.stringify({ type: "AddChannelAudio", channel, data: base64Of(pcm) });
 }
 
 /**
