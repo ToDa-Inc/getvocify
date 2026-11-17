@@ -475,6 +475,11 @@ async def extract_memo_async(
             patch_task = start_transcript_patch(
                 clean, glossary, existing_values, extra_names, two_party=two_party,
             )
+            # The contact's name and company as the CRM has them (~0.4 s of HubSpot reads) only
+            # depend on the contact: read while the model writes, not after it.
+            identity_task = asyncio.create_task(
+                crm_identity(supabase, user_id, (memo_row or {}).get("hubspot_contact_id"))
+            )
             try:
                 t_reading = time.perf_counter()
                 call_reading, for_extraction = await _read_call_first(
@@ -495,6 +500,7 @@ async def extract_memo_async(
                 )
             except BaseException:
                 cancel_transcript_patch(patch_task)
+                identity_task.cancel()
                 raise
             patched = await finish_transcript_patch(patch_task, rules_ms=rules_ms)
             edits = patched.edits if patched else []
@@ -505,10 +511,7 @@ async def extract_memo_async(
             extraction_data = fix_outputs(extraction.model_dump(), edits)
             call_reading = fix_outputs(call_reading, edits)
             # A call on a CRM contact is named after the contact and its company in the CRM, not as heard.
-            extraction_data = with_crm_identity(
-                extraction_data,
-                await crm_identity(supabase, user_id, (memo_row or {}).get("hubspot_contact_id")),
-            )
+            extraction_data = with_crm_identity(extraction_data, await identity_task)
 
         t_finish = time.perf_counter()
         stored_extraction = dict(extraction_data)

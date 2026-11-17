@@ -14,6 +14,9 @@ from .types import Filter, FilterGroup
 
 logger = logging.getLogger(__name__)
 
+# Deals asked for per name search, in every pipeline: the pipeline filter is applied to these.
+_DEAL_NAME_SEARCH_LIMIT = 20
+
 
 class HubSpotMatchingService:
     """
@@ -38,6 +41,7 @@ class HubSpotMatchingService:
         self.search = search_service
         self.associations = associations_service or HubSpotAssociationService(client)
         self._company_deals: dict[tuple[str, int], list[dict]] = {}
+        self._deal_searches: dict[tuple[str, str], list[dict]] = {}
     
     async def find_matching_deals(
         self,
@@ -260,6 +264,21 @@ class HubSpotMatchingService:
             logger.warning("Company association matching failed for %s: %s", company_name, e)
             return []
     
+    async def _search_deals_by_name(self, operator: str, value: str) -> list[dict]:
+        """Deals whose name matches, in every pipeline; read once per call, the pipeline is chosen after.
+
+        The search with the pipeline filter and the retry without it used to ask HubSpot the
+        same question twice (7 searches in a row and a 429 on 2026-11-17)."""
+        key = (operator, value)
+        if key not in self._deal_searches:
+            self._deal_searches[key] = await self.search.search(
+                "deals",
+                [Filter(propertyName="dealname", operator=operator, value=value)],
+                properties=["dealname", "amount", "dealstage", "closedate", "hs_lastmodifieddate", "pipeline"],
+                limit=_DEAL_NAME_SEARCH_LIMIT,
+            ) or []
+        return self._deal_searches[key]
+
     async def _find_by_company(
         self,
         company_name: str,
@@ -267,23 +286,17 @@ class HubSpotMatchingService:
         pipeline_id: Optional[str] = None,
     ) -> list[DealMatch]:
         """Find deals by deal name containing company (e.g. 'Nacho Company' matches 'Nacho Company Deal')"""
+
+        def in_pipeline(deals: list[dict]) -> list[dict]:
+            if not pipeline_id:
+                return list(deals)
+            return [d for d in deals if (d.get("properties") or {}).get("pipeline") == pipeline_id]
+
         try:
             # Try exact deal name first: "{company} Deal" (our convention)
             exact_deal_name = f"{company_name.strip()} Deal"
-            filters_eq = [
-                Filter(propertyName="dealname", operator="EQ", value=exact_deal_name),
-            ]
-            if pipeline_id:
-                filters_eq.append(
-                    Filter(propertyName="pipeline", operator="EQ", value=pipeline_id)
-                )
-            deals = await self.search.search(
-                "deals",
-                filters_eq,
-                properties=["dealname", "amount", "dealstage", "closedate", "hs_lastmodifieddate"],
-                limit=limit,
-            )
-            logger.info("Match: deal EQ %r -> %d deals", exact_deal_name, len(deals or []))
+            deals = in_pipeline(await self._search_deals_by_name("EQ", exact_deal_name))[:limit]
+            logger.info("Match: deal EQ %r -> %d deals", exact_deal_name, len(deals))
             if deals:
                 matches = []
                 for deal_data in deals:
@@ -302,27 +315,11 @@ class HubSpotMatchingService:
                         match_reason=f"Deal name match: {exact_deal_name}",
                     ))
                 return matches
-            
+
             # Fallback: CONTAINS_TOKEN - try full name, then first/last word
             deals = []
             for term in self._company_search_terms(company_name):
-                filters = [
-                    Filter(
-                        propertyName="dealname",
-                        operator="CONTAINS_TOKEN",
-                        value=term,
-                    )
-                ]
-                if pipeline_id:
-                    filters.append(
-                        Filter(propertyName="pipeline", operator="EQ", value=pipeline_id)
-                    )
-                deals = await self.search.search(
-                    "deals",
-                    filters,
-                    properties=["dealname", "amount", "dealstage", "closedate", "hs_lastmodifieddate"],
-                    limit=limit,
-                )
+                deals = in_pipeline(await self._search_deals_by_name("CONTAINS_TOKEN", term))[:limit]
                 if deals:
                     break
             # Post-filter: verify company name actually appears in deal name (avoids false positives from generic tokens like "Deal")

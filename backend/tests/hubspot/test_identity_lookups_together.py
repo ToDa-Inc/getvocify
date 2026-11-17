@@ -126,3 +126,58 @@ def test_a_locked_contact_is_not_looked_up_again_and_the_company_is_read_once():
     assert [d.deal_id for d in deals] == ["d9"]
     assert calls.count(("companies", "name")) == 1
     assert calls.count(("batch", "/crm/v3/objects/deals/batch/read")) == 1
+
+
+def test_a_deal_name_is_searched_once_for_the_pipeline_and_the_retry_without_it():
+    from app.models.memo import MemoExtraction
+    from app.services.hubspot.matching import HubSpotMatchingService
+
+    searches = []
+
+    class Search:
+        async def search(self, object_type, filters, properties=None, limit=10):
+            searches.append((object_type, filters[0].operator, filters[0].value, len(filters)))
+            if object_type == "deals" and filters[0].operator == "CONTAINS_TOKEN" and filters[0].value == "Acme Labs":
+                return [
+                    {"id": "off", "properties": {"dealname": "Acme Labs renewal", "pipeline": "other"}},
+                    {"id": "on", "properties": {"dealname": "Acme Labs pilot", "pipeline": "main"}},
+                ]
+            return []
+
+    class Assoc:
+        async def get_associations(self, *a):
+            return []
+
+    service = HubSpotMatchingService(object(), Search(), Assoc())
+    anchor = type("Anchor", (), {"deal_matches": []})()
+
+    deals = asyncio.run(
+        service.find_matching_deals(MemoExtraction(companyName="Acme Labs"), limit=3, pipeline_id="main", known_anchor=anchor)
+    )
+
+    # The deal in the account's pipeline is offered, and every deal search went to HubSpot once, without the filter.
+    assert [d.deal_id for d in deals] == ["on"]
+    deal_searches = [s for s in searches if s[0] == "deals"]
+    assert len(deal_searches) == len(set(deal_searches)) and all(n == 1 for *_, n in deal_searches)
+
+
+def test_without_a_deal_in_the_pipeline_the_other_pipelines_are_offered_as_before():
+    from app.models.memo import MemoExtraction
+    from app.services.hubspot.matching import HubSpotMatchingService
+
+    class Search:
+        async def search(self, object_type, filters, properties=None, limit=10):
+            if object_type == "deals" and filters[0].value == "Acme Labs":
+                return [{"id": "off", "properties": {"dealname": "Acme Labs renewal", "pipeline": "other"}}]
+            return []
+
+    class Assoc:
+        async def get_associations(self, *a):
+            return []
+
+    service = HubSpotMatchingService(object(), Search(), Assoc())
+    anchor = type("Anchor", (), {"deal_matches": []})()
+    deals = asyncio.run(
+        service.find_matching_deals(MemoExtraction(companyName="Acme Labs"), limit=3, pipeline_id="main", known_anchor=anchor)
+    )
+    assert [d.deal_id for d in deals] == ["off"]

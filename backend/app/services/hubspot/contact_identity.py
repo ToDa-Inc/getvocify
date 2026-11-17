@@ -472,7 +472,8 @@ async def resolve_identity(
                     hs,
                     search=search,
                     associations=associations,
-                    contacts=contacts,
+                    # Just read with every property the anchor needs: not read a second time.
+                    contacts=None,
                     match_reason="Explicit contact selection",
                     match_confidence=1.0,
                     limit_deals=limit_deals,
