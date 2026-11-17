@@ -289,6 +289,7 @@ type MeetingAudio = MeetingSegment[];
 const meetingAudioCache = new WeakMap<MeetingSegment[], MeetingAudio>();
 
 function meetingAudio(segments: MeetingSegment[]): MeetingAudio {
+  if (fold?.segments === segments) return fold.audio;
   const cached = meetingAudioCache.get(segments);
   if (cached) return cached;
   const audio = segments
@@ -401,6 +402,8 @@ function isEchoTail(state: MeetingTranscript, key: SpeakerKey, pending: string):
 
 type DisplayItem = {
   seen: number;
+  /** Where the line came in (the order of items with the same `seen`). */
+  arrival?: number;
   speaker: MeetingSpeaker | null;
   text: string;
   pending: string;
@@ -443,26 +446,26 @@ function startsNewParagraph(row: MeetingDisplayTurn, item: DisplayItem): boolean
 }
 
 // Keyed by the segments, and valid only for the names the rep gave the voices when they were built.
-type Named<T> = { names: MeetingTranscript["voiceNames"]; value: T };
-const settledRowsCache = new WeakMap<MeetingSegment[], Named<MeetingDisplayTurn[]>>();
-const settledItemsCache = new WeakMap<MeetingSegment[], Named<DisplayItem[]>>();
+/** The rows after an item, as far as a refold needs them: the rows before the last two never change again. */
+type Snapshot = { length: number; last: [MeetingDisplayTurn | undefined, MeetingDisplayTurn | undefined] };
+
+function snapshotOf(rows: MeetingDisplayTurn[]): Snapshot {
+  const n = rows.length;
+  return { length: n, last: [rows[n - 2], rows[n - 1]] };
+}
 
 /**
- * Builds rows in the order words first showed on screen, never re-sorting what is
- * already there: a bubble keeps its place and key from its first word to its final.
+ * Builds rows in the order words first showed on screen, never re-sorting what is already there: a bubble keeps its
+ * place and key from its first word to its final. A row is copied before it changes, so a row another call holds (a
+ * snapshot, or the rows on screen) never changes under it. `snaps` gets the rows after each item.
  */
-function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[], manyVoices = false): MeetingDisplayTurn[] {
+function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[], manyVoices = false, snaps?: Snapshot[]): MeetingDisplayTurn[] {
   const labelOf = (item: DisplayItem) =>
     item.name || (item.voice != null && manyVoices ? `${VOICE_LABEL} ${item.voice}` : item.speaker ? SPEAKER_LABEL[item.speaker] : null);
-  // Rows made here. Any other row (the settled ones, shared with the next call) is copied before it is changed.
-  const fresh = new Set<MeetingDisplayTurn>();
   for (const item of items) {
     const at = paragraphFor(item, rows);
     if (at !== -1) {
-      if (!fresh.has(rows[at])) {
-        rows[at] = { ...rows[at] };
-        fresh.add(rows[at]);
-      }
+      rows[at] = { ...rows[at] };
       const row = rows[at];
       // A fragment without a channel continues whoever was talking; an opening one goes to the first speaker.
       if (row.speaker === null && item.speaker) {
@@ -482,67 +485,43 @@ function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[], manyVoice
       }
       if (!item.pending && item.speaker === "prospect" && item.start != null) row.starts = [...(row.starts ?? []), item.start];
       if (item.end != null) row.end = Math.max(row.end ?? item.end, item.end);
-      continue;
+    } else {
+      rows.push({
+        key: `u${item.seen}`,
+        speaker: item.speaker,
+        label: labelOf(item),
+        text: item.text,
+        pending: item.pending,
+        start: item.start,
+        end: item.end,
+        name: item.name ?? null,
+        voice: item.voice ?? null,
+        starts: !item.pending && item.speaker === "prospect" && item.start != null ? [item.start] : [],
+      });
     }
-    const created: MeetingDisplayTurn = {
-      key: `u${item.seen}`,
-      speaker: item.speaker,
-      label: labelOf(item),
-      text: item.text,
-      pending: item.pending,
-      start: item.start,
-      end: item.end,
-      name: item.name ?? null,
-      voice: item.voice ?? null,
-      starts: !item.pending && item.speaker === "prospect" && item.start != null ? [item.start] : [],
-    };
-    fresh.add(created);
-    rows.push(created);
+    snaps?.push(snapshotOf(rows));
   }
   return rows;
 }
 
-function settledRows(segments: MeetingSegment[], names: MeetingTranscript["voiceNames"]): MeetingDisplayTurn[] {
-  const cached = settledRowsCache.get(segments);
-  if (cached && cached.names === names) return cached.value;
-  const rows = displayRows(settledItems(segments, names), [], voiceIds(segments).length >= 2);
-  settledRowsCache.set(segments, { names, value: rows });
-  return rows;
+/** Who said each voice's lines, as the meeting app named them: a tally, kept as the lines arrive. */
+type Tally = Map<number, Map<string, number>>;
+
+function tallyLine(tally: Tally, segment: MeetingSegment): void {
+  if (segment.speaker !== "prospect" || segment.voice == null || !segment.name) return;
+  const names = tally.get(segment.voice) ?? new Map<string, number>();
+  names.set(segment.name, (names.get(segment.name) ?? 0) + 1);
+  tally.set(segment.voice, names);
 }
 
-const voiceIdsCache = new WeakMap<MeetingSegment[], number[]>();
-const learnedCache = new WeakMap<MeetingSegment[], Record<number, string>>();
-
-/** The voices heard on the other side, in the order they first spoke. */
-function voiceIds(segments: MeetingSegment[]): number[] {
-  const cached = voiceIdsCache.get(segments);
-  if (cached) return cached;
-  const ids = [...new Set(segments.filter((s) => s.speaker === "prospect" && s.voice != null).map((s) => s.voice as number))];
-  voiceIdsCache.set(segments, ids);
-  return ids;
-}
-
-/**
- * What the meeting app showed for a voice, when it was the same person nearly every time (two lines at least): the
- * voice then has that name on the lines the app showed nobody for. "Them" beats a wrong name.
- */
-function learnedNames(segments: MeetingSegment[]): Record<number, string> {
-  const cached = learnedCache.get(segments);
-  if (cached) return cached;
-  const tally = new Map<number, Map<string, number>>();
-  for (const segment of segments) {
-    if (segment.speaker !== "prospect" || segment.voice == null || !segment.name) continue;
-    const names = tally.get(segment.voice) ?? new Map<string, number>();
-    names.set(segment.name, (names.get(segment.name) ?? 0) + 1);
-    tally.set(segment.voice, names);
-  }
+/** A voice takes the name the meeting app showed for it when this many of its lines carried that name, and nearly all did. */
+function learnedFrom(tally: Tally): Record<number, string> {
   const learned: Record<number, string> = {};
   for (const [voice, names] of tally) {
     const total = [...names.values()].reduce((sum, n) => sum + n, 0);
     const [name, lines] = [...names.entries()].sort((a, b) => b[1] - a[1])[0];
     if (lines >= LEARN_MIN_LINES && lines / total >= LEARN_MIN_SHARE) learned[voice] = name;
   }
-  learnedCache.set(segments, learned);
   return learned;
 }
 
@@ -552,35 +531,226 @@ function nameOf(segment: MeetingSegment, names: MeetingTranscript["voiceNames"],
   return (voice != null ? names?.[voice] : undefined) || segment.name || (voice != null ? learned[voice] : undefined) || null;
 }
 
-function settledItems(segments: MeetingSegment[], names: MeetingTranscript["voiceNames"]): DisplayItem[] {
-  const cached = settledItemsCache.get(segments);
-  if (cached && cached.names === names) return cached.value;
-  const meeting = meetingAudio(segments);
-  const learned = learnedNames(segments);
-  const items = segments
-    .map((segment, arrival) => ({ segment, seen: segment.seen ?? arrival }))
-    .filter(({ segment }) => !isEcho(segment, meeting))
-    .sort((a, b) => a.seen - b.seen)
-    .map(({ segment, seen }) => ({
-      seen,
-      speaker: segment.speaker,
-      text: segment.text,
-      pending: "",
-      start: segment.start,
-      end: segment.end,
-      name: nameOf(segment, names, learned),
-      voice: segment.voice ?? null,
-    }));
-  settledItemsCache.set(segments, { names, value: items });
-  return items;
+function itemOf(segment: MeetingSegment, arrival: number, names: MeetingTranscript["voiceNames"], learned: Record<number, string>): DisplayItem {
+  return {
+    seen: segment.seen ?? arrival,
+    arrival,
+    speaker: segment.speaker,
+    text: segment.text,
+    pending: "",
+    start: segment.start,
+    end: segment.end,
+    name: nameOf(segment, names, learned),
+    voice: segment.voice ?? null,
+  };
 }
 
 /**
- * Render-ready paragraphs for the live transcript. Unlike the uploaded text (sorted by
- * speech time), they keep the order words first appeared, so a late final never moves
- * or splits a bubble the rep is reading, and a tail keeps its bubble when it settles.
+ * The settled part of the transcript as it is on screen, kept between calls. A final appends to the segments: the items
+ * and rows from the first one that changed on are rebuilt, and the rest stay the same objects.
  */
+type Fold = {
+  segments: MeetingSegment[];
+  names: MeetingTranscript["voiceNames"];
+  /** The other side's timed lines by start: what an echo is checked against. */
+  audio: MeetingSegment[];
+  tally: Tally;
+  learned: Record<number, string>;
+  voices: number[];
+  /** The rep's lines that are an echo of the call: left out. */
+  echo: Set<MeetingSegment>;
+  /** The settled lines by `seen`, without the echo. */
+  items: DisplayItem[];
+  rows: MeetingDisplayTurn[];
+  /** The rows after each item. */
+  after: Snapshot[];
+};
+
+/** The fold of the transcript on screen. Other arrays are computed on their own. */
+let fold: Fold | null = null;
+
+function buildFold(segments: MeetingSegment[], names: MeetingTranscript["voiceNames"]): Fold {
+  const audio = segments
+    .filter((segment) => segment.speaker === "prospect" && segment.start !== null)
+    .sort((a, b) => (a.start as number) - (b.start as number));
+  const tally: Tally = new Map();
+  for (const segment of segments) tallyLine(tally, segment);
+  const learned = learnedFrom(tally);
+  const voices = [...new Set(segments.filter((s) => s.speaker === "prospect" && s.voice != null).map((s) => s.voice as number))];
+  const echo = new Set<MeetingSegment>();
+  for (const segment of segments) if (isEcho(segment, audio)) echo.add(segment);
+  const items: DisplayItem[] = [];
+  segments.forEach((segment, arrival) => {
+    if (!echo.has(segment)) items.push(itemOf(segment, arrival, names, learned));
+  });
+  items.sort((a, b) => a.seen - b.seen);
+  const after: Snapshot[] = [];
+  const rows = displayRows(items, [], voices.length >= 2, after);
+  return { segments, names, audio, tally, learned, voices, echo, items, rows, after };
+}
+
+/** The first item that comes after (seen, arrival) in the order the items are kept: by `seen`, then by arrival. */
+function slotAfter(items: DisplayItem[], seen: number, arrival: number): number {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    const item = items[middle];
+    if (item.seen > seen || (item.seen === seen && (item.arrival ?? 0) > arrival)) high = middle;
+    else low = middle + 1;
+  }
+  return low;
+}
+
+/** The first index whose key is past `value` (the lists are in key order). */
+function firstPast<T>(list: T[], key: (item: T) => number, value: number): number {
+  let low = 0;
+  let high = list.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (key(list[middle]) <= value) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+/** The rows after the first `k` items, as they were: the fold's rows before the last two, then the two from the snapshot. */
+function prefixAt(f: Fold, k: number): MeetingDisplayTurn[] {
+  if (k === 0) return [];
+  const snap = f.after[k - 1];
+  const rows = f.rows.slice(0, Math.max(0, snap.length - 2));
+  if (snap.length >= 2) rows.push(snap.last[0] as MeetingDisplayTurn);
+  rows.push(snap.last[1] as MeetingDisplayTurn);
+  return rows;
+}
+
+/**
+ * Brings the fold up to `segments` when they are the fold's own with lines appended (a final) and the same names. Returns
+ * false when anything else changed (a line moved or dropped, a voice's name, a voice's channel): then it is built again.
+ */
+function extendFold(f: Fold, segments: MeetingSegment[]): boolean {
+  const before = f.segments.length;
+  if (segments.length < before) return false;
+  for (let i = 0; i < before; i++) if (segments[i] !== f.segments[i]) return false;
+  const appended = segments.slice(before);
+  for (const segment of appended) tallyLine(f.tally, segment);
+  const learned = learnedFrom(f.tally);
+  if (JSON.stringify(learned) !== JSON.stringify(f.learned)) return false;
+  const voices = [...f.voices];
+  for (const segment of appended) {
+    if (segment.speaker === "prospect" && segment.voice != null && !voices.includes(segment.voice)) voices.push(segment.voice);
+  }
+  if (voices.length >= 2 !== f.voices.length >= 2) return false;
+  // The other side's new lines go in by their start: an echo check sees them.
+  for (const segment of appended) {
+    if (segment.speaker === "prospect" && segment.start !== null) f.audio.splice(firstPast(f.audio, (line) => line.start as number, segment.start), 0, segment);
+  }
+  // Which rep lines can change: an old one whose echo window holds a new line of the other side, and any new one.
+  const starts = appended.filter((s) => s.speaker === "prospect" && s.start !== null).map((s) => s.start as number);
+  const checks: { segment: MeetingSegment; arrival: number; fresh: boolean }[] = [];
+  if (starts.length) {
+    for (let i = 0; i < before; i++) {
+      const segment = f.segments[i];
+      if (segment.speaker !== "rep" || segment.start === null) continue;
+      const from = segment.start - ECHO_LOOKBACK_S;
+      const until = (segment.end ?? segment.start) + ECHO_WINDOW_S;
+      if (starts.some((start) => start >= from && start <= until)) checks.push({ segment, arrival: i, fresh: false });
+    }
+  }
+  appended.forEach((segment, j) => {
+    if (segment.speaker === "rep") checks.push({ segment, arrival: before + j, fresh: true });
+  });
+  const items = [...f.items];
+  // The earliest place (by seen, then arrival) an item changed at: everything before it is kept.
+  let firstSeen = Infinity;
+  let firstArrival = Infinity;
+  const place = (segment: MeetingSegment, arrival: number, add: boolean) => {
+    const seen = segment.seen ?? arrival;
+    if (add) {
+      items.splice(slotAfter(items, seen, arrival), 0, itemOf(segment, arrival, f.names, learned));
+    } else {
+      // The item sits just before its slot: it is the last one that is not after (seen, arrival).
+      const at = slotAfter(items, seen, arrival) - 1;
+      if (at >= 0 && items[at].seen === seen && items[at].arrival === arrival) items.splice(at, 1);
+    }
+    if (seen < firstSeen || (seen === firstSeen && arrival < firstArrival)) {
+      firstSeen = seen;
+      firstArrival = arrival;
+    }
+  };
+  // A new line of the other side, or a new line of the rep that is not an echo, is an item from its place on.
+  appended.forEach((segment, j) => {
+    if (segment.speaker === "rep") return;
+    place(segment, before + j, true);
+  });
+  for (const { segment, arrival, fresh } of checks) {
+    const now = isEcho(segment, f.audio);
+    // A new rep line has no item yet; an old one has one unless it was an echo.
+    const was = fresh ? false : f.echo.has(segment);
+    if (now) {
+      if (was) continue;
+      f.echo.add(segment);
+      if (!fresh) place(segment, arrival, false);
+    } else {
+      if (!was && !fresh) continue;
+      f.echo.delete(segment);
+      place(segment, arrival, true);
+    }
+  }
+  // The rows from the first changed item on are rebuilt, with the same snapshots as before.
+  const k = firstSeen === Infinity ? items.length : slotAfter(items, firstSeen, firstArrival - 1);
+  const snaps: Snapshot[] = [];
+  const rows = displayRows(items.slice(k), prefixAt(f, k), voices.length >= 2, snaps);
+  f.after = f.after.slice(0, k).concat(snaps);
+  f.rows = rows;
+  f.items = items;
+  f.learned = learned;
+  f.voices = voices;
+  f.segments = segments;
+  return true;
+}
+
+/** The fold for these segments and names: the one on screen, brought up to date, or built again. */
+function foldFor(segments: MeetingSegment[], names: MeetingTranscript["voiceNames"]): Fold {
+  if (fold && fold.names === names) {
+    if (fold.segments === segments) return fold;
+    if (extendFold(fold, segments)) return fold;
+  }
+  fold = buildFold(segments, names);
+  return fold;
+}
+
+/** Forgets the fold on screen, so the next call builds it from the start (tests compare the two). */
+export function forgetFolds(): void {
+  fold = null;
+}
+
+const voiceIdsCache = new WeakMap<MeetingSegment[], number[]>();
+const learnedCache = new WeakMap<MeetingSegment[], Record<number, string>>();
+
+/** The voices heard on the other side, in the order they first spoke. */
+function voiceIds(segments: MeetingSegment[]): number[] {
+  if (fold?.segments === segments) return fold.voices;
+  const cached = voiceIdsCache.get(segments);
+  if (cached) return cached;
+  const ids = [...new Set(segments.filter((s) => s.speaker === "prospect" && s.voice != null).map((s) => s.voice as number))];
+  voiceIdsCache.set(segments, ids);
+  return ids;
+}
+
+function learnedNames(segments: MeetingSegment[]): Record<number, string> {
+  if (fold?.segments === segments) return fold.learned;
+  const cached = learnedCache.get(segments);
+  if (cached) return cached;
+  const tally: Tally = new Map();
+  for (const segment of segments) tallyLine(tally, segment);
+  const learned = learnedFrom(tally);
+  learnedCache.set(segments, learned);
+  return learned;
+}
+
 export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTurn[] {
+  const f = foldFor(state.segments, state.voiceNames);
   const nextSeen = state.nextSeen ?? state.segments.length;
   const tails = SPEAKER_ORDER.flatMap((key) => {
     const pending = state.interims[key];
@@ -588,22 +758,14 @@ export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTur
     const start = state.interimStarts?.[key] ?? null;
     return [{ seen: state.interimSeen?.[key] ?? nextSeen, speaker: speakerFromKey(key), text: "", pending, start, end: start }];
   }).sort((a, b) => a.seen - b.seen);
-  const items = settledItems(state.segments, state.voiceNames);
-  const many = voiceIds(state.segments).length >= 2;
-  const lastSettled = items.length ? items[items.length - 1].seen : -1;
-  if (tails.every((tail) => tail.seen >= lastSettled)) {
-    // Usual case: the tails began after everything settled, so they go last.
-    // A copy of the list only: the settled rows themselves are shared and copied on change (displayRows).
-    return displayRows(tails, settledRows(state.segments, state.voiceNames).slice(), many);
-  }
-  // Something settled while a tail was still being written: the tail keeps the place it
-  // appeared in, above what came after it, exactly where it will settle.
-  const ordered = [...items];
+  // The settled rows before the first tail's place are the ones kept; the tails and what settled after them are drawn.
+  const k = tails.length ? firstPast(f.items, (item) => item.seen, tails[0].seen) : f.items.length;
+  const ordered = f.items.slice(k);
   for (const tail of tails) {
     const slot = ordered.findIndex((item) => item.seen > tail.seen);
     ordered.splice(slot === -1 ? ordered.length : slot, 0, tail);
   }
-  return displayRows(ordered, [], many);
+  return displayRows(ordered, prefixAt(f, k), f.voices.length >= 2);
 }
 
 export function meetingHasSpeech(state: MeetingTranscript): boolean {
