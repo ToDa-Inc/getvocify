@@ -566,8 +566,8 @@ export function pendingItems(postCall: PostCall | null): number {
   return count;
 }
 
-/** How long Approve can still be undone before the write runs. */
-export const UNDO_MS = 5000;
+/** How long Approve can still be undone before the write runs (5 s until 2026-11-17: Dani found the wait too long). */
+export const UNDO_MS = 2000;
 
 /** Waits between status checks: quick while extraction usually finishes (a few seconds), then gentler. */
 export function pollDelayMs(attempt: number): number {
