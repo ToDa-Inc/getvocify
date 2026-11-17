@@ -8,6 +8,7 @@ and associations.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import datetime, timedelta, timezone
@@ -674,7 +675,17 @@ class HubSpotSyncService:
         contact_id = contact_id or existing_contact_id
         resolved_contact_id = contact_id  # preserve contact-first anchor through upsert logic
         written_fields: list[dict[str, Any]] = []
-        
+        # The locked contact's company (a read) is looked up while the contact is written, not after
+        # it: Step 6 waited for it in turn (0.17 s on 2026-11-17's approvals).
+        early_company: Optional[asyncio.Task] = (
+            asyncio.create_task(self._resolve_company_id(None, str(resolved_contact_id), None))
+            if resolved_contact_id and not company_id
+            else None
+        )
+        # The commitment tasks (Step 6) are written while the note (Step 7) is: neither reads what the
+        # other writes. Awaited before Step 8 and, whatever happens, before returning.
+        commitment_write: Optional[asyncio.Task] = None
+
         try:
             # Step 1: Company — prefer resolved company_id (contact-first), else create/upsert
             if company_id:
@@ -1313,7 +1324,10 @@ class HubSpotSyncService:
 
             # Step 6: Tasks - merge with existing when updating a deal, else create new.
             # Associate to every object we have (deal + contact + company), same as notes.
-            company_id = await self._resolve_company_id(company_id, contact_id, deal_id)
+            if early_company is not None and not company_id and contact_id == resolved_contact_id:
+                company_id = await early_company or await self._resolve_company_id(None, None, deal_id)
+            else:
+                company_id = await self._resolve_company_id(company_id, contact_id, deal_id)
             if company_id:
                 result.company_id = company_id
             tasks_target_id = deal_id or contact_id or company_id
@@ -1341,7 +1355,7 @@ class HubSpotSyncService:
             tasks_merge_failed = False
 
             if commitment_tasks is not None:
-                await self._write_commitment_tasks(
+                commitment_write = asyncio.create_task(self._write_commitment_tasks(
                     result,
                     commitment_tasks,
                     extraction,
@@ -1354,7 +1368,7 @@ class HubSpotSyncService:
                     company_id=task_company_id,
                     hubspot_owner_id=hubspot_owner_id,
                     previous_updates=previous_updates,
-                )
+                ))
             elif not tasks_target_id and tasks_requested_count:
                 logger.warning(
                     "Cannot create tasks — no deal or contact target",
@@ -1840,6 +1854,8 @@ class HubSpotSyncService:
                             extra=log_domain(DOMAIN_HUBSPOT, "note_failed", memo_id=str(memo_id), error=str(e)),
                         )
 
+            if commitment_write is not None:
+                await commitment_write
             # Step 8: Call outcome (Converted / On Hold / Lost). Optional - only
             # runs when the rep actually marked one on the confirmation screen.
             # Deliberately its own top-level try/except (not just relying on the
@@ -2019,6 +2035,13 @@ class HubSpotSyncService:
                 "❌ Sync failed: unexpected error",
                 extra=log_domain(DOMAIN_HUBSPOT, "sync_failed", memo_id=str(memo_id), error=str(e)),
             )
-        
+        finally:
+            # A step that raised left them behind: the tasks still finish (as when they ran in turn), the
+            # company lookup nobody needs is dropped.
+            if commitment_write is not None and not commitment_write.done():
+                await asyncio.gather(commitment_write, return_exceptions=True)
+            if early_company is not None and not early_company.done():
+                early_company.cancel()
+
         return result
 

@@ -18,6 +18,7 @@ code-level guard against that here; the guard is "always construct this via
 get_supabase()", so verify that at the call site if this Ever changes.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator, Dict, Optional, Sequence
@@ -130,7 +131,9 @@ class CRMUpdatesService:
             "status": "pending",
         }
 
-        result = self.supabase.table("crm_updates").insert(update_data).execute()
+        # Off the event loop: every HubSpot write waits on these rows, and a blocking call here stalled
+        # the whole server (354 ms on an approval, 2026-11-17).
+        result = await asyncio.to_thread(lambda: self.supabase.table("crm_updates").insert(update_data).execute())
 
         if not result.data:
             raise Exception("Failed to create CRM update record")
@@ -226,7 +229,7 @@ class CRMUpdatesService:
             update_data["resource_id"] = resource_id
         if response is not None:
             update_data["response"] = response
-        self.supabase.table("crm_updates").update(update_data).eq("id", update_id).execute()
+        await asyncio.to_thread(lambda: self.supabase.table("crm_updates").update(update_data).eq("id", update_id).execute())
 
     async def mark_failed(
         self,
@@ -244,7 +247,7 @@ class CRMUpdatesService:
         if retry_count is not None:
             update_data["retry_count"] = retry_count
 
-        self.supabase.table("crm_updates").update(update_data).eq("id", update_id).execute()
+        await asyncio.to_thread(lambda: self.supabase.table("crm_updates").update(update_data).eq("id", update_id).execute())
 
     async def mark_retrying(
         self,
@@ -252,14 +255,18 @@ class CRMUpdatesService:
         retry_count: int
     ) -> None:
         """Mark a CRM update as retrying"""
-        self.supabase.table("crm_updates").update({
-            "status": "retrying",
-            "retry_count": retry_count,
-        }).eq("id", update_id).execute()
+        await asyncio.to_thread(
+            lambda: self.supabase.table("crm_updates").update({
+                "status": "retrying",
+                "retry_count": retry_count,
+            }).eq("id", update_id).execute()
+        )
 
     async def get_memo_updates(self, memo_id: str) -> list[Dict[str, Any]]:
         """Get all CRM updates for a memo"""
-        result = self.supabase.table("crm_updates").select("*").eq("memo_id", memo_id).order("created_at", desc=False).execute()
+        result = await asyncio.to_thread(
+            lambda: self.supabase.table("crm_updates").select("*").eq("memo_id", memo_id).order("created_at", desc=False).execute()
+        )
         return result.data or []
 
     @staticmethod
