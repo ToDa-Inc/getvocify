@@ -6,6 +6,7 @@ Finds existing records before creating duplicates.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any, Literal, Optional
 
@@ -272,17 +273,19 @@ class HubSpotSearchService:
                 )
             else:
                 # Single token: try firstname, then lastname; merge unique
-                by_first = await self.search(
-                    self.CONTACTS,
-                    [Filter(propertyName="firstname", operator="CONTAINS_TOKEN", value=first)],
-                    properties=props,
-                    limit=limit,
-                )
-                by_last = await self.search(
-                    self.CONTACTS,
-                    [Filter(propertyName="lastname", operator="CONTAINS_TOKEN", value=first)],
-                    properties=props,
-                    limit=limit,
+                by_first, by_last = await asyncio.gather(
+                    self.search(
+                        self.CONTACTS,
+                        [Filter(propertyName="firstname", operator="CONTAINS_TOKEN", value=first)],
+                        properties=props,
+                        limit=limit,
+                    ),
+                    self.search(
+                        self.CONTACTS,
+                        [Filter(propertyName="lastname", operator="CONTAINS_TOKEN", value=first)],
+                        properties=props,
+                        limit=limit,
+                    ),
                 )
                 seen: set[str] = set()
                 merged: list[dict] = []

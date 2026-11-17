@@ -1,0 +1,86 @@
+"""A preview's HubSpot lookups for several contacts run at the same time, not one after another.
+
+On 2026-11-17 a call naming only "José" matched 5 contacts and the preview spent ~1.5 s fetching each
+one's company in turn, with the island waiting.
+"""
+
+import asyncio
+
+from app.services.hubspot.contact_identity import _candidates_from_contacts, _deal_matches_for_contact
+from app.services.hubspot.types import HubSpotContact
+
+
+class Clock:
+    def __init__(self):
+        self.in_flight = 0
+        self.most = 0
+
+    async def call(self, value):
+        self.in_flight += 1
+        self.most = max(self.most, self.in_flight)
+        await asyncio.sleep(0.01)
+        self.in_flight -= 1
+        return value
+
+
+class Associations:
+    def __init__(self, clock, links):
+        self.clock, self.links = clock, links
+
+    async def get_associations(self, from_type, object_id, to_type):
+        return await self.clock.call(self.links.get((object_id, to_type), []))
+
+
+class Client:
+    def __init__(self, clock):
+        self.clock = clock
+
+    async def get(self, path, params=None):
+        object_id = path.rsplit("/", 1)[-1]
+        if "/companies/" in path:
+            return await self.clock.call({"id": object_id, "properties": {"name": f"Company {object_id}"}})
+        if object_id == "bad":
+            await self.clock.call(None)
+            raise RuntimeError("deal read failed")
+        return await self.clock.call({"id": object_id, "properties": {"dealname": f"Deal {object_id}"}})
+
+
+class Search:
+    def __init__(self, clock):
+        self.client = Client(clock)
+
+
+def test_every_candidate_company_is_looked_up_at_once_and_kept_in_order():
+    clock = Clock()
+    links = {(str(i), "companies"): [f"c{i}"] for i in range(5)}
+    contacts = [HubSpotContact(id=str(i), properties={"firstname": "José"}, createdAt="2026-01-01T00:00:00Z", updatedAt="2026-01-01T00:00:00Z") for i in range(5)]
+
+    out = asyncio.run(
+        _candidates_from_contacts(
+            contacts, search=Search(clock), associations=Associations(clock, links), match_reason="name", confidence=0.4
+        )
+    )
+
+    assert [m.company_name for m in out] == [f"Company c{i}" for i in range(5)]
+    assert clock.most == 5
+
+
+def test_a_contacts_deals_are_read_at_once_and_one_failing_read_is_only_counted():
+    clock = Clock()
+    links = {("k", "deals"): ["d1", "bad", "d2"]}
+
+    deals = asyncio.run(
+        _deal_matches_for_contact(
+            Associations(clock, links),
+            Search(clock),
+            "k",
+            contact_name="José",
+            contact_email="",
+            company_name=None,
+            limit_deals=5,
+            pipeline_id=None,
+        )
+    )
+
+    assert [d.deal_id for d in deals] == ["d1", "d2"]
+    assert clock.most == 3
