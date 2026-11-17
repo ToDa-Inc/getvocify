@@ -20,6 +20,12 @@ import { cn } from '@/lib/utils';
 
 /** Distance from the bottom that still counts as "reading live". */
 const FOLLOW_SLACK_PX = 32;
+/**
+ * Lines drawn while the call is live. Every bubble is a layout-animated element, and the animation measures them all on
+ * each new word, so a call that drew all its lines did more work every minute (17 minutes: 3,000 elements and the page
+ * growing ~13 MB a minute on a rep's PC). Earlier lines stay in the transcript, show on demand, and all show after the call.
+ */
+export const LIVE_WINDOW = 40;
 
 interface LiveTranscriptProps {
   /** Primary interim transcript */
@@ -119,6 +125,12 @@ export function LiveTranscript({
   const followRef = useRef(true);
   const [following, setFollowing] = useState(true);
   const reduceMotion = useReducedMotion();
+  const [showEarlier, setShowEarlier] = useState(false);
+  useEffect(() => {
+    if (!isActive) setShowEarlier(false);
+  }, [isActive]);
+  // A search reads the whole call; otherwise a live call draws its latest lines.
+  const hidden = turns && isActive && !query && !showEarlier ? Math.max(0, turns.length - LIVE_WINDOW) : 0;
   const typing = turns && isActive && speaking ? typingPlacement(turns, speaking) : { insideLast: false, extra: [] };
   const hasContent = turns ? turns.length > 0 || Boolean(speaking && isActive && (speaking.rep || speaking.prospect)) : Boolean(finalTranscript || interimTranscript);
 
@@ -175,11 +187,20 @@ export function LiveTranscript({
           </div>
         ) : turns ? (
           <div className="flex flex-col gap-4">
-            {turns.map((turn, index) => (
+            {hidden > 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowEarlier(true)}
+                className="self-center rounded-full px-3 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted/60"
+              >
+                {hidden} earlier
+              </button>
+            ) : null}
+            {(hidden ? turns.slice(hidden) : turns).map((turn, index) => (
               <TranscriptRow
                 key={turn.key}
                 turn={turn}
-                settling={Boolean(turn.pending) || (typing.insideLast && index === turns.length - 1)}
+                settling={Boolean(turn.pending) || (typing.insideLast && hidden + index === turns.length - 1)}
                 query={query}
                 reduceMotion={reduceMotion}
                 voices={voices}

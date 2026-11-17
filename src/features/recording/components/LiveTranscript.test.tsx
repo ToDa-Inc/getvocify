@@ -41,3 +41,19 @@ describe("LiveTranscript typing bubbles", () => {
     expect(bubbles(render([turn("prospect", "Hola")], { prospect: true }, false))).toBe(0);
   });
 });
+
+describe("LiveTranscript during a long call", () => {
+  const many = (n: number): MeetingDisplayTurn[] =>
+    Array.from({ length: n }, (_, i) => ({ key: `t${i}`, speaker: i % 2 ? "prospect" : "rep", text: `line ${i}` }) as MeetingDisplayTurn);
+  it("draws only the latest lines while live, and says how many are earlier", () => {
+    const html = renderToStaticMarkup(createElement(LiveTranscript, { finalTranscript: "", interimTranscript: "", turns: many(300), isActive: true }));
+    expect(html).toContain("260 earlier");
+    expect(html).not.toContain("line 259<");
+    expect(html).toContain("line 299");
+  });
+  it("draws every line once the call is over", () => {
+    const html = renderToStaticMarkup(createElement(LiveTranscript, { finalTranscript: "", interimTranscript: "", turns: many(300), isActive: false }));
+    expect(html).not.toContain("earlier");
+    expect(html).toContain("line 0");
+  });
+});
