@@ -7,7 +7,7 @@
  * to reread holds position and offers a way back to the live edge.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowDown } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,60 @@ interface LiveTranscriptProps {
   /** Optional className for styling */
   className?: string;
 }
+
+/** One turn's bubble. Memoized: a turn that did not change keeps its object, so an interim redraws only the last row. */
+const TranscriptRow = memo(function TranscriptRow({
+  turn,
+  settling,
+  query,
+  reduceMotion,
+  voices,
+  people,
+  onVoice,
+}: {
+  turn: MeetingDisplayTurn;
+  settling: boolean;
+  query?: string;
+  reduceMotion: boolean;
+  voices?: LiveTranscriptProps['voices'];
+  people?: LiveTranscriptProps['people'];
+  onVoice?: LiveTranscriptProps['onVoice'];
+}) {
+  const you = turn.speaker === 'rep';
+  const bubbles = bubblesForTurn(turn.text);
+  return (
+    <div
+      className={cn(
+        'flex max-w-[80%] flex-col gap-1 animate-in fade-in slide-in-from-bottom-1 duration-300 motion-reduce:animate-none',
+        you ? 'self-end items-end' : 'self-start items-start',
+      )}
+    >
+      {!you && turn.label ? (
+        onVoice && voices && turn.voice != null ? (
+          <VoiceLabel turn={turn} voices={voices} people={people} onChange={onVoice} />
+        ) : (
+          <span className="px-1 text-[11px] font-medium text-beige">{turn.label}</span>
+        )
+      ) : null}
+      {bubbles.map((bubble, index) => (
+        <motion.div
+          key={index}
+          layout={!reduceMotion}
+          transition={BUBBLE_RESIZE}
+          className={cn('overflow-hidden rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed text-foreground', you ? BUBBLE_TONE.you : BUBBLE_TONE.them)}
+        >
+          <motion.span layout={reduceMotion ? false : 'position'} className="block">
+            {highlight(bubble, query)}
+          </motion.span>
+        </motion.div>
+      ))}
+      {settling ? (
+        // Words still settling (or not there yet: this side is talking) show as "typing" so bubbles never jump.
+        <TypingBubble you={you} />
+      ) : null}
+    </div>
+  );
+});
 
 export function LiveTranscript({
   finalTranscript,
@@ -121,47 +175,18 @@ export function LiveTranscript({
           </div>
         ) : turns ? (
           <div className="flex flex-col gap-4">
-            {turns.map((turn, index) => {
-              const you = turn.speaker === 'rep';
-              const bubbles = bubblesForTurn(turn.text);
-              const settling = Boolean(turn.pending) || (typing.insideLast && index === turns.length - 1);
-              return (
-                <div
-                  key={turn.key}
-                  className={cn(
-                    'flex max-w-[80%] flex-col gap-1 animate-in fade-in slide-in-from-bottom-1 duration-300 motion-reduce:animate-none',
-                    you ? 'self-end items-end' : 'self-start items-start',
-                  )}
-                >
-                  {!you && turn.label ? (
-                    onVoice && voices && turn.voice != null ? (
-                      <VoiceLabel turn={turn} voices={voices} people={people} onChange={onVoice} />
-                    ) : (
-                      <span className="px-1 text-[11px] font-medium text-beige">{turn.label}</span>
-                    )
-                  ) : null}
-                  {bubbles.map((bubble, index) => (
-                    <motion.div
-                      key={index}
-                      layout={!reduceMotion}
-                      transition={BUBBLE_RESIZE}
-                      className={cn(
-                        'overflow-hidden rounded-2xl px-3.5 py-2 text-[15px] leading-relaxed text-foreground',
-                        you ? BUBBLE_TONE.you : BUBBLE_TONE.them,
-                      )}
-                    >
-                      <motion.span layout={reduceMotion ? false : 'position'} className="block">
-                        {highlight(bubble, query)}
-                      </motion.span>
-                    </motion.div>
-                  ))}
-                  {settling ? (
-                    // Words still settling (or not there yet: this side is talking) show as "typing" so bubbles never jump.
-                    <TypingBubble you={you} />
-                  ) : null}
-                </div>
-              );
-            })}
+            {turns.map((turn, index) => (
+              <TranscriptRow
+                key={turn.key}
+                turn={turn}
+                settling={Boolean(turn.pending) || (typing.insideLast && index === turns.length - 1)}
+                query={query}
+                reduceMotion={reduceMotion}
+                voices={voices}
+                people={people}
+                onVoice={onVoice}
+              />
+            ))}
             {typing.extra.map((side) => (
               <div key={`typing-${side}`} className={cn('flex max-w-[80%] flex-col', side === 'rep' ? 'self-end items-end' : 'self-start items-start')}>
                 <TypingBubble you={side === 'rep'} />

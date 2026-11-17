@@ -285,10 +285,17 @@ const ECHO_LOOKBACK_S = 30;
 /** The call's timed sentences, by start: each echo check then looks only at its own moment. */
 type MeetingAudio = MeetingSegment[];
 
+/** Built once per segments array (one per final); an interim never rebuilds it. */
+const meetingAudioCache = new WeakMap<MeetingSegment[], MeetingAudio>();
+
 function meetingAudio(segments: MeetingSegment[]): MeetingAudio {
-  return segments
+  const cached = meetingAudioCache.get(segments);
+  if (cached) return cached;
+  const audio = segments
     .filter((segment) => segment.speaker === "prospect" && segment.start !== null)
     .sort((a, b) => (a.start as number) - (b.start as number));
+  meetingAudioCache.set(segments, audio);
+  return audio;
 }
 
 const wordsCache = new WeakMap<MeetingSegment, string[]>();
@@ -302,7 +309,7 @@ function segmentWords(segment: MeetingSegment): string[] {
   return cached;
 }
 
-function isEcho(segment: MeetingSegment, meeting: MeetingAudio): boolean {
+function isEcho(segment: MeetingSegment, meeting: MeetingAudio, live?: MeetingSegment): boolean {
   if (segment.speaker !== "rep" || segment.start === null) return false;
   const own = segmentWords(segment);
   if (!own.length) return false;
@@ -323,6 +330,10 @@ function isEcho(segment: MeetingSegment, meeting: MeetingAudio): boolean {
     if ((other.end ?? otherStart) >= segment.start - ECHO_WINDOW_S) {
       segmentWords(other).forEach((word) => heard.add(word));
     }
+  }
+  // The call's words still being written (not in `meeting`): heard the same way when they fall in the same window.
+  if (live && live.start !== null && live.start <= until && live.start >= segment.start - ECHO_LOOKBACK_S && (live.end ?? live.start) >= segment.start - ECHO_WINDOW_S) {
+    segmentWords(live).forEach((word) => heard.add(word));
   }
   if (!heard.size) return false;
   const shared = own.filter((word) => heard.has(word)).length;
@@ -384,8 +395,8 @@ function isEchoTail(state: MeetingTranscript, key: SpeakerKey, pending: string):
   const live = state.interims.prospect;
   const liveStart = state.interimStarts?.prospect;
   // What the call says right now counts when it started around the same moment.
-  const now = live && liveStart !== undefined ? [{ speaker: "prospect" as const, text: live, start: liveStart, end: start }] : [];
-  return isEcho({ speaker: "rep", text: pending, start, end: start }, meetingAudio([...state.segments, ...now]));
+  const now = live && liveStart !== undefined ? { speaker: "prospect" as const, text: live, start: liveStart, end: start } : undefined;
+  return isEcho({ speaker: "rep", text: pending, start, end: start }, meetingAudio(state.segments), now);
 }
 
 type DisplayItem = {
@@ -403,24 +414,25 @@ type DisplayItem = {
  * The paragraph an item continues: the last one when it's the same speaker, or the one
  * before a short interjection the other side made while this speaker was still talking.
  */
-function paragraphFor(item: DisplayItem, rows: MeetingDisplayTurn[]): MeetingDisplayTurn | null {
-  const last = rows[rows.length - 1];
-  if (!last) return null;
+function paragraphFor(item: DisplayItem, rows: MeetingDisplayTurn[]): number {
+  const lastAt = rows.length - 1;
+  const last = rows[lastAt];
+  if (!last) return -1;
   // Another person on the same side (two guests) starts their own paragraph: told apart by the name the meeting app
   // showed, else by voice. A line with neither (a short "sí") goes with whoever was talking.
   const samePerson = (row: MeetingDisplayTurn) =>
     row.name && item.name ? row.name === item.name : row.voice != null && item.voice != null ? row.voice === item.voice : true;
   if (!last.pending && samePerson(last) && (last.speaker === item.speaker || item.speaker === null || last.speaker === null)) {
-    return startsNewParagraph(last, item) ? null : last;
+    return startsNewParagraph(last, item) ? -1 : lastAt;
   }
-  const before = rows[rows.length - 2];
-  if (!before || !item.speaker || before.speaker !== item.speaker || before.pending || !samePerson(before)) return null;
-  if (last.speaker === item.speaker || last.pending || words(last.text).length > INTERJECTION_WORDS) return null;
+  const before = rows[lastAt - 1];
+  if (!before || !item.speaker || before.speaker !== item.speaker || before.pending || !samePerson(before)) return -1;
+  if (last.speaker === item.speaker || last.pending || words(last.text).length > INTERJECTION_WORDS) return -1;
   // Said during their paragraph: after it began and before it ended. Not just after it: a one-word answer that
   // comes right behind a question ("¿Qué CRM usáis?" "Salesforce.") is a turn, and the next question is a new bubble.
   const said = last.start;
-  if (said == null || before.start == null || before.end == null) return null;
-  return said >= before.start - OVERLAP_SLACK_S && said < before.end ? before : null;
+  if (said == null || before.start == null || before.end == null) return -1;
+  return said >= before.start - OVERLAP_SLACK_S && said < before.end ? lastAt - 1 : -1;
 }
 
 /** Decided from what is already settled in `row`, so a tail and the final that replaces it always agree. */
@@ -442,9 +454,16 @@ const settledItemsCache = new WeakMap<MeetingSegment[], Named<DisplayItem[]>>();
 function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[], manyVoices = false): MeetingDisplayTurn[] {
   const labelOf = (item: DisplayItem) =>
     item.name || (item.voice != null && manyVoices ? `${VOICE_LABEL} ${item.voice}` : item.speaker ? SPEAKER_LABEL[item.speaker] : null);
+  // Rows made here. Any other row (the settled ones, shared with the next call) is copied before it is changed.
+  const fresh = new Set<MeetingDisplayTurn>();
   for (const item of items) {
-    const row = paragraphFor(item, rows);
-    if (row) {
+    const at = paragraphFor(item, rows);
+    if (at !== -1) {
+      if (!fresh.has(rows[at])) {
+        rows[at] = { ...rows[at] };
+        fresh.add(rows[at]);
+      }
+      const row = rows[at];
       // A fragment without a channel continues whoever was talking; an opening one goes to the first speaker.
       if (row.speaker === null && item.speaker) {
         row.speaker = item.speaker;
@@ -465,7 +484,7 @@ function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[], manyVoice
       if (item.end != null) row.end = Math.max(row.end ?? item.end, item.end);
       continue;
     }
-    rows.push({
+    const created: MeetingDisplayTurn = {
       key: `u${item.seen}`,
       speaker: item.speaker,
       label: labelOf(item),
@@ -476,7 +495,9 @@ function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[], manyVoice
       name: item.name ?? null,
       voice: item.voice ?? null,
       starts: !item.pending && item.speaker === "prospect" && item.start != null ? [item.start] : [],
-    });
+    };
+    fresh.add(created);
+    rows.push(created);
   }
   return rows;
 }
@@ -489,9 +510,16 @@ function settledRows(segments: MeetingSegment[], names: MeetingTranscript["voice
   return rows;
 }
 
+const voiceIdsCache = new WeakMap<MeetingSegment[], number[]>();
+const learnedCache = new WeakMap<MeetingSegment[], Record<number, string>>();
+
 /** The voices heard on the other side, in the order they first spoke. */
 function voiceIds(segments: MeetingSegment[]): number[] {
-  return [...new Set(segments.filter((s) => s.speaker === "prospect" && s.voice != null).map((s) => s.voice as number))];
+  const cached = voiceIdsCache.get(segments);
+  if (cached) return cached;
+  const ids = [...new Set(segments.filter((s) => s.speaker === "prospect" && s.voice != null).map((s) => s.voice as number))];
+  voiceIdsCache.set(segments, ids);
+  return ids;
 }
 
 /**
@@ -499,6 +527,8 @@ function voiceIds(segments: MeetingSegment[]): number[] {
  * voice then has that name on the lines the app showed nobody for. "Them" beats a wrong name.
  */
 function learnedNames(segments: MeetingSegment[]): Record<number, string> {
+  const cached = learnedCache.get(segments);
+  if (cached) return cached;
   const tally = new Map<number, Map<string, number>>();
   for (const segment of segments) {
     if (segment.speaker !== "prospect" || segment.voice == null || !segment.name) continue;
@@ -512,6 +542,7 @@ function learnedNames(segments: MeetingSegment[]): Record<number, string> {
     const [name, lines] = [...names.entries()].sort((a, b) => b[1] - a[1])[0];
     if (lines >= LEARN_MIN_LINES && lines / total >= LEARN_MIN_SHARE) learned[voice] = name;
   }
+  learnedCache.set(segments, learned);
   return learned;
 }
 
@@ -562,7 +593,8 @@ export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTur
   const lastSettled = items.length ? items[items.length - 1].seen : -1;
   if (tails.every((tail) => tail.seen >= lastSettled)) {
     // Usual case: the tails began after everything settled, so they go last.
-    return displayRows(tails, settledRows(state.segments, state.voiceNames).map((row) => ({ ...row })), many);
+    // A copy of the list only: the settled rows themselves are shared and copied on change (displayRows).
+    return displayRows(tails, settledRows(state.segments, state.voiceNames).slice(), many);
   }
   // Something settled while a tail was still being written: the tail keeps the place it
   // appeared in, above what came after it, exactly where it will settle.
@@ -708,10 +740,14 @@ export function moveLines(state: MeetingTranscript, starts: number[], voice: num
   };
 }
 
-export function meetingLastLine(state: MeetingTranscript): string {
-  const rows = meetingDisplayTurns(state);
+/** The end of what is on screen, for the desktop island's line. */
+export function lastLineOf(rows: MeetingDisplayTurn[]): string {
   const last = rows[rows.length - 1];
   return last ? phraseTail(joinChunks(last.text, last.pending), 110) : "";
+}
+
+export function meetingLastLine(state: MeetingTranscript): string {
+  return lastLineOf(meetingDisplayTurns(state));
 }
 
 export type MeetingOverlayTurn = {
@@ -733,19 +769,21 @@ export function meetingOverlay(
   state: MeetingTranscript,
   { prospect }: { prospect?: string | null } = {},
 ): { turns: MeetingOverlayTurn[]; voices: MeetingVoice[] } {
-  const name = prospect?.trim() || null;
   const voices = meetingVoices(state);
+  const ctx = { prospect, manyVoices: voices.length >= 2 };
+  return { turns: meetingDisplayTurns(state).map((row) => overlayTurnOf(row, ctx)), voices };
+}
+
+/** One row as the island draws it. `manyVoices`: with several voices nobody can say which one is the contact. */
+export function overlayTurnOf(row: MeetingDisplayTurn, { prospect, manyVoices }: { prospect?: string | null; manyVoices: boolean }): MeetingOverlayTurn {
+  const name = prospect?.trim() || null;
   return {
-    turns: meetingDisplayTurns(state).map((row) => ({
-      key: row.key,
-      you: row.speaker === "rep",
-      // The contact's name is for a conversation with one other voice: with several, nobody can say which is the contact.
-      label: name && row.speaker === "prospect" && !row.name && voices.length < 2 ? name : row.label,
-      text: row.text,
-      pending: row.pending,
-      voice: row.voice ?? null,
-      starts: row.starts ?? [],
-    })),
-    voices,
+    key: row.key,
+    you: row.speaker === "rep",
+    label: name && row.speaker === "prospect" && !row.name && !manyVoices ? name : row.label,
+    text: row.text,
+    pending: row.pending,
+    voice: row.voice ?? null,
+    starts: row.starts ?? [],
   };
 }

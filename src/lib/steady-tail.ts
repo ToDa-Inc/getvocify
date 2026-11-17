@@ -1,4 +1,4 @@
-import type { MeetingTranscript } from "./meeting-transcript";
+import type { MeetingSegment, MeetingTranscript } from "./meeting-transcript";
 
 type Side = "rep" | "prospect" | "unknown";
 const SIDES: Side[] = ["rep", "prospect", "unknown"];
@@ -41,6 +41,18 @@ function after(shown: string[], final: string): string[] | null {
   return matched === settled.length ? shown.slice(index) : null;
 }
 
+/** The finals of each side, grouped once per segments array (a final makes a new one), not on every interim. */
+const finalsCache = new WeakMap<MeetingSegment[], Record<Side, MeetingSegment[]>>();
+
+function finalsBySide(segments: MeetingSegment[]): Record<Side, MeetingSegment[]> {
+  const cached = finalsCache.get(segments);
+  if (cached) return cached;
+  const bySide: Record<Side, MeetingSegment[]> = { rep: [], prospect: [], unknown: [] };
+  for (const segment of segments) bySide[(segment.speaker ?? "unknown") as Side].push(segment);
+  finalsCache.set(segments, bySide);
+  return bySide;
+}
+
 /**
  * The words still being transcribed, the way a reader can follow them. The live guess rewrites its last words several
  * times a second; on screen a word only appears once it has kept its form for `STEADY_MS` (a new line's bubble with its
@@ -64,8 +76,9 @@ export class SteadyTails {
   /** The transcript as the island should draw it at `now` (ms, any steady clock). */
   view(state: MeetingTranscript, now: number): MeetingTranscript {
     const interims: MeetingTranscript["interims"] = {};
+    const bySide = finalsBySide(state.segments);
     for (const side of SIDES) {
-      const finals = state.segments.filter((segment) => (segment.speaker ?? "unknown") === side);
+      const finals = bySide[side];
       const guess = state.interims[side];
       let track = this.tracks[side];
       // Words on screen whose start a final just settled: the rest of them, until the guess that continues them.

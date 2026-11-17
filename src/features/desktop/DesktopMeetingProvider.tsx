@@ -20,7 +20,7 @@ import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/
 import { api } from "@/shared/lib/api-client";
 import { liveTickets } from "./liveTickets";
 import { ROUTES } from "@/shared/lib/constants";
-import { overlayWithSpeaking } from "@/lib/typing-bubbles";
+import { OverlayFeed, RowMemo } from "@/lib/overlay-turns";
 import { SteadyTails } from "@/lib/steady-tail";
 import { openRepMic, serverEchoCancel, type EchoCancellation } from "@/lib/rep-mic";
 import { findChosen, isUnusual, loadChoice, loadUsual, micDevices, micName, saveChoice, saveUsual, type MicChoice, type MicDevice } from "@/lib/desktop-mic";
@@ -42,7 +42,7 @@ import {
   meetingDisplayTurns,
   meetingHasSpeech,
   meetingOtherSideSpoke,
-  meetingLastLine,
+  lastLineOf,
   meetingLabelIn,
   meetingOverlay,
   meetingParticipants,
@@ -84,7 +84,7 @@ import {
   type PostCall,
 } from "@/lib/post-call";
 import { playbooksApi } from "@/features/playbooks/api";
-import { useLanguage } from "@/lib/i18n";
+import { useLanguage, type Language } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
 import { INTERNAL_KEY, retagOptions, typeOptions, type TypeOption } from "@/lib/interactions";
 import { LIVE_CHANNELS, byChannel, channelTypeOptions, type LiveChannel } from "@/lib/type-channels";
@@ -220,6 +220,16 @@ const DONE_JOBS_KEPT = 6;
 const DONE_JOB_FOR_MS = 10 * 60 * 1000;
 
 export const DesktopMeetingContext = createContext<DesktopMeeting | null>(null);
+
+/** The settled lines the call type proposal reads: "Label: text", or the text when a line has no label. */
+function proposalLines(rows: MeetingDisplayTurn[], language: Language): string[] {
+  return rows
+    .filter((turn) => turn.text.trim())
+    .map((turn) => {
+      const label = meetingLabelIn(turn.label, language);
+      return label ? `${label}: ${turn.text}` : turn.text;
+    });
+}
 
 function formatElapsed(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -380,9 +390,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const nativeRef = useRef(false);
   /** What the island shows of the words still being transcribed (see SteadyTails). */
   const steadyRef = useRef(new SteadyTails());
-  const overlaySentRef = useRef("");
-  /** Overlays sent to the island since the last memory line in the app's log. */
+  /** What the island holds of the overlay: only what changed is sent (see OverlayFeed). */
+  const overlayFeedRef = useRef(new OverlayFeed());
+  /** Overlays sent to the island since the last memory line in the app's log, and their bytes. */
   const overlaySendsRef = useRef(0);
+  const overlayBytesRef = useRef(0);
   /** Each side's loudest sample and the transcriber's results since the last minute line in the app's log. */
   const minuteAudioRef = useRef({ youPeak: 0, themPeak: 0, repResults: 0, prospectResults: 0 });
   // The island is sent from callbacks that outlive a render: they read the rep's language from here.
@@ -560,22 +572,23 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (nativeRef.current) return;
     const view = steadyRef.current.view(state, performance.now());
     const prospect = vocifyCallRef.current?.contact?.name ?? null;
-    const overlay = meetingOverlay(view, { prospect });
-    const labelled = {
-      turns: overlay.turns.map((turn) => ({ ...turn, label: meetingLabelIn(turn.label, languageRef.current) })),
-      voices: overlay.voices.map((voice) => ({ ...voice, label: meetingLabelIn(voice.label, languageRef.current) ?? voice.label })),
-      // Who the calendar says is in this meeting: the island names a voice by picking one (a phone call has its contact).
-      people: overlay.voices.length && !vocifyCallRef.current ? meetingPeopleNow() : [],
-    };
-    const update = {
-      lastLine: meetingLastLine(view),
-      overlay: { ...labelled, turns: overlayWithSpeaking(labelled.turns, speakingRef.current, prospect?.trim() || null) },
-    };
-    const sent = JSON.stringify(update);
-    if (sent === overlaySentRef.current) return;
-    overlaySentRef.current = sent;
+    const language = languageRef.current;
+    const rows = meetingDisplayTurns(view);
+    const voices = meetingVoices(view);
+    const labelledVoices = voices.map((voice) => ({ ...voice, label: meetingLabelIn(voice.label, language) ?? voice.label }));
+    // Who the calendar says is in this meeting: the island names a voice by picking one (a phone call has its contact).
+    const people = voices.length && !vocifyCallRef.current ? meetingPeopleNow() : [];
+    const lastLine = lastLineOf(rows);
+    const change = overlayFeedRef.current.next(rows, { prospect, language }, voices.length >= 2, speakingRef.current, JSON.stringify({ lastLine, voices: labelledVoices, people }));
+    if (!change) return;
+    // An island that takes changes gets only those (`from`, then the turns from there); any other gets the whole list.
+    const incremental = getDesktopBridge()?.shell.overlayDelta === true;
+    const overlay = incremental
+      ? { from: change.from, turns: change.turns.slice(change.from), voices: labelledVoices, people }
+      : { turns: change.turns, voices: labelledVoices, people };
     overlaySendsRef.current += 1;
-    getDesktopBridge()?.shell.setState(update);
+    overlayBytesRef.current += JSON.stringify(overlay).length;
+    getDesktopBridge()?.shell.setState({ lastLine, overlay });
   }, []);
 
   // Once a minute while recording, in the desktop app's log: what this page holds. A 40-minute meeting grew it from 180
@@ -584,6 +597,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (phase !== "live") return;
     const started = Date.now();
     overlaySendsRef.current = 0;
+    overlayBytesRef.current = 0;
     const id = window.setInterval(() => {
       const heap = (performance as Performance & { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory;
       const mb = (bytes: number) => Math.round(bytes / 1048576);
@@ -592,7 +606,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         heapMB: heap ? mb(heap.usedJSHeapSize) : null,
         heapTotalMB: heap ? mb(heap.totalJSHeapSize) : null,
         socketQueuedKB: wsRef.current ? Math.round(wsRef.current.bufferedAmount / 1024) : null,
-        overlayKB: Math.round(overlaySentRef.current.length / 1024),
+        // Bytes of overlay sent to the island this minute (only what changed, when the island takes changes).
+        overlayKB: Math.round(overlayBytesRef.current / 1024),
         overlaySends: overlaySendsRef.current,
         segments: transcriptRef.current.segments.length,
         domNodes: document.getElementsByTagName("*").length,
@@ -603,6 +618,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         socket: wsRef.current ? ["connecting", "open", "closing", "closed"][wsRef.current.readyState] : "none",
       });
       overlaySendsRef.current = 0;
+      overlayBytesRef.current = 0;
       minuteAudioRef.current = { youPeak: 0, themPeak: 0, repResults: 0, prospectResults: 0 };
     }, 60_000);
     return () => window.clearInterval(id);
@@ -1855,6 +1871,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         lastLine: "",
         overlay: meetingOverlay(EMPTY_MEETING_TRANSCRIPT),
       });
+      // The island now holds no turns: the next overlay follows from there.
+      overlayFeedRef.current.reset();
       await bridge.shell.showOverlay();
       // The island offers the company's call types, starting from Vocify's free guess
       // (the last conversation with this contact, else the routing rule).
@@ -2145,8 +2163,18 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     [releaseAudio, saveDraftNow],
   );
 
-  const turns = useMemo(() => meetingDisplayTurns(transcript).map((turn) => ({ ...turn, label: meetingLabelIn(turn.label, language) })), [transcript, language]);
-  const voices = useMemo(() => meetingVoices(transcript).map((voice) => ({ ...voice, label: meetingLabelIn(voice.label, language) ?? voice.label })), [transcript, language]);
+  // Rows keep their objects while they do not change, so the transcript only draws the rows that changed.
+  const turnRowsRef = useRef(new RowMemo<MeetingDisplayTurn, MeetingDisplayTurn>());
+  const turns = useMemo(
+    () => turnRowsRef.current.update(meetingDisplayTurns(transcript), language, (turn) => ({ ...turn, label: meetingLabelIn(turn.label, language) })),
+    [transcript, language],
+  );
+  // Keyed by what the voices are, not the transcript: an interim leaves the voice rows (and the rows drawn from them) as they were.
+  const { segments, voiceNames } = transcript;
+  const voices = useMemo(
+    () => meetingVoices({ segments, voiceNames, interims: {} }).map((voice) => ({ ...voice, label: meetingLabelIn(voice.label, language) ?? voice.label })),
+    [segments, voiceNames, language],
+  );
   const hasVoices = voices.length > 0;
   const people = useMemo(() => (hasVoices && callMode === "meeting" && !vocifyCallRef.current ? meetingPeopleNow() : []), [hasVoices, callMode]);
 
@@ -2164,15 +2192,20 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const changeVoicesRef = useRef(changeVoices);
   changeVoicesRef.current = changeVoices;
 
+  // The words the proposal has to read: counted when a line settles (a final), not on every interim.
+  const settledWords = useMemo(
+    () => proposalLines(meetingDisplayTurns({ segments, voiceNames, interims: {} }), language).reduce((sum, line) => sum + line.split(/\s+/).length, 0),
+    [segments, voiceNames, language],
+  );
+
   // One model proposal once the conversation says enough, a second only if it was unsure.
   useEffect(() => {
     // Only Interna offered (a channel with no types): nothing to propose, and no proposal spent.
     if (phase !== "live" || !typeOptionsRef.current.some((option) => option.key !== "internal")) return;
-    const lines = turns.filter((turn) => turn.text.trim()).map((turn) => (turn.label ? `${turn.label}: ${turn.text}` : turn.text));
-    const words = lines.reduce((sum, line) => sum + line.split(/\s+/).length, 0);
     const state = proposalRef.current;
     const picked = Boolean(callTypeRef.current.rep);
-    if (state.busy || !proposalDue({ words, attempts: state.attempts, picked, lastConfident: state.lastConfident, total: state.total })) return;
+    if (state.busy || !proposalDue({ words: settledWords, attempts: state.attempts, picked, lastConfident: state.lastConfident, total: state.total })) return;
+    const lines = proposalLines(meetingDisplayTurns(transcriptRef.current), languageRef.current);
     state.busy = true;
     state.attempts += 1;
     state.total += 1;
@@ -2194,7 +2227,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       .finally(() => {
         state.busy = false;
       });
-  }, [phase, turns, applyCallType]);
+  }, [phase, settledWords, applyCallType, callType]);
 
   const shownCallType = useMemo(() => callTypeShown(callType), [callType]);
   // Separate entry points, so a click handler's event is never taken for a call session.

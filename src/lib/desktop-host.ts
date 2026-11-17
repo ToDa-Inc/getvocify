@@ -56,6 +56,11 @@ export type VocifyDesktopBridge = {
   };
   shell: {
     setState(state: Record<string, unknown>): void;
+    /**
+     * The overlay can come as changes: `overlay.from` is the index of the first turn that changed, and `overlay.turns`
+     * are the turns from there on (the rest of the list is kept). Missing in older builds, which take the whole list.
+     */
+    overlayDelta?: boolean;
     resize(size: string): Promise<unknown>;
     showOverlay(): Promise<unknown>;
     hideOverlay(): Promise<unknown>;

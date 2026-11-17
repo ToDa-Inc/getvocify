@@ -24,10 +24,9 @@ type OverlayTurnLike = { key: string; you: boolean; label: string | null; text: 
 
 /** The island's turns with a waiting turn for each side that is speaking and has no words on screen (same rule as the dashboard's bubbles). */
 export function overlayWithSpeaking<T extends OverlayTurnLike>(turns: T[], speaking: SpeakingSides, prospectLabel: string | null): T[] {
-  const { insideLast, extra } = typingPlacement(
-    turns.map((turn) => ({ speaker: turn.you ? "rep" : "prospect", pending: turn.pending })),
-    speaking,
-  );
+  // Only the last turn decides the placement: no copy of the list for each update.
+  const last = turns[turns.length - 1];
+  const { insideLast, extra } = typingPlacement(last ? [{ speaker: last.you ? "rep" : "prospect", pending: last.pending }] : [], speaking);
   if (!insideLast && extra.length === 0) return turns;
   const out = turns.slice();
   if (insideLast) out[out.length - 1] = { ...out[out.length - 1], pending: WAITING_WORDS };
