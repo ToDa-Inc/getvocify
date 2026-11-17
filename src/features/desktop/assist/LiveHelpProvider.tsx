@@ -58,7 +58,7 @@ export function LiveHelpProvider({ children }: { children: ReactNode }) {
     callMode: meeting.callMode,
     callId: meeting.callId,
     typeKey,
-    prospectLevel: meeting.levels.them,
+    levels: meeting.levels,
   });
   const brain = useLiveBrain(
     meeting.turns,
@@ -70,7 +70,7 @@ export function LiveHelpProvider({ children }: { children: ReactNode }) {
       callMode: meeting.callMode,
       typeKey,
       typeLabel: typeName,
-      prospectLevel: meeting.levels.them,
+      levels: meeting.levels,
       clockSeconds: clockSeconds(meeting.elapsed),
     },
   );

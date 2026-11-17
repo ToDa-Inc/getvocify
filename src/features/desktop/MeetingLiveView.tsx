@@ -12,6 +12,7 @@ import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { desktopPlatform, getDesktopBridge, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
 import { audioIssueCopy } from "@/lib/audio-health";
+import { useMeetingLevels, type MeetingLevels } from "@/lib/meeting-levels";
 import { useDesktopMeeting } from "./DesktopMeetingProvider";
 import { LiveAssistPanel } from "./assist/LiveAssistPanel";
 import { useLiveHelp } from "./assist/LiveHelpProvider";
@@ -22,6 +23,8 @@ import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/lib/i18n";
 
 const BAR_SHAPE = [0.45, 0.8, 1, 0.65];
+/** How long the dock takes to slide shut (its `duration-300`), with a frame to spare. */
+const DOCK_SLIDE_MS = 350;
 
 /** Granola-style meeting screen: your notes are the page, the conversation floats below. */
 export function MeetingLiveView() {
@@ -36,6 +39,15 @@ export function MeetingLiveView() {
   useEffect(() => {
     if (brainOn) setTranscriptOpen(false);
   }, [brainOn]);
+  // A closed dock does not draw the transcript (with the live brain it is closed, and its tab draws it): a hidden copy was
+  // laid out and measured on every word. It stays drawn while it slides shut.
+  const [dockDrawn, setDockDrawn] = useState(transcriptOpen);
+  if (transcriptOpen && !dockDrawn) setDockDrawn(true);
+  useEffect(() => {
+    if (transcriptOpen) return;
+    const timer = window.setTimeout(() => setDockDrawn(false), DOCK_SLIDE_MS);
+    return () => window.clearTimeout(timer);
+  }, [transcriptOpen]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -175,6 +187,7 @@ export function MeetingLiveView() {
                   </div>
                 </div>
                 <div ref={transcriptRef}>
+                {dockDrawn ? (
                 <LiveTranscript
                   finalTranscript=""
                   interimTranscript=""
@@ -188,6 +201,7 @@ export function MeetingLiveView() {
                   listeningHint="You and Them appear here as the meeting goes."
                   className="min-h-[200px] max-h-[min(42vh,460px)] rounded-none border-0 bg-transparent px-5 py-4 shadow-none ring-0"
                 />
+                ) : null}
                 </div>
               </div>
             </div>
@@ -204,8 +218,8 @@ export function MeetingLiveView() {
             ) : null}
 
             <div className="flex items-center gap-3 border-t border-border/50 px-4 py-3">
-              <LevelBars label="You" level={live ? meeting.levels.you : 0} silent={live && meeting.audioIssue === "mic"} />
-              <LevelBars label="Them" level={live ? meeting.levels.them : 0} silent={live && meeting.audioIssue === "call"} />
+              <LevelBars label="You" levels={meeting.levels} side="you" live={live} silent={live && meeting.audioIssue === "mic"} />
+              <LevelBars label="Them" levels={meeting.levels} side="them" live={live} silent={live && meeting.audioIssue === "call"} />
               {live ? (
                 <TooltipProvider delayDuration={300}>
                   <Tooltip>
@@ -324,8 +338,10 @@ function DockIcon({
 }
 
 /** Four bars that move with whoever is talking; flat when silent. */
-/** One side's loudness, named, so a side that stays flat is visible while the other talks. */
-function LevelBars({ label, level, silent }: { label: string; level: number; silent: boolean }) {
+/** One side's loudness, named, so a side that stays flat is visible while the other talks. It alone re-renders as it moves. */
+function LevelBars({ label, levels, side, live, silent }: { label: string; levels: MeetingLevels; side: "you" | "them"; live: boolean; silent: boolean }) {
+  const now = useMeetingLevels(levels);
+  const level = live ? now[side] : 0;
   return (
     <div className="flex items-center gap-1.5" aria-hidden>
       <div className="flex h-5 w-6 items-center justify-center gap-[3px]">

@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { playbooksApi } from "@/features/playbooks/api";
 import { getDesktopBridge } from "@/lib/desktop-host";
+import type { MeetingLevels } from "@/lib/meeting-levels";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { api } from "@/shared/lib/api-client";
-import { assistContext, BACKSTOP_MS, earlyOutcome, SPEAKING_NET_MS, supersedesReading, turnCheck, unfinishedPlan } from "@/lib/live-assist";
+import { assistTurn, BACKSTOP_MS, earlyOutcome, SPEAKING_NET_MS, supersedesReading, turnCheck, unfinishedPlan, withWindow, type AssistTurn } from "@/lib/live-assist";
 import {
   buildCardReading,
   buildReading,
@@ -60,8 +61,8 @@ export type LiveBrainCall = {
   typeKey?: string | null;
   /** The type's name as the rep sees it. */
   typeLabel?: string | null;
-  /** Their side's audio level (0–1): when it goes quiet is when they may have finished. */
-  prospectLevel?: number;
+  /** Each side's audio level (0–1): when theirs goes quiet is when they may have finished. */
+  levels?: MeetingLevels;
   /** The call's clock in seconds (the meeting's timer): when a strategic card appears. */
   clockSeconds?: number | null;
 };
@@ -444,7 +445,7 @@ export function useLiveBrain(
   const spokeRef = useRef(false);
   const earlyRef = useRef<{ key: string; controller: AbortController } | null>(null);
   /** Their words the turn check called unfinished while their audio said they were still speaking: checked again at their next pause. */
-  const waitingRef = useRef<NonNullable<ReturnType<typeof assistContext>> | null>(null);
+  const waitingRef = useRef<AssistTurn | null>(null);
   const markRef = useRef<ReadMark>(null);
   const lastPointsAtRef = useRef<number | null>(null);
   const repReadRef = useRef({ words: 0, at: null as number | null });
@@ -460,12 +461,12 @@ export function useLiveBrain(
     if (!only) readers.current!.progress.request({ reason, mark });
   };
 
-  const { paused, quietSinceRef: _quiet } = useProspectPause(active ? call.prospectLevel : undefined);
+  const { paused, quietSinceRef: _quiet } = useProspectPause(active ? call.levels : null);
   void _quiet;
   const lastKeyRef = useRef("");
   const checkRef = useRef<AbortController | null>(null);
 
-  const found = active ? assistContext(turns, markRef.current) : null;
+  const found = active ? assistTurn(turns, markRef.current) : null;
   const key = found?.key ?? "";
   keyRef.current = key;
   pausedRef.current = paused;
@@ -482,8 +483,9 @@ export function useLiveBrain(
     checkRef.current?.abort();
     const controller = new AbortController();
     checkRef.current = controller;
+    // The conversation around their words is read now, for this check, from the turns their words were seen in.
     void readTurn(
-      { ...ctx, ...(callRef.current.callId && { callId: callRef.current.callId }), ...(callRef.current.typeKey && { typeKey: callRef.current.typeKey }) },
+      { ...withWindow(ctx), ...(callRef.current.callId && { callId: callRef.current.callId }), ...(callRef.current.typeKey && { typeKey: callRef.current.typeKey }) },
       controller.signal,
     ).then((turn) => {
       if (controller.signal.aborted) return;
@@ -560,7 +562,7 @@ export function useLiveBrain(
   useEffect(() => () => window.clearTimeout(backstopRef.current), [key]);
 
   // After the rep's turns: their lines may settle a point or tick a step. Nothing new shows then.
-  const repTotal = repWords(turns);
+  const repTotal = useMemo(() => repWords(turns), [turns]);
   useEffect(() => {
     if (!active) return;
     const timer = window.setTimeout(() => {
@@ -872,14 +874,19 @@ export function useLiveBrain(
   const contact = useMemo(() => contactBrief(call.contactName, contactId ? activity.data : null), [call.contactName, contactId, activity.data]);
 
   // ---- the island: the whole state, throttled and as changes ----
-  const payload =
-    flag && callId
-      ? liveBrainPayload({
-          on: helpOn, callId, state, playbook, reading, offlineSince, drafts: drafts.length ? drafts : spotted && helpOn ? [spotted] : [], asks, typeChanged,
-          view: sayView ? "say" : "tabs", contact,
-        })
-      : null;
-  const json = JSON.stringify(payload);
+  // Built and serialized when what it holds changes, not on every render: the hook renders with each transcript update
+  // and each move of the call's meters, and the state it carries grows with the call.
+  const payload = useMemo(
+    () =>
+      flag && callId
+        ? liveBrainPayload({
+            on: helpOn, callId, state, playbook, reading, offlineSince, drafts: drafts.length ? drafts : spotted && helpOn ? [spotted] : [], asks, typeChanged,
+            view: sayView ? "say" : "tabs", contact,
+          })
+        : null,
+    [flag, callId, helpOn, state, playbook, reading, offlineSince, drafts, spotted, asks, typeChanged, sayView, contact],
+  );
+  const json = useMemo(() => JSON.stringify(payload), [payload]);
   const pushed = useRef<string | undefined>(undefined);
   const pushTimer = useRef<number | undefined>(undefined);
   const latest = useRef(payload);

@@ -84,7 +84,7 @@ import {
   type PostCall,
 } from "@/lib/post-call";
 import { playbooksApi } from "@/features/playbooks/api";
-import { useLanguage, type Language } from "@/lib/i18n";
+import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
 import { INTERNAL_KEY, retagOptions, typeOptions, type TypeOption } from "@/lib/interactions";
 import { LIVE_CHANNELS, byChannel, channelTypeOptions, type LiveChannel } from "@/lib/type-channels";
@@ -107,6 +107,8 @@ import { callEngine, reportCallStep } from "@/features/calling/callEngine";
 import { isCallUp } from "@/lib/call-engine-state";
 import { AudioHealth, peak, pcmLevel, SILENT_PEAK, SPEAKING_PEAK, type AudioIssue } from "@/lib/audio-health";
 import { MicGain } from "@/lib/mic-gain";
+import { MeetingLevels } from "@/lib/meeting-levels";
+import { proposalLines, proposalWords } from "@/lib/proposal-lines";
 import { isBrokenGrant, reportCallAudio, reportMicSilent } from "@/lib/audio-fix";
 
 /** The app's own mic that is only digital silence this long has not been handed over: the page opens its own. */
@@ -150,8 +152,8 @@ export type DesktopMeeting = {
   paused: boolean;
   pause: () => void;
   resume: () => void;
-  /** 0–1 loudness of each side, for the live bars. */
-  levels: { you: number; them: number };
+  /** 0–1 loudness of each side, for the live bars and live help's pause: read with `useMeetingLevels` (not React state). */
+  levels: MeetingLevels;
   /** Each side is talking, or its words are still being transcribed (shown as the typing bubble; only some STT providers say). */
   speaking: { you: boolean; them: boolean };
   /** Audio that should be arriving isn't (a muted mic, call audio macOS won't hand over); null while it flows. */
@@ -221,16 +223,6 @@ const DONE_JOB_FOR_MS = 10 * 60 * 1000;
 
 export const DesktopMeetingContext = createContext<DesktopMeeting | null>(null);
 
-/** The settled lines the call type proposal reads: "Label: text", or the text when a line has no label. */
-function proposalLines(rows: MeetingDisplayTurn[], language: Language): string[] {
-  return rows
-    .filter((turn) => turn.text.trim())
-    .map((turn) => {
-      const label = meetingLabelIn(turn.label, language);
-      return label ? `${label}: ${turn.text}` : turn.text;
-    });
-}
-
 function formatElapsed(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
@@ -294,7 +286,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const pausedRef = useRef(false);
   const pausedAtRef = useRef(0);
   const pausedTotalRef = useRef(0);
-  const [levels, setLevels] = useState({ you: 0, them: 0 });
+  const levels = useRef(new MeetingLevels()).current;
   const levelRef = useRef({ you: 0, them: 0 });
   const [speaking, setSpeaking] = useState({ you: false, them: false });
   const [audioIssue, setAudioIssue] = useState<AudioIssue>(null);
@@ -690,7 +682,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       timerRef.current = null;
     }
     levelRef.current = { you: 0, them: 0 };
-    setLevels({ you: 0, them: 0 });
+    levels.set({ you: 0, them: 0 });
     setSpeaking({ you: false, them: false });
     speakingRef.current = { rep: false, prospect: false };
     healthRef.current = null;
@@ -708,7 +700,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     await getDesktopBridge()?.systemAudio.stop();
     await ctxRef.current?.close().catch(() => {});
     ctxRef.current = null;
-  }, [pushMic]);
+  }, [levels, pushMic]);
 
   const openSocket = useCallback(() => {
     // A new session times its audio from zero again: who spoke is timed from its first audio too.
@@ -1662,11 +1654,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             levelRef.current = next;
             // Shown as they arrive (4 a second): the meter timer runs once a second while this window is
             // hidden, which made live help notice the prospect's pause up to a second late.
-            setLevels((prev) =>
-              prev.you === levelStep(next.you) && prev.them === levelStep(next.them)
-                ? prev
-                : { you: levelStep(next.you), them: levelStep(next.them) },
-            );
+            levels.set({ you: levelStep(next.you), them: levelStep(next.them) });
           }),
           recorder.onWarning(({ text }) => setWarning(text)),
           bridge.systemAudio.onLost?.(onCallAudioLost) ?? (() => {}),
@@ -1838,11 +1826,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       setPaused(false);
       timerRef.current = window.setInterval(() => {
         const { you, them } = levelRef.current;
-        setLevels((prev) =>
-          prev.you === levelStep(you) && prev.them === levelStep(them)
-            ? prev
-            : { you: levelStep(you), them: levelStep(them) },
-        );
+        levels.set({ you: levelStep(you), them: levelStep(them) });
         levelRef.current = { you: you * 0.6, them: them * 0.6 };
         const health = healthRef.current;
         if (health && !micHeardRef.current && health.everHeard("you")) {
@@ -1913,7 +1897,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       void bridge.shell.hideOverlay();
       bridge.shell.command("show");
     }
-  }, [applyCallType, clearNotes, endPostCall, fail, listMics, meetingClock, navigate, openSocket, pushMic, releaseAudio, sendOverlay, setJobs, setPhase, t, typeName, updateTranscript, user?.id]);
+  }, [applyCallType, clearNotes, endPostCall, fail, levels, listMics, meetingClock, navigate, openSocket, pushMic, releaseAudio, sendOverlay, setJobs, setPhase, t, typeName, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(
@@ -2204,7 +2188,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
   // The words the proposal has to read: counted when a line settles (a final), not on every interim.
   const settledWords = useMemo(
-    () => proposalLines(meetingDisplayTurns({ segments, voiceNames, interims: {} }), language).reduce((sum, line) => sum + line.split(/\s+/).length, 0),
+    () => proposalWords(meetingDisplayTurns({ segments, voiceNames, interims: {} }), language),
     [segments, voiceNames, language],
   );
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   answerCard,
-  assistContext,
+  assistTurn,
   BACKSTOP_MS,
   checkPath,
   checkStamps,
@@ -14,11 +14,14 @@ import {
   prospectSilent,
   skipAnswered,
   turnCheck,
+  withWindow,
   type AssistCard,
   type AssistContext,
+  type AssistTurn,
 } from "@/lib/live-assist";
 import type { MeetingDisplayTurn } from "@/lib/meeting-transcript";
 import { getDesktopBridge } from "@/lib/desktop-host";
+import type { MeetingLevels } from "@/lib/meeting-levels";
 import { ASSIST_SOURCES, readTurn } from "./sources";
 
 /** An answer later than this is no use: the rep has said the filler and moved on. The card stays. */
@@ -33,31 +36,46 @@ function note(name: string, details: Record<string, unknown> = {}) {
  * Whether the prospect has paused: true once their side has been quiet for PAUSE_MS, false while
  * they speak, null until their audio has been heard at all (then live help reads only the words).
  */
-export function useProspectPause(level: number | undefined) {
+export function useProspectPause(levels: MeetingLevels | null | undefined) {
   const heardRef = useRef(false);
   /** When their audio last went quiet (null while they speak or before it was heard): for the event log. */
   const quietSinceRef = useRef<number | null>(null);
   const levelRef = useRef<number | null>(null);
   const floorRef = useRef<number | null>(null);
   const [paused, setPaused] = useState(false);
-  // Their line's own noise: a real microphone or a phone line is never digital silence, so quiet is measured from it.
-  const readingsRef = useRef<{ t: number; level: number }[]>([]);
-  const now = Date.now();
-  if (level !== undefined) {
-    readingsRef.current.push({ t: now, level });
-    if (readingsRef.current.length > 200) readingsRef.current.splice(0, readingsRef.current.length - 200);
-  }
-  // A steady level does not change, so nothing re-renders: a once-a-second tick keeps the floor current.
-  const [, setTick] = useState(0);
+  // Their level is read as it moves (up to eight times a second), outside React: the hook renders only when their side
+  // goes quiet or starts again, not with each move of the meter.
+  const [silent, setSilent] = useState(true);
   useEffect(() => {
-    const timer = window.setInterval(() => setTick((n) => n + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  const line = lineLevels(readingsRef.current, now);
-  floorRef.current = line?.floor ?? null;
-  levelRef.current = level ?? null;
-  const silent = level === undefined || prospectSilent(level, line);
-  if (!silent) heardRef.current = true;
+    // Their line's own noise: a real microphone or a phone line is never digital silence, so quiet is measured from it.
+    const readings: { t: number; level: number }[] = [];
+    if (!levels) {
+      levelRef.current = null;
+      floorRef.current = null;
+      setSilent(true);
+      return;
+    }
+    const read = () => {
+      const now = Date.now();
+      const level = levels.get().them;
+      readings.push({ t: now, level });
+      if (readings.length > 200) readings.splice(0, readings.length - 200);
+      const line = lineLevels(readings, now);
+      floorRef.current = line?.floor ?? null;
+      levelRef.current = level;
+      const quiet = prospectSilent(level, line);
+      if (!quiet) heardRef.current = true;
+      setSilent(quiet);
+    };
+    read();
+    const off = levels.subscribe(read);
+    // A steady level does not change, so nothing is heard: a once-a-second reading keeps the floor current.
+    const timer = window.setInterval(read, 1000);
+    return () => {
+      off();
+      window.clearInterval(timer);
+    };
+  }, [levels]);
   useEffect(() => {
     setPaused(false);
     quietSinceRef.current = silent && heardRef.current ? Date.now() : null;
@@ -86,16 +104,15 @@ export type LiveAssistCall = {
   callId?: string | null;
   /** The call's type: help uses that playbook. */
   typeKey?: string | null;
-  /** Their side's audio level (0–1): when it goes quiet is when they may have finished. */
-  prospectLevel?: number;
+  /** Each side's audio level (0–1): when theirs goes quiet is when they may have finished. */
+  levels?: MeetingLevels;
 };
 
-type Found = NonNullable<ReturnType<typeof assistContext>>;
 
 export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, call: LiveAssistCall = {}) {
   const [active, setActive] = useState<AssistCard | null>(null);
   const [thinking, setThinking] = useState(false);
-  const { paused, quietSinceRef, levelRef, floorRef } = useProspectPause(call.prospectLevel);
+  const { paused, quietSinceRef, levelRef, floorRef } = useProspectPause(call.levels);
   /** When their words last changed (the transcript revising counts), to time a check against it. */
   const changedAtRef = useRef(0);
   /** The words last checked: the same words are never checked twice. */
@@ -128,7 +145,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
     setThinking(false);
   }, [call.callId]);
 
-  const found = enabled ? assistContext(turns, askedRef.current) : null;
+  const found = enabled ? assistTurn(turns, askedRef.current) : null;
   const context = found
     ? {
         ...found,
@@ -201,10 +218,12 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
 
   /** One turn check on their words. final: they have been quiet long enough that "still going" means done. */
   const check = (
-    ctx: AssistContext & Found,
+    turn: AssistTurn,
     final: boolean,
     how: { path: ReturnType<typeof checkPath> | "backstop"; waitMs: number; deferred: boolean },
   ) => {
+    // The conversation around their words is read now, for this check, from the turns their words were seen in.
+    const ctx = withWindow(turn);
     lastKeyRef.current = ctx.key;
     checkRef.current?.abort();
     const controller = new AbortController();
@@ -230,7 +249,7 @@ export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, cal
       note("turn", { latest: ctx.latestTurn, ...reading, final, step: step.do, ms: Date.now() - since });
       if (step.do === "wait") {
         backstopRef.current = window.setTimeout(
-          () => check(ctx, true, { path: "backstop", waitMs: BACKSTOP_MS, deferred: false }),
+          () => check(turn, true, { path: "backstop", waitMs: BACKSTOP_MS, deferred: false }),
           BACKSTOP_MS,
         );
         return;

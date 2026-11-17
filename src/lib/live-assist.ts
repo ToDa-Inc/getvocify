@@ -85,7 +85,7 @@ export function windowOf(lines: string[]): string {
 
 /**
  * `windowOf` of the spoken turns, computed from the turns themselves: only the lines the window keeps are read, from the
- * start and from the end, so a check costs its window and not the length of the call (a check runs on every render).
+ * start and from the end, so a check costs its window and not the length of the call.
  * The same text as `windowOf(turns.filter(spoken).map(line))`. A window that cuts the call never overlaps itself: the
  * head and the tail together would then fit in the whole, which is what the cut is for.
  */
@@ -444,11 +444,24 @@ function spoken(turn: MeetingDisplayTurn): string {
   return [turn.text.trim(), turn.pending.trim()].filter(Boolean).join(" ");
 }
 
-export function assistContext(
+/**
+ * Their latest words and what identifies them: cheap enough for every render (live help reads it on each one, up to ten a
+ * second while the call's meters move). `turns` is the conversation it came from; the window is read from it only when a
+ * check goes out (`withWindow`), not on every render: building it each time made ~75 MB of strings a minute.
+ */
+export type AssistTurn = Omit<AssistContext, "transcriptWindow"> & {
+  key: string;
+  turnKey: string;
+  length: number;
+  settled: boolean;
+  turns: MeetingDisplayTurn[];
+};
+
+export function assistTurn(
   turns: MeetingDisplayTurn[],
   /** What the last ask already covered of their current turn: only the words since then are new. */
   asked?: { turnKey: string; length: number } | null,
-): (AssistContext & { key: string; turnKey: string; length: number; settled: boolean }) | null {
+): AssistTurn | null {
   // Words still settling count: the transcription can take seconds to settle the end of a
   // sentence, and that end is usually the objection. A pause in what they say is enough.
   let at = turns.length - 1;
@@ -462,15 +475,28 @@ export function assistContext(
   const fresh = said.slice(covered).trim();
   if (fresh.split(/\s+/).length < MIN_WORDS) return null;
   const latestTurn = phraseTail(fresh, LATEST_CHARS).replace(/^…/, "");
-  const transcriptWindow = transcriptWindowOf(turns);
   return {
     key: `${theirs.key}:${said.length}`,
     turnKey: theirs.key,
     length: said.length,
     settled: !theirs.pending.trim(),
     latestTurn,
-    transcriptWindow,
+    turns,
   };
+}
+
+/** What a check sends: the turn, with the conversation it came from as the prompt's window. */
+export function withWindow<T extends AssistTurn>(turn: T): Omit<T, "turns"> & { transcriptWindow: string } {
+  const { turns, ...rest } = turn;
+  return { ...rest, transcriptWindow: transcriptWindowOf(turns) };
+}
+
+export function assistContext(
+  turns: MeetingDisplayTurn[],
+  asked?: { turnKey: string; length: number } | null,
+): (AssistContext & { key: string; turnKey: string; length: number; settled: boolean }) | null {
+  const found = assistTurn(turns, asked);
+  return found && withWindow(found);
 }
 
 /** Only a real objection with something to say becomes a card; no filler advice. */
