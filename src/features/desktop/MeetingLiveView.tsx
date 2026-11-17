@@ -71,6 +71,7 @@ export function MeetingLiveView() {
 
   const copyTranscript = async () => {
     const text = meeting.turns
+      .slice()
       .map((turn) => {
         const body = [turn.text, turn.pending].filter(Boolean).join(" ");
         return turn.label ? `${turn.label}: ${body}` : body;

@@ -32,7 +32,7 @@ import {
   type ReadingCall,
   type ReadingTarget,
 } from "@/lib/live-brain";
-import type { MeetingDisplayTurn } from "@/lib/meeting-transcript";
+import type { MeetingDisplayTurn, RowList } from "@/lib/meeting-transcript";
 import { applyPoints, applyProgress, applyRewrite, dismissPoint, emptyLiveState, tick, untick } from "../../../../shared/live-call/state.js";
 import { createReader } from "../../../../shared/live-call/reader.js";
 import { EVENTS_PER_REQUEST, LiveBrainError, pointsResult, postEvents, readCard, readSlow, streamPoints, type LiveUiEvent } from "./liveBrainApi";
@@ -86,7 +86,7 @@ const NO_ASKS: LiveBrainAsks = { responder: null, recap: null, step: null, rewri
  * card or nothing (backend services/copilot/live_card.py); Responder and the rep's other asks stay with the points producer.
  */
 export function useLiveBrain(
-  turns: MeetingDisplayTurn[],
+  turns: RowList<MeetingDisplayTurn>,
   opts: { flag: boolean; enabled: boolean; helpOn: boolean; sayView?: boolean; card?: boolean },
   call: LiveBrainCall = {},
 ) {

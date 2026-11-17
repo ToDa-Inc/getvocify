@@ -1,4 +1,4 @@
-import { meetingLabelIn, type MeetingDisplayTurn } from "./meeting-transcript.ts";
+import { meetingLabelIn, sumRows, type MeetingDisplayTurn, type RowList } from "./meeting-transcript.ts";
 
 type Language = "EN" | "ES";
 
@@ -13,19 +13,21 @@ export function proposalLines(rows: MeetingDisplayTurn[], language: Language): s
   return rows.filter((turn) => turn.text.trim()).map((turn) => proposalLine(turn, language));
 }
 
-/** Words of each row's proposal line, kept per row: a settled row keeps its object, so a final counts only the rows it changed. */
-const lineWords = new WeakMap<MeetingDisplayTurn, { language: Language; words: number }>();
+/** Words of each row's proposal line, kept per row and language: a settled row keeps its object. */
+const lineWords = { EN: new WeakMap<MeetingDisplayTurn, number>(), ES: new WeakMap<MeetingDisplayTurn, number>() };
+/** Their sum over the rows the call's versions share, per language. */
+const sumMemo = { EN: new WeakMap<object, number[]>(), ES: new WeakMap<object, number[]>() };
 
-/** How many words the proposal would read (the words of `proposalLines`), without building the lines again on every final. */
-export function proposalWords(rows: MeetingDisplayTurn[], language: Language): number {
-  let sum = 0;
-  for (const row of rows) {
-    let known = lineWords.get(row);
-    if (known?.language !== language) {
-      known = { language, words: row.text.trim() ? proposalLine(row, language).split(/\s+/).length : 0 };
-      lineWords.set(row, known);
+/** How many words the proposal would read (the words of `proposalLines`): a final counts only the rows after the shared ones. */
+export function proposalWords(rows: RowList<MeetingDisplayTurn>, language: Language): number {
+  const known = lineWords[language];
+  const count = (row: MeetingDisplayTurn) => {
+    let words = known.get(row);
+    if (words === undefined) {
+      words = row.text.trim() ? proposalLine(row, language).split(/\s+/).length : 0;
+      known.set(row, words);
     }
-    sum += known.words;
-  }
-  return sum;
+    return words;
+  };
+  return sumRows(rows, count, sumMemo[language]);
 }

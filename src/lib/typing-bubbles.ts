@@ -1,3 +1,5 @@
+import type { RowList } from "./meeting-transcript.ts";
+
 export type SpeakingSides = { rep?: boolean; prospect?: boolean };
 
 type TurnLike = { speaker: string; pending?: string };
@@ -22,16 +24,36 @@ export const WAITING_WORDS = "\u00a0";
 
 type OverlayTurnLike = { key: string; you: boolean; label: string | null; text: string; pending: string };
 
-/** The island's turns with a waiting turn for each side that is speaking and has no words on screen (same rule as the dashboard's bubbles). */
-export function overlayWithSpeaking<T extends OverlayTurnLike>(turns: T[], speaking: SpeakingSides, prospectLabel: string | null): T[] {
-  // Only the last turn decides the placement: no copy of the list for each update.
-  const last = turns[turns.length - 1];
+/** The island's turns with a waiting turn for each side that is speaking and has no words on screen (same rule as the
+ * dashboard's bubbles). Only the end of the list changes: the rest is read from `turns` as it is, never copied. */
+export function overlayWithSpeaking<T extends OverlayTurnLike>(turns: RowList<T>, speaking: SpeakingSides, prospectLabel: string | null): RowList<T> {
+  const last = turns.at(-1);
   const { insideLast, extra } = typingPlacement(last ? [{ speaker: last.you ? "rep" : "prospect", pending: last.pending }] : [], speaking);
   if (!insideLast && extra.length === 0) return turns;
-  const out = turns.slice();
-  if (insideLast) out[out.length - 1] = { ...out[out.length - 1], pending: WAITING_WORDS };
-  for (const side of extra) {
-    out.push({ key: `speaking-${side}`, you: side === "rep", label: side === "rep" ? null : prospectLabel, text: "", pending: WAITING_WORDS } as T);
-  }
-  return out;
+  const n = turns.length;
+  const lastShown = insideLast && last ? ({ ...last, pending: WAITING_WORDS } as T) : null;
+  const added = extra.map(
+    (side) => ({ key: `speaking-${side}`, you: side === "rep", label: side === "rep" ? null : prospectLabel, text: "", pending: WAITING_WORDS }) as T,
+  );
+  const length = n + added.length;
+  const at = (index: number): T | undefined => {
+    const i = index < 0 ? length + index : index;
+    if (i < 0 || i >= length) return undefined;
+    if (i >= n) return added[i - n];
+    if (lastShown && i === n - 1) return lastShown;
+    return turns.at(i);
+  };
+  const shared = turns.shared;
+  return {
+    length,
+    at,
+    slice: (start = 0, end = length) => {
+      const from = Math.max(0, start < 0 ? length + start : Math.min(start, length));
+      const to = Math.max(from, end < 0 ? length + end : Math.min(end, length));
+      const out: T[] = [];
+      for (let i = from; i < to; i++) out.push(at(i) as T);
+      return out;
+    },
+    ...(shared ? { shared: { key: shared.key, length: Math.min(shared.length, lastShown ? n - 1 : n) } } : {}),
+  };
 }

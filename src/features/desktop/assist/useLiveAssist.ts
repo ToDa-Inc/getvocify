@@ -19,7 +19,7 @@ import {
   type AssistContext,
   type AssistTurn,
 } from "@/lib/live-assist";
-import type { MeetingDisplayTurn } from "@/lib/meeting-transcript";
+import type { MeetingDisplayTurn, RowList } from "@/lib/meeting-transcript";
 import { getDesktopBridge } from "@/lib/desktop-host";
 import type { MeetingLevels } from "@/lib/meeting-levels";
 import { ASSIST_SOURCES, readTurn } from "./sources";
@@ -109,7 +109,7 @@ export type LiveAssistCall = {
 };
 
 
-export function useLiveAssist(turns: MeetingDisplayTurn[], enabled: boolean, call: LiveAssistCall = {}) {
+export function useLiveAssist(turns: RowList<MeetingDisplayTurn>, enabled: boolean, call: LiveAssistCall = {}) {
   const [active, setActive] = useState<AssistCard | null>(null);
   const [thinking, setThinking] = useState(false);
   const { paused, quietSinceRef, levelRef, floorRef } = useProspectPause(call.levels);

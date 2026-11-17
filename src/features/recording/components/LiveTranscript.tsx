@@ -11,7 +11,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 import { ArrowDown } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import type { MeetingDisplayTurn, MeetingVoice } from '@/lib/meeting-transcript';
+import type { MeetingDisplayTurn, MeetingVoice, RowList } from '@/lib/meeting-transcript';
 import type { VoiceAction } from '@/lib/voice-actions';
 import { VoiceLabel } from './VoiceLabel';
 import { bubblesForTurn } from '@/lib/transcript-bubbles';
@@ -32,8 +32,8 @@ interface LiveTranscriptProps {
   interimTranscript: string;
   /** Primary final transcript */
   finalTranscript: string;
-  /** Speaker-separated paragraphs; replaces final/interim text when given */
-  turns?: MeetingDisplayTurn[];
+  /** Speaker-separated paragraphs; replaces final/interim text when given. Read by index: a live call's list is not copied. */
+  turns?: RowList<MeetingDisplayTurn>;
   /** The other side's voices, and what the rep can do to them: a turn's label then opens a menu to rename, merge or move it */
   voices?: MeetingVoice[];
   /** Who the calendar says is in the meeting: what a voice can be named with one click. */
@@ -131,7 +131,10 @@ export function LiveTranscript({
   }, [isActive]);
   // A search reads the whole call; otherwise a live call draws its latest lines.
   const hidden = turns && isActive && !query && !showEarlier ? Math.max(0, turns.length - LIVE_WINDOW) : 0;
-  const typing = turns && isActive && speaking ? typingPlacement(turns, speaking) : { insideLast: false, extra: [] };
+  const lastTurn = turns?.at(-1);
+  const typing = turns && isActive && speaking ? typingPlacement(lastTurn ? [lastTurn] : [], speaking) : { insideLast: false, extra: [] };
+  // What is drawn: the latest lines while the call is live, all of them otherwise (or when asked to).
+  const shown = turns ? turns.slice(hidden) : [];
   const hasContent = turns ? turns.length > 0 || Boolean(speaking && isActive && (speaking.rep || speaking.prospect)) : Boolean(finalTranscript || interimTranscript);
 
   const jumpToLive = useCallback(() => {
@@ -196,7 +199,7 @@ export function LiveTranscript({
                 {hidden} earlier
               </button>
             ) : null}
-            {(hidden ? turns.slice(hidden) : turns).map((turn, index) => (
+            {shown.map((turn, index) => (
               <TranscriptRow
                 key={turn.key}
                 turn={turn}

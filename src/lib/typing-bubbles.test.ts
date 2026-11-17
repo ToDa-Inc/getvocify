@@ -34,15 +34,15 @@ describe("overlayWithSpeaking (the island)", () => {
 
   it("marks the last turn as waiting for words when its speaker talks", () => {
     const out = overlayWithSpeaking([turn(true, "Hola"), turn(false, "Dime")], { prospect: true }, "Ana");
-    expect(out.map((t) => t.pending)).toEqual(["", WAITING_WORDS]);
+    expect(out.slice().map((t) => t.pending)).toEqual(["", WAITING_WORDS]);
   });
 
   it("adds a waiting turn for a speaker with no turn at the end, named like the prospect, and one before anything is said", () => {
-    expect(overlayWithSpeaking([turn(true, "Hola")], { prospect: true }, "Ana")).toEqual([
+    expect(overlayWithSpeaking([turn(true, "Hola")], { prospect: true }, "Ana").slice()).toEqual([
       turn(true, "Hola"),
       { key: "speaking-prospect", you: false, label: "Ana", text: "", pending: WAITING_WORDS },
     ]);
-    expect(overlayWithSpeaking([], { rep: true }, null)).toEqual([{ key: "speaking-rep", you: true, label: null, text: "", pending: WAITING_WORDS }]);
+    expect(overlayWithSpeaking([], { rep: true }, null).slice()).toEqual([{ key: "speaking-rep", you: true, label: null, text: "", pending: WAITING_WORDS }]);
   });
 
   it("leaves words that are already settling alone, and never shows text (a no-break space trims away)", () => {

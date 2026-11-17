@@ -3,7 +3,7 @@
 // hook (features/desktop/assist/useLiveBrain.ts) does the I/O. The state and its merging are shared/live-call/state.js.
 //
 // No `@/` imports: this file runs under node --test.
-import type { MeetingDisplayTurn } from "./meeting-transcript.ts";
+import { sumRows, type MeetingDisplayTurn, type RowList } from "./meeting-transcript.ts";
 import { islandBrief } from "./desktop-call.ts";
 import { emptyLiveState, pointsIn, progressIn } from "../../shared/live-call/state.js";
 
@@ -45,8 +45,8 @@ export function spoken(turn: Pick<MeetingDisplayTurn, "text" | "pending">): stri
 }
 
 /** The call as the backend wants it. A turn with no known side is left out: the brain never guesses who spoke. */
-export function toWireTurns(turns: MeetingDisplayTurn[]): WireTurn[] {
-  const wire = turns.flatMap((turn): WireTurn[] => {
+export function toWireTurns(turns: RowList<MeetingDisplayTurn>): WireTurn[] {
+  const wire = turns.slice().flatMap((turn): WireTurn[] => {
     const text = spoken(turn);
     if (!text || !turn.speaker) return [];
     return [
@@ -65,20 +65,23 @@ export function toWireTurns(turns: MeetingDisplayTurn[]): WireTurn[] {
 /** A turn's word count. Display rows are never changed once built (a row that changes is a new object), so it is kept per row. */
 const wordsOfTurn = new WeakMap<MeetingDisplayTurn, number>();
 
-/** Words the rep has said in the whole call: a reading after their turns happens once enough new ones are there. */
-export function repWords(turns: MeetingDisplayTurn[]): number {
-  let total = 0;
-  for (const turn of turns) {
-    if (turn.speaker !== "rep") continue;
-    let words = wordsOfTurn.get(turn);
-    if (words === undefined) {
-      const text = spoken(turn);
-      words = text ? text.split(/\s+/).length : 0;
-      wordsOfTurn.set(turn, words);
-    }
-    total += words;
+function repWordsOf(turn: MeetingDisplayTurn): number {
+  if (turn.speaker !== "rep") return 0;
+  let words = wordsOfTurn.get(turn);
+  if (words === undefined) {
+    const text = spoken(turn);
+    words = text ? text.split(/\s+/).length : 0;
+    wordsOfTurn.set(turn, words);
   }
-  return total;
+  return words;
+}
+
+/** The rep's words over the rows the call's versions share, kept: an update adds only the rows after them. */
+const repWordsMemo = new WeakMap<object, number[]>();
+
+/** Words the rep has said in the whole call: a reading after their turns happens once enough new ones are there. */
+export function repWords(turns: RowList<MeetingDisplayTurn>): number {
+  return sumRows(turns, repWordsOf, repWordsMemo);
 }
 
 /** A reading after the rep spoke: enough new words since the last one, and not sooner than REP_GAP_MS after it. */

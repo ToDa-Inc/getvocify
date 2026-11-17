@@ -1,4 +1,4 @@
-import { phraseTail, type MeetingDisplayTurn } from "./meeting-transcript.ts";
+import { phraseTail, type MeetingDisplayTurn, type RowList } from "./meeting-transcript.ts";
 import type { ObjectionSuggestion } from "../features/copilot/types.ts";
 
 /** What an assist source sees: the conversation so far and what they just said. */
@@ -89,12 +89,13 @@ export function windowOf(lines: string[]): string {
  * The same text as `windowOf(turns.filter(spoken).map(line))`. A window that cuts the call never overlaps itself: the
  * head and the tail together would then fit in the whole, which is what the cut is for.
  */
-export function transcriptWindowOf(turns: MeetingDisplayTurn[]): string {
+export function transcriptWindowOf(turns: RowList<MeetingDisplayTurn>): string {
   const line = (turn: MeetingDisplayTurn) => (turn.label ? `${turn.label}: ${spoken(turn)}` : spoken(turn));
   const whole: string[] = [];
   // Sum of each line and its newline: the joined text is one less, so it fits when this is at most the limit plus one.
   let length = 0;
-  for (const turn of turns) {
+  for (let index = 0; index < turns.length; index++) {
+    const turn = turns.at(index) as MeetingDisplayTurn;
     if (!spoken(turn)) continue;
     const text = line(turn);
     length += text.length + 1;
@@ -109,8 +110,9 @@ export function transcriptWindowOf(turns: MeetingDisplayTurn[]): string {
   let tailChars = 0;
   let last: string | null = null;
   for (let index = turns.length - 1; index >= 0; index--) {
-    if (!spoken(turns[index])) continue;
-    const text = line(turns[index]);
+    const turn = turns.at(index) as MeetingDisplayTurn;
+    if (!spoken(turn)) continue;
+    const text = line(turn);
     last ??= text;
     if (tailChars + text.length + 1 > WINDOW_TAIL_CHARS) break;
     tailChars += text.length + 1;
@@ -269,14 +271,15 @@ export function cooldownLeft(shownAt: number | null, now: number, cooldownMs = C
  * Whether the rep has already answered the prospect's turn: they have said enough words since it. Then a card
  * written for it now would answer something already dealt with.
  */
-export function repReplied(turns: MeetingDisplayTurn[], turnKey: string, minWords = REP_ANSWERED_WORDS): boolean {
-  const at = turns.findIndex((turn) => turn.key === turnKey);
-  if (at < 0) return false;
-  const words = turns
-    .slice(at + 1)
-    .filter((turn) => turn.speaker === "rep")
-    .reduce((total, turn) => total + (spoken(turn) ? spoken(turn).split(/\s+/).length : 0), 0);
-  return words >= minWords;
+export function repReplied(turns: RowList<MeetingDisplayTurn>, turnKey: string, minWords = REP_ANSWERED_WORDS): boolean {
+  // Read from the end back to their turn (a recent one): the rest of the call is not walked.
+  let words = 0;
+  for (let index = turns.length - 1; index >= 0; index--) {
+    const turn = turns.at(index) as MeetingDisplayTurn;
+    if (turn.key === turnKey) return words >= minWords;
+    if (turn.speaker === "rep" && spoken(turn)) words += spoken(turn).split(/\s+/).length;
+  }
+  return false;
 }
 
 /**
@@ -289,7 +292,7 @@ export function checkTiming(input: { afterMs: number; shownAt: number | null; no
 }
 
 /** Decided when the waiting check fires: skipped only if it waited and the rep has answered them meanwhile. */
-export function skipAnswered(deferred: boolean, turns: MeetingDisplayTurn[], turnKey: string): boolean {
+export function skipAnswered(deferred: boolean, turns: RowList<MeetingDisplayTurn>, turnKey: string): boolean {
   return deferred && repReplied(turns, turnKey);
 }
 
@@ -454,20 +457,21 @@ export type AssistTurn = Omit<AssistContext, "transcriptWindow"> & {
   turnKey: string;
   length: number;
   settled: boolean;
-  turns: MeetingDisplayTurn[];
+  turns: RowList<MeetingDisplayTurn>;
 };
 
 export function assistTurn(
-  turns: MeetingDisplayTurn[],
+  turns: RowList<MeetingDisplayTurn>,
   /** What the last ask already covered of their current turn: only the words since then are new. */
   asked?: { turnKey: string; length: number } | null,
 ): AssistTurn | null {
   // Words still settling count: the transcription can take seconds to settle the end of a
   // sentence, and that end is usually the objection. A pause in what they say is enough.
   let at = turns.length - 1;
-  while (at >= 0 && !(turns[at].speaker === "prospect" && spoken(turns[at]))) at -= 1;
+  const turnAt = (index: number) => turns.at(index) as MeetingDisplayTurn;
+  while (at >= 0 && !(turnAt(at).speaker === "prospect" && spoken(turnAt(at)))) at -= 1;
   if (at < 0) return null;
-  const theirs = turns[at];
+  const theirs = turnAt(at);
   const said = spoken(theirs);
   // A prospect who says several things in a row stays one turn; help answers the newest of them,
   // never one it already answered.
@@ -492,7 +496,7 @@ export function withWindow<T extends AssistTurn>(turn: T): Omit<T, "turns"> & { 
 }
 
 export function assistContext(
-  turns: MeetingDisplayTurn[],
+  turns: RowList<MeetingDisplayTurn>,
   asked?: { turnKey: string; length: number } | null,
 ): (AssistContext & { key: string; turnKey: string; length: number; settled: boolean }) | null {
   const found = assistTurn(turns, asked);

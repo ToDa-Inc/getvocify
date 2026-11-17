@@ -40,6 +40,7 @@ import {
   normalizeMeetingTranscript,
   EMPTY_MEETING_TRANSCRIPT,
   meetingDisplayTurns,
+  meetingRows,
   meetingHasSpeech,
   meetingOtherSideSpoke,
   lastLineOf,
@@ -49,6 +50,7 @@ import {
   meetingUploadText,
   settleMeeting,
   type MeetingDisplayTurn,
+  type RowList,
   type MeetingSpeaker,
   type MeetingTranscript,
 } from "@/lib/meeting-transcript";
@@ -160,7 +162,8 @@ export type DesktopMeeting = {
   audioIssue: AudioIssue;
   error: string | null;
   warning: string | null;
-  turns: MeetingDisplayTurn[];
+  /** The conversation's rows: read the latest ones by index (`at`, `slice`); the whole call is `slice()`. */
+  turns: RowList<MeetingDisplayTurn>;
   /** The voices heard on the other side (when the backend tells them apart), and what the rep can do to them. */
   voices: MeetingVoice[];
   /** Who the calendar says is in this meeting (none on a phone call): a voice is named by picking one. */
@@ -575,7 +578,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const view = steadyRef.current.view(state, performance.now());
     const prospect = vocifyCallRef.current?.contact?.name ?? null;
     const language = languageRef.current;
-    const rows = meetingDisplayTurns(view);
+    const rows = meetingRows(view);
     const voices = meetingVoices(view);
     const labelledVoices = voices.map((voice) => ({ ...voice, label: meetingLabelIn(voice.label, language) ?? voice.label }));
     // Who the calendar says is in this meeting: the island names a voice by picking one (a phone call has its contact).
@@ -587,7 +590,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const incremental = getDesktopBridge()?.shell.overlayDelta === true;
     const overlay = incremental
       ? { from: change.from, turns: change.turns.slice(change.from), voices: labelledVoices, people }
-      : { turns: change.turns, voices: labelledVoices, people };
+      : { turns: change.turns.slice(), voices: labelledVoices, people };
     overlaySendsRef.current += 1;
     overlayBytesRef.current += JSON.stringify(overlay).length;
     getDesktopBridge()?.shell.setState({ lastLine, overlay });
@@ -2160,7 +2163,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   // Rows keep their objects while they do not change, so the transcript only draws the rows that changed.
   const turnRowsRef = useRef(new RowMemo<MeetingDisplayTurn, MeetingDisplayTurn>());
   const turns = useMemo(
-    () => turnRowsRef.current.update(meetingDisplayTurns(transcript), language, (turn) => ({ ...turn, label: meetingLabelIn(turn.label, language) })),
+    () => turnRowsRef.current.update(meetingRows(transcript), language, (turn) => ({ ...turn, label: meetingLabelIn(turn.label, language) })),
     [transcript, language],
   );
   // Keyed by what the voices are, not the transcript: an interim leaves the voice rows (and the rows drawn from them) as they were.
@@ -2188,7 +2191,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
   // The words the proposal has to read: counted when a line settles (a final), not on every interim.
   const settledWords = useMemo(
-    () => proposalWords(meetingDisplayTurns({ segments, voiceNames, interims: {} }), language),
+    () => proposalWords(meetingRows({ segments, voiceNames, interims: {} }), language),
     [segments, voiceNames, language],
   );
 
