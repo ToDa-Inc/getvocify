@@ -372,6 +372,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const overlaySentRef = useRef("");
   /** Overlays sent to the island since the last memory line in the app's log. */
   const overlaySendsRef = useRef(0);
+  /** Each side's loudest sample and the transcriber's results since the last minute line in the app's log. */
+  const minuteAudioRef = useRef({ youPeak: 0, themPeak: 0, repResults: 0, prospectResults: 0 });
   // The island is sent from callbacks that outlive a render: they read the rep's language from here.
   const languageRef = useRef(language);
   languageRef.current = language;
@@ -571,8 +573,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         overlaySends: overlaySendsRef.current,
         segments: transcriptRef.current.segments.length,
         domNodes: document.getElementsByTagName("*").length,
+        // Whether each side's audio is heard at all (loudest sample, 0-32767), what reached the server, and whether
+        // words came back: a side with no peak is silent at the source, one with a peak and no words is lost after.
+        ...minuteAudioRef.current,
+        sentKB: { rep: Math.round(sentBytesRef.current.rep / 1024), prospect: Math.round(sentBytesRef.current.prospect / 1024) },
+        socket: wsRef.current ? ["connecting", "open", "closing", "closed"][wsRef.current.readyState] : "none",
       });
       overlaySendsRef.current = 0;
+      minuteAudioRef.current = { youPeak: 0, themPeak: 0, repResults: 0, prospectResults: 0 };
     }, 60_000);
     return () => window.clearInterval(id);
   }, [phase]);
@@ -695,6 +703,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         // Once per side and recording, in the desktop app's log: when its first words came back. A side that starts
         // late (or never) is why the other person's voice, heard by the mic, shows as the rep's.
         const side = data.audio_channel === "rep" || data.audio_channel === "prospect" ? data.audio_channel : null;
+        if (side && data.channel?.alternatives?.[0]?.transcript?.trim()) minuteAudioRef.current[side === "rep" ? "repResults" : "prospectResults"] += 1;
         if (side && !firstWordsRef.current[side] && data.channel?.alternatives?.[0]?.transcript?.trim()) {
           firstWordsRef.current[side] = true;
           getDesktopBridge()?.shell.log?.("transcript-first-words", {
@@ -1643,6 +1652,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
             // The loudest sample each side had, for the app's log: what silence really measures on a rep's machine.
             if (side === "them") activity.themPeak = Math.max(activity.themPeak, loudest);
             else activity.youPeak = Math.max(activity.youPeak, loudest);
+            const minute = minuteAudioRef.current;
+            if (side === "them") minute.themPeak = Math.max(minute.themPeak, loudest);
+            else minute.youPeak = Math.max(minute.youPeak, loudest);
             if (performance.now() - activity.at >= 1000) {
               bridge.shell.setState({ callActivity: { them: activity.them, you: activity.you, themPeak: activity.themPeak, youPeak: activity.youPeak } });
               activity.them = false;
