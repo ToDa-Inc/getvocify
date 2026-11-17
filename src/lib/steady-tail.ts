@@ -63,6 +63,8 @@ function finalsBySide(segments: MeetingSegment[]): Record<Side, MeetingSegment[]
 export class SteadyTails {
   private tracks: Partial<Record<Side, Track>> = {};
   private readonly steadyMs: number;
+  /** The last view and the state it was made from: asked again with nothing new to show, it is the same object. */
+  private last: { state: MeetingTranscript; view: MeetingTranscript } | null = null;
 
   constructor(steadyMs: number = STEADY_MS) {
     this.steadyMs = steadyMs;
@@ -121,6 +123,14 @@ export class SteadyTails {
       // word is the most rewritten of all on real calls ("Oh." → "Hold" → "Hola,").
       if (track.shown.length) interims[side] = track.shown.join(" ");
     }
-    return { ...state, interims };
+    const last = this.last;
+    if (last && last.state === state && sameInterims(last.view.interims, interims)) return last.view;
+    const view = { ...state, interims };
+    this.last = { state, view };
+    return view;
   }
+}
+
+function sameInterims(a: MeetingTranscript["interims"], b: MeetingTranscript["interims"]): boolean {
+  return SIDES.every((side) => a[side] === b[side]);
 }

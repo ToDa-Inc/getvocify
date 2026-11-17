@@ -14,6 +14,8 @@ export class RowMemo<T extends object, R> {
   built = 0;
 
   update(rows: T[], ctx: string, make: (row: T) => R): R[] {
+    // The same rows again (the island's clock while nothing new was said): the same values, without walking them.
+    if (rows === this.rows && ctx === this.ctx) return this.out;
     if (ctx !== this.ctx) {
       this.ctx = ctx;
       this.rows = [];
@@ -52,6 +54,7 @@ function sameFields(a: object, b: object | undefined): boolean {
 /** The index of the first item that is not the same object in `prev` (null: nothing sent yet, so from the start). */
 export function firstChanged<T>(prev: T[] | null, next: T[]): number {
   if (!prev) return 0;
+  if (prev === next) return next.length;
   const shared = Math.min(prev.length, next.length);
   let index = 0;
   while (index < shared && prev[index] === next[index]) index += 1;

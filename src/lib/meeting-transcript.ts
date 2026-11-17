@@ -749,7 +749,18 @@ function learnedNames(segments: MeetingSegment[]): Record<number, string> {
   return learned;
 }
 
+/** The rows of each transcript state, once: a state never changes, and the island's clock asks again for the same one. */
+const displayCache = new WeakMap<MeetingTranscript, MeetingDisplayTurn[]>();
+
 export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTurn[] {
+  const cached = displayCache.get(state);
+  if (cached) return cached;
+  const rows = displayTurnsOf(state);
+  displayCache.set(state, rows);
+  return rows;
+}
+
+function displayTurnsOf(state: MeetingTranscript): MeetingDisplayTurn[] {
   const f = foldFor(state.segments, state.voiceNames);
   const nextSeen = state.nextSeen ?? state.segments.length;
   const tails = SPEAKER_ORDER.flatMap((key) => {
@@ -758,6 +769,8 @@ export function meetingDisplayTurns(state: MeetingTranscript): MeetingDisplayTur
     const start = state.interimStarts?.[key] ?? null;
     return [{ seen: state.interimSeen?.[key] ?? nextSeen, speaker: speakerFromKey(key), text: "", pending, start, end: start }];
   }).sort((a, b) => a.seen - b.seen);
+  // Nothing still being said: the rows are the fold's own (an array the fold never changes once built).
+  if (!tails.length) return f.rows;
   // The settled rows before the first tail's place are the ones kept; the tails and what settled after them are drawn.
   const k = tails.length ? firstPast(f.items, (item) => item.seen, tails[0].seen) : f.items.length;
   const ordered = f.items.slice(k);

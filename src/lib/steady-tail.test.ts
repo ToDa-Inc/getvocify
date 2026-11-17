@@ -56,3 +56,17 @@ describe("SteadyTails", () => {
     assert.equal(s.interims.prospect, "Hola que tal");
   });
 });
+
+describe("SteadyTails, asked again with nothing new to show", () => {
+  it("gives the same view, so the rows drawn from it are not built again", () => {
+    const tails = new SteadyTails(500);
+    const state = guess(EMPTY_MEETING_TRANSCRIPT, "hola que tal");
+    const first = tails.view(state, 0);
+    assert.equal(tails.view(state, 100), first, "words still waiting, none shown yet");
+    const steady = tails.view(state, 600);
+    assert.notEqual(steady, first, "the words became steady: a new view");
+    assert.equal(steady.interims.prospect, "hola que tal");
+    assert.equal(tails.view(state, 700), steady);
+    assert.notEqual(tails.view(guess(state, "hola que tal amigo"), 800), steady, "a new guess is a new state");
+  });
+});

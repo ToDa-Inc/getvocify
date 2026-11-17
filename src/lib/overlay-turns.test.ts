@@ -94,3 +94,16 @@ describe("the overlay sent to the desktop app over a call", () => {
     assert.ok(lateMost < 12, `an update at minute 30 or later resent ${lateMost} turns`);
   });
 });
+
+describe("RowMemo and firstChanged with the same rows again", () => {
+  it("return what they gave before without walking the rows", async () => {
+    const { RowMemo, firstChanged } = await import("./overlay-turns.ts");
+    const state = applyChannelResult(EMPTY_MEETING_TRANSCRIPT, { text: "Hola, qué tal", isFinal: true, audioChannel: "rep", start: 0, end: 1 });
+    const rows = meetingDisplayTurns(state);
+    assert.equal(meetingDisplayTurns(state), rows, "a transcript state has its rows once");
+    const memo = new RowMemo<(typeof rows)[number], { key: string }>();
+    const out = memo.update(rows, "EN", (row) => ({ key: row.key }));
+    assert.equal(memo.update(rows, "EN", (row) => ({ key: row.key })), out);
+    assert.equal(firstChanged(out, out), out.length);
+  });
+});
