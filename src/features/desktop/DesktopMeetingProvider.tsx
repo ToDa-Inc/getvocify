@@ -86,7 +86,7 @@ import {
 import { playbooksApi } from "@/features/playbooks/api";
 import { useLanguage } from "@/lib/i18n";
 import { motionLabel } from "@/lib/motion-label";
-import { retagOptions, typeOptions, type TypeOption } from "@/lib/interactions";
+import { INTERNAL_KEY, retagOptions, typeOptions, type TypeOption } from "@/lib/interactions";
 import { LIVE_CHANNELS, byChannel, channelTypeOptions, type LiveChannel } from "@/lib/type-channels";
 import {
   NO_CALL_TYPE,
@@ -129,9 +129,17 @@ export type VocifyCallSession = {
   contact: MeetingDraft["contact"] | null;
 };
 
+export type TypeChoice = { key: string; label: string };
+/** Both channels' types at once, so the menu can list them under "Llamadas" and "Reuniones" (a type of both is in both);
+ * `general` are the ones outside any channel (Interna), listed once at the end. */
+export type ChannelTypes = {
+  groups: { key: "call" | "meeting"; label: string; options: TypeChoice[] }[];
+  general: TypeChoice[];
+};
+
 export type CallTypeMenu = {
   options: { key: string; label: string }[];
-  channel: { selected: "call" | "meeting"; fixed: boolean; options: { key: "call" | "meeting"; label: string }[] } | null;
+  channel: ({ selected: "call" | "meeting"; fixed: boolean; options: { key: "call" | "meeting"; label: string }[] } & Partial<ChannelTypes>) | null;
 };
 
 export type DesktopMeeting = {
@@ -176,7 +184,8 @@ export type DesktopMeeting = {
    * channel); null when there is nothing to choose. */
   typeMenu: CallTypeMenu | null;
   /** The rep's pick of type for this call (null: Vocify decides), the same as a pick in the island. */
-  pickCallType: (key: string | null) => void;
+  /** `channel`: the type was picked under the other channel's heading, so the call switches to it with the type. */
+  pickCallType: (key: string | null, channel?: "call" | "meeting") => void;
   /** The rep's switch of channel for this call (types by channel), the same as in the island. */
   pickChannel: (kind: "call" | "meeting") => void;
   start: () => Promise<void>;
@@ -334,6 +343,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const allTypesRef = useRef<{ options: TypeOption[]; payload: unknown } | null>(null);
   const channelLabelsRef = useRef<Record<string, string>>(t.product.interactions.channel);
   channelLabelsRef.current = t.product.interactions.channel;
+  const channelPluralRef = useRef<Record<string, string>>(t.product.interactions.channels);
+  channelPluralRef.current = t.product.interactions.channels;
   /** The model proposals asked this call (at most two). */
   // `attempts` per channel (a switch starts them again), `total` for the whole call.
   const proposalRef = useRef({ attempts: 0, total: 0, lastConfident: false, busy: false });
@@ -488,12 +499,24 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const all = allTypesRef.current;
     const draft = draftRef.current;
     // Types by channel: the island also shows the channel, switchable unless the call is Vocify's own.
+    const fixed = Boolean(vocifyCallRef.current);
     const channel =
       all && draft && byChannel(all.payload)
         ? {
             selected: callKind(draft),
-            fixed: Boolean(vocifyCallRef.current),
+            fixed,
             options: LIVE_CHANNELS.map((key) => ({ key, label: channelLabelsRef.current[key] })),
+            // A Vocify call never switches channel: its menu stays the channel's own types.
+            ...(!fixed && {
+              groups: LIVE_CHANNELS.map((key) => ({
+                key,
+                label: channelPluralRef.current[key],
+                options: channelTypeOptions(all.options, all.payload, key)
+                  .filter((option) => option.key !== INTERNAL_KEY)
+                  .map(({ key: typeKey, label }) => ({ key: typeKey, label })),
+              })),
+              general: all.options.filter((option) => option.key === INTERNAL_KEY).map(({ key: typeKey, label }) => ({ key: typeKey, label })),
+            }),
           }
         : null;
     if (typeOptionsRef.current.length || channel) {
@@ -2047,11 +2070,6 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     },
     [applyCallType],
   );
-  useEffect(() => {
-    const bridge = getDesktopBridge();
-    if (!bridge?.shell.onCallType) return;
-    return bridge.shell.onCallType(({ key }) => pickCallType(key));
-  }, [pickCallType]);
 
   /** The rep switched channel (types by channel), in the island or in the compact window: the types, the proposals and
    * live help follow it. A Vocify call is a call by construction and never switches. */
@@ -2078,6 +2096,21 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (!bridge?.shell.onCallChannel) return;
     return bridge.shell.onCallChannel(({ kind }) => pickChannel(kind));
   }, [pickChannel]);
+
+  /** A type picked under a channel's heading: the channel switches first (its types and proposals), then the type is the
+   * rep's own pick. The island sends the channel with the type; an island that does not know the field sends the key alone. */
+  const pickCallTypeIn = useCallback(
+    (key: string | null, channel?: "call" | "meeting") => {
+      if (channel) pickChannel(channel);
+      pickCallType(key);
+    },
+    [pickChannel, pickCallType],
+  );
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge?.shell.onCallType) return;
+    return bridge.shell.onCallType(({ key, channel }) => pickCallTypeIn(key, channel));
+  }, [pickCallTypeIn]);
 
   // Where the call happens; a recording that already started without it picks it up.
   useEffect(() => {
@@ -2221,7 +2254,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       callId,
       liveHelpOverride,
       typeMenu,
-      pickCallType,
+      pickCallType: pickCallTypeIn,
       pickChannel,
       start: startMeeting,
       startHere,
@@ -2233,7 +2266,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, voices, people, changeVoices, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallType, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, notePage, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, voices, people, changeVoices, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallTypeIn, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, notePage, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

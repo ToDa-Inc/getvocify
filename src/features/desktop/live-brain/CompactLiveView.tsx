@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Maximize2, MessageSquareReply, Pause, Play, ScrollText, Sparkles, Square, X } from "lucide-react";
+import { ChevronDown, Maximize2, MessageSquareReply, Pause, Phone, Play, ScrollText, Sparkles, Square, Video, X } from "lucide-react";
 import { IconAction } from "@/components/ui/icon-action";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -110,8 +109,12 @@ export function CompactLiveView({
           />
           <span className="shrink-0 pl-1 text-[12px] tabular-nums text-foreground">{meeting.paused ? `${copy.compact.paused} · ${meeting.elapsed}` : meeting.elapsed}</span>
           <div className="flex min-w-0 flex-1 pl-1">
-            <TypeMenu meeting={meeting} typeName={typeName} copy={copy} helpOn={helpOn} onHelpChange={onHelpChange} />
+            <TypeMenu meeting={meeting} typeName={typeName} copy={copy} />
           </div>
+          {/* Live help is a setting of the call, not a type: its own switch, set once per call. */}
+          <IconAction label={copy.switchLabel} pressed={helpOn} onClick={() => onHelpChange(!helpOn)}>
+            <Sparkles />
+          </IconAction>
           <IconAction label={meeting.paused ? copy.compact.resume : copy.compact.pause} onClick={meeting.paused ? meeting.resume : meeting.pause}>
             {meeting.paused ? <Play /> : <Pause />}
           </IconAction>
@@ -212,26 +215,23 @@ export function CompactLiveView({
   );
 }
 
-/** The call's type, as the island's menu: the channel when types go by channel, then the channel's types (Vocify's
- * proposal marked), or letting Vocify decide; under them, live help on or off for this call. The chip reads like the
- * island's: "Llamada · Descubrimiento". */
-function TypeMenu({
-  meeting,
-  typeName,
-  copy,
-  helpOn,
-  onHelpChange,
-}: {
-  meeting: DesktopMeeting;
-  typeName: string | null;
-  copy: LiveCopy;
-  helpOn: boolean;
-  onHelpChange: (on: boolean) => void;
-}) {
+/** The call's type, as the island's menu: one list. With types by channel it is two headings, Llamadas and Reuniones,
+ * each with its types (a type of both is under both), and Interna once at the end; picking one sets the type and the
+ * channel under whose heading it is. A call that cannot switch channel (Vocify's own) lists just its types. Vocify's
+ * proposal is marked with a sparkle. Live help is not here: it has its own switch. */
+function TypeMenu({ meeting, typeName, copy }: { meeting: DesktopMeeting; typeName: string | null; copy: LiveCopy }) {
   const menu = meeting.typeMenu;
-  const channel = menu?.channel ?? null;
-  // Only the chosen type: the channel is in the menu, not in front of the name.
+  const groups = menu?.channel?.groups ?? null;
+  const general = menu?.channel?.general ?? [];
+  const channelSelected = menu?.channel?.selected ?? null;
+  const key = meeting.callType.key;
+  const proposed = meeting.callType.proposed;
+  // Only the chosen type: the channel is the heading it sits under, not in front of the name.
   const label = typeName ?? copy.compact.noType;
+  const mark = (optionKey: string) =>
+    proposed && key === optionKey ? <span className="shrink-0 text-[11px] text-muted-foreground">{copy.compact.proposed}</span> : null;
+  // A value per row: a type under two headings is two rows, and only the one in the call's channel is ticked.
+  const value = proposed || !key ? "" : general.some((option) => option.key === key) ? `:${key}` : `${channelSelected}:${key}`;
   return (
     <DropdownMenu>
       <Tooltip>
@@ -242,7 +242,7 @@ function TypeMenu({
               className="inline-flex h-7 min-w-0 max-w-full items-center gap-1 rounded-full px-2 text-[12px] text-foreground transition-colors duration-150 hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/60 motion-reduce:transition-none"
             >
               <span className="min-w-0 truncate">{label}</span>
-              {menu && meeting.callType.proposed ? <Sparkles className="h-3 w-3 shrink-0 text-beige" strokeWidth={1.5} aria-label={copy.compact.proposed} /> : null}
+              {menu && proposed ? <Sparkles className="h-3 w-3 shrink-0 text-beige" strokeWidth={1.5} aria-label={copy.compact.proposed} /> : null}
               <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" strokeWidth={1.5} />
             </button>
           </DropdownMenuTrigger>
@@ -250,38 +250,49 @@ function TypeMenu({
         <TooltipContent side="bottom">{copy.compact.typeTip}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="start" className="w-64">
-        {channel && !channel.fixed ? (
-          <>
-            <DropdownMenuLabel>{copy.compact.channel}</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={channel.selected} onValueChange={(kind) => meeting.pickChannel(kind as "call" | "meeting")}>
-              {channel.options.map((option) => (
-                <DropdownMenuRadioItem key={option.key} value={option.key}>{option.label}</DropdownMenuRadioItem>
+        {menu && groups ? (
+          <DropdownMenuRadioGroup
+            value={value}
+            onValueChange={(next) => {
+              const [channel, optionKey] = next.split(":");
+              meeting.pickCallType(optionKey, channel === "call" || channel === "meeting" ? channel : undefined);
+            }}
+          >
+            {groups
+              .filter((group) => group.options.length > 0)
+              .map((group, index) => (
+                <div key={group.key}>
+                  {index > 0 ? <DropdownMenuSeparator /> : null}
+                  <DropdownMenuLabel className="flex items-center gap-1.5">
+                    {group.key === "call" ? <Phone className="h-3 w-3" strokeWidth={1.5} /> : <Video className="h-3 w-3" strokeWidth={1.5} />}
+                    {group.label}
+                  </DropdownMenuLabel>
+                  {group.options.map((option) => (
+                    <DropdownMenuRadioItem key={option.key} value={`${group.key}:${option.key}`}>
+                      <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                      {mark(option.key)}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </div>
               ))}
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-          </>
+            {general.length > 0 ? <DropdownMenuSeparator /> : null}
+            {general.map((option) => (
+              <DropdownMenuRadioItem key={option.key} value={`:${option.key}`}>
+                <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                {mark(option.key)}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        ) : menu ? (
+          <DropdownMenuRadioGroup value={proposed ? "" : key ?? ""} onValueChange={(next) => meeting.pickCallType(next || null)}>
+            {menu.options.map((option) => (
+              <DropdownMenuRadioItem key={option.key} value={option.key}>
+                <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                {mark(option.key)}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
         ) : null}
-        {menu ? (
-          <>
-            <DropdownMenuLabel>{copy.compact.type}</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={meeting.callType.proposed ? "" : meeting.callType.key ?? ""}
-              onValueChange={(key) => meeting.pickCallType(key || null)}
-            >
-              {menu.options.map((option) => (
-                <DropdownMenuRadioItem key={option.key} value={option.key}>
-                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                  {meeting.callType.proposed && meeting.callType.key === option.key ? (
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{copy.compact.proposed}</span>
-                  ) : null}
-                </DropdownMenuRadioItem>
-              ))}
-              <DropdownMenuRadioItem value="">{copy.compact.vocifyDecides}</DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-          </>
-        ) : null}
-        <DropdownMenuCheckboxItem checked={helpOn} onCheckedChange={(on) => onHelpChange(Boolean(on))}>{copy.switchLabel}</DropdownMenuCheckboxItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

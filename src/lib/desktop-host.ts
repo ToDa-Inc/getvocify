@@ -68,7 +68,7 @@ export type VocifyDesktopBridge = {
     log?(name: string, details?: Record<string, unknown>): void;
     onOverlayState?(cb: (state: Record<string, unknown>) => void): () => void;
     /** The call type picked in the island while recording ({ key: null }: Vocify decides). */
-    onCallType?(cb: (payload: { key: string | null }) => void): () => void;
+    onCallType?(cb: (payload: { key: string | null; channel?: "call" | "meeting" }) => void): () => void;
     /** The channel the rep switched to in the island (types by channel): sent when `liveType.channel`
      * is shown and not `fixed`. An island that does not know the field never sends it. */
     onCallChannel?(cb: (payload: { kind: "call" | "meeting" }) => void): () => void;
