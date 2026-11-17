@@ -62,11 +62,23 @@ export function toWireTurns(turns: MeetingDisplayTurn[]): WireTurn[] {
   return wire.length <= MAX_TURNS ? wire : [...wire.slice(0, HEAD_TURNS), ...wire.slice(wire.length - (MAX_TURNS - HEAD_TURNS))];
 }
 
+/** A turn's word count. Display rows are never changed once built (a row that changes is a new object), so it is kept per row. */
+const wordsOfTurn = new WeakMap<MeetingDisplayTurn, number>();
+
 /** Words the rep has said in the whole call: a reading after their turns happens once enough new ones are there. */
 export function repWords(turns: MeetingDisplayTurn[]): number {
-  return turns
-    .filter((turn) => turn.speaker === "rep")
-    .reduce((total, turn) => total + (spoken(turn) ? spoken(turn).split(/\s+/).length : 0), 0);
+  let total = 0;
+  for (const turn of turns) {
+    if (turn.speaker !== "rep") continue;
+    let words = wordsOfTurn.get(turn);
+    if (words === undefined) {
+      const text = spoken(turn);
+      words = text ? text.split(/\s+/).length : 0;
+      wordsOfTurn.set(turn, words);
+    }
+    total += words;
+  }
+  return total;
 }
 
 /** A reading after the rep spoke: enough new words since the last one, and not sooner than REP_GAP_MS after it. */

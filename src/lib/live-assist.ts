@@ -83,6 +83,44 @@ export function windowOf(lines: string[]): string {
   return [...lines.slice(0, head), WINDOW_GAP, ...newest].join("\n");
 }
 
+/**
+ * `windowOf` of the spoken turns, computed from the turns themselves: only the lines the window keeps are read, from the
+ * start and from the end, so a check costs its window and not the length of the call (a check runs on every render).
+ * The same text as `windowOf(turns.filter(spoken).map(line))`. A window that cuts the call never overlaps itself: the
+ * head and the tail together would then fit in the whole, which is what the cut is for.
+ */
+export function transcriptWindowOf(turns: MeetingDisplayTurn[]): string {
+  const line = (turn: MeetingDisplayTurn) => (turn.label ? `${turn.label}: ${spoken(turn)}` : spoken(turn));
+  const whole: string[] = [];
+  // Sum of each line and its newline: the joined text is one less, so it fits when this is at most the limit plus one.
+  let length = 0;
+  for (const turn of turns) {
+    if (!spoken(turn)) continue;
+    const text = line(turn);
+    length += text.length + 1;
+    if (length > WINDOW_HEAD_CHARS + WINDOW_TAIL_CHARS + 1) break;
+    whole.push(text);
+  }
+  if (length <= WINDOW_HEAD_CHARS + WINDOW_TAIL_CHARS + 1) return whole.join("\n");
+  let head = 0;
+  let headChars = 0;
+  while (head < whole.length && headChars + whole[head].length + 1 <= WINDOW_HEAD_CHARS) headChars += whole[head++].length + 1;
+  const tail: string[] = [];
+  let tailChars = 0;
+  let last: string | null = null;
+  for (let index = turns.length - 1; index >= 0; index--) {
+    if (!spoken(turns[index])) continue;
+    const text = line(turns[index]);
+    last ??= text;
+    if (tailChars + text.length + 1 > WINDOW_TAIL_CHARS) break;
+    tailChars += text.length + 1;
+    tail.push(text);
+  }
+  // One enormous line must not leave the window empty: it is cut, newest words kept.
+  const newest = tail.length ? tail.reverse() : [(last ?? "").slice(-WINDOW_TAIL_CHARS)];
+  return [...whole.slice(0, head), WINDOW_GAP, ...newest].join("\n");
+}
+
 const OBJECTION_LABEL: Record<string, string> = {
   price: "Price",
   timing: "Timing",
@@ -413,8 +451,10 @@ export function assistContext(
 ): (AssistContext & { key: string; turnKey: string; length: number; settled: boolean }) | null {
   // Words still settling count: the transcription can take seconds to settle the end of a
   // sentence, and that end is usually the objection. A pause in what they say is enough.
-  const theirs = [...turns].reverse().find((turn) => turn.speaker === "prospect" && spoken(turn));
-  if (!theirs) return null;
+  let at = turns.length - 1;
+  while (at >= 0 && !(turns[at].speaker === "prospect" && spoken(turns[at]))) at -= 1;
+  if (at < 0) return null;
+  const theirs = turns[at];
   const said = spoken(theirs);
   // A prospect who says several things in a row stays one turn; help answers the newest of them,
   // never one it already answered.
@@ -422,9 +462,7 @@ export function assistContext(
   const fresh = said.slice(covered).trim();
   if (fresh.split(/\s+/).length < MIN_WORDS) return null;
   const latestTurn = phraseTail(fresh, LATEST_CHARS).replace(/^…/, "");
-  const transcriptWindow = windowOf(
-    turns.filter((turn) => spoken(turn)).map((turn) => (turn.label ? `${turn.label}: ${spoken(turn)}` : spoken(turn))),
-  );
+  const transcriptWindow = transcriptWindowOf(turns);
   return {
     key: `${theirs.key}:${said.length}`,
     turnKey: theirs.key,

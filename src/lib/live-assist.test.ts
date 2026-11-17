@@ -473,3 +473,36 @@ describe("earlyOutcome", () => {
     assert.equal(earlyOutcome({ sameWords: true, spoke: true }), "recheck");
   });
 });
+
+describe("transcript window read from the turns", async () => {
+  const { transcriptWindowOf, windowOf } = await import("./live-assist.ts");
+  const { spoken } = await import("./live-brain.ts");
+  type Turn = Parameters<typeof transcriptWindowOf>[0][number];
+  const reference = (turns: Turn[]) =>
+    windowOf(turns.filter((turn) => spoken(turn)).map((turn) => (turn.label ? `${turn.label}: ${spoken(turn)}` : spoken(turn))));
+
+  it("is the window of the spoken lines, for calls of any length and line size", () => {
+    let seed = 3;
+    const random = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    for (let run = 0; run < 300; run++) {
+      const count = (random() * 60) | 0;
+      const turns = Array.from({ length: count }, (_, index) => {
+        const size = random() < 0.1 ? 4000 + ((random() * 20000) | 0) : (random() * 400) | 0;
+        const words = random() < 0.1 ? "" : "a".repeat(size);
+        return {
+          key: `k${index}`,
+          speaker: random() < 0.5 ? "rep" : "prospect",
+          label: random() < 0.5 ? "Them" : "",
+          text: random() < 0.8 ? words : "",
+          pending: random() < 0.2 ? "pend" : "",
+        } as Turn;
+      });
+      assert.equal(transcriptWindowOf(turns), reference(turns), `run ${run}`);
+    }
+  });
+
+  it("keeps the same window for a long call with many short turns", () => {
+    const turns = Array.from({ length: 900 }, (_, index) => ({ key: `k${index}`, speaker: index % 2 ? "rep" : "prospect", label: "Them", text: `line ${index} ${"w".repeat(index % 40)}`, pending: "" }) as Turn);
+    assert.equal(transcriptWindowOf(turns), reference(turns));
+  });
+});

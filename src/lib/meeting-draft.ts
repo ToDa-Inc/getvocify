@@ -1,4 +1,4 @@
-import { meetingHasSpeech, normalizeMeetingTranscript, type MeetingTranscript } from "./meeting-transcript.ts";
+import { meetingHasSpeech, normalizeMeetingTranscript, type MeetingSegment, type MeetingTranscript } from "./meeting-transcript.ts";
 
 /** A meeting kept on disk from its first words until the memo exists. */
 export type MeetingDraft = {
@@ -25,6 +25,42 @@ export type MeetingDraft = {
 };
 
 export type CallSourceInfo = { name: string; kind: "call" | "meeting" | null };
+
+/** A draft without its segments: what an append carries next to the segments it adds. */
+export type DraftHead = Omit<MeetingDraft, "transcript"> & { transcript: Omit<MeetingTranscript, "segments"> };
+
+/**
+ * What a save sends. The whole draft, or (when the desktop app keeps appends) only the segments added since the last
+ * save, from index `from` on, with the rest of the draft.
+ */
+export type DraftSave =
+  | { kind: "full"; draft: MeetingDraft }
+  | { kind: "append"; id: string; from: number; segments: MeetingSegment[]; draft: DraftHead };
+
+/** The segments of the draft as the desktop app last saved them (the same objects), or null when none are saved. */
+export type SavedSegments = { id: string; segments: MeetingSegment[] } | null;
+
+/**
+ * The save for a draft. An append when the segments saved before are still the first ones (the same objects, in the same
+ * places): an edit of a line (a voice) makes a new object, and then the whole draft goes. A save then costs what is new,
+ * not the length of the call.
+ */
+export function draftSaveFor(draft: MeetingDraft, saved: SavedSegments, canAppend: boolean): DraftSave {
+  const { segments, ...transcript } = draft.transcript;
+  if (!canAppend || !saved || saved.id !== draft.id || segments.length < saved.segments.length) return { kind: "full", draft };
+  if (segments !== saved.segments) {
+    for (let index = 0; index < saved.segments.length; index++) {
+      if (segments[index] !== saved.segments[index]) return { kind: "full", draft };
+    }
+  }
+  return {
+    kind: "append",
+    id: draft.id,
+    from: saved.segments.length,
+    segments: segments.slice(saved.segments.length),
+    draft: { ...draft, transcript },
+  };
+}
 
 function isDraft(value: unknown): value is MeetingDraft {
   const draft = value as MeetingDraft | null;

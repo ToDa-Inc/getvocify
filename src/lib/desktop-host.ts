@@ -208,6 +208,8 @@ export type VocifyDesktopBridge = {
   /** Meeting drafts on disk. Missing in builds older than local recovery. */
   drafts?: {
     save(draft: object): Promise<{ ok: boolean } | null>;
+    /** What changed since the last save (see draftSaveFor). Missing in builds older than the appended log: `save` only. */
+    append?(save: object): Promise<{ ok: boolean } | null>;
     list(): Promise<unknown[] | null>;
     remove(id: string): Promise<unknown>;
   };

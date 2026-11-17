@@ -52,7 +52,7 @@ import {
   type MeetingSpeaker,
   type MeetingTranscript,
 } from "@/lib/meeting-transcript";
-import { meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft } from "@/lib/meeting-draft";
+import { draftSaveFor, meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft, type SavedSegments } from "@/lib/meeting-draft";
 import { SpeakerTimeline } from "@/lib/speaker-timeline";
 import { meetingPeopleNow } from "@/lib/meeting-heads-up";
 import { applyVoiceAction, parseVoiceCommand, voiceMessage, type VoiceAction } from "@/lib/voice-actions";
@@ -390,6 +390,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const nativeRef = useRef(false);
   /** What the island shows of the words still being transcribed (see SteadyTails). */
   const steadyRef = useRef(new SteadyTails());
+  /** The segments the desktop app holds of this draft: a save sends only what came after them (see draftSaveFor). */
+  const savedSegmentsRef = useRef<SavedSegments>(null);
   /** What the island holds of the overlay: only what changed is sent (see OverlayFeed). */
   const overlayFeedRef = useRef(new OverlayFeed());
   /** Overlays sent to the island since the last memory line in the app's log, and their bytes. */
@@ -481,7 +483,15 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     // A Vocify call is recorded by the carrier: a draft on disk would be uploaded later as a second memo.
     if (vocifyCallRef.current) return;
     if (draft && (meetingHasSpeech(draft.transcript) || draft.notes?.trim())) {
-      void getDesktopBridge()?.drafts?.save(draft);
+      const drafts = getDesktopBridge()?.drafts;
+      const save = draftSaveFor(draft, savedSegmentsRef.current, Boolean(drafts?.append));
+      // Taken as saved now: the desktop app takes saves in the order they come. One it refuses makes the next a whole draft.
+      savedSegmentsRef.current = { id: draft.id, segments: draft.transcript.segments };
+      const refused = () => {
+        savedSegmentsRef.current = null;
+      };
+      const sent = save.kind === "append" ? drafts?.append?.(save) : drafts?.save(draft);
+      void sent?.then((res) => !res?.ok && refused()).catch(refused);
     }
   }, [currentDraft]);
 
