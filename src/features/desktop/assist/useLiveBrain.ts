@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { playbooksApi } from "@/features/playbooks/api";
 import { getDesktopBridge } from "@/lib/desktop-host";
-import type { MeetingLevels } from "@/lib/meeting-levels";
+import type { LiveValue, MeetingLevels } from "@/lib/meeting-levels";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { api } from "@/shared/lib/api-client";
 import { assistTurn, BACKSTOP_MS, earlyOutcome, SPEAKING_NET_MS, supersedesReading, turnCheck, unfinishedPlan, withWindow, type AssistTurn } from "@/lib/live-assist";
 import {
   buildCardReading,
+  clockSeconds,
   buildReading,
   clearProgressCursor,
   contactBrief,
@@ -63,8 +64,8 @@ export type LiveBrainCall = {
   typeLabel?: string | null;
   /** Each side's audio level (0–1): when theirs goes quiet is when they may have finished. */
   levels?: MeetingLevels;
-  /** The call's clock in seconds (the meeting's timer): when a strategic card appears. */
-  clockSeconds?: number | null;
+  /** The meeting's timer ("12:04"), read when a strategic card is asked for: when it appears. */
+  elapsed?: LiveValue<string>;
 };
 
 /** `early`: asked for while the turn check still said "still going"; its card is held until it is known they stopped. */
@@ -357,7 +358,7 @@ export function useLiveBrain(
       sayView: sayViewRef.current,
       objection: spec.objection ?? null,
       lastReadT: lastCardReadRef.current,
-      nowT: callRef.current.clockSeconds ?? null,
+      nowT: callRef.current.elapsed ? clockSeconds(callRef.current.elapsed.get()) : null,
       early: Boolean(spec.early),
     });
     if (spec.early) earlyRef.current = { key: spec.early.key, controller };

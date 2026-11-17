@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { VocifySpinner } from "@/components/ui/vocify-loader";
 import { callEngine } from "@/features/calling/callEngine";
 import { useDesktopMeeting } from "@/features/desktop/DesktopMeetingProvider";
+import { Elapsed } from "@/features/desktop/Elapsed";
 import { isCallUp } from "@/lib/call-engine-state";
 import { useLanguage } from "@/lib/i18n";
 import { ROUTES } from "@/shared/lib/constants";
@@ -33,7 +34,7 @@ export function HomeRecordButton() {
       >
         <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse motion-reduce:animate-none" />
         <Link to={ROUTES.RECORD} className="tabular-nums hover:underline">
-          {meeting.elapsed}
+          <Elapsed clock={meeting.elapsed} />
         </Link>
         <Button variant="recording" size="text" className="h-6 rounded-full px-2.5 text-xs" onClick={() => void meeting.stop()}>
           {home.stopRecording}

@@ -2,7 +2,6 @@ import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { useAuth } from "@/features/auth";
 import { useTypeOptions } from "@/features/interactions/hooks/useTypeOptions";
 import { getDesktopBridge } from "@/lib/desktop-host";
-import { clockSeconds } from "@/lib/live-brain";
 import { liveHelpActive } from "@/lib/live-call-type";
 import { useDesktopMeeting } from "../DesktopMeetingProvider";
 import { useLiveAssist, useLiveAssistEnabled } from "./useLiveAssist";
@@ -71,7 +70,7 @@ export function LiveHelpProvider({ children }: { children: ReactNode }) {
       typeKey,
       typeLabel: typeName,
       levels: meeting.levels,
-      clockSeconds: clockSeconds(meeting.elapsed),
+      elapsed: meeting.elapsed,
     },
   );
 

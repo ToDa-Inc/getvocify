@@ -109,7 +109,7 @@ import { callEngine, reportCallStep } from "@/features/calling/callEngine";
 import { isCallUp } from "@/lib/call-engine-state";
 import { AudioHealth, peak, pcmLevel, SILENT_PEAK, SPEAKING_PEAK, type AudioIssue } from "@/lib/audio-health";
 import { MicGain } from "@/lib/mic-gain";
-import { MeetingLevels } from "@/lib/meeting-levels";
+import { LiveValue, MeetingLevels } from "@/lib/meeting-levels";
 import { proposalLines, proposalWords } from "@/lib/proposal-lines";
 import { isBrokenGrant, reportCallAudio, reportMicSilent } from "@/lib/audio-fix";
 
@@ -149,7 +149,8 @@ export type CallTypeMenu = {
 export type DesktopMeeting = {
   available: boolean;
   phase: MeetingPhase;
-  elapsed: string;
+  /** The recording's clock ("12:04"): read with `useLive` (not React state), so its tick redraws only what shows it. */
+  elapsed: LiveValue<string>;
   /** Recording continues but nothing is transcribed and the timer holds. */
   paused: boolean;
   pause: () => void;
@@ -284,7 +285,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
   const [phase, setPhaseState] = useState<MeetingPhase>("idle");
   const [transcript, setTranscript] = useState<MeetingTranscript>(EMPTY_MEETING_TRANSCRIPT);
-  const [elapsed, setElapsed] = useState("00:00");
+  const elapsed = useRef(new LiveValue("00:00")).current;
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
   const pausedAtRef = useRef(0);
@@ -1823,7 +1824,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         });
       }
 
-      setElapsed("00:00");
+      elapsed.set("00:00");
       pausedRef.current = false;
       pausedTotalRef.current = 0;
       setPaused(false);
@@ -1852,7 +1853,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         // Computed every tick from the wall clock, so a throttled timer never shows a stale time.
         const now = Date.now();
         const held = pausedTotalRef.current + (pausedRef.current ? now - pausedAtRef.current : 0);
-        setElapsed(formatElapsed(now - startedAt - held));
+        elapsed.set(formatElapsed(now - startedAt - held));
         // Words waiting to stop changing appear on time even when nothing new arrives.
         if (steadyRef.current.waiting()) sendOverlay(transcriptRef.current);
       }, 125);
@@ -1900,7 +1901,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       void bridge.shell.hideOverlay();
       bridge.shell.command("show");
     }
-  }, [applyCallType, clearNotes, endPostCall, fail, levels, listMics, meetingClock, navigate, openSocket, pushMic, releaseAudio, sendOverlay, setJobs, setPhase, t, typeName, updateTranscript, user?.id]);
+  }, [applyCallType, clearNotes, elapsed, endPostCall, fail, levels, listMics, meetingClock, navigate, openSocket, pushMic, releaseAudio, sendOverlay, setJobs, setPhase, t, typeName, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(

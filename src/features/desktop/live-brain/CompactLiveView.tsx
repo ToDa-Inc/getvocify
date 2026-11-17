@@ -18,6 +18,7 @@ import { clockSeconds, pointSays, stepsView } from "@/lib/live-brain";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import type { DesktopMeeting } from "../DesktopMeetingProvider";
+import { Elapsed } from "../Elapsed";
 import type { LiveBrain } from "../assist/useLiveBrain";
 import { clock, type LiveCopy } from "./copy";
 import { Dots } from "./PointCard";
@@ -85,7 +86,7 @@ export function CompactLiveView({
   const respond = () => {
     const open = (brain.state.points as LivePoint[]).filter((p) => p.outcome === "open");
     const newest = open[open.length - 1];
-    const now = clockSeconds(meeting.elapsed);
+    const now = clockSeconds(meeting.elapsed.get());
     const at = newest ? (typeof (newest as { visible_t?: unknown }).visible_t === "number" ? (newest as { visible_t: number }).visible_t : newest.said_at) : null;
     if (newest && now !== null && at !== null && now - at < JUST_CAME_S && flash !== newest.id) return flashCard(newest.id);
     brain.responder();
@@ -107,7 +108,7 @@ export function CompactLiveView({
             className={cn("h-1.5 w-1.5 shrink-0 rounded-full", meeting.paused ? "bg-muted-foreground/50" : "bg-destructive animate-pulse motion-reduce:animate-none")}
             aria-hidden
           />
-          <span className="shrink-0 pl-1 text-[12px] tabular-nums text-foreground">{meeting.paused ? `${copy.compact.paused} · ${meeting.elapsed}` : meeting.elapsed}</span>
+          <span className="shrink-0 pl-1 text-[12px] tabular-nums text-foreground"><Elapsed clock={meeting.elapsed} paused={meeting.paused ? copy.compact.paused : null} /></span>
           <div className="flex min-w-0 flex-1 pl-1">
             <TypeMenu meeting={meeting} typeName={typeName} copy={copy} />
           </div>

@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { desktopPlatform, getDesktopBridge, TRANSCRIPT_SEARCH_EVENT } from "@/lib/desktop-host";
 import { audioIssueCopy } from "@/lib/audio-health";
 import { useMeetingLevels, type MeetingLevels } from "@/lib/meeting-levels";
+import { Elapsed } from "./Elapsed";
 import { useDesktopMeeting } from "./DesktopMeetingProvider";
 import { LiveAssistPanel } from "./assist/LiveAssistPanel";
 import { useLiveHelp } from "./assist/LiveHelpProvider";
@@ -115,7 +116,7 @@ export function MeetingLiveView() {
                 )}
               />
               <span className="tabular-nums">
-                {!live ? "Stopped" : meeting.paused ? `Paused · ${meeting.elapsed}` : meeting.elapsed}
+                {!live ? "Stopped" : <Elapsed clock={meeting.elapsed} paused={meeting.paused ? "Paused" : null} />}
               </span>
             </Chip>
             {live && compactWindow.available ? (

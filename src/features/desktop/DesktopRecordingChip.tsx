@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { ROUTES } from "@/shared/lib/constants";
 import { useDesktopMeeting } from "./DesktopMeetingProvider";
+import { Elapsed } from "./Elapsed";
 
 /** Keeps a live or unsent meeting reachable from any dashboard page. */
 export function DesktopRecordingChip() {
@@ -13,7 +14,7 @@ export function DesktopRecordingChip() {
       <div className="inline-flex items-center gap-2 rounded-full border border-destructive/20 bg-destructive/10 py-1 pl-3 pr-1 text-xs font-medium text-destructive animate-in fade-in duration-200 motion-reduce:animate-none">
         <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse" />
         <Link to={ROUTES.RECORD} className="tabular-nums hover:underline">
-          {meeting.elapsed}
+          <Elapsed clock={meeting.elapsed} />
         </Link>
         <button
           type="button"
