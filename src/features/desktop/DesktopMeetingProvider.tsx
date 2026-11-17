@@ -370,6 +370,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   /** What the island shows of the words still being transcribed (see SteadyTails). */
   const steadyRef = useRef(new SteadyTails());
   const overlaySentRef = useRef("");
+  /** Overlays sent to the island since the last memory line in the app's log. */
+  const overlaySendsRef = useRef(0);
   // The island is sent from callbacks that outlive a render: they read the rep's language from here.
   const languageRef = useRef(language);
   languageRef.current = language;
@@ -547,8 +549,33 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     const sent = JSON.stringify(update);
     if (sent === overlaySentRef.current) return;
     overlaySentRef.current = sent;
+    overlaySendsRef.current += 1;
     getDesktopBridge()?.shell.setState(update);
   }, []);
+
+  // Once a minute while recording, in the desktop app's log: what this page holds. A 40-minute meeting grew it from 180
+  // to 526 MB and froze a rep's computer (Movertis, 2026-11-17); these say which of them grows with the call.
+  useEffect(() => {
+    if (phase !== "live") return;
+    const started = Date.now();
+    overlaySendsRef.current = 0;
+    const id = window.setInterval(() => {
+      const heap = (performance as Performance & { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory;
+      const mb = (bytes: number) => Math.round(bytes / 1048576);
+      getDesktopBridge()?.shell.log?.("call:memory", {
+        minute: Math.round((Date.now() - started) / 60000),
+        heapMB: heap ? mb(heap.usedJSHeapSize) : null,
+        heapTotalMB: heap ? mb(heap.totalJSHeapSize) : null,
+        socketQueuedKB: wsRef.current ? Math.round(wsRef.current.bufferedAmount / 1024) : null,
+        overlayKB: Math.round(overlaySentRef.current.length / 1024),
+        overlaySends: overlaySendsRef.current,
+        segments: transcriptRef.current.segments.length,
+        domNodes: document.getElementsByTagName("*").length,
+      });
+      overlaySendsRef.current = 0;
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [phase]);
 
   const updateTranscript = useCallback(
     (next: MeetingTranscript) => {
