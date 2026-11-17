@@ -151,3 +151,38 @@ class TestPrewarm:
         h.builds = AsyncMock(side_effect=lambda *a, **k: _preview())
         h.get()
         assert h.builds.await_count == 1
+
+    def test_once_c04_adds_its_tasks_the_preview_is_built_again_for_the_memo_as_it_is_then(self):
+        h = Harness()
+
+        async def go():
+            async def c04():
+                await asyncio.sleep(0.05)
+                h.memo = _memo(extraction={**(h.memo.get("extraction") or {}), "intelligence": {"tasks": ["call back"]}})
+
+            asyncio.get_running_loop().create_task(c04(), name=f"intelligence:{MEMO_ID}")
+            with (
+                patch.object(api, "_require_readable_memo", h.read),
+                patch.object(api, "_build_approval_preview", h.builds),
+            ):
+                api.schedule_preview_prewarm(object(), MEMO_ID, OWNER)
+                await asyncio.gather(*list(api._prewarm_tasks))
+
+        asyncio.run(go())
+        assert h.builds.await_count == 2  # at "ready", and with C04's tasks
+        h.get()
+        assert h.builds.await_count == 2  # the island's request finds the second one
+
+    def test_without_a_c04_run_only_the_first_preview_is_built(self):
+        h = Harness()
+
+        async def go():
+            with (
+                patch.object(api, "_require_readable_memo", h.read),
+                patch.object(api, "_build_approval_preview", h.builds),
+            ):
+                api.schedule_preview_prewarm(object(), MEMO_ID, OWNER)
+                await asyncio.gather(*list(api._prewarm_tasks))
+
+        asyncio.run(go())
+        assert h.builds.await_count == 1

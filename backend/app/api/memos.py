@@ -2178,10 +2178,26 @@ async def prewarm_approval_preview(supabase: Client, memo_id: str, user_id: str)
         logger.warning("preview prewarm failed for memo %s", memo_id, exc_info=True)
 
 
+async def prewarm_approval_preview_after_c04(supabase: Client, memo_id: str, user_id: str) -> None:
+    """C04 adds the call's dated tasks to the memo about a second after it turns ready, and the preview shows them:
+    the preview built at "ready" then no longer matches the memo, and the island's request built it again (1-1.8 s on
+    2026-11-17's calls). Built again as soon as C04 lands, that request finds it ready or joins the build."""
+    from app.services.followup import C04_WAIT_S, _c04_task
+
+    c04 = _c04_task(memo_id)
+    if c04 is None:
+        return
+    await asyncio.wait({c04}, timeout=C04_WAIT_S)
+    await prewarm_approval_preview(supabase, memo_id, user_id)
+
+
 def schedule_preview_prewarm(supabase: Client, memo_id: str, user_id: str) -> None:
-    task = asyncio.get_running_loop().create_task(prewarm_approval_preview(supabase, memo_id, user_id))
-    _prewarm_tasks.add(task)
-    task.add_done_callback(_prewarm_tasks.discard)
+    """The preview as the memo is now, and again once C04 has added its tasks (when a C04 run is going)."""
+    loop = asyncio.get_running_loop()
+    for prewarm in (prewarm_approval_preview, prewarm_approval_preview_after_c04):
+        task = loop.create_task(prewarm(supabase, memo_id, user_id))
+        _prewarm_tasks.add(task)
+        task.add_done_callback(_prewarm_tasks.discard)
 
 
 async def _deals_and_identity(provider, extraction, *, pipeline_id, contact_id):
