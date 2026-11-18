@@ -17,7 +17,7 @@ import { useCompactWindow } from "./useCompactWindow";
  */
 export function CompactCallWindow() {
   const meeting = useDesktopMeeting();
-  const { brain, helpOn, setAssistOn, typeName } = useLiveHelp();
+  const { brain, helpOn, typeName } = useLiveHelp();
   const { language } = useLanguage();
   const { available, compact, setCompact } = useCompactWindow();
 
@@ -44,7 +44,6 @@ export function CompactCallWindow() {
         brain={brain}
         copy={liveCopy(language)}
         helpOn={helpOn}
-        onHelpChange={setAssistOn}
         typeName={typeName}
         onExpand={() => setCompact(false)}
       />

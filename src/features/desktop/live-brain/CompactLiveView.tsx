@@ -46,7 +46,6 @@ export function CompactLiveView({
   brain,
   copy,
   helpOn,
-  onHelpChange,
   typeName,
   onExpand,
 }: {
@@ -54,7 +53,6 @@ export function CompactLiveView({
   brain: LiveBrain;
   copy: LiveCopy;
   helpOn: boolean;
-  onHelpChange: (on: boolean) => void;
   typeName: string | null;
   onExpand: () => void;
 }) {
@@ -112,10 +110,6 @@ export function CompactLiveView({
           <div className="flex min-w-0 flex-1 pl-1">
             <TypeMenu meeting={meeting} typeName={typeName} copy={copy} />
           </div>
-          {/* Live help is a setting of the call, not a type: its own switch, set once per call. */}
-          <IconAction label={copy.switchLabel} pressed={helpOn} onClick={() => onHelpChange(!helpOn)}>
-            <Sparkles />
-          </IconAction>
           <IconAction label={meeting.paused ? copy.compact.resume : copy.compact.pause} onClick={meeting.paused ? meeting.resume : meeting.pause}>
             {meeting.paused ? <Play /> : <Pause />}
           </IconAction>

@@ -4,7 +4,7 @@ import { useTypeOptions } from "@/features/interactions/hooks/useTypeOptions";
 import { getDesktopBridge } from "@/lib/desktop-host";
 import { liveHelpActive } from "@/lib/live-call-type";
 import { useDesktopMeeting } from "../DesktopMeetingProvider";
-import { useLiveAssist, useLiveAssistEnabled } from "./useLiveAssist";
+import { useLiveAssist } from "./useLiveAssist";
 import { useLiveBrain } from "./useLiveBrain";
 
 /** The company flag of the live call assistant (one brain: points, progress, recap). Off: today's live help. */
@@ -17,10 +17,7 @@ const LIVE_CARD_FLAG = "LIVE_CARD_ENABLED";
 export type LiveHelp = {
   /** The company has the live call assistant (else today's live help, `assist`). */
   brainOn: boolean;
-  /** The remembered switch, and the rep's way to change it. */
-  assistOn: boolean;
-  setAssistOn: (on: boolean) => void;
-  /** Help is on for this call: the switch, unless the rep flipped it in the island; never on an internal call. */
+  /** Help is on for this call: always, except on an internal call. */
   helpOn: boolean;
   /** Today's live help (the brain off). */
   assist: ReturnType<typeof useLiveAssist>;
@@ -45,8 +42,7 @@ export function LiveHelpProvider({ children }: { children: ReactNode }) {
   const brainOn = Boolean(features?.includes(LIVE_BRAIN_FLAG));
   const sayView = Boolean(features?.includes(LIVE_SAY_VIEW_FLAG));
   const card = Boolean(features?.includes(LIVE_CARD_FLAG));
-  const [assistOn, setAssistOn] = useLiveAssistEnabled();
-  const helpOn = liveHelpActive({ remembered: assistOn, override: meeting.liveHelpOverride, typeKey: meeting.callType.key });
+  const helpOn = liveHelpActive(meeting.callType.key);
   const typeKey = meeting.callType.key;
   const types = useTypeOptions();
   const typeName = typeKey ? types.options.find((option) => option.key === typeKey)?.label ?? types.labelOf(typeKey) : null;
@@ -74,9 +70,10 @@ export function LiveHelpProvider({ children }: { children: ReactNode }) {
     },
   );
 
+  // No switch on the island either: null is how the island is told there is none.
   useEffect(() => {
-    getDesktopBridge()?.shell.setState({ liveHelp: helpOn });
-  }, [helpOn]);
+    getDesktopBridge()?.shell.setState({ liveHelp: null });
+  }, []);
 
   // The island shows today's live card while it is open.
   useEffect(() => {
@@ -87,7 +84,7 @@ export function LiveHelpProvider({ children }: { children: ReactNode }) {
   }, [assist.active]);
 
   return (
-    <LiveHelpContext.Provider value={{ brainOn, assistOn, setAssistOn, helpOn, assist, brain, typeName }}>
+    <LiveHelpContext.Provider value={{ brainOn, helpOn, assist, brain, typeName }}>
       {children}
     </LiveHelpContext.Provider>
   );

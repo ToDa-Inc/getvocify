@@ -72,10 +72,9 @@ export function assistCallMode(kind: string | null | undefined): "softphone" | "
   return kind === "call" ? "softphone" : "meeting";
 }
 
-/** Live help runs when the remembered setting (or this call's switch) says so, never on an internal call. */
-export function liveHelpActive(input: { remembered: boolean; override: boolean | null; typeKey: string | null }): boolean {
-  if (input.typeKey === INTERNAL_KEY) return false;
-  return input.override ?? input.remembered;
+/** Live help always runs, except on an internal call: there is no switch for it. */
+export function liveHelpActive(typeKey: string | null): boolean {
+  return typeKey !== INTERNAL_KEY;
 }
 
 /**

@@ -13,12 +13,10 @@ export function LiveBrainSection({
   meeting,
   live,
   helpOn,
-  onHelpChange,
 }: {
   meeting: DesktopMeeting;
   live: boolean;
   helpOn: boolean;
-  onHelpChange: (on: boolean) => void;
 }) {
   const { language } = useLanguage();
   const { brain, typeName } = useLiveHelp();
@@ -28,7 +26,6 @@ export function LiveBrainSection({
       brain={brain}
       copy={copy}
       helpOn={helpOn}
-      onHelpChange={onHelpChange}
       typeName={typeName}
       transcript={
         <LiveTranscript

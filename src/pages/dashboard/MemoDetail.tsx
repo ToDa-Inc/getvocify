@@ -123,6 +123,25 @@ const MemoDetail = () => {
     return () => window.removeEventListener(MEMO_CHANGED_EVENT, onChanged);
   }, [id]);
 
+  // Saved from the island (or another tab) while this page sat in the background: coming back to it reads the status
+  // again, and only a changed status replaces what is on screen.
+  useEffect(() => {
+    if (!id) return;
+    const recheck = () => {
+      if (document.visibilityState !== "visible") return;
+      api
+        .get<typeof memo>(`/memos/${id}`)
+        .then((data) => setMemo((current) => (current && data && current.status === data.status ? current : data)))
+        .catch(() => {});
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [id]);
+
   /** Session keep-alive when extraction exists (long review sessions) */
   useEffect(() => {
     if (!memo?.extraction) return;

@@ -48,6 +48,8 @@ export function useInteractionFeed({
     queryFn: () => memosApi.list(filters),
     enabled,
     staleTime: STALE_MS,
+    // A call saved from the island or another tab shows its new status as soon as the rep comes back here.
+    refetchOnWindowFocus: "always",
     placeholderData: keepPreviousData,
     refetchInterval: (current) => (feedBusy(current.state.data ?? []) ? POLL_MS : false),
   });

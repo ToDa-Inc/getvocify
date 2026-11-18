@@ -18,6 +18,7 @@ import { crmApi, crmKeys, SESSION_QUERY_STALE_MS } from "@/lib/api/crm";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
 import { api } from "@/shared/lib/api-client";
+import { homeKeys, todayKeys } from "@/features/today/api";
 import { liveTickets } from "./liveTickets";
 import { ROUTES } from "@/shared/lib/constants";
 import { OverlayFeed, RowMemo } from "@/lib/overlay-turns";
@@ -184,8 +185,6 @@ export type DesktopMeeting = {
   callMode: "softphone" | "meeting";
   /** This recording's id (its draft's), the same for everything live help logs about the call; null before one starts. */
   callId: string | null;
-  /** The rep switched live help on or off for this call only; null follows the remembered setting. */
-  liveHelpOverride: boolean | null;
   /** What the island's type menu offers for the call being recorded (the channel's types; the channel when types go by
    * channel); null when there is nothing to choose. */
   typeMenu: CallTypeMenu | null;
@@ -332,6 +331,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     /** The deal the preview landed on (the contact's only open deal): the save goes there too. */
     dealId?: string;
     undoTimer?: number;
+    /** The CRM write waiting out its Undo: it still goes if the card is closed or the next call starts before then. */
+    pendingWrite?: () => void;
     /** Every type the call could be, in the order the memo page lists them. */
     typeOrder?: string[];
     /** The CRM part as the memo has it, kept for when the type changes back from internal. */
@@ -356,7 +357,6 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const proposalRef = useRef({ attempts: 0, total: 0, lastConfident: false, busy: false });
   const [callMode, setCallMode] = useState<"softphone" | "meeting">("meeting");
   const [callId, setCallId] = useState<string | null>(null);
-  const [liveHelpOverride, setLiveHelpOverride] = useState<boolean | null>(null);
 
   const phaseRef = useRef<MeetingPhase>("idle");
   const transcriptRef = useRef<MeetingTranscript>(EMPTY_MEETING_TRANSCRIPT);
@@ -882,6 +882,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     if (current) {
       current.run.cancelled = true;
       window.clearTimeout(current.undoTimer);
+      // Update CRM was pressed and its Undo has not run out: the write is done now instead of dropped.
+      const write = current.pendingWrite;
+      current.pendingWrite = undefined;
+      write?.();
     }
     postCallRef.current = null;
     getDesktopBridge()?.shell.setState({ postCall: null });
@@ -890,6 +894,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const memoChanged = useCallback(
     (memoId: string) => {
       queryClient.invalidateQueries({ queryKey: memoKeys.all });
+      // The home's lists (to review, done today) and Today read the same calls under their own keys.
+      queryClient.invalidateQueries({ queryKey: homeKeys.all });
+      queryClient.invalidateQueries({ queryKey: todayKeys.all });
       queryClient.invalidateQueries({ queryKey: ["memo-followup", memoId] });
       queryClient.invalidateQueries({ queryKey: ["meeting-proposal", memoId] });
       window.dispatchEvent(new CustomEvent(MEMO_CHANGED_EVENT, { detail: { memoId } }));
@@ -1190,8 +1197,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           const newDeal = action.newDeal === true;
           if (kept <= 0 && !hasNote && !newDeal) return;
           showPostCall({ stage: "applying", undoUntil: Date.now() + UNDO_MS });
-          current.undoTimer = window.setTimeout(async () => {
-            if (current.run.cancelled) return;
+          const write = async () => {
             try {
               const memo = await memosApi.get(memoId);
               const extraction = buildApproveExtraction({
@@ -1203,6 +1209,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
                 ...tasksForApprove(memo.extraction, current.proposed, omit, taskEditsFrom(action.taskEdits), added),
               });
               const result = (await memosApi.approveForContact(memoId, extraction, current.dealId, targets, newDeal)) as { deal_warning?: string | null };
+              // Written: every list and page shows it, even when the card has moved on to the next call.
+              memoChanged(memoId);
               if (current.run.cancelled) return;
               if (result?.deal_warning) {
                 // Written, but without the deal (no default stage saved): the card says so instead of "Updated".
@@ -1210,16 +1218,21 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
               } else {
                 showPostCall({ stage: "done", applied: kept, undoUntil: undefined, crmUrl: contactUrlRef.current(current.contactId) });
               }
-              memoChanged(memoId);
             } catch {
               const crm = current.state.crm ?? "the CRM";
               fail({ stage: "review", canApprove: false, undoUntil: undefined, note: `Couldn't update ${crm}. Review it in Vocify` });
             }
+          };
+          current.pendingWrite = () => void write();
+          current.undoTimer = window.setTimeout(() => {
+            current.pendingWrite = undefined;
+            void write();
           }, UNDO_MS);
           return;
         }
         case "undo":
           window.clearTimeout(current.undoTimer);
+          current.pendingWrite = undefined;
           if (current.state.stage === "applying") showPostCall({ stage: "ready", undoUntil: undefined });
           return;
         case "review":
@@ -1636,7 +1649,6 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       applyCallType(NO_CALL_TYPE);
       setCallMode(assistCallMode(callKind(draftRef.current ?? {})));
       setCallId(draftRef.current.id);
-      setLiveHelpOverride(null);
       endPostCall();
       clearNotes();
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
@@ -2022,9 +2034,6 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         pauseRef.current();
       } else if (name === "resume") {
         resumeRef.current();
-      } else if (name === "assist-on" || name === "assist-off") {
-        // Live help switched from the island: this call only.
-        if (phaseRef.current === "live") setLiveHelpOverride(name === "assist-on");
       }
     });
   }, [navigate]);
@@ -2283,7 +2292,6 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       callType: shownCallType,
       callMode,
       callId,
-      liveHelpOverride,
       typeMenu,
       pickCallType: pickCallTypeIn,
       pickChannel,
@@ -2297,7 +2305,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       stop,
       retryPending,
     }),
-    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, voices, people, changeVoices, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, liveHelpOverride, typeMenu, pickCallTypeIn, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, notePage, stop, retryPending],
+    [available, phase, elapsed, paused, pause, resume, levels, speaking, audioIssue, error, warning, turns, voices, people, changeVoices, notes, setNotes, pending, savedOnDevice, contact, shownCallType, callMode, callId, typeMenu, pickCallTypeIn, pickChannel, startMeeting, startHere, startCall, followCall, expectPhoneCall, offerOnScreen, notePage, stop, retryPending],
   );
 
   return <DesktopMeetingContext.Provider value={value}>{children}</DesktopMeetingContext.Provider>;

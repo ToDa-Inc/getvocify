@@ -69,14 +69,13 @@ describe("assistCallMode", () => {
 });
 
 describe("liveHelpActive", () => {
-  it("follows the remembered setting unless the rep switched it for this call", () => {
-    assert.equal(liveHelpActive({ remembered: true, override: null, typeKey: "discovery" }), true);
-    assert.equal(liveHelpActive({ remembered: true, override: false, typeKey: "discovery" }), false);
-    assert.equal(liveHelpActive({ remembered: false, override: true, typeKey: "discovery" }), true);
+  it("is always on, with or without a type", () => {
+    assert.equal(liveHelpActive("discovery"), true);
+    assert.equal(liveHelpActive(null), true);
   });
 
   it("an internal conversation has no live help", () => {
-    assert.equal(liveHelpActive({ remembered: true, override: true, typeKey: "internal" }), false);
+    assert.equal(liveHelpActive("internal"), false);
   });
 });
 

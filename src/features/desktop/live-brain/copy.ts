@@ -3,7 +3,6 @@ import type { Language } from "@/lib/i18n";
 /** The words of the dashboard's live view (spec 2026-10-16-live-call-assistant-design.md, "UI specification"). */
 const ES = {
   title: "Ayuda en vivo",
-  switchLabel: "Ayuda en vivo",
   tabs: { transcript: "Transcripción", help: "Ayuda", conversation: "Conversación" },
   tabCountHelp: (n: number) => `${n} por responder`,
   tabCountDo: (n: number) => `${n} por hacer`,
@@ -121,7 +120,6 @@ type Copy = typeof ES;
 
 const EN: Copy = {
   title: "Live help",
-  switchLabel: "Live help",
   tabs: { transcript: "Transcript", help: "Help", conversation: "Conversation" },
   tabCountHelp: (n) => `${n} to answer`,
   tabCountDo: (n) => `${n} to do`,

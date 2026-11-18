@@ -312,27 +312,3 @@ export function useLiveAssist(turns: RowList<MeetingDisplayTurn>, enabled: boole
 
   return { active, thinking };
 }
-
-const ENABLED_KEY = "vocify_live_assist_on";
-
-function readEnabled(): boolean {
-  try {
-    return localStorage.getItem(ENABLED_KEY) !== "0";
-  } catch {
-    return true;
-  }
-}
-
-/** On unless the rep turned it off; remembered per Mac. It stays silent until there is something to say. */
-export function useLiveAssistEnabled() {
-  const [enabled, setEnabled] = useState(readEnabled);
-  const toggle = (next: boolean) => {
-    setEnabled(next);
-    try {
-      localStorage.setItem(ENABLED_KEY, next ? "1" : "0");
-    } catch {
-      /* per-viewer convenience only */
-    }
-  };
-  return [enabled, toggle] as const;
-}

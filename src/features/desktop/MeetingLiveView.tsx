@@ -32,7 +32,7 @@ export function MeetingLiveView() {
   const meeting = useDesktopMeeting();
   const live = meeting.phase === "live";
   // Live help runs for the whole meeting (LiveHelpProvider), whatever page is shown: this view only draws it.
-  const { brainOn, assistOn, setAssistOn, helpOn, assist } = useLiveHelp();
+  const { brainOn, helpOn, assist } = useLiveHelp();
   const compactWindow = useCompactWindow();
   const { language } = useLanguage();
   // With the new live view the transcript is one of its tabs: the dock below keeps the recording controls.
@@ -277,7 +277,7 @@ export function MeetingLiveView() {
       {brainOn ? (
         <div className="w-full shrink-0 lg:w-[460px]">
           <div className="sticky top-6 pt-3">
-            <LiveBrainSection meeting={meeting} live={live} helpOn={helpOn} onHelpChange={setAssistOn} />
+            <LiveBrainSection meeting={meeting} live={live} helpOn={helpOn} />
           </div>
         </div>
       ) : (
@@ -286,8 +286,7 @@ export function MeetingLiveView() {
             <LiveAssistPanel
               active={assist.active}
               thinking={assist.thinking}
-              enabled={assistOn}
-              onEnabledChange={setAssistOn}
+              enabled={helpOn}
             />
           </div>
         </div>

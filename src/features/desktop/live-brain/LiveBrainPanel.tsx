@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronRight, History, Info, ListChecks, MessageCircleQuestion, MessageSquareText, ShieldCheck, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { pointsView, progressView } from "@/lib/live-brain";
@@ -72,14 +71,12 @@ export function LiveBrainPanel({
   brain,
   copy,
   helpOn,
-  onHelpChange,
   typeName,
   transcript,
 }: {
   brain: LiveBrain;
   copy: LiveCopy;
   helpOn: boolean;
-  onHelpChange: (on: boolean) => void;
   typeName: string | null;
   transcript: ReactNode;
 }) {
@@ -202,7 +199,6 @@ export function LiveBrainPanel({
             <span className="text-[15px] tracking-tight text-foreground">{copy.title}</span>
             {typeName ? <span className="min-w-0 truncate rounded-md bg-beige/10 px-1.5 py-px text-[11px] font-medium text-beige">{typeName}</span> : null}
           </div>
-          <Switch checked={helpOn} onCheckedChange={onHelpChange} aria-label={copy.switchLabel} />
         </div>
 
         <Tabs value={tab} onValueChange={(v) => switchTab(v as Tab)} className="px-3 pb-2 pt-1">

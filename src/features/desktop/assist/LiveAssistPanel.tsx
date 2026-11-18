@@ -1,4 +1,3 @@
-import { Switch } from "@/components/ui/switch";
 import type { AssistCard } from "@/lib/live-assist";
 import { cn } from "@/lib/utils";
 
@@ -7,12 +6,10 @@ export function LiveAssistPanel({
   active,
   thinking,
   enabled,
-  onEnabledChange,
 }: {
   active: AssistCard | null;
   thinking: boolean;
   enabled: boolean;
-  onEnabledChange: (enabled: boolean) => void;
 }) {
   return (
     <aside aria-label="Live assist" className="space-y-4">
@@ -21,7 +18,6 @@ export function LiveAssistPanel({
           <span className="text-[15px] tracking-tight text-foreground">Live assist</span>
           <span className="rounded-md bg-beige/10 px-1.5 py-px text-[10px] font-medium text-beige">Beta</span>
         </div>
-        <Switch checked={enabled} onCheckedChange={onEnabledChange} aria-label="Live assist" />
       </div>
       <p className="-mt-3 text-[11px] text-muted-foreground/80">Answers follow your playbook for this call type, when it has one.</p>
 
@@ -38,7 +34,7 @@ export function LiveAssistPanel({
             {thinking ? "Reading their answer…" : "Only shows when they push back."}
           </>
         ) : (
-          "Off. Turn on for help when they push back."
+          "Off for internal conversations."
         )}
       </p>
 
