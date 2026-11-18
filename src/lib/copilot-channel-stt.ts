@@ -12,7 +12,7 @@ const LIVE_API_URL = import.meta.env.VITE_LIVE_API_URL || API_URL;
  */
 export function liveTranscriptionWsUrl(
   userId: string,
-  { echoCancel, captureId }: { echoCancel?: "native" | "page"; captureId?: string } = {},
+  { echoCancel, captureId, voices = true }: { echoCancel?: "native" | "page"; captureId?: string; voices?: boolean } = {},
 ): string {
   const ws = LIVE_API_URL.replace(/^http/, "ws").replace(/\/api\/v1\/?$/, "");
   const url = new URL(`${ws}/api/v1/transcription/live`);
@@ -26,6 +26,8 @@ export function liveTranscriptionWsUrl(
   if (echoCancel === "page") url.searchParams.set("mic", "page");
   // The recording this audio belongs to: the server keeps the call's audio under it, for the whole-call transcript.
   if (captureId) url.searchParams.set("capture_id", captureId);
+  // A phone call: the server does not tell the other side's voices apart.
+  if (!voices) url.searchParams.set("voices", "0");
   return url.toString();
 }
 

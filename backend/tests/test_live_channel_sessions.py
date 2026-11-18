@@ -834,6 +834,8 @@ def test_voices_are_told_apart_whenever_there_is_a_call_side_and_the_model_is_th
     monkeypatch.setattr(live, "_voice_embedder", _AngleEmbedder())
     assert live.ChannelSessions(_FakeClient(), labels=["prospect", "rep"], language="multi", profile_languages=["es"], glossary=[], detect=False).voices is not None
     assert live.ChannelSessions(_FakeClient(), labels=["rep"], language="multi", profile_languages=["es"], glossary=[], detect=False).voices is None
+    # A phone call: one person on the other side, never split into voices.
+    assert live.ChannelSessions(_FakeClient(), labels=["prospect", "rep"], language="multi", profile_languages=["es"], glossary=[], detect=False, voices=False).voices is None
     missing = _AngleEmbedder()
     missing.available = lambda: False
     monkeypatch.setattr(live, "_voice_embedder", missing)
@@ -855,15 +857,16 @@ def test_each_final_of_the_call_side_is_followed_by_whose_voice_it_is_and_short_
         sessions.active["prospect"] = stream
         rep = sessions._open("rep", "es", None, offset_s=0.0)
         sessions.active["rep"] = rep
-        for angle, seconds in ((0, 3), (90, 3), (0, 1), (5, 3)):
+        for angle, seconds in ((0, 3), (90, 3), (0, 1), (5, 3), (88, 3)):
             sessions.buffers["prospect"].append(speech(angle, seconds))
-        for start, end in ((0, 3), (3, 6), (6, 7), (7, 10)):
+        for start, end in ((0, 3), (3, 6), (6, 7), (7, 10), (10, 13)):
             await sessions._on_stream(stream, {"kind": "final", "transcript": "hola", "start": start, "end": end})
         await sessions._on_stream(rep, {"kind": "final", "transcript": "hola", "start": 0, "end": 3})
         await asyncio.gather(*list(sessions.checks))
 
     asyncio.run(scenario())
-    assert _voices_heard(client) == [(0, 1, True), (3, 2, True), (7, 1, True)]
+    # One far piece waits on the voice there is; the second like it is a new voice, and the first moves onto it.
+    assert _voices_heard(client) == [(0, 1, True), (3, 1, False), (7, 1, True), (10, 2, True), (3, 2, True)]
     # The text went out first, and nothing about the rep's voice.
     kinds = [m["type"] for m in client.sent]
     assert kinds.index("Results") < kinds.index("Voice")
@@ -880,9 +883,9 @@ def test_merging_two_voices_or_moving_a_line_in_the_client_teaches_the_call(monk
     async def scenario():
         stream = sessions._open("prospect", "es", None, offset_s=0.0)
         sessions.active["prospect"] = stream
-        for angle in (0, 90, 5):
+        for angle in (0, 90, 5, 92):
             sessions.buffers["prospect"].append(np.full(3 * 16000, angle, dtype=np.int16).tobytes())
-        for start in (0, 3, 6):
+        for start in (0, 3, 6, 9):
             await sessions._on_stream(stream, {"kind": "final", "transcript": "hola", "start": start, "end": start + 3})
         await asyncio.gather(*list(sessions.checks))
         await sessions._correct_voices({"type": "VoiceMove", "start": 6, "voice": 2})
@@ -890,7 +893,7 @@ def test_merging_two_voices_or_moving_a_line_in_the_client_teaches_the_call(monk
         await sessions._correct_voices({"type": "VoiceMerge", "keep": 1, "drop": 2})
 
     asyncio.run(scenario())
-    assert _voices_heard(client) == [(0, 1, True), (3, 2, True), (6, 1, True), (6, 2, True)]
+    assert _voices_heard(client) == [(0, 1, True), (3, 1, False), (6, 1, True), (9, 2, True), (3, 2, True), (6, 2, True)]
     assert list(sessions.voices.voices) == [1]
 
 

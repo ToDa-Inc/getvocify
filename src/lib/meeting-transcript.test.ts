@@ -566,6 +566,16 @@ describe("voices on the other side", () => {
     ]);
   });
 
+  it("labels a line of the other side with no voice yet as the last voice, not as a third Them", () => {
+    let state = applyChannelResult(meeting(), { text: "Vale, te cuento.", isFinal: true, audioChannel: "rep", start: 8, end: 9 });
+    state = say(state, "Sí.", 10);
+    const last = meetingDisplayTurns(state).at(-1);
+    assert.deepEqual([last?.label, last?.voice, last?.text], ["Voice 1", null, "Sí."]);
+    // Its voice comes after all: the line takes it.
+    state = applyVoice(state, 10, 2);
+    assert.deepEqual(meetingDisplayTurns(state).at(-1)?.label, "Voice 2");
+  });
+
   it("ignores a voice for a line it cannot find or a number that is not a voice", () => {
     const state = meeting();
     assert.equal(applyVoice(state, 99, 1), state);

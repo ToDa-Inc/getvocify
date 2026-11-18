@@ -15,8 +15,8 @@ export type IslandPlacement = "notch" | "side";
 export type IslandState = { appearance?: IslandAppearance; visible?: boolean; placement?: IslandPlacement; hiddenFromCapture?: boolean; finishOnStop?: boolean };
 
 /**
- * Where the desktop app's self-update stands. `ready`: downloaded, the app restarts into it as soon as nothing is being
- * recorded. `unavailable`: this copy never updates itself (run from source).
+ * Where the desktop app's self-update stands. `ready`: downloaded, waiting for the rep to restart (it installs on quit;
+ * older builds restarted by themselves once nothing was being recorded). `unavailable`: this copy never updates itself.
  */
 export type DesktopUpdateStatus = { version: string } & (
   | { state: "unavailable" | "idle" | "checking" }

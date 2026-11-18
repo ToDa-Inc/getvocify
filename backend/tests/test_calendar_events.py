@@ -114,6 +114,17 @@ def test_no_hubspot_contact_is_remembered_and_a_failure_is_retried():
     assert "matched" not in boom
 
 
+def test_an_invitee_without_a_contact_is_looked_up_again_on_the_next_sync():
+    """The rep often creates the contact after the invite: "none" is not an answer for good."""
+    rows = [ce.event_row(_event(raw={"attendees": [{"email": "nadie@cliente.com"}]}), CONNECTION)]
+    asyncio.run(ce.match_contacts(rows, {}, _Search({})))
+    again = [ce.event_row(_event(id="ev-2", raw={"attendees": [{"email": "nadie@cliente.com"}]}), CONNECTION)]
+    search = _Search({"nadie@cliente.com": _Contact("902", "Ana", "Ruiz")})
+    asyncio.run(ce.match_contacts(again, ce._known_matches(rows), search))
+    assert search.asked == ["nadie@cliente.com"]
+    assert again[0]["attendees"][0]["hubspot_contact_id"] == "902"
+
+
 def _stored(**overrides):
     row = ce.event_row(_event(), CONNECTION)
     row["attendees"][0].update(matched=True, hubspot_contact_id="901", hubspot_name="Marta García")

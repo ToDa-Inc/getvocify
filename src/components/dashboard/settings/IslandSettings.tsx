@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { EyeOff, FastForward, PanelRight, PanelTop, SunMoon } from "lucide-react";
+import { AppWindow, EyeOff, FastForward, PanelRight, PanelTop, SunMoon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SettingsRow, SettingsSection } from "@/components/ui/settings-card";
 import { Switch } from "@/components/ui/switch";
 import { getDesktopBridge, type IslandAppearance, type IslandPlacement, type IslandState } from "@/lib/desktop-host";
 import { useLanguage } from "@/lib/i18n";
+import { compactWindowAutoOpen, setCompactWindowAutoOpen } from "@/lib/compact-window";
 
 /**
  * The island's appearance, where it sits and whether it shows, on this computer. Only inside the desktop app, and each row
@@ -15,6 +16,10 @@ export const IslandSettings = () => {
   const { t } = useLanguage();
   const island = getDesktopBridge()?.island;
   const [state, setState] = useState<IslandState | null>(null);
+
+  // The compact window at the side during a call (this app's own window turned small).
+  const hasCallWindow = Boolean(getDesktopBridge()?.window);
+  const [callWindowAuto, setCallWindowAuto] = useState(compactWindowAutoOpen);
 
   useEffect(() => {
     void island?.get().then(setState);
@@ -27,7 +32,7 @@ export const IslandSettings = () => {
   const visible = island?.setVisible && typeof state?.visible === "boolean" ? state.visible : null;
   const hiddenFromCapture = island?.setHiddenFromCapture && typeof state?.hiddenFromCapture === "boolean" ? state.hiddenFromCapture : null;
   const finishOnStop = island?.setFinishOnStop && typeof state?.finishOnStop === "boolean" ? state.finishOnStop : null;
-  if (!island || !state || (!appearance && !placement && visible === null && hiddenFromCapture === null && finishOnStop === null)) return null;
+  if (!island || !state || (!appearance && !placement && visible === null && hiddenFromCapture === null && finishOnStop === null && !hasCallWindow)) return null;
 
   const appearances: { value: IslandAppearance; label: string }[] = [
     { value: "auto", label: t.product.islandAppearanceAuto },
@@ -88,6 +93,18 @@ export const IslandSettings = () => {
             checked={hiddenFromCapture}
             onCheckedChange={(on) => void island.setHiddenFromCapture?.(on).then(merge)}
             aria-label={t.product.islandHideFromCaptureTitle}
+          />
+        </SettingsRow>
+      ) : null}
+      {hasCallWindow ? (
+        <SettingsRow icon={AppWindow} title={t.product.callWindowAutoTitle} description={t.product.callWindowAutoHelper}>
+          <Switch
+            checked={callWindowAuto}
+            onCheckedChange={(on) => {
+              setCompactWindowAutoOpen(on);
+              setCallWindowAuto(on);
+            }}
+            aria-label={t.product.callWindowAutoTitle}
           />
         </SettingsRow>
       ) : null}

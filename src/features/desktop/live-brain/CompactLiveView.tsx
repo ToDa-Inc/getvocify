@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Maximize2, MessageSquareReply, Pause, Phone, Play, ScrollText, Sparkles, Square, Video, X } from "lucide-react";
+import { ChevronDown, LayoutDashboard, MessageSquareReply, Pause, Phone, Play, ScrollText, Sparkles, Square, Video, X } from "lucide-react";
 import { IconAction } from "@/components/ui/icon-action";
 import {
   DropdownMenu,
@@ -126,9 +126,19 @@ export function CompactLiveView({
             </TooltipTrigger>
             <TooltipContent side="bottom">{copy.compact.stopTip}</TooltipContent>
           </Tooltip>
-          <IconAction label={copy.compact.expand} onClick={onExpand}>
-            <Maximize2 />
-          </IconAction>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={onExpand}
+                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border/60 px-2.5 text-[12px] font-medium text-foreground transition-colors duration-150 hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beige/60 motion-reduce:transition-none"
+              >
+                <LayoutDashboard className="h-3.5 w-3.5" strokeWidth={1.75} />
+                {copy.compact.dashboard}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{copy.compact.expand}</TooltipContent>
+          </Tooltip>
         </header>
 
         {helpOn ? (

@@ -35,6 +35,10 @@ NEW_BELOW = 0.35
 SURE_ABOVE = 0.50
 # A call has this many voices at most; past it a piece goes to the closest one.
 MAX_VOICES = 8
+# A piece far from every voice starts a new one only once another far piece sounds like it: one odd piece (a
+# cough, a laugh, a line said away from the phone) split a single person into "Voice 1" and "Voice 2". Until then
+# it stays on the closest voice, unsure. The last few such pieces are kept to find their pair.
+PENDING_PIECES = 6
 
 N_FFT = 400
 HOP = 160
@@ -118,6 +122,8 @@ class Voice:
 class Heard:
     voice: int
     sure: bool  # False when the piece was only close enough to be the voice, not clearly it
+    # Earlier pieces (by key) that moved onto this voice with it: the first piece of a voice told apart late.
+    moved: tuple[float, ...] = ()
 
 
 class VoiceBook:
@@ -128,6 +134,9 @@ class VoiceBook:
         self._next = 1
         # Every piece kept by where it started, so a line can be moved to another voice.
         self._pieces: dict[float, tuple[np.ndarray, float, int]] = {}
+        # Far pieces still waiting for a second one that sounds like them, oldest first: shown on the closest voice
+        # but kept out of its profile, which they would pull towards someone else.
+        self._pending: dict[float, tuple[np.ndarray, float, int]] = {}
 
     def _new(self, print_: np.ndarray) -> Voice:
         voice = Voice(self._next, np.zeros_like(print_))
@@ -160,13 +169,43 @@ class VoiceBook:
     def hear(self, key: float, print_: np.ndarray, seconds: float) -> Heard:
         """Puts a piece (kept under `key`, where it started) on the closest voice, or on a new one."""
         closest, sim = self._closest(print_)
-        if closest is None or (sim < NEW_BELOW and len(self.voices) < MAX_VOICES):
-            voice, sure = self._new(print_), True
-        else:
-            voice, sure = closest, sim >= SURE_ABOVE
+        if closest is None:
+            return self._place(key, print_, seconds, self._new(print_), True)
+        if sim >= NEW_BELOW or len(self.voices) >= MAX_VOICES:
+            return self._place(key, print_, seconds, closest, sim >= SURE_ABOVE)
+        pair = self._pending_like(print_)
+        if pair is None:
+            self._pending[key] = (print_, seconds, closest.id)
+            if len(self._pending) > PENDING_PIECES:
+                self._settle(next(iter(self._pending)))
+            return Heard(closest.id, False)
+        # Two far pieces that sound alike: a voice not heard before, both of them on it.
+        pair_print, pair_seconds, _ = self._pending.pop(pair)
+        voice = self._new(print_)
+        self._place(pair, pair_print, pair_seconds, voice, True)
+        heard = self._place(key, print_, seconds, voice, True)
+        return Heard(heard.voice, heard.sure, (pair,))
+
+    def _settle(self, key: float) -> None:
+        """A waiting piece stops waiting: it is the voice it was shown on (or the closest one, when that is gone)."""
+        print_, seconds, shown = self._pending.pop(key)
+        voice = self.voices.get(shown) or self._closest(print_)[0]
+        if voice is not None:
+            self._place(key, print_, seconds, voice, False)
+
+    def _place(self, key: float, print_: np.ndarray, seconds: float, voice: Voice, sure: bool) -> Heard:
         self._add(voice, print_, seconds)
         self._pieces[key] = (print_, seconds, voice.id)
         return Heard(voice.id, sure)
+
+    def _pending_like(self, print_: np.ndarray) -> Optional[float]:
+        """The waiting far piece that sounds most like this one, when one is close enough to be the same voice."""
+        best, best_sim = None, NEW_BELOW
+        for key, (pending, _seconds, _shown) in self._pending.items():
+            sim = float(pending @ print_)
+            if sim >= best_sim:
+                best, best_sim = key, sim
+        return best
 
     def merge(self, keep: int, drop: int) -> bool:
         """Two voices that are one person: `drop` becomes `keep`, its past pieces and the ones to come."""
@@ -177,11 +216,15 @@ class VoiceBook:
         kept.pieces += dropped.pieces
         kept.seconds += dropped.seconds
         self._pieces = {k: (p, s, keep if v == drop else v) for k, (p, s, v) in self._pieces.items()}
+        self._pending = {k: (p, s, keep if v == drop else v) for k, (p, s, v) in self._pending.items()}
         return True
 
     def move(self, key: float, voice: Optional[int]) -> Optional[int]:
         """A line the rep says is someone else's: it goes to voice `voice`, or to a new one when that is None. Returns
         the voice it is on now, or None when the piece or the voice is unknown."""
+        # A line the rep placed no longer waits to start a voice of its own.
+        if key in self._pending:
+            self._settle(key)
         piece = self._pieces.get(key)
         if piece is None or (voice is not None and voice not in self.voices):
             return None

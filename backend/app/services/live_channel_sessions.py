@@ -964,6 +964,7 @@ class ChannelSessions:
         echo_raise: bool = True,
         capture_id: Optional[str] = None,
         phrases: bool = False,
+        voices: bool = True,
     ) -> None:
         self.client = client_ws
         # The call's own recording, for the whole-call transcription its memo gets (live_recording.py).
@@ -1032,7 +1033,8 @@ class ChannelSessions:
         # Who is speaking on the call side, from their voices (live_voices). Gone with the call.
         self.voices: Optional[VoiceBook] = None
         self.voice_lock = asyncio.Lock()
-        if "prospect" in labels:
+        # A phone call has one person on the other side: only a meeting tells voices apart.
+        if voices and "prospect" in labels:
             if voice_embedder().available():
                 self.voices = VoiceBook()
             else:
@@ -1326,6 +1328,8 @@ class ChannelSessions:
                 self.voices = None
                 return
         await self._send({"type": "Voice", "audio_channel": "prospect", "start": start, "voice": heard.voice, "sure": heard.sure})
+        for earlier in heard.moved:
+            await self._send({"type": "Voice", "audio_channel": "prospect", "start": earlier, "voice": heard.voice, "sure": True})
 
     async def _correct_voices(self, data: dict[str, Any]) -> None:
         """The rep merged two voices or moved a line to another, in the client: the call's voices learn from it."""

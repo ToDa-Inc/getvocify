@@ -9,12 +9,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { crmApi, crmKeys, SESSION_QUERY_STALE_MS } from "@/lib/api/crm";
 import { useIntegrations } from "@/features/integrations/hooks/useIntegrations";
 import { CRM_PROVIDER_CONFIGS, type CRMProvider } from "@/features/integrations/types";
 import { useAuth } from "@/features/auth";
-import { memosApi } from "@/features/memos/api";
+import { memoKeys, memosApi } from "@/features/memos/api";
 import { toast } from "sonner";
 import {
   Check,
@@ -26,6 +26,7 @@ import {
   X,
   Plus,
   UserCheck,
+  UserPlus,
   Briefcase,
   Building,
   Ban,
@@ -551,6 +552,14 @@ export const HubSpotSyncPreview = ({
     return () => clearTimeout(timer);
   }, [contactSearchQuery, contactPickerOpen, preview?.selected_contact, runContactSearch]);
 
+  const queryClient = useQueryClient();
+  // A pick is kept on the memo: a reload, another tab and the island's Update CRM start from it.
+  const keepTarget = (target: { contactId?: string; dealId?: string | null }) =>
+    crmApi
+      .setTarget(memoId, target)
+      .then(() => queryClient.invalidateQueries({ queryKey: memoKeys.all }))
+      .catch(() => toast.error("Could not keep your pick. Choose it again."));
+
   const selectDeal = async (dealId: string) => {
     setSelectedDealId(dealId);
     setIsNewDealRequested(false);
@@ -561,11 +570,12 @@ export const HubSpotSyncPreview = ({
     setNeedsDealDecision(false);
     setDealDecisionMade(true);
     setConfirmingNewDeal(false);
-    await fetchPreview(dealId, {
+    const data = await fetchPreview(dealId, {
       contactId: selectedContactId,
       createNewDeal: false,
       skipDeal: false,
     });
+    if (data && !readOnly) void keepTarget({ dealId });
   };
 
   const selectContact = async (contact: { contact_id: string }) => {
@@ -586,6 +596,7 @@ export const HubSpotSyncPreview = ({
     if (data?.selected_contact) {
       setNeedsDealDecision(false);
       setDealDecisionMade(true);
+      if (!readOnly) void keepTarget({ contactId });
     }
   };
 
@@ -677,7 +688,8 @@ export const HubSpotSyncPreview = ({
   }, [selectedContact?.email, onContactEmail]);
 
   const contactCandidates = Array.isArray(preview?.contact_candidates) ? preview.contact_candidates : [];
-  const fallbackName = String(fallbackContactName || "").trim();
+  // The extracted name stands in only for a contact the approval creates: with candidates the rep picks one.
+  const fallbackName = contactCandidates.length ? "" : String(fallbackContactName || "").trim();
   const displayContactName = selectedContact?.name || selectedContact?.email || fallbackName;
   const showContactPicker = !readOnly && (contactPickerOpen || !displayContactName);
   const needsContactDecision = !selectedContact && contactCandidates.length > 0 && !displayContactName;
@@ -1302,9 +1314,15 @@ export const HubSpotSyncPreview = ({
         {/* Selected contact: one row, Change on the right. */}
         {displayContactName && !contactPickerOpen && (
           <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-secondary/5 px-3 py-2">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-success/10 text-success" title="Contact">
-              <UserCheck className="h-3.5 w-3.5" />
-            </span>
+            {selectedContact ? (
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-success/10 text-success" title="Contact">
+                <UserCheck className="h-3.5 w-3.5" />
+              </span>
+            ) : (
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-beige/10 text-beige" title="New contact">
+                <UserPlus className="h-3.5 w-3.5" />
+              </span>
+            )}
             <div className="min-w-0 flex-1">
               <p className="truncate text-[13px] text-foreground">
                 <span className="font-medium">{selectedContact?.name || displayContactName}</span>

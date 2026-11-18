@@ -358,6 +358,26 @@ def test_bot_done_before_the_transcript_is_ready_waits_instead_of_failing():
 
 
 @respx.mock
+def test_a_bot_done_without_any_recording_marks_the_capture_failed():
+    """Left in the waiting room until Recall gave up: no transcript will ever come."""
+    supabase = _Supabase({"memos": [_memo_row()], "user_profiles": []})
+    changes = [
+        {"code": "in_waiting_room", "sub_code": None},
+        {"code": "call_ended", "sub_code": "timeout_exceeded_waiting_room"},
+        {"code": "done", "sub_code": None},
+    ]
+    respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/").mock(
+        return_value=httpx.Response(200, json={"id": BOT_ID, "recordings": [], "status_changes": changes})
+    )
+    response = _post_event(supabase, "bot.done")
+    assert response.status_code == 200
+    memo = supabase.tables["memos"][0]
+    assert memo["capture_status"] == "failed"
+    assert memo["status"] == "failed"
+    assert memo["error_message"]
+
+
+@respx.mock
 def test_a_transcript_download_failure_marks_the_capture_failed_not_500():
     supabase = _Supabase({"memos": [_memo_row()], "user_profiles": []})
     respx.get(f"https://eu-central-1.recall.ai/api/v1/bot/{BOT_ID}/").mock(

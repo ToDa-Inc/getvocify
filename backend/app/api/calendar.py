@@ -177,7 +177,7 @@ async def callback(
     supabase: Client = Depends(get_supabase),
 ):
     """Google / Microsoft send the rep back here. No session: `state` says who they are."""
-    back = f"{settings.FRONTEND_URL.rstrip('/')}/dashboard/settings/calling"
+    back = f"{settings.FRONTEND_URL.rstrip('/')}/dashboard/settings/calendar"
 
     def fail(code_: str) -> RedirectResponse:
         return RedirectResponse(f"{back}?{urlencode({'calendar': 'error', 'error': code_})}", status_code=302)

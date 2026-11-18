@@ -11,6 +11,7 @@ import { isManagerRole, usesRepHome } from "@/lib/nav";
 import { THEME_TOKENS } from "@/lib/theme/tokens";
 import { cn } from "@/lib/utils";
 import { useHomeChat } from "../hooks/useHomeChat";
+import { CalendarConnectCard } from "./CalendarConnectCard";
 import { HomeComposer, type HomeComposerHandle } from "./HomeComposer";
 import { HomeRecordButton } from "./HomeRecordButton";
 import { LatestInteractions } from "./LatestInteractions";
@@ -154,6 +155,7 @@ export function InicioPage() {
               <span className="ml-2.5 hidden whitespace-nowrap text-[15px] tracking-normal text-muted-foreground xl:inline">{date}</span>
             </h1>
             <HomeComposer ref={composer} onSend={send} autoFocus={wide && !inChat} />
+            <CalendarConnectCard />
             {repDay ? <RepRail /> : null}
           </div>
           <LatestInteractions manager={manager} />

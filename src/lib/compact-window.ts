@@ -22,3 +22,23 @@ export function compactWindowReleased(compact: boolean, phase: MeetingPhase): bo
 export function compactWindowDue(input: { available: boolean; phase: MeetingPhase; callId: string | null; doneFor: string | null }): boolean {
   return input.available && input.phase === "live" && input.callId !== null && input.callId !== input.doneFor;
 }
+
+const AUTO_OPEN_KEY = "vocify_compact_window_auto";
+
+/** Whether the compact window comes by itself when a call starts, on this computer (Settings › Preferences). On by default. */
+export function compactWindowAutoOpen(): boolean {
+  try {
+    return localStorage.getItem(AUTO_OPEN_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+export function setCompactWindowAutoOpen(on: boolean): void {
+  try {
+    if (on) localStorage.removeItem(AUTO_OPEN_KEY);
+    else localStorage.setItem(AUTO_OPEN_KEY, "off");
+  } catch {
+    // A storage the page may not write: the window keeps coming by itself.
+  }
+}

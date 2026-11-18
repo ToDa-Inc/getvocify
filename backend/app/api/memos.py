@@ -1366,9 +1366,9 @@ async def list_memos(
     return memos
 
 
-class UsageWeeklyDay(BaseModel):
-    day: str
-    memos: int
+class UsageDay(BaseModel):
+    date: str  # YYYY-MM-DD (UTC)
+    interactions: int
 
 
 class UsageActivity(BaseModel):
@@ -1379,15 +1379,33 @@ class UsageActivity(BaseModel):
 
 
 class UsageResponse(BaseModel):
-    total_memos: int
-    approved_count: int
-    this_week_memos: int
-    this_week_approved: int
-    time_saved_hours: float
-    this_week_time_saved_hours: float
-    accuracy_pct: Optional[float] = None  # approved / (approved + rejected) * 100
-    weekly: List[UsageWeeklyDay]
+    period_start: str  # the first day of this month (UTC): every "this month" number counts from here
+    calls: int
+    meetings: int
+    recorded_minutes: int
+    crm_updates: int
+    dialer_minutes: int  # minutes of calls made from Vocify's own dialer
+    total_interactions: int  # all time
+    daily: List[UsageDay]  # the last 30 days, oldest first
     recent_activity: List[UsageActivity]
+
+
+USAGE_DAYS = 30
+_USAGE_PAGE = 1000
+
+
+def _all_rows(query_for_page) -> list[dict]:
+    """Every row of a query, a page at a time (PostgREST answers at most a page per request)."""
+    rows: list[dict] = []
+    while True:
+        page = query_for_page(len(rows), len(rows) + _USAGE_PAGE - 1).execute().data or []
+        rows += page
+        if len(page) < _USAGE_PAGE:
+            return rows
+
+
+def _day(value: object) -> Optional[str]:
+    return str(value)[:10] if value else None
 
 
 @router.get("/usage", response_model=UsageResponse)
@@ -1395,82 +1413,93 @@ async def get_usage(
     supabase: Client = Depends(get_supabase),
     user_id: str = Depends(get_user_id),
 ):
-    """Aggregated usage stats for the current user (real data from memos)."""
-    result = supabase.table("memos").select("id,status,created_at,audio_duration,extraction").eq("user_id", user_id).order("created_at", desc=True).limit(2000).execute()
-    rows = result.data or []
-
+    """The signed-in rep's own usage: this month's calls, meetings, recorded time, CRM updates and dialer minutes,
+    the last 30 days day by day, and the latest activity."""
     now = datetime.now(timezone.utc)
-    week_start = now - timedelta(days=now.weekday(), hours=now.hour, minutes=now.minute, seconds=now.second, microseconds=0)
-    week_start_naive = week_start.replace(tzinfo=None).isoformat() if week_start.tzinfo else week_start.isoformat()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    since = min(month_start, (now - timedelta(days=USAGE_DAYS - 1)).replace(hour=0, minute=0, second=0, microsecond=0))
 
-    total_memos = len(rows)
-    approved_count = sum(1 for r in rows if r.get("status") == "approved")
-    rejected_count = sum(1 for r in rows if r.get("status") == "rejected")
-    this_week_memos = 0
-    this_week_approved = 0
-    time_saved_sec = 0.0
-    this_week_time_sec = 0.0
-    day_counts = {i: 0 for i in range(7)}  # 0=Monday .. 6=Sunday
+    def memos_page(lo: int, hi: int):
+        return (
+            supabase.table("memos")
+            .select("created_at,audio_duration,interaction_kind")
+            .eq("user_id", user_id)
+            .gte("created_at", since.isoformat())
+            .order("created_at")
+            .range(lo, hi)
+        )
 
+    def dialed_page(lo: int, hi: int):
+        return (
+            supabase.table("outbound_calls")
+            .select("recording_duration")
+            .eq("user_id", user_id)
+            .gte("created_at", month_start.isoformat())
+            .order("created_at")
+            .range(lo, hi)
+        )
+
+    rows, dialed = await asyncio.gather(asyncio.to_thread(_all_rows, memos_page), asyncio.to_thread(_all_rows, dialed_page))
+    total, approved = await asyncio.gather(
+        asyncio.to_thread(lambda: supabase.table("memos").select("id", count="exact").eq("user_id", user_id).limit(1).execute().count or 0),
+        asyncio.to_thread(
+            lambda: supabase.table("memos")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .eq("status", "approved")
+            .gte("approved_at", month_start.isoformat())
+            .limit(1)
+            .execute()
+            .count
+            or 0
+        ),
+    )
+    recent_rows = await asyncio.to_thread(
+        lambda: supabase.table("memos")
+        .select("status,created_at,extraction->>companyName,extraction->>contactName")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(10)
+        .execute()
+        .data
+        or []
+    )
+
+    month_day = month_start.date().isoformat()
+    month = [r for r in rows if (_day(r.get("created_at")) or "") >= month_day]
+    seconds = sum(float(r.get("audio_duration") or 0) for r in month)
+    dialer_seconds = sum(float(r.get("recording_duration") or 0) for r in dialed)
+
+    per_day: dict[str, int] = {}
     for r in rows:
-        created = r.get("created_at")
-        if created:
-            try:
-                dt = datetime.fromisoformat(created.replace("Z", "+00:00")) if isinstance(created, str) else created
-                if dt.tzinfo:
-                    dt = dt.replace(tzinfo=None)
-                created_naive = dt.isoformat() if hasattr(dt, "isoformat") else str(created)
-                if created_naive >= week_start_naive:
-                    this_week_memos += 1
-                    if r.get("status") == "approved":
-                        this_week_approved += 1
-                days_ago = (now.replace(tzinfo=None) - dt).days if hasattr(dt, "__sub__") else 0
-                if 0 <= days_ago < 7:
-                    weekday = dt.weekday()
-                    day_counts[weekday] = day_counts.get(weekday, 0) + 1
-            except Exception:
-                pass
-        dur = r.get("audio_duration") or 0
-        try:
-            dur_f = float(dur)
-        except (TypeError, ValueError):
-            dur_f = 0.0
-        time_saved_sec += dur_f
-        if created:
-            try:
-                dt = datetime.fromisoformat(created.replace("Z", "+00:00")) if isinstance(created, str) else created
-                if dt.tzinfo:
-                    dt = dt.replace(tzinfo=None)
-                if (now.replace(tzinfo=None) - dt).days < 7:
-                    this_week_time_sec += dur_f
-            except Exception:
-                pass
+        day = _day(r.get("created_at"))
+        if day:
+            per_day[day] = per_day.get(day, 0) + 1
+    first = now.date() - timedelta(days=USAGE_DAYS - 1)
+    daily = [
+        UsageDay(date=(first + timedelta(days=i)).isoformat(), interactions=per_day.get((first + timedelta(days=i)).isoformat(), 0))
+        for i in range(USAGE_DAYS)
+    ]
 
-    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    weekly = [UsageWeeklyDay(day=day_names[i], memos=day_counts.get(i, 0)) for i in range(7)]
-
-    recent = []
-    for r in rows[:15]:
-        created = r.get("created_at") or ""
-        ext = r.get("extraction") or {}
-        company = (ext.get("companyName") or ext.get("company_name") or "").strip() or "Untitled memo"
-        status = r.get("status") or ""
-        action = "Synced to CRM" if status == "approved" else "Created memo"
-        recent.append(UsageActivity(action=action, company=company, time=created, type="sync" if status == "approved" else "memo"))
-
-    accuracy_pct = None
-    if approved_count + rejected_count > 0:
-        accuracy_pct = round(100.0 * approved_count / (approved_count + rejected_count), 1)
+    recent = [
+        UsageActivity(
+            action="Synced to CRM" if r.get("status") == "approved" else "Created memo",
+            company=(r.get("companyName") or r.get("contactName") or "").strip(),
+            time=r.get("created_at") or "",
+            type="sync" if r.get("status") == "approved" else "memo",
+        )
+        for r in recent_rows
+    ]
 
     return UsageResponse(
-        total_memos=total_memos,
-        approved_count=approved_count,
-        this_week_memos=this_week_memos,
-        this_week_approved=this_week_approved,
-        time_saved_hours=round(time_saved_sec * 5 / 3600, 1),
-        this_week_time_saved_hours=round(this_week_time_sec * 5 / 3600, 1),
-        accuracy_pct=accuracy_pct,
-        weekly=weekly,
+        period_start=month_start.date().isoformat(),
+        calls=sum(1 for r in month if r.get("interaction_kind") != "meeting"),
+        meetings=sum(1 for r in month if r.get("interaction_kind") == "meeting"),
+        recorded_minutes=round(seconds / 60),
+        crm_updates=approved,
+        dialer_minutes=round(dialer_seconds / 60),
+        total_interactions=total,
+        daily=daily,
         recent_activity=recent,
     )
 
@@ -1701,6 +1730,42 @@ async def approve_memo_for_contact(
     if body and body.extraction:
         payload.extraction = body.extraction
     return await approve_memo(memo_id, payload, supabase, user_id)
+
+
+class CrmTargetRequest(BaseModel):
+    # The CRM contact the rep picked for this call.
+    contact_id: Optional[str] = None
+    # The deal the rep picked; null = no deal. Absent = keep the memo's (or drop it when the contact changed).
+    deal_id: Optional[str] = None
+
+
+@router.put("/{memo_id}/crm-target")
+def set_memo_crm_target(
+    memo_id: UUID,
+    body: CrmTargetRequest,
+    supabase: Client = Depends(get_supabase),
+    user_id: str = Depends(get_user_id),
+):
+    """The contact (and deal) the rep picked in the review, kept on the memo before approval: a reload, the
+    island's Update CRM and every later preview start from it instead of what the call first matched."""
+    memo_data = _require_readable_memo(supabase, str(memo_id), user_id)
+    if memo_data.get("status") == "approved":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already approved")
+    update: dict = {}
+    contact_id = (body.contact_id or "").strip()
+    if contact_id and contact_id != str(memo_data.get("hubspot_contact_id") or ""):
+        # The deal matched for the previous contact is not this contact's.
+        update.update(hubspot_contact_id=contact_id, hubspot_deal_id=None, matched_deal_id=None, matched_deal_name=None)
+    if "deal_id" in body.model_fields_set:
+        deal_id = (body.deal_id or "").strip() or None
+        if deal_id != (memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id")):
+            update.update(hubspot_deal_id=deal_id, matched_deal_id=deal_id, matched_deal_name=None)
+    if update:
+        supabase.table("memos").update(update).eq("id", str(memo_id)).execute()
+    return {
+        "contact_id": update.get("hubspot_contact_id", memo_data.get("hubspot_contact_id")),
+        "deal_id": update.get("hubspot_deal_id", memo_data.get("hubspot_deal_id")),
+    }
 
 
 @router.get("/{memo_id}/crm-updates", response_model=List[CRMUpdate])

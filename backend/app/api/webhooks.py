@@ -1581,6 +1581,7 @@ RECALL_FAILED_MESSAGES = {
     "transcript.failed": "Recall no pudo transcribir la reunión",
 }
 RECALL_FAILED_EVENTS = frozenset(RECALL_FAILED_MESSAGES)
+RECALL_NO_RECORDING_MESSAGE = "El bot de Recall no llegó a entrar en la reunión"
 RECALL_CALENDAR_EVENTS = frozenset({"calendar.sync_events", "calendar.update"})
 
 
@@ -1660,6 +1661,7 @@ async def recall_webhook(request: Request, background_tasks: BackgroundTasks):
 
     from app.integrations.recall_client import (
         RecallClient,
+        bot_never_recorded,
         transcript_download_url_from_bot,
         turns_from_recall_transcript,
     )
@@ -1723,6 +1725,21 @@ async def recall_webhook(request: Request, background_tasks: BackgroundTasks):
         client = RecallClient()
         bot_detail = await client.get_bot(bot_id)
         download_url = transcript_download_url_from_bot(bot_detail)
+        if not download_url and bot_never_recorded(bot_detail):
+            # Done without a single recording (left in the waiting room, refused, the meeting ended first): no
+            # transcript will ever come, so the capture fails instead of staying "processing" for good.
+            logger.warning(
+                "Recall webhook: bot %s finished without recording", bot_id,
+                extra=log_domain(DOMAIN_WEBHOOK, "recall_bot_no_recording", bot_id=bot_id, event=event),
+            )
+            await asyncio.to_thread(
+                lambda: supabase.table("memos")
+                .update({"capture_status": "failed", "status": "failed", "error_message": RECALL_NO_RECORDING_MESSAGE})
+                .eq("id", memo_row["id"])
+                .execute()
+            )
+            inc_webhook_message("recall", "processed")
+            return JSONResponse(content={"status": "ok"}, status_code=200)
         if not download_url:
             # Transcription can finish after the bot leaves: not a failure. The
             # transcript.done event (or a later retry) completes the capture.

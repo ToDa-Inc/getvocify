@@ -284,27 +284,30 @@ export interface ApproveMemoPayload {
 /**
  * Usage analytics (real data from memos)
  */
-export interface UsageWeeklyDay {
-  day: string;
-  memos: number;
+export interface UsageDay {
+  date: string;
+  interactions: number;
 }
 
 export interface UsageActivity {
   action: string;
   company: string;
   time: string;
-  type: 'memo' | 'sync';
+  type: "memo" | "sync";
 }
 
 export interface UsageResponse {
-  total_memos: number;
-  approved_count: number;
-  this_week_memos: number;
-  this_week_approved: number;
-  time_saved_hours: number;
-  this_week_time_saved_hours: number;
-  accuracy_pct: number | null;
-  weekly: UsageWeeklyDay[];
+  /** The first day of this month (UTC): every monthly number counts from here. */
+  period_start: string;
+  calls: number;
+  meetings: number;
+  recorded_minutes: number;
+  crm_updates: number;
+  /** Minutes of calls made from Vocify's own dialer this month. */
+  dialer_minutes: number;
+  total_interactions: number;
+  /** The last 30 days, oldest first. */
+  daily: UsageDay[];
   recent_activity: UsageActivity[];
 }
 

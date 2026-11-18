@@ -275,6 +275,14 @@ def bot_failure_confirmed(bot: dict[str, Any], event: str) -> bool:
     return False
 
 
+def bot_never_recorded(bot: dict[str, Any]) -> bool:
+    """A bot that is done and has no recording at all: nothing will ever be transcribed (it was never let in, or
+    the call ended before it joined)."""
+    changes = bot.get("status_changes") or []
+    done = bool(changes) and (changes[-1] or {}).get("code") == "done"
+    return done and not (bot.get("recordings") or [])
+
+
 def transcript_download_url_from_bot(bot: dict[str, Any]) -> Optional[str]:
     """The first recording that already has a transcript download URL. None while
     transcription is still running - the caller should treat that as 'not ready yet',

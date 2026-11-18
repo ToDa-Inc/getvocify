@@ -99,13 +99,27 @@ def test_admin_still_edits_the_glossary(membership, glossary):
 
 
 def test_member_reads_only_their_own_usage():
+    queries: list[tuple[str, list]] = []
+
+    class _Query:
+        def __init__(self, table):
+            self.filters: list = []
+            queries.append((table, self.filters))
+
+        def eq(self, column, value):
+            self.filters.append((column, value))
+            return self
+
+        def __getattr__(self, _name):
+            return lambda *args, **kwargs: self
+
+        def execute(self):
+            rows = [{"created_at": "2026-11-02T10:00:00+00:00", "audio_duration": 120, "interaction_kind": "call"}]
+            return MagicMock(data=rows if queries[-1][0] == "memos" else [], count=1)
+
     supabase = MagicMock()
-    query = supabase.table.return_value.select.return_value
-    query.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = [
-        {"id": "a", "status": "approved", "created_at": "2026-09-01T10:00:00+00:00", "audio_duration": 60, "extraction": {}},
-    ]
+    supabase.table.side_effect = _Query
     response = _client(supabase).get("/api/v1/memos/usage")
     assert response.status_code == 200
-    assert response.json()["total_memos"] == 1
-    supabase.table.assert_called_with("memos")
-    query.eq.assert_called_once_with("user_id", MEMBER)
+    assert response.json()["total_interactions"] == 1
+    assert queries and all(("user_id", MEMBER) in filters for _table, filters in queries)

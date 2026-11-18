@@ -490,7 +490,7 @@ function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[], manyVoice
       rows.push({
         key: `u${item.seen}`,
         speaker: item.speaker,
-        label: labelOf(item),
+        label: manyVoices && item.speaker === "prospect" && item.voice == null && !item.name ? lastVoiceLabel(rows) ?? labelOf(item) : labelOf(item),
         text: item.text,
         pending: item.pending,
         start: item.start,
@@ -503,6 +503,17 @@ function displayRows(items: DisplayItem[], rows: MeetingDisplayTurn[], manyVoice
     snaps?.push(snapshotOf(rows, offset));
   }
   return rows;
+}
+
+/**
+ * The label of the last line of the other side that has its voice. A line too short to hold a voice (or whose voice is
+ * still coming) reads as that person, not as a third "Them" beside "Voice 1" and "Voice 2".
+ */
+function lastVoiceLabel(rows: MeetingDisplayTurn[]): string | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].speaker === "prospect" && rows[i].voice != null) return rows[i].label;
+  }
+  return null;
 }
 
 /** Who said each voice's lines, as the meeting app named them: a tally, kept as the lines arrive. */

@@ -232,10 +232,10 @@ export const CallerIdSettings = () => {
           {isSaving ? (
             <>
               <VocifySpinner size={12} />
-              Sending…
+              Calling…
             </>
           ) : (
-            "Send code"
+            "Verify by call"
           )}
         </Button>
       </div>
@@ -326,7 +326,7 @@ export const CallerIdSettings = () => {
             <p className={THEME_TOKENS.typography.capsLabel}>Add a number</p>
             <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
               {isTelnyx
-                ? "International format. We text a code to that phone — Vocify never invents or shows it."
+                ? "International format. That phone gets a short call that reads out a code; you type it here."
                 : "International format. You get a short call in English and type the code we show next."}
             </p>
           </div>
@@ -349,10 +349,10 @@ export const CallerIdSettings = () => {
             <p className={THEME_TOKENS.typography.capsLabel}>Finish verification</p>
             <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
               {isTelnyx
-                ? `Enter the code sent to ${otpTarget}.`
+                ? `Enter the code the call to ${otpTarget} read out.`
                 : verificationCode
                   ? "Answer the call and type this code on your keypad."
-                  : "Answer the verification call, or send a new code if you missed it."}
+                  : "Answer the verification call, or call again if you missed it."}
             </p>
           </div>
           {verificationCode && !isTelnyx && (

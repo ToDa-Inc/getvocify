@@ -102,11 +102,12 @@ def event_row(event: dict[str, Any], connection: dict[str, Any]) -> Optional[dic
 
 
 def _known_matches(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Email -> what HubSpot said last time (a contact, or `matched` with none)."""
+    """Email -> the HubSpot contact found for it last time. A "no contact" answer is not kept: the rep often creates the
+    contact after the invite, so it is looked up again on the next sync."""
     known: dict[str, dict[str, Any]] = {}
     for row in rows:
         for person in row.get("attendees") or []:
-            if person.get("matched") and person.get("email"):
+            if person.get("matched") and person.get("email") and person.get("hubspot_contact_id"):
                 known[person["email"]] = person
     return known
 

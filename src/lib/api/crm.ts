@@ -347,6 +347,14 @@ export const crmApi = {
     return api.get(endpoint);
   },
 
+  /** Keeps the contact (and deal) the rep picked on the memo, so a reload and the island's Update CRM start from it. */
+  setTarget(memoId: string, target: { contactId?: string; dealId?: string | null }) {
+    const body: { contact_id?: string; deal_id?: string | null } = {};
+    if (target.contactId) body.contact_id = target.contactId;
+    if (target.dealId !== undefined) body.deal_id = target.dealId;
+    return api.put<{ contact_id: string | null; deal_id: string | null }>(`/memos/${memoId}/crm-target`, body);
+  },
+
   /** Get preview with optional edited extraction (user edits before confirming) */
   async getPreviewWithExtraction(
     memoId: string,

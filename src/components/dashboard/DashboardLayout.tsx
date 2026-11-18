@@ -33,6 +33,7 @@ import { CompactCallWindow } from "@/features/desktop/CompactCallWindow";
 import { DesktopCallProvider } from "@/features/desktop/DesktopCallProvider";
 import { MeetingHeadsUp } from "@/features/desktop/MeetingHeadsUp";
 import { DesktopRecordingChip } from "@/features/desktop/DesktopRecordingChip";
+import { DesktopUpdateChip } from "@/features/desktop/DesktopUpdateChip";
 import { DesktopSetupDialog } from "@/features/desktop/DesktopSetupDialog";
 import { DesktopPermissionBanner } from "@/features/desktop/DesktopPermissionBanner";
 import { isDesktopHost } from "@/lib/desktop-host";
@@ -178,6 +179,9 @@ const DashboardLayout = () => {
           {/* The top bar only shows below lg, so a live or unsent meeting stays reachable here at desktop widths. */}
           <div className="pb-2 empty:hidden">
             <DesktopRecordingChip />
+          </div>
+          <div className="pb-2 empty:hidden">
+            <DesktopUpdateChip />
           </div>
           <AvatarMenu variant="sidebar" billing={billing} />
         </div>

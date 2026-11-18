@@ -706,12 +706,18 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     ctxRef.current = null;
   }, [levels, pushMic]);
 
+  // A phone call has one person on the other side: its lines are never split into voices.
+  const onPhoneCall = useCallback(() => {
+    const draft = draftRef.current;
+    return Boolean(vocifyCallRef.current) || (draft?.channel ?? draft?.source?.kind ?? callSourceRef.current?.kind) === "call";
+  }, []);
+
   const openSocket = useCallback(() => {
     // A new session times its audio from zero again: who spoke is timed from its first audio too.
     if (speakersRef.current) speakersRef.current = { timeline: new SpeakerTimeline(), clockAt: null };
     sentBytesRef.current = { rep: 0, prospect: 0 };
     const echoCancel = serverEchoCancel(echoCancelRef.current, nativeMicRef.current, micEchoRef.current);
-    const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current, { echoCancel, captureId: draftRef.current?.id }));
+    const ws = new WebSocket(liveTranscriptionWsUrl(userIdRef.current, { echoCancel, captureId: draftRef.current?.id, voices: !onPhoneCall() }));
     wsRef.current = ws;
     ws.onopen = () => {
       if (vocifyCallRef.current) reportCallStep("session-socket-open");
@@ -783,8 +789,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           }
         }
       } else if (data.type === "Voice") {
-        // Whose voice a line of the other side is, a moment after its text.
-        const next = applyVoice(transcriptRef.current, data.start, data.voice);
+        // Whose voice a line of the other side is, a moment after its text (a meeting's: a call can turn into one).
+        const next = onPhoneCall() ? transcriptRef.current : applyVoice(transcriptRef.current, data.start, data.voice);
         if (next !== transcriptRef.current) updateTranscript(next);
       } else if (data.type === "ChannelReset") {
         const next = resetChannel(transcriptRef.current, data.audio_channel, data.from);
@@ -816,7 +822,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         if (phaseRef.current === "live" && wsRef.current === ws) openSocket();
       }, 1000 * reconnectsRef.current);
     };
-  }, [updateTranscript, sendOverlay]);
+  }, [updateTranscript, sendOverlay, onPhoneCall]);
 
   const drainSocket = useCallback(async () => {
     const ws = wsRef.current;

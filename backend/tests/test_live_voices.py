@@ -48,13 +48,27 @@ def test_the_model_gives_unit_voiceprints_that_tell_two_sounds_apart():
     assert float(a @ b) < 0.99
 
 
-def test_the_same_voice_stays_one_voice_and_a_far_one_is_new():
+def test_the_same_voice_stays_one_voice_and_two_alike_far_pieces_are_a_new_one():
     book = VoiceBook()
     assert book.hear(0.0, _voice(0), 3).voice == 1
     assert book.hear(5.0, _voice(10), 3).voice == 1
-    assert book.hear(10.0, _voice(80), 3).voice == 2
+    # One far piece is not a person yet: it waits on the closest voice, unsure.
+    first = book.hear(10.0, _voice(80), 3)
+    assert (first.voice, first.sure) == (1, False)
     assert book.hear(15.0, _voice(5), 3).voice == 1
-    assert book.hear(20.0, _voice(85), 3).voice == 2
+    # A second one like it: a new voice, and the first moves onto it.
+    second = book.hear(20.0, _voice(85), 3)
+    assert (second.voice, second.sure, second.moved) == (2, True, (10.0,))
+    assert book.voices[1].pieces == 3 and book.voices[2].pieces == 2
+    assert book.hear(25.0, _voice(82), 3).voice == 2
+
+
+def test_one_odd_piece_never_splits_a_single_person():
+    book = VoiceBook()
+    book.hear(0.0, _voice(0), 3)
+    for i, angle in enumerate([5, 80, 10, 0, 170, 8]):
+        assert book.hear(5.0 * (i + 1), _voice(angle), 3).voice == 1
+    assert list(book.voices) == [1]
 
 
 def test_a_piece_only_just_close_enough_goes_to_the_closest_voice_but_is_not_sure():
@@ -68,8 +82,11 @@ def test_a_piece_only_just_close_enough_goes_to_the_closest_voice_but_is_not_sur
 
 def test_voices_stop_at_the_limit():
     book = VoiceBook()
-    for i in range(live_voices.MAX_VOICES + 3):
-        book.hear(float(i), _unit(*[1.0 if j == i else 0.0 for j in range(live_voices.MAX_VOICES + 3)]), 2)
+    axes = live_voices.MAX_VOICES + 3
+    for i in range(axes):
+        # Each person says two lines.
+        for repeat in range(2):
+            book.hear(float(2 * i + repeat), _unit(*[1.0 if j == i else 0.0 for j in range(axes)]), 2)
     assert len(book.voices) == live_voices.MAX_VOICES
 
 
@@ -78,6 +95,7 @@ def test_merging_two_voices_moves_their_past_and_future():
     book.hear(0.0, _voice(0), 3)
     book.hear(5.0, _voice(80), 3)
     book.hear(10.0, _voice(85), 3)
+    assert sorted(book.voices) == [1, 2]
     assert book.merge(1, 2)
     assert list(book.voices) == [1]
     assert book.voices[1].pieces == 3
@@ -91,10 +109,11 @@ def test_moving_a_line_teaches_the_voices():
     book = VoiceBook()
     book.hear(0.0, _voice(0), 3)
     book.hear(5.0, _voice(90), 3)
+    book.hear(7.0, _voice(92), 3)
     # This one was put on voice 1 but is the second person.
     assert book.hear(10.0, _voice(40), 3).voice == 1
     assert book.move(10.0, 2) == 2
-    assert book.voices[1].pieces == 1 and book.voices[2].pieces == 2
+    assert book.voices[1].pieces == 1 and book.voices[2].pieces == 3
     assert book.move(10.0, 2) == 2
     assert book.move(99.0, 2) is None
     assert book.move(10.0, 7) is None
@@ -104,5 +123,17 @@ def test_moving_the_only_line_of_a_voice_to_a_new_one_leaves_one_voice():
     book = VoiceBook()
     book.hear(0.0, _voice(0), 3)
     book.hear(5.0, _voice(90), 3)
+    book.hear(7.0, _voice(90), 3)
+    assert book.move(7.0, 1) == 1
     new = book.move(5.0, None)
     assert new == 3 and sorted(book.voices) == [1, 3]
+
+
+def test_a_waiting_piece_the_rep_moves_is_settled_where_the_rep_put_it():
+    book = VoiceBook()
+    book.hear(0.0, _voice(0), 3)
+    book.hear(5.0, _voice(90), 3)
+    assert book.move(5.0, None) == 2
+    # It no longer waits: a piece like it now finds that voice instead of pairing with it.
+    assert book.hear(10.0, _voice(88), 3).voice == 2
+    assert sorted(book.voices) == [1, 2]

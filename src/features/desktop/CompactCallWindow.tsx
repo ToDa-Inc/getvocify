@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { compactViewShown, compactWindowDue, compactWindowReleased } from "@/lib/compact-window";
+import { compactViewShown, compactWindowAutoOpen, compactWindowDue, compactWindowReleased } from "@/lib/compact-window";
 import { getDesktopBridge } from "@/lib/desktop-host";
 import { useLanguage } from "@/lib/i18n";
 import { useDesktopMeeting } from "./DesktopMeetingProvider";
@@ -26,6 +26,8 @@ export function CompactCallWindow() {
   useEffect(() => {
     if (!due) return;
     doneFor.current = meeting.callId;
+    // Turned off in Settings: the call stays on the island, and the dashboard where the rep left it.
+    if (!compactWindowAutoOpen()) return;
     setCompact(true);
     getDesktopBridge()?.shell.command("show");
   }, [due, meeting.callId, setCompact]);

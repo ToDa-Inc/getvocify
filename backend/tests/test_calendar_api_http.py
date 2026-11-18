@@ -174,7 +174,7 @@ def test_callback_connects_replaces_the_old_calendar_and_keeps_the_switch():
     response = _client(supabase).get(f"/api/v1/calendar/google/callback?code=abc&state={_state_for()}")
 
     assert response.status_code == 302
-    assert response.headers["location"].endswith("/dashboard/settings/calling?calendar=connected")
+    assert response.headers["location"].endswith("/dashboard/settings/calendar?calendar=connected")
     assert token.called and delete_old.called
     sent = create.calls.last.request
     assert b'"oauth_refresh_token": "rt-1"' in sent.content or b'"oauth_refresh_token":"rt-1"' in sent.content

@@ -609,6 +609,7 @@ async def serve_live(websocket: WebSocket, user_id: Optional[str], *, service: s
             echo_raise=websocket.query_params.get("mic") != "page",
             capture_id=websocket.query_params.get("capture_id"),
             phrases=await asyncio.to_thread(_phrases_enabled, user_id),
+            voices=websocket.query_params.get("voices") != "0",
         )
         with usage_scope(
             "live_stt",
