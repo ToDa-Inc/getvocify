@@ -981,3 +981,115 @@ def test_a_desktop_call_named_by_its_recording_is_kept_whole_for_its_memo(monkey
 def test_a_session_without_a_recording_id_keeps_nothing(monkeypatch):
     live, sessions, client = _sessions(monkeypatch)
     assert sessions.recorder is None
+
+
+class _Heard(_Scripted):
+    """_Scripted that also keeps how much audio each request carried."""
+
+    seconds: list = []
+
+    async def transcribe(self, pcm):
+        _Heard.seconds.append(len(pcm) / 32000)
+        return await super().transcribe(pcm)
+
+
+def _turn_stream(monkeypatch, scripts, others=lambda: None):
+    from app.services import live_channel_sessions as live
+
+    live_, stream, events = _chunk_stream(monkeypatch, scripts)
+    monkeypatch.setattr(live, "OpenRouterTranscriber", _Heard)
+    _Heard.seconds = []
+    stream.turn_reads = True
+    stream.others_speaking_until = others
+    return live, stream, events
+
+
+def test_with_turn_reads_a_chunk_that_goes_on_the_turn_is_sent_with_the_turn_and_its_text_replaces_the_turns(monkeypatch):
+    import asyncio
+
+    # The second read is slower than the third: only the third, which has all the words, comes out.
+    live, stream, events = _turn_stream(monkeypatch, [(0.0, "Hola,"), (0.4, "Hola, mira"), (0.0, "Hola, mira, no sé.")])
+
+    async def scenario():
+        stream.start("key")
+        _feed_all(stream, _quiet(1.0), _tone(1.0), _quiet(0.5), _tone(1.0), _quiet(1.0), _tone(1.0), _quiet(0.6))
+        stream.end()
+        await asyncio.wait_for(stream.finished.wait(), 3.0)
+
+    asyncio.run(scenario())
+    finals = [e for e in events if e["kind"] == "final"]
+    assert [e["transcript"] for e in finals] == ["Hola,", "Hola, mira, no sé."]
+    assert "replace_from" not in finals[0] and abs(finals[1]["replace_from"] - 1.0) < 0.05
+    assert abs(finals[1]["start"] - 1.0) < 0.05 and abs(finals[1]["end"] - 5.5) < 0.05
+    # the chunk alone, then the turn from the first chunk's audio (0.4 s before its speech) to the end of each chunk
+    assert abs(_Heard.seconds[0] - 1.7) < 0.1
+    assert abs(_Heard.seconds[1] - (2.5 + 0.3 + 0.4)) < 0.1 and abs(_Heard.seconds[2] - (4.5 + 0.3 + 0.4)) < 0.1
+    assert stream.turn_reads_sent == 2 and abs(stream.billed_seconds() - sum(_Heard.seconds)) < 0.01
+
+
+def test_with_turn_reads_a_long_quiet_or_the_other_side_speaking_begins_a_new_turn(monkeypatch):
+    import asyncio
+
+    live, stream, events = _turn_stream(monkeypatch, [(0.0, "Uno."), (0.0, "Dos."), (0.0, "Tres.")])
+    # the other side spoke at 9 s: after the second turn began (at 5.5 s), so the third chunk begins its own
+    others = {"until": None}
+    stream.others_speaking_until = lambda: others["until"]
+
+    async def scenario():
+        stream.start("key")
+        _feed_all(stream, _quiet(1.0), _tone(1.0), _quiet(3.5), _tone(1.0), _quiet(0.6))
+        await asyncio.sleep(0.05)
+        others["until"] = 9.0
+        _feed_all(stream, _quiet(0.4), _tone(1.0), _quiet(0.6))
+        stream.end()
+        await asyncio.wait_for(stream.finished.wait(), 3.0)
+
+    asyncio.run(scenario())
+    finals = [e for e in events if e["kind"] == "final"]
+    assert [e["transcript"] for e in finals] == ["Uno.", "Dos.", "Tres."]
+    assert all("replace_from" not in e for e in finals) and stream.turn_reads_sent == 0
+    assert len({e["turn"] for e in finals}) == 3
+
+
+def test_a_turn_read_tells_the_client_to_drop_the_sides_text_from_the_turns_start_before_its_text(monkeypatch):
+    import asyncio
+
+    live, sessions, client = _sessions(monkeypatch)
+
+    async def scenario():
+        stream = sessions._open("prospect", "es", None, offset_s=0.0)
+        sessions.active["prospect"] = stream
+        await sessions._on_stream(stream, {"kind": "final", "transcript": "Hola, mira", "start": 1.0, "end": 3.5, "timed": False,
+                                           "turn": 0, "replace_from": 1.0})
+
+    asyncio.run(scenario())
+    assert client.sent[0] == {"type": "ChannelReset", "audio_channel": "prospect", "from": 1.0, "reason": "turn"}
+    assert client.sent[1]["type"] == "Results" and client.sent[1]["start"] == 1.0
+    assert client.sent[1]["channel"]["alternatives"][0]["transcript"] == "Hola, mira"
+
+
+def test_the_other_side_is_heard_until_its_last_speech_and_turn_reads_follow_the_companys_switch(monkeypatch):
+    import asyncio
+
+    from app.services import live_channel_sessions as live
+
+    monkeypatch.setattr(live.settings, "LIVE_STT_PROVIDER", "mai_chunks")
+    monkeypatch.setattr(live.settings, "OPENROUTER_API_KEY", "or-key")
+
+    class Quiet(live.MaiChunkStream):
+        def start(self, api_key):
+            pass
+
+    monkeypatch.setitem(live.STREAMS, "mai_chunks", Quiet)
+
+    async def scenario(turn_reads):
+        sessions = live.ChannelSessions(_FakeClient(), labels=["prospect", "rep"], language="multi", profile_languages=["es"],
+                                        glossary=[], detect=False, turn_reads=turn_reads)
+        for label in ("prospect", "rep"):
+            sessions.active[label] = sessions._open(label, "es", None, offset_s=0.0)
+        sessions.active["rep"].spoke_until_s = 12.5
+        return sessions.active["prospect"]
+
+    on, off = asyncio.run(scenario(True)), asyncio.run(scenario(False))
+    assert on.turn_reads and not off.turn_reads
+    assert on.others_speaking_until() == 12.5

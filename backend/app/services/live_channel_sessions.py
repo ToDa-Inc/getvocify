@@ -105,6 +105,15 @@ RECOVER_BACKOFF_S = (0.3, 1.0, 2.0, 4.0, 8.0)
 RECOVER_OVERLAP_S = 3.0
 # MAI through OpenRouter: this many chunks in a row that no request could transcribe, and the side's stream is reopened.
 MAX_CHUNK_FAILURES = 3
+# Turn reads (LIVE_STT_TURN_READS_ENABLED): a chunk of a side that is still in its turn is sent with the turn's audio so
+# far instead of alone, and its text replaces the turn's. MAI writes what it hears, and from a 1-3 s chunk of phone audio
+# it guesses: replayed on 11 real calls (2026-11-19, same MAI), the prospect's text differed from the same audio read in
+# 30 s windows by 17.8% chunk by chunk and by 8.8% with turn reads (invented words 7.3% -> 2.8%; the rep's 6.8% -> 3.4%),
+# for the same number of requests, about 3x the audio sent and a request about 0.3 s slower.
+# A turn: the side's chunks less than TURN_GAP_S apart, TURN_MAX_S at most, and nobody on the other side speaking since it
+# began (their words would show between its own, and its text, replaced, would move after them).
+TURN_GAP_S = 3.0
+TURN_MAX_S = 20.0
 
 _voice_embedder: Optional[VoiceEmbedder] = None
 
@@ -783,6 +792,16 @@ class MaiStream(LiveStream):
         return settled.strip()
 
 
+@dataclass
+class _Turn:
+    """A side's turn being spoken, for turn reads (see TURN_GAP_S)."""
+
+    key: int
+    start_s: float  # its first chunk's speech
+    audio_start_s: float  # its first chunk's audio
+    last_end_s: float  # its last chunk's speech
+
+
 class MaiChunkStream(LiveStream):
     """MAI-Transcribe-2 through OpenRouter, a request per chunk of speech instead of a streaming socket.
 
@@ -803,6 +822,16 @@ class MaiChunkStream(LiveStream):
         self.phrases: list[str] = []
         # The key of the streaming route, the backup of a chunk the batch route refuses. Set by ChannelSessions.
         self.backup_key: Optional[str] = None
+        # LIVE_STT_TURN_READS_ENABLED, and until when the other side was last heard speaking. Set by ChannelSessions.
+        self.turn_reads = False
+        self.others_speaking_until: Callable[[], Optional[float]] = lambda: None
+        # The end of this side's last speech that counted (a closed chunk's, or now while one is announced).
+        self.spoke_until_s: Optional[float] = None
+        # The audio of the turn being spoken, kept from where its first chunk's audio begins (seconds since the side began).
+        self._turn: Optional[_Turn] = None
+        self._audio = bytearray()
+        self._audio_from_s = 0.0
+        self.turn_reads_sent = 0
         self.backup_chunks = 0
         self.backup_s = 0.0
         self.transcriber: Optional[OpenRouterTranscriber] = None
@@ -840,6 +869,7 @@ class MaiChunkStream(LiveStream):
                     await self._close_chunk("force")
                     continue
                 self.cutter.offset_s = self.offset_s
+                self._keep_audio(item)
                 chunks, _ = self.cutter.feed(item)
                 for chunk in chunks:
                     self._submit(chunk)
@@ -868,20 +898,71 @@ class MaiChunkStream(LiveStream):
             self._submit(chunk)
         await self._set_active()
 
+    @property
+    def speaking_until_s(self) -> Optional[float]:
+        """Until when this side was heard speaking: now while it speaks, else the end of its last chunk."""
+        return self.cutter.speaking_until_s or self.spoke_until_s
+
+    def _keep_audio(self, pcm: bytes) -> None:
+        """The audio a turn read may need: a turn is TURN_MAX_S of speech at most, so a little more than that."""
+        if not self.turn_reads:
+            return
+        self._audio.extend(pcm)
+        kept_until_s = self._audio_from_s + len(self._audio) / BYTES_PER_SECOND
+        excess = int((kept_until_s - TURN_MAX_S - 2.0 - self._audio_from_s) * BYTES_PER_SECOND)
+        excess -= excess % 2
+        if excess > 0:
+            del self._audio[:excess]
+            self._audio_from_s += excess / BYTES_PER_SECOND
+
+    def _turn_audio(self, chunk: Chunk) -> tuple[bytes, _Turn, bool]:
+        """What to send for this chunk, its turn, and whether that is the turn's audio up to here (the chunk goes on the
+        side's turn) rather than the chunk alone (it begins one)."""
+        turn = self._turn
+        others = self.others_speaking_until()
+        if (
+            turn is not None
+            and chunk.start_s - turn.last_end_s < TURN_GAP_S
+            and chunk.end_s - turn.start_s <= TURN_MAX_S
+            and (others is None or others <= turn.start_s)
+        ):
+            start = int((turn.audio_start_s - self.offset_s - self._audio_from_s) * BYTES_PER_SECOND)
+            end = start + int((chunk.audio_start_s - turn.audio_start_s) * BYTES_PER_SECOND) + len(chunk.pcm)
+            start -= start % 2
+            end -= end % 2
+            if start >= 0 and end <= len(self._audio):
+                turn.last_end_s = chunk.end_s
+                return bytes(self._audio[start:end]), turn, True
+        self._turn = _Turn(key=self._seq, start_s=chunk.start_s, audio_start_s=chunk.audio_start_s, last_end_s=chunk.end_s)
+        return chunk.pcm, self._turn, False
+
     def _submit(self, chunk: Chunk) -> None:
         seq = self._seq
+        self.spoke_until_s = max(self.spoke_until_s or 0.0, chunk.end_s)
+        pcm, turn, whole = self._turn_audio(chunk) if self.turn_reads else (chunk.pcm, None, False)
         self._seq += 1
         self.pending += 1
-        job = asyncio.create_task(self._transcribe(seq, chunk, time.monotonic()))
+        job = asyncio.create_task(self._transcribe(seq, chunk, time.monotonic(), pcm, turn, whole))
         self._jobs.add(job)
         job.add_done_callback(self._jobs.discard)
 
-    async def _transcribe(self, seq: int, chunk: Chunk, closed_at: float) -> None:
+    async def _transcribe(
+        self,
+        seq: int,
+        chunk: Chunk,
+        closed_at: float,
+        pcm: Optional[bytes] = None,
+        turn: Optional[_Turn] = None,
+        whole: bool = False,
+    ) -> None:
         event: Optional[dict[str, Any]] = None
         failed = False
+        pcm = chunk.pcm if pcm is None else pcm
         try:
-            result = await self.transcriber.transcribe(chunk.pcm)  # type: ignore[union-attr]
-            self.sent_s += chunk.seconds * result.requests
+            result = await self.transcriber.transcribe(pcm)  # type: ignore[union-attr]
+            self.sent_s += len(pcm) / BYTES_PER_SECOND * result.requests
+            if whole:
+                self.turn_reads_sent += 1
             if result.backup:
                 self.backup_chunks += 1
                 self.backup_s += chunk.seconds
@@ -895,17 +976,20 @@ class MaiChunkStream(LiveStream):
                     "kind": "final",
                     "transcript": text,
                     "words": [],
-                    "start": chunk.start_s,
+                    "start": turn.start_s if whole and turn else chunk.start_s,
                     "end": chunk.end_s,
                     "timed": False,
                     "settle_s": waited,
+                    # Which turn it reads; a turn read's text replaces the side's text from the turn's start.
+                    "turn": turn.key if turn else None,
+                    **({"replace_from": turn.start_s} if whole and turn else {}),
                 }
                 if result.backup:
                     logger.info("%s %s: a refused chunk was answered by the streaming route (%.1fs)", self.provider, self.label, result.latency_s)
                 elif result.hedged:
                     logger.info("%s %s: a slow chunk request was answered by its second (%.1fs)", self.provider, self.label, result.latency_s)
         except TranscriptionError as e:
-            self.sent_s += chunk.seconds
+            self.sent_s += len(pcm) / BYTES_PER_SECOND
             self.failures += 1
             failed = self.failures >= MAX_CHUNK_FAILURES
             logger.warning("%s %s: %.1fs of speech lost, no request answered: %s", self.provider, self.label, chunk.seconds, e)
@@ -924,6 +1008,9 @@ class MaiChunkStream(LiveStream):
             while self._next in self._done:
                 event = self._done.pop(self._next)
                 self._next += 1
+                turn = event.get("turn") if event else None
+                if turn is not None and any(later and later.get("turn") == turn for later in self._done.values()):
+                    continue  # a later read of the same turn is in, and has all of its words
                 if event:
                     await self.on_event(self, event)
 
@@ -965,8 +1052,11 @@ class ChannelSessions:
         capture_id: Optional[str] = None,
         phrases: bool = False,
         voices: bool = True,
+        turn_reads: bool = False,
     ) -> None:
         self.client = client_ws
+        # LIVE_STT_TURN_READS_ENABLED (mai_chunks only): see TURN_GAP_S.
+        self.turn_reads = turn_reads
         # The call's own recording, for the whole-call transcription its memo gets (live_recording.py).
         from app.services.live_recording import CallRecorder
 
@@ -1102,6 +1192,15 @@ class ChannelSessions:
             old.end()
             logger.info("Live channels: %s moved to a fresh %s session at %.0fs", label, self.provider, fresh.offset_s)
 
+    def _others_speaking_until(self, label: str) -> Optional[float]:
+        """Until when anyone on the other sides of the call was last heard speaking (their chunked streams only)."""
+        times = [
+            t
+            for other, stream in self.active.items()
+            if other != label and isinstance(stream, MaiChunkStream) and (t := stream.speaking_until_s) is not None
+        ]
+        return max(times) if times else None
+
     def _language_hint(self) -> Optional[str]:
         """A profile with one language tells the transcriber which; with several, it detects per chunk."""
         return self.profile[0] if len(self.profile) == 1 else None
@@ -1112,6 +1211,8 @@ class ChannelSessions:
             stream.hint = self._language_hint()
             stream.profile_languages = list(self.profile)
             stream.phrases = list(self.phrases)
+            stream.turn_reads = self.turn_reads
+            stream.others_speaking_until = lambda: self._others_speaking_until(label)
             stream.backup_key = (settings.AI_GATEWAY_API_KEY or None) if settings.LIVE_STT_STREAM_BACKUP else None
         stream.start(self.keys[self.provider] or "")
         self.streams.append(stream)
@@ -1264,6 +1365,9 @@ class ChannelSessions:
             if event.get("start") is not None:
                 payload["start"] = event["start"]
                 payload["end"] = event.get("end", event["start"])
+            if final and event.get("replace_from") is not None:
+                # A turn read: its text is the turn's from its start, so the side's text from there is dropped first.
+                await self._send({"type": "ChannelReset", "audio_channel": stream.label, "from": event["replace_from"], "reason": "turn"})
             await self._send(payload)
             if "end" in payload:
                 self.report.result(

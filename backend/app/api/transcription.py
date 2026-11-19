@@ -498,15 +498,15 @@ async def authenticated_live_transcription(websocket: WebSocket):
     await serve_live(websocket, user_id, service="live")
 
 
-def _phrases_enabled(user_id: Optional[str]) -> bool:
-    """LIVE_STT_PHRASES_ENABLED for this user's company. A blocking database read: run in a thread."""
+def _company_flag(user_id: Optional[str], flag: str) -> bool:
+    """A feature flag for this user's company. A blocking database read: run in a thread."""
     if not user_id or user_id == "anonymous":
         return False
     try:
         supabase = get_supabase()
-        return feature_flags.is_enabled(supabase, get_company_id_for_user(supabase, user_id), "LIVE_STT_PHRASES_ENABLED")
+        return feature_flags.is_enabled(supabase, get_company_id_for_user(supabase, user_id), flag)
     except Exception as e:
-        logger.error("Failed to read LIVE_STT_PHRASES_ENABLED: %s", e)
+        logger.error("Failed to read %s: %s", flag, e)
         return False
 
 
@@ -608,8 +608,9 @@ async def serve_live(websocket: WebSocket, user_id: Optional[str], *, service: s
             # The page's mic is leveled by the browser already; the desktop app's own raw mic is raised on the server.
             echo_raise=websocket.query_params.get("mic") != "page",
             capture_id=websocket.query_params.get("capture_id"),
-            phrases=await asyncio.to_thread(_phrases_enabled, user_id),
+            phrases=await asyncio.to_thread(_company_flag, user_id, "LIVE_STT_PHRASES_ENABLED"),
             voices=websocket.query_params.get("voices") != "0",
+            turn_reads=await asyncio.to_thread(_company_flag, user_id, "LIVE_STT_TURN_READS_ENABLED"),
         )
         with usage_scope(
             "live_stt",

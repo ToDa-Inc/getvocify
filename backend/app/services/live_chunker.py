@@ -45,6 +45,7 @@ class Chunk:
     end_s: float  # when its speech ended
     speech_s: float
     trigger: str  # pause | max | end | force
+    audio_start_s: float = 0.0  # where its audio (`pcm`, the bit before the speech included) begins
 
     @property
     def seconds(self) -> float:
@@ -86,6 +87,7 @@ class ChunkCutter:
         self._speech_s = 0.0
         self._quiet_s = 0.0
         self._onset_s: Optional[float] = None
+        self._audio_start_s = 0.0
         self._last_loud_end_s = 0.0
         self.announced = False
 
@@ -93,6 +95,11 @@ class ChunkCutter:
     def open(self) -> bool:
         """Speech is being gathered (it may still turn out to be a blip)."""
         return bool(self._cur)
+
+    @property
+    def speaking_until_s(self) -> Optional[float]:
+        """While speech that counts is being gathered (it was announced): the end of the audio heard so far."""
+        return self.offset_s + self.heard_s if self._cur and self.announced else None
 
     def threshold(self) -> float:
         if len(self.levels) < NOISE_MIN_FRAMES:
@@ -133,6 +140,7 @@ class ChunkCutter:
             end_s=self.offset_s + self._last_loud_end_s,
             speech_s=self._speech_s,
             trigger=trigger,
+            audio_start_s=self.offset_s + self._audio_start_s,
         )
         self._reset()
         return chunk
@@ -152,6 +160,7 @@ class ChunkCutter:
             return None, None
         if not self._cur:
             self._cur = list(self._pre)
+            self._audio_start_s = start - len(self._pre) * FRAME_S
             self._pre.clear()
             self._pre_s = 0.0
             self._onset_s = start

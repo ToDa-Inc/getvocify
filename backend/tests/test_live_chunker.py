@@ -94,3 +94,15 @@ def test_a_noisy_room_raises_what_counts_as_speech_but_speech_still_cuts_chunks(
     assert 100 < cutter.threshold() <= SPEECH_RMS_MAX
     chunks, _ = run(cutter, tone(1.0, level=3000), tone(0.6, level=200))
     assert chunks and chunks[-1].trigger == "pause"
+
+
+def test_a_chunk_says_where_its_audio_begins_and_a_side_speaking_is_heard_until_now():
+    cutter = ChunkCutter(offset_s=5.0)
+    chunks, _ = run(cutter, quiet(1.0), tone(0.6))
+    assert chunks == [] and abs(cutter.speaking_until_s - 6.6) < 0.03
+    chunks, _ = run(cutter, quiet(0.4))
+    assert len(chunks) == 1 and cutter.speaking_until_s is None
+    chunk = chunks[0]
+    # its audio is the bit before the speech, the speech and the pause after it
+    assert abs(chunk.audio_start_s - (6.0 - PRE_ROLL_S)) < 0.03
+    assert abs(chunk.audio_start_s + chunk.seconds - (6.6 + PAUSE_S)) < 0.03
