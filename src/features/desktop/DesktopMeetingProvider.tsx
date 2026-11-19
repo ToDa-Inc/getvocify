@@ -69,6 +69,7 @@ import {
   POST_CALL_GIVE_UP_MS,
   UNDO_MS,
   callTypeFrom,
+  contactsFrom,
   crmFor,
   crmForType,
   emailFrom,
@@ -84,6 +85,7 @@ import {
   taskEditsFrom,
   withEdits,
   withLeadStatus,
+  type ContactLike,
   type PostCall,
 } from "@/lib/post-call";
 import { playbooksApi } from "@/features/playbooks/api";
@@ -124,6 +126,15 @@ const NATIVE_MIC_SILENT_MS = 3000;
 const ASK_NATIVE_MIC_ON = new Set<string>();
 /** One second of 16 kHz mono 16-bit silence: the call side's lead is sent in pieces this size. */
 const SILENCE_CHUNK_BYTES = 32_000;
+
+/** What the card reads from the review preview: the proposed changes, where the call lands and who it may be with. */
+type PostCallPreview = {
+  proposed_updates?: ProposedUpdate[];
+  selected_deal?: { deal_id?: string; deal_name?: string | null } | null;
+  selected_contact?: ContactLike | null;
+  contact_candidates?: ContactLike[] | null;
+  deal_creatable?: boolean;
+} & Parameters<typeof savedOnFrom>[0];
 
 export type MeetingPhase = "idle" | "starting" | "live" | "stopping" | "uploading";
 
@@ -910,6 +921,46 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     [queryClient],
   );
 
+  /** The CRM part of the card for one contact, read as Vocify's review reads it: the preview (the slow part: it reads
+   * the CRM) and the lead status, which is offered on every call and whose options come from the CRM's contact fields. */
+  const readCrm = useCallback((memoId: string, contactId: string | undefined) => {
+    const preview = crmApi.getPreview(memoId, undefined, contactId ? { contactId } : undefined).catch(() => null) as Promise<PostCallPreview | null>;
+    const leadStatus: Promise<ProposedUpdate | null> =
+      contactId && hubspotConnectedRef.current
+        ? crmApi
+            .getSchema("contacts")
+            .then((schema) => leadStatusUpdate(schema.properties) as ProposedUpdate | null)
+            .catch(() => null)
+        : Promise.resolve(null);
+    return { preview, leadStatus };
+  }, []);
+
+  /** Shows what the call writes to the CRM for the memo's contact, once read. */
+  const showCrm = useCallback(
+    (memo: { status: string; hubspotContactId?: string | null }, preview: PostCallPreview | null, leadStatus: ProposedUpdate | null) => {
+      const current = postCallRef.current;
+      if (!current) return;
+      const contactId = memo.hubspotContactId || undefined;
+      const proposed = withLeadStatus(preview?.proposed_updates, leadStatus);
+      current.proposed = proposed;
+      current.contactId = contactId;
+      current.dealId = preview?.selected_deal?.deal_id || undefined;
+      const crm = crmFor(memo, proposed);
+      current.crm = crm;
+      showPostCall({
+        ...crmForType(current.state.type?.key, crm),
+        crmUrl: crm.stage === "done" ? contactUrlRef.current(contactId) : null,
+        savedOn: savedOnFrom(preview),
+        dealCreatable: preview?.deal_creatable === true,
+        contactId: contactId ?? null,
+        // Who it may have been with, the one the preview landed on first: the card's contact picker lists them.
+        contacts: contactsFrom(preview?.selected_contact ? [preview.selected_contact] : [], preview?.contact_candidates ?? []),
+        contactSearch: null,
+      });
+    },
+    [showPostCall],
+  );
+
   /**
    * After a call: follow the memo until its CRM changes are ready, then the email draft and
    * meeting proposal as they arrive. Each row only appears once it exists for this call.
@@ -975,26 +1026,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       }
 
       const contactId = memo.hubspotContactId || undefined;
-      // The CRM changes are the slow part (the preview reads the CRM). It starts now, and the card
-      // shows what is already known - the type, the call note, the meeting - without waiting for it.
-      const previewRequest: Promise<
-        | ({ proposed_updates?: ProposedUpdate[]; selected_deal?: { deal_id?: string; deal_name?: string | null } | null } & Parameters<typeof savedOnFrom>[0])
-        | null
-      > =
-        memo.status === "pending_review"
-          ? (crmApi.getPreview(memoId, undefined, contactId ? { contactId } : undefined).catch(() => null) as Promise<
-              | ({ proposed_updates?: ProposedUpdate[]; selected_deal?: { deal_id?: string; deal_name?: string | null } | null } & Parameters<typeof savedOnFrom>[0])
-              | null
-            >)
-          : Promise.resolve(null);
-      // The lead status is offered on every call: its options come from the CRM's contact fields.
-      const leadStatusRequest: Promise<ProposedUpdate | null> =
-        memo.status === "pending_review" && contactId && hubspotConnectedRef.current
-          ? crmApi
-              .getSchema("contacts")
-              .then((schema) => leadStatusUpdate(schema.properties) as ProposedUpdate | null)
-              .catch(() => null)
-          : Promise.resolve(null);
+      // The CRM changes are the slow part (the preview reads the CRM). They start now, and the card
+      // shows what is already known - the type, the call note, the meeting - without waiting for them.
+      const crmRequest =
+        memo.status === "pending_review" ? readCrm(memoId, contactId) : { preview: Promise.resolve(null), leadStatus: Promise.resolve(null) };
       const [proposal, playbook] = await Promise.all([
         api.get<{ proposal: Record<string, unknown> | null }>(`/memos/${memoId}/meeting-proposal`).catch(() => null),
         api
@@ -1013,19 +1048,9 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         summary: summaryLines(memo.extraction?.summary),
       });
 
-      const preview = await previewRequest;
+      const [preview, leadStatus] = await Promise.all([crmRequest.preview, crmRequest.leadStatus]);
       if (run.cancelled || !postCallRef.current) return;
-      const proposed = withLeadStatus(preview?.proposed_updates, await leadStatusRequest);
-      postCallRef.current.proposed = proposed;
-      postCallRef.current.dealId = preview?.selected_deal?.deal_id || undefined;
-      const crm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, proposed);
-      postCallRef.current.crm = crm;
-      showPostCall({
-        ...crmForType(type?.key, crm),
-        crmUrl: crm.stage === "done" ? contactUrlRef.current(contactId) : null,
-        savedOn: savedOnFrom(preview),
-        dealCreatable: (preview as { deal_creatable?: boolean } | null)?.deal_creatable === true,
-      });
+      showCrm({ status: memo.status, hubspotContactId: memo.hubspotContactId }, preview, leadStatus);
 
       // The email draft is written after the CRM changes: the card says it's on its way,
       // then shows it once it's ready.
@@ -1039,7 +1064,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         if (run.cancelled) return;
       }
     },
-    [endPostCall, showPostCall, typeName],
+    [endPostCall, showPostCall, typeName, readCrm, showCrm],
   );
 
 
@@ -1251,6 +1276,42 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           endPostCall();
           navigate(`${ROUTES.MEMO_DETAIL(memoId)}?tab=fields`);
           return;
+        case "searchContacts": {
+          // The card's contact picker: the same CRM search as the review's. Only the latest query's answer is shown.
+          const query = typeof action.query === "string" ? action.query.trim() : "";
+          if (current.state.stage !== "ready") return;
+          if (query.length < 2) return showPostCall({ contactSearch: null });
+          showPostCall({ contactSearch: { query, results: current.state.contactSearch?.results ?? [], busy: true } });
+          const hits = await crmApi.searchContacts(query).catch(() => null);
+          if (current.run.cancelled || postCallRef.current !== current || current.state.contactSearch?.query !== query) return;
+          showPostCall({ contactSearch: { query, results: contactsFrom((hits ?? []) as ContactLike[]), busy: false } });
+          return;
+        }
+        case "setContact": {
+          // Another person picked in the card: kept on the memo (as the review keeps a pick), then the update is read
+          // again for them - their fields, their deal, where the call lands - before it can be saved.
+          const contactId = typeof action.contactId === "string" ? action.contactId.trim() : "";
+          if (!contactId || current.state.stage !== "ready" || contactId === current.state.contactId) return;
+          const picked = [...(current.state.contactSearch?.results ?? []), ...(current.state.contacts ?? [])].find((c) => c.id === contactId);
+          const before = current.state;
+          showPostCall({ stage: "writing", contactName: picked?.name ?? before.contactName, contactId, changes: [], canApprove: false, savedOn: [], contactSearch: null });
+          try {
+            await crmApi.setTarget(memoId, { contactId });
+            const request = readCrm(memoId, contactId);
+            const [preview, leadStatus] = await Promise.all([request.preview, request.leadStatus]);
+            if (current.run.cancelled || postCallRef.current !== current) return;
+            if (!preview) throw new Error("no preview");
+            showCrm({ status: "pending_review", hubspotContactId: contactId }, preview, leadStatus);
+            // The picker lists the person picked first, with the others still there to switch back.
+            showPostCall({ contacts: contactsFrom(preview.selected_contact ? [preview.selected_contact] : [], before.contacts ?? []) });
+            memoChanged(memoId);
+          } catch {
+            if (current.run.cancelled || postCallRef.current !== current) return;
+            // Vocify's review reads it again from the memo, whichever step failed.
+            showPostCall({ stage: "review", canApprove: false, changes: [], note: "Couldn't load the update for this contact. Review it in Vocify" });
+          }
+          return;
+        }
         case "notes":
         case "openNotes":
           navigate(`${ROUTES.MEMO_DETAIL(memoId)}?tab=note`);
@@ -1313,7 +1374,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           return;
       }
     },
-    [endPostCall, memoChanged, navigate, openJob, queryClient, retryJob, settleJob, showPostCall],
+    [endPostCall, memoChanged, navigate, openJob, queryClient, readCrm, retryJob, settleJob, showCrm, showPostCall],
   );
   const onPostCallActionRef = useRef(onPostCallAction);
   onPostCallActionRef.current = onPostCallAction;

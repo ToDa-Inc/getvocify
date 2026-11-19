@@ -4,6 +4,7 @@ import {
   savedOnFrom,
   callTypeFrom,
   changesFrom,
+  contactsFrom,
   crmForType,
   crmFor,
   defaultKept,
@@ -106,10 +107,30 @@ describe("crmFor", () => {
     assert.equal(crmFor({ ...ready, hubspotContactId: null }, [{ field_name: "a", field_label: "A", new_value: "x" }]).canApprove, false);
   });
 
-  it("is done when auto-approve already wrote it, and sends failures and empty proposals to review", () => {
+  it("is done when auto-approve already wrote it, and sends failures to review", () => {
     assert.equal(crmFor({ status: "approved" }).stage, "done");
     assert.equal(crmFor({ status: "failed" }).stage, "review");
-    assert.equal(crmFor(ready, []).stage, "review");
+  });
+
+  it("with no field to change it is still ready: the note is saved on its own once there is a contact", () => {
+    assert.deepEqual(crmFor(ready, []), { stage: "ready", changes: [], canApprove: true });
+    assert.equal(crmFor({ ...ready, hubspotContactId: null }, []).canApprove, false);
+  });
+});
+
+describe("contactsFrom", () => {
+  it("lists each person once, in order, with what tells them apart", () => {
+    const chosen = { contact_id: "1", name: "Noel Ruiz", email: "noel@lyn.es", company_name: "LYN" };
+    const candidates = [chosen, { contact_id: "2", name: "", email: "mtrujillo@involvegbi.es" }, { contact_id: "3", name: "Ana" }, { name: "No id" }];
+    assert.deepEqual(contactsFrom([chosen], candidates), [
+      { id: "1", name: "Noel Ruiz", detail: "LYN" },
+      { id: "2", name: "mtrujillo@involvegbi.es", detail: null },
+      { id: "3", name: "Ana", detail: null },
+    ]);
+  });
+
+  it("shows the email when there is no company", () => {
+    assert.deepEqual(contactsFrom([{ contact_id: "9", name: "Marta", email: "marta@x.es" }]), [{ id: "9", name: "Marta", detail: "marta@x.es" }]);
   });
 });
 

@@ -146,7 +146,32 @@ export type PostCall = {
   savedOn?: SavedOn[] | null;
   /** The call has no deal and the company lets Vocify create one: the card offers "+ New deal", off until ticked. */
   dealCreatable?: boolean;
+  /** The contact the update is for (the memo's), or null while nobody is chosen. */
+  contactId?: string | null;
+  /** Who it may have been with, the chosen one first: the card's contact picker lists them before any search. */
+  contacts?: PostCallContact[];
+  /** The rep's search in the card's contact picker, and what the CRM found. */
+  contactSearch?: { query: string; results: PostCallContact[]; busy: boolean } | null;
 };
+
+/** A person the call can be saved on: their name, and what tells two of them apart (the company, else the email). */
+export type PostCallContact = { id: string; name: string; detail: string | null };
+
+export type ContactLike = { contact_id?: string | null; name?: string | null; email?: string | null; phone?: string | null; company_name?: string | null };
+
+/** CRM contacts (the preview's candidates, a search's hits) as the card lists them: one row per person, in order. */
+export function contactsFrom(...lists: (ContactLike | null | undefined)[][]): PostCallContact[] {
+  const out: PostCallContact[] = [];
+  for (const contact of lists.flat()) {
+    const id = text(contact?.contact_id);
+    if (!id || out.some((c) => c.id === id)) continue;
+    const name = text(contact?.name) || text(contact?.email) || text(contact?.phone);
+    if (!name) continue;
+    const detail = text(contact?.company_name) || (text(contact?.email) !== name ? text(contact?.email) : "") || null;
+    out.push({ id, name, detail });
+  }
+  return out;
+}
 
 export type SavedOn = { kind: "deal" | "company" | "contact"; name: string };
 
@@ -545,7 +570,7 @@ export function crmFor(
       return { stage: "done", changes: [], canApprove: false };
     case "pending_review": {
       const changes = changesFrom(proposed);
-      if (!changes.length) return { stage: "review", changes, canApprove: false, note: "Nothing to change in the CRM" };
+      // No field to change is still a save: the call's note (and any task the rep adds) goes to the contact.
       return { stage: "ready", changes, canApprove: Boolean(memo.hubspotContactId) };
     }
     case "failed":
