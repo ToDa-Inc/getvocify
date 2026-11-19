@@ -18,10 +18,11 @@ from supabase import Client
 
 from app.config import settings
 from app.deps import get_membership, get_supabase
+from app.integrations.composio_client import ComposioError
 from app.integrations.recall_client import RecallClient, RecallClientError
 from app.services.company import Membership
 from app.services.feature_flags import is_enabled
-from app.services.meetings import calendar_bots, calendar_events
+from app.services.meetings import calendar_bots, calendar_events, composio_calendar
 
 RECALL_BOT_FLAG = "RECALL_BOT_ENABLED"
 
@@ -162,6 +163,13 @@ async def authorize(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Este calendario no está configurado",
         )
+    if provider_key == "google" and calendar_bots.google_via_composio():
+        state = calendar_bots.make_state(provider, user_id=membership.user_id, company_id=membership.company_id)
+        try:
+            url = await composio_calendar.build_authorize_url(state, membership.user_id)
+        except ComposioError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="No se pudo abrir Google") from exc
+        return {"redirect_url": url}
     url = calendar_bots.build_authorize_url(
         provider, user_id=membership.user_id, company_id=membership.company_id
     )
@@ -171,12 +179,16 @@ async def authorize(
 @router.get("/{provider_key}/callback")
 async def callback(
     provider_key: str,
+    background_tasks: BackgroundTasks,
     code: Optional[str] = None,
     state: Optional[str] = None,
     error: Optional[str] = None,
+    connected_account_id: Optional[str] = None,
     supabase: Client = Depends(get_supabase),
+    composio_status: Optional[str] = Query(None, alias="status"),
 ):
-    """Google / Microsoft send the rep back here. No session: `state` says who they are."""
+    """Google / Microsoft (or Composio, for Google) send the rep back here. No session:
+    `state` says who they are."""
     back = f"{settings.FRONTEND_URL.rstrip('/')}/dashboard/settings/calendar"
 
     def fail(code_: str) -> RedirectResponse:
@@ -187,6 +199,23 @@ async def callback(
         return fail("not_configured")
     if error:
         return fail(error)
+    if provider_key == "google" and calendar_bots.google_via_composio():
+        if not state:
+            return fail("missing_params")
+        if composio_status and composio_status != "success":
+            return fail("access_denied")
+        try:
+            user_id, company_id = calendar_bots.decode_state(state, provider)
+            connection = await composio_calendar.connect(
+                supabase, RecallClient(), user_id=user_id, company_id=company_id, account_id=connected_account_id
+            )
+        except calendar_bots.CalendarOAuthError as exc:
+            return fail(exc.code)
+        except Exception:
+            logger.exception("Calendar connect failed (google via Composio)")
+            return fail("save_failed")
+        background_tasks.add_task(_sync_upcoming, supabase, connection)
+        return RedirectResponse(f"{back}?calendar=connected", status_code=302)
     if not code or not state:
         return fail("missing_params")
     try:
@@ -244,6 +273,6 @@ async def disconnect_calendar(
         return None
     try:
         await calendar_bots.disconnect_calendar(supabase, RecallClient(), connection)
-    except RecallClientError as exc:
+    except (RecallClientError, ComposioError) as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     return None

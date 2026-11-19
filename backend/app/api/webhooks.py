@@ -1762,7 +1762,15 @@ async def recall_webhook(request: Request, background_tasks: BackgroundTasks):
             if calendar_event_id:
                 from app.services.meetings.attendees import extract_attendees, enrich_attendees_with_hubspot
                 try:
-                    calendar_event = await client.get_calendar_event(calendar_event_id)
+                    if calendar_event_id.startswith("gcal:"):
+                        # Google through Composio: the meeting as stored on the last sync.
+                        from app.services.meetings.calendar_events import TABLE as EVENTS, memo_attendees
+
+                        rows = supabase.table(EVENTS).select("*").eq("recall_event_id", calendar_event_id).limit(1).execute().data or []
+                        calendar_event = None
+                        attendees = memo_attendees(rows[0], []) if rows else []
+                    else:
+                        calendar_event = await client.get_calendar_event(calendar_event_id)
                     if calendar_event and calendar_event.get("raw"):
                         attendees = extract_attendees(calendar_event["raw"], rep_email=rep_email)
                         attendees = await enrich_attendees_with_hubspot(

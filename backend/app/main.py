@@ -356,6 +356,22 @@ async def _periodic_memo_recovery():
             )
 
 
+async def _periodic_calendar_sync():
+    """Every 5 minutes, Google Calendars connected through Composio: Google sends no webhooks
+    there, so new, moved and cancelled meetings get (or lose) their bot here."""
+    from app.deps import get_supabase
+    from app.services.meetings import composio_calendar
+
+    logger = logging.getLogger(__name__)
+    supabase = get_supabase()
+    while True:
+        await asyncio.sleep(5 * 60)
+        try:
+            await composio_calendar.sync_all(supabase)
+        except Exception:
+            logger.exception("Periodic calendar sync failed", extra={"domain": "calendar", "phase": "periodic"})
+
+
 @app.on_event("startup")
 async def startup_event():
     """
@@ -412,6 +428,7 @@ async def startup_event():
 
     asyncio.create_task(_refresh_crm_updates_stale_pending_gauge())
     asyncio.create_task(_periodic_memo_recovery())
+    asyncio.create_task(_periodic_calendar_sync())
     asyncio.create_task(_periodic_confirm_writes())
     asyncio.create_task(_periodic_call_reconcile())
     asyncio.create_task(_periodic_playbook_improvement())

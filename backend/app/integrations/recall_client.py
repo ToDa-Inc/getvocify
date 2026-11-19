@@ -128,10 +128,14 @@ class RecallClient:
         meeting_url: str,
         bot_name: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
+        join_at: Optional[str] = None,
     ) -> dict[str, Any]:
+        """`join_at` (ISO time) schedules the bot; without it the bot joins now."""
         if not self.api_key:
             raise RecallClientError("RECALL_API_KEY is not configured")
         payload: dict[str, Any] = {"meeting_url": meeting_url, **bot_config(bot_name, metadata)}
+        if join_at:
+            payload["join_at"] = join_at
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
             response = await client.post(
                 f"{self.base_url}{CREATE_BOT_PATH}", headers=self._headers(), json=payload
@@ -167,6 +171,18 @@ class RecallClient:
                 f"Recall get bot error {response.status_code}: {response.text[:500]}"
             )
         return response.json()
+
+    async def list_bots(self, params: dict[str, str]) -> list[dict[str, Any]]:
+        """Every page of ``GET /api/v1/bot/`` (filters such as ``metadata__<key>`` and
+        ``join_at_after``)."""
+        bots: list[dict[str, Any]] = []
+        url: Optional[str] = f"{self.base_url}{CREATE_BOT_PATH}"
+        query: Optional[dict[str, str]] = params
+        while url:
+            data = (await self._call("GET", url, what="list bots", params=query)).json() or {}
+            bots.extend(data.get("results") or [])
+            url, query = data.get("next"), None
+        return bots
 
     async def download_transcript(self, download_url: str) -> list[dict[str, Any]]:
         """The download_url is pre-signed by Recall; no Authorization header goes with it."""

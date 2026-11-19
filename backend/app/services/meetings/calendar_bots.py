@@ -13,6 +13,10 @@ event gets a new key, and scheduling it again replaces the old bot.
 
 OAuth is ours (our Google / Microsoft apps); the refresh token goes straight to Recall,
 which refreshes access tokens itself. We never store it.
+
+Google goes through Composio instead when COMPOSIO_API_KEY and its auth config are set
+(`composio_calendar`): Composio's verified Google app, Vocify scheduling the bots. Calendars
+connected the Recall way before keep working through Recall.
 """
 
 from __future__ import annotations
@@ -99,14 +103,24 @@ class CalendarOAuthError(Exception):
         self.code = code
 
 
+def google_via_composio() -> bool:
+    from app.services.meetings import composio_calendar
+
+    return composio_calendar.configured() and bool(settings.JWT_SECRET)
+
+
 def available_providers() -> list[str]:
     if not settings.RECALL_API_KEY:
         return []
-    return [key for key, provider in PROVIDERS.items() if provider.configured]
+    return [
+        key
+        for key, provider in PROVIDERS.items()
+        if provider.configured or (key == "google" and google_via_composio())
+    ]
 
 
-def build_authorize_url(provider: Provider, *, user_id: str, company_id: str) -> str:
-    state = jwt.encode(
+def make_state(provider: Provider, *, user_id: str, company_id: str) -> str:
+    return jwt.encode(
         {
             "user_id": user_id,
             "company_id": company_id,
@@ -116,6 +130,10 @@ def build_authorize_url(provider: Provider, *, user_id: str, company_id: str) ->
         settings.JWT_SECRET,
         algorithm="HS256",
     )
+
+
+def build_authorize_url(provider: Provider, *, user_id: str, company_id: str) -> str:
+    state = make_state(provider, user_id=user_id, company_id=company_id)
     params = {
         "client_id": provider.client_id,
         "redirect_uri": provider.redirect_uri,
@@ -222,6 +240,11 @@ async def connect_calendar(
 
 async def disconnect_calendar(supabase: Client, client: RecallClient, connection: dict[str, Any]) -> None:
     """Recall removes the calendar's future bots when the calendar is deleted."""
+    from app.services.meetings import composio_calendar
+
+    if composio_calendar.is_composio(connection):
+        await composio_calendar.disconnect(supabase, client, connection)
+        return
     await client.delete_calendar(str(connection["recall_calendar_id"]))
     supabase.table(TABLE).delete().eq("id", connection["id"]).execute()
 
@@ -361,6 +384,11 @@ async def sync_calendar(
     """With `updated_at_gte` (a calendar.sync_events webhook): only the events that changed.
     Without it (the switch, or the island asking for fresh meetings): every upcoming event.
     Events are stored for meeting context (`calendar_events`) whatever the switch says."""
+    from app.services.meetings import composio_calendar
+
+    if composio_calendar.is_composio(connection):
+        await composio_calendar.sync(supabase, client, connection)
+        return
     if not connection.get("email") or connection.get("status") != "connected":
         connection = await refresh_connection(supabase, client, connection)
     from app.services.meetings import calendar_events

@@ -400,6 +400,11 @@ class Settings(BaseSettings):
     GOOGLE_CALENDAR_CLIENT_SECRET: Optional[str] = None
     MICROSOFT_CALENDAR_CLIENT_ID: Optional[str] = None
     MICROSOFT_CALENDAR_CLIENT_SECRET: Optional[str] = None
+    # Google Calendar through Composio's verified Google app (services.meetings.composio_calendar).
+    # Both set -> Google connects through Composio, whatever GOOGLE_CALENDAR_* says. Project API
+    # key (ak_...) from platform.composio.dev; the auth config is the googlecalendar one (ac_...).
+    COMPOSIO_API_KEY: Optional[str] = None
+    COMPOSIO_GOOGLE_CALENDAR_AUTH_CONFIG_ID: Optional[str] = None
     INTELLIGENCE_MODEL: str = "together/deepseek-ai/DeepSeek-V4.1-Flash"
     # Coaching → "Mejor" (the line a rep could have said). Empty: the call reading's model.
     COACH_REPLY_MODEL: Optional[str] = None
