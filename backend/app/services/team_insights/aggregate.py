@@ -179,22 +179,47 @@ def sort_reps_by_name(reps: list[dict]) -> list[dict]:
         return sorted(reps, key=lambda rep: str(rep.get("name") or "").casefold())
 
 
+def _managers_who_record(supabase, company_id: str, user_ids: list[str]) -> set[str]:
+    """The owners/admins with at least one memo of their own in the company. A failed read keeps
+    them out, as before they could sell."""
+    selling: set[str] = set()
+    for uid in (uid for uid in user_ids if uid):
+        try:
+            rows = (
+                supabase.table("memos").select("id").eq("company_id", company_id).eq("user_id", uid)
+                .limit(1).execute().data
+            )
+        except Exception:
+            logger.info("manager memo check failed", exc_info=True)
+            continue
+        if rows:
+            selling.add(uid)
+    return selling
+
+
 def load_team_reps(supabase, company_id: str, *, exclude_managers: bool = False) -> list[dict]:
     """Active company members as {userId, name}; never invent non-members.
 
-    exclude_managers (the Head of Sales pages): owners/admins are the Head of Sales, not
-    reps - they don't sell, so they are not a row, nor part of totals or the median."""
+    exclude_managers (the Head of Sales pages): an owner/admin who never recorded a conversation
+    in the company is the Head of Sales, not a rep - not a row, nor part of totals or the median.
+    One who records their own calls sells too (a founder, a Head of Sales who dials) and is a rep."""
     try:
         members = CompanyService(supabase).list_members(company_id)
     except Exception:
         return []
+    active = [member for member in members if (member.get("status") or "active") == "active"]
+    selling: set[str] = set()
+    if exclude_managers:
+        selling = _managers_who_record(
+            supabase,
+            company_id,
+            [str(m.get("user_id") or "").strip() for m in active if m.get("role") in _TEAM_ROLES],
+        )
     reps: list[dict] = []
-    for member in members:
-        if (member.get("status") or "active") != "active":
-            continue
-        if exclude_managers and member.get("role") in _TEAM_ROLES:
-            continue
+    for member in active:
         uid = str(member.get("user_id") or "").strip()
+        if exclude_managers and member.get("role") in _TEAM_ROLES and uid not in selling:
+            continue
         if not uid:
             continue
         rep = {

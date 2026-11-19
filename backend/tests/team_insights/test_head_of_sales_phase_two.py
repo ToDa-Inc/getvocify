@@ -224,16 +224,32 @@ def test_sales_role_is_ignored_when_reps_carry_no_sales_role():
     assert {row["user_id"] for row in inputs["activity_rows"]} == {USER_A, USER_B}
 
 
-def test_head_of_sales_pages_do_not_list_the_managers_as_reps(monkeypatch):
-    """The Head of Sales doesn't sell: not a row, not in totals or the median."""
+_MANAGERS_AND_A_REP = [
+    {"user_id": "boss", "full_name": "Marta", "role": "owner", "status": "active"},
+    {"user_id": "lead", "full_name": "Luis", "role": "admin", "status": "active"},
+    {"user_id": "rep", "full_name": "Toni", "role": "member", "status": "active"},
+]
+
+
+def test_head_of_sales_pages_do_not_list_the_managers_who_never_record(monkeypatch):
+    """A Head of Sales who doesn't sell: not a row, not in totals or the median."""
     from app.services.team_insights import aggregate as agg
 
-    members = [
-        {"user_id": "boss", "full_name": "Marta", "role": "owner", "status": "active"},
-        {"user_id": "lead", "full_name": "Luis", "role": "admin", "status": "active"},
-        {"user_id": "rep", "full_name": "Toni", "role": "member", "status": "active"},
-    ]
-    monkeypatch.setattr(agg.CompanyService, "list_members", lambda self, company_id: members)
-    assert [r["userId"] for r in agg.load_team_reps(None, "c", exclude_managers=True)] == ["rep"]
+    monkeypatch.setattr(agg.CompanyService, "list_members", lambda self, company_id: _MANAGERS_AND_A_REP)
+    store = _Supabase({"memos": [{"id": "m1", "company_id": "c", "user_id": "rep"}]})
+    assert [r["userId"] for r in agg.load_team_reps(store, "c", exclude_managers=True)] == ["rep"]
     # Members' view and pre-phase-2 callers keep the full list.
-    assert len(agg.load_team_reps(None, "c")) == 3
+    assert len(agg.load_team_reps(store, "c")) == 3
+
+
+def test_a_manager_who_records_their_own_calls_is_a_rep_too(monkeypatch):
+    """A founder or Head of Sales who dials sells: their calls show on Equipo like anyone's.
+    A memo of theirs in another company doesn't count."""
+    from app.services.team_insights import aggregate as agg
+
+    monkeypatch.setattr(agg.CompanyService, "list_members", lambda self, company_id: _MANAGERS_AND_A_REP)
+    store = _Supabase({"memos": [
+        {"id": "m1", "company_id": "c", "user_id": "boss"},
+        {"id": "m2", "company_id": "other", "user_id": "lead"},
+    ]})
+    assert sorted(r["userId"] for r in agg.load_team_reps(store, "c", exclude_managers=True)) == ["boss", "rep"]
