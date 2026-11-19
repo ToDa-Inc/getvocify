@@ -38,6 +38,12 @@ RATE_LIMIT_WAIT_S = 3.0
 # route, about 1.7 s for a piece), the hedge is not sent into a closed stretch, and the first answer of the two is used.
 # A shorter wait is as fast as the backup.
 BACKUP_MIN_WAIT_S = 2.0
+# OpenRouter answers 402 «would exceed your available credits given your current in-flight requests» when a prepaid
+# account below its balance threshold has too many requests running at once (its in-flight budget). The request never
+# reaches the provider and is to be sent again after Retry-After. On 2026-11-19 five calls at once got it on most requests
+# and a first and its hedge were both refused, losing pieces of up to 10 s. Refused like that, a chunk also goes to the
+# backup at once (another account, no such budget) and is sent here again after the wait.
+CREDIT_REFUSED = 402
 SAMPLE_RATE = 16000
 
 
@@ -131,17 +137,18 @@ class OpenRouterTranscriber:
         return str(data.get("text") or "").strip(), cost if isinstance(cost, (int, float)) else None
 
     async def _post(self, body: dict, refused: Optional[Callable[[float], None]] = None) -> httpx.Response:
-        """The request, sent again after the wait the provider asks for while it answers 429. `refused` is told that wait."""
+        """The request, sent again after the wait asked for while it answers 429 (the provider is full) or 402 (OpenRouter's
+        in-flight budget). `refused` is told that wait; a 402 counts as a long one, so the backup goes out at once."""
         for attempt in range(RATE_LIMIT_TRIES + 1):
             response = await self.client.post(URL, headers={"Authorization": f"Bearer {self.api_key}"}, json=body)
-            if response.status_code != 429 or attempt == RATE_LIMIT_TRIES:
+            if response.status_code not in (429, CREDIT_REFUSED) or attempt == RATE_LIMIT_TRIES:
                 break
             try:
                 wait = float(response.headers.get("retry-after") or 1.0)
             except ValueError:
                 wait = 1.0
             if refused:
-                refused(wait)
+                refused(max(wait, BACKUP_MIN_WAIT_S) if response.status_code == CREDIT_REFUSED else wait)
             await asyncio.sleep(min(RATE_LIMIT_WAIT_S, max(0.2, wait)))
         return response
 

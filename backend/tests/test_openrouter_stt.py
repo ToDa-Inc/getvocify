@@ -276,3 +276,39 @@ def test_the_warm_up_never_raises():
 def test_wav_bytes_wraps_pcm16():
     with wave.open(io.BytesIO(wav_bytes(PCM))) as wav:
         assert wav.getframerate() == 16000 and wav.getnframes() == 16000
+
+
+def credit_refusing(times, text="Hola"):
+    """OpenRouter's in-flight budget: the first `times` requests are refused with 402 before reaching the provider."""
+    calls = []
+
+    async def handler(request):
+        calls.append(1)
+        if len(calls) <= times:
+            return httpx.Response(402, headers={"Retry-After": "1"}, json={"error": {
+                "code": 402, "message": "This request would exceed your available credits given your current in-flight requests.",
+                "metadata": {"reason": "in_flight_budget_exhausted", "limit_source": "openrouter_in_flight_budget"}}})
+        return ok(text)
+
+    return handler, calls
+
+
+def test_a_chunk_over_openrouters_in_flight_budget_goes_to_the_backup_at_once():
+    # 2026-11-19: the first and its hedge were both refused with 402 and the piece was lost; the backup was never tried.
+    handler, calls = credit_refusing(99)
+    sent = []
+
+    async def backup(pcm):
+        sent.append(pcm)
+        return "¿Y eso cuánto cuesta?"
+
+    result = asyncio.run(transcriber(handler, backup=backup, hedge_s=0.2).transcribe(PCM))
+    assert result.text == "¿Y eso cuánto cuesta?" and result.backup and sent == [PCM]
+    # No hedge was sent into the refusal: OpenRouter only had the first request.
+    assert len(calls) == 1 and not result.hedged and result.latency_s < 1.0
+
+
+def test_without_a_backup_a_chunk_over_the_in_flight_budget_is_sent_again_after_the_wait():
+    handler, calls = credit_refusing(1)
+    result = asyncio.run(transcriber(handler, hedge_s=60).transcribe(PCM))
+    assert result.text == "Hola" and len(calls) == 2
