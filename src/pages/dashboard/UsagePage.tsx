@@ -50,11 +50,11 @@ const COPY = {
   },
 } as const;
 
-/** Minutes as "45 min" or "3 h 20 min". */
+/** Minutes as "45 min" or "3h 20m": short enough to stay on one line in a tile. */
 function duration(minutes: number): string {
   if (minutes < 60) return `${minutes} min`;
   const rest = minutes % 60;
-  return rest ? `${Math.floor(minutes / 60)} h ${rest} min` : `${minutes / 60} h`;
+  return rest ? `${Math.floor(minutes / 60)}h ${rest}m` : `${minutes / 60}h`;
 }
 
 function DailyBars({ days, locale }: { days: UsageDay[]; locale: string }) {
@@ -129,11 +129,12 @@ const UsagePage = () => {
     <div className="mx-auto max-w-[680px] space-y-8">
       <section className="space-y-3">
         <p className={`${THEME_TOKENS.typography.capsLabel} first-letter:uppercase`}>{copy.month(monthLabel)}</p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {/* One row on a wide screen, the dialer's tile included when there is one. */}
+        <div className={`grid grid-cols-2 gap-3 ${tiles.length > 4 ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
           {tiles.map((tile) => (
             <div key={tile.label} className={`${THEME_TOKENS.cards.base} ${THEME_TOKENS.radius.card} p-4`}>
               <tile.icon className="h-4 w-4 text-beige" strokeWidth={1.75} aria-hidden />
-              <p className="mt-3 text-2xl font-semibold tabular-nums tracking-tight text-foreground">{tile.value}</p>
+              <p className="mt-3 whitespace-nowrap text-2xl font-semibold tabular-nums tracking-tight text-foreground">{tile.value}</p>
               <p className="mt-0.5 text-[12.5px] text-muted-foreground">{tile.label}</p>
             </div>
           ))}
