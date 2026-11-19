@@ -134,7 +134,7 @@ async def list_events(client: ComposioClient, account_id: str, user_id: str, sin
     }
     events: list[dict[str, Any]] = []
     while True:
-        data = await client.proxy_get(account_id, f"{GOOGLE_API}/calendars/primary/events", params)
+        data = await client.proxy_get(account_id, user_id, f"{GOOGLE_API}/calendars/primary/events", params)
         events.extend(e for e in (to_event(item, user_id) for item in data.get("items") or []) if e)
         token = data.get("nextPageToken")
         if not token:
@@ -158,7 +158,7 @@ async def connect(
         if not accounts or (account_id and account_id not in {str(a["id"]) for a in accounts}):
             raise CalendarOAuthError("not_connected")
         current = account_id or str(accounts[0]["id"])
-        primary = await composio.proxy_get(current, f"{GOOGLE_API}/calendars/primary", {})
+        primary = await composio.proxy_get(current, user_id, f"{GOOGLE_API}/calendars/primary", {})
     except ComposioError as exc:
         logger.warning("Composio connect failed for %s: %s", user_id, exc)
         raise CalendarOAuthError("composio_failed") from exc

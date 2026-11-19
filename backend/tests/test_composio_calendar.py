@@ -260,6 +260,7 @@ def test_sync_reads_the_primary_calendar_through_composio_and_stores_it():
         asyncio.run(cc.sync(_Supabase(), RecallClient(), _connection()))
     sent = json.loads(proxy.calls.last.request.content)
     assert sent["connected_account_id"] == "ca_1"
+    assert sent["user_id"] == "rep-1"  # Composio refuses the proxy without it while 2FA is on
     assert sent["endpoint"] == "https://www.googleapis.com/calendar/v3/calendars/primary/events"
     [stored] = store.call_args.args[2]
     assert stored["id"] == "gcal:rep-1:g1"
@@ -315,7 +316,7 @@ def test_callback_connects_and_replaces_a_recall_calendar():
     respx.get(f"{COMPOSIO}/connected_accounts").mock(
         return_value=httpx.Response(200, json={"items": [{"id": "ca_new"}, {"id": "ca_older"}]})
     )
-    respx.post(f"{COMPOSIO}/tools/execute/proxy").mock(
+    proxy = respx.post(f"{COMPOSIO}/tools/execute/proxy").mock(
         return_value=httpx.Response(200, json={"status": 200, "data": {"id": "Ana@Acme.es"}})
     )
     drop_account = respx.delete(f"{COMPOSIO}/connected_accounts/ca_older").mock(return_value=httpx.Response(200, json={}))
@@ -329,6 +330,8 @@ def test_callback_connects_and_replaces_a_recall_calendar():
     assert row["recall_calendar_id"] == cc.marker_id("rep-1")
     assert row["email"] == "ana@acme.es" and row["status"] == "connected" and row["auto_join"] is True
     assert drop_account.called and drop_recall.called
+    sent = json.loads(proxy.calls.last.request.content)
+    assert sent["connected_account_id"] == "ca_new" and sent["user_id"] == "rep-1"
 
 
 @respx.mock

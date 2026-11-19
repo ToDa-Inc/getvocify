@@ -6,8 +6,9 @@ through its proxy with the rep's connected account. Docs: docs.composio.dev/refe
   Vocify user ID) and ``callback_url`` -> ``redirect_url`` and ``connected_account_id``.
 - Accounts: ``GET /connected_accounts?user_ids=..&auth_config_ids=..&statuses=ACTIVE``,
   ``DELETE /connected_accounts/{id}``.
-- Proxy: ``POST /tools/execute/proxy`` with ``connected_account_id``, ``endpoint`` (absolute
-  Google URL), ``method`` and query ``parameters`` -> ``{data, status}``.
+- Proxy: ``POST /tools/execute/proxy`` with ``connected_account_id``, ``user_id`` (required
+  while the project has 2FA on), ``endpoint`` (absolute Google URL), ``method`` and query
+  ``parameters`` -> ``{data, status}``.
 """
 
 from __future__ import annotations
@@ -72,7 +73,9 @@ class ComposioClient:
     async def delete_account(self, account_id: str) -> None:
         await self._call("DELETE", f"/connected_accounts/{account_id}", what="delete account")
 
-    async def proxy_get(self, account_id: str, endpoint: str, params: dict[str, str]) -> dict[str, Any]:
+    async def proxy_get(
+        self, account_id: str, user_id: str, endpoint: str, params: dict[str, str]
+    ) -> dict[str, Any]:
         """GET on the provider's API as the account. Raises on the provider's own errors too."""
         data = await self._call(
             "POST",
@@ -80,6 +83,7 @@ class ComposioClient:
             what="proxy",
             json={
                 "connected_account_id": account_id,
+                "user_id": user_id,
                 "endpoint": endpoint,
                 "method": "GET",
                 "parameters": [{"name": k, "value": v, "type": "query"} for k, v in params.items()],
