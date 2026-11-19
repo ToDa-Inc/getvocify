@@ -369,8 +369,9 @@ class Settings(BaseSettings):
     # 2026-11-11: it fixes the company's name and changes other pieces a little, so it is tried on real calls before all).
     LIVE_STT_PHRASES_ENABLED: bool = False
     # mai_chunks: a chunk of a turn still being spoken is sent with the turn's audio so far, and its text replaces the turn's
-    # (live_channel_sessions.TURN_GAP_S). A company override in company_feature_flags turns it on for one company.
-    LIVE_STT_TURN_READS_ENABLED: bool = False
+    # (live_channel_sessions.TURN_GAP_S). On for everyone since 2026-11-19 (client-side errors about halved in replay,
+    # about 3 times the audio sent); a company_feature_flags row switches it off for one company.
+    LIVE_STT_TURN_READS_ENABLED: bool = True
     # Live transcription (mai_chunks): a chunk the batch route refuses for 2 s or more also goes to the streaming route
     # (AI_GATEWAY_API_KEY) and the first answer is used. Only refused chunks go there; without the key there is no backup.
     LIVE_STT_STREAM_BACKUP: bool = True
