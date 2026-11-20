@@ -1016,7 +1016,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
       if (isNoConversation(memo.screeningOutcome)) {
         // Nobody answered (a voicemail the screening let through): the call is logged as no answer already. The card
-        // offers what a rep still does after one, the lead status and a task to call again, and writes no note.
+        // offers what a rep still does after one, the lead status (HubSpot) and a task to call again on the day they
+        // pick, and writes no note. Any CRM: a rep asked for the follow-up task on no-answer calls too (2026-11-20).
         const contact = memo.hubspotContactId || undefined;
         const offer =
           contact && hubspotConnectedRef.current
@@ -1026,15 +1027,16 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
                 .catch(() => null)
             : null;
         if (run.cancelled || !postCallRef.current) return;
-        if (!offer) {
+        if (!contact || memo.status !== "pending_review") {
+          // No one to set a task on, or already saved: nothing is left for the rep here.
           endPostCall();
           getDesktopBridge()?.shell.setState({ finish: { step: "skipped", message: "No answer. Logged as no answer." } });
           memoChanged(memoId);
           return;
         }
         postCallRef.current.contactId = contact;
-        postCallRef.current.proposed = [offer];
-        const noAnswerCrm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, [offer]);
+        postCallRef.current.proposed = offer ? [offer] : [];
+        const noAnswerCrm = crmFor({ status: memo.status, hubspotContactId: memo.hubspotContactId }, offer ? [offer] : []);
         postCallRef.current.crm = noAnswerCrm;
         showPostCall({ ...noAnswerCrm, noAnswer: true, notes: false, summary: null });
         return;
