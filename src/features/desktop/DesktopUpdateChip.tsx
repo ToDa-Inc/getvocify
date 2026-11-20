@@ -14,10 +14,11 @@ export function DesktopUpdateChip() {
   const es = language === "ES";
   const label = updates.mustWait
     ? es ? "Se actualiza al acabar la llamada" : "Updates when the call ends"
-    : es ? `Vocify ${status.next} lista` : `Vocify ${status.next} is ready`;
+    : es ? `${status.next} lista` : `${status.next} ready`;
   return (
     <div className="flex items-center gap-2 rounded-full border border-beige/25 bg-beige/10 py-1 pl-3 pr-1 text-xs font-medium text-foreground animate-in fade-in duration-200 motion-reduce:animate-none">
       <ArrowDownToLine className="h-3.5 w-3.5 shrink-0 text-beige" />
+      {/* Short enough to fit whole: cut with "…" it read as something still loading (2026-11-20). */}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {updates.mustWait ? null : (
         <button
