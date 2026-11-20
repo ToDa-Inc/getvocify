@@ -1437,12 +1437,26 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     [failJob, finishJob, jobMemo, setJobs],
   );
 
+  /**
+   * The contact and deal of the call just recorded are that recording's (its draft keeps them): the next recording finds
+   * its own. Said when the recording ends, before anything awaits, so a next call detected meanwhile keeps its contact.
+   * The desktop's call:ended does not come when the rep stops by hand just after the call app let go of the mic, and the
+   * next recording then took the previous call's person (Movertis, 2026-11-20: a call to Marc Ferré saved on Pilar
+   * Torrija's deal).
+   */
+  const forgetCallContact = useCallback(() => {
+    callContactRef.current = null;
+    callRecordRef.current = null;
+    getDesktopBridge()?.shell.setState({ callContact: null });
+  }, []);
+
   const stop = useCallback(async () => {
     if (phaseRef.current !== "live") return;
     setPhase("stopping");
     pausedRef.current = false;
     setPaused(false);
     const bridge = getDesktopBridge();
+    forgetCallContact();
     // The pill goes away on the click; finishing the transcript happens behind it.
     // The island keeps a spinner for the ended call until its memo is being written: say where it is.
     bridge?.shell.setState({ listening: false, liveType: null, finish: { step: "stopping" } });
@@ -1546,7 +1560,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     endPostCall();
     startJob(draft.id, draft.contact?.name ?? null, () => void sendInBackground(draft));
     void sendInBackground(draft);
-  }, [clearNotes, currentDraft, drainSocket, endPostCall, fail, followCallMemo, jobMemo, queryClient, releaseAudio, sendInBackground, setPhase, startJob, updateTranscript]);
+  }, [clearNotes, currentDraft, drainSocket, endPostCall, fail, followCallMemo, forgetCallContact, jobMemo, queryClient, releaseAudio, sendInBackground, setPhase, startJob, updateTranscript]);
 
   /** The rep threw the recording away from the island: it is stopped like `stop`, but nothing is kept, sent or written. */
   const discard = useCallback(async () => {
@@ -1555,6 +1569,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     pausedRef.current = false;
     setPaused(false);
     const bridge = getDesktopBridge();
+    forgetCallContact();
     bridge?.shell.setState({ listening: false, liveType: null, finish: null });
     void bridge?.shell.hideOverlay();
     await releaseAudio();
@@ -1577,7 +1592,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     clearNotes();
     updateTranscript(EMPTY_MEETING_TRANSCRIPT);
     setPhase("idle");
-  }, [clearNotes, releaseAudio, setPhase, updateTranscript]);
+  }, [clearNotes, forgetCallContact, releaseAudio, setPhase, updateTranscript]);
 
   const start = useCallback(async (call?: VocifyCallSession, options?: { stay?: boolean; contact?: MeetingDraft["contact"] | null }) => {
     const bridge = getDesktopBridge();
