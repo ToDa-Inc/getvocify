@@ -560,6 +560,39 @@ export function meetingFrom(proposal: MeetingProposal | null | undefined, locale
   return { proposalId, state: proposal.needs_review || !when ? "check" : "pending", when };
 }
 
+/** A name's words for comparing: no accents, lower case, three letters or more. */
+function nameWords(name: string | null | undefined): string[] {
+  return (name ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 3);
+}
+
+/**
+ * The person heard on the call and the CRM person the call would be saved on are clearly two people: no word of one name
+ * is in the other ("Marc Ferré" and "Pilar Torrija"). A short form counts as the same ("Juanjo", "Juan García"). Either
+ * name missing is no disagreement. Movertis, 2026-11-20: a call with Marc Ferré was saved with one click on Pilar Torrija.
+ */
+export function namesDisagree(heard: string | null | undefined, crm: string | null | undefined): boolean {
+  const a = nameWords(heard);
+  const b = nameWords(crm);
+  if (a.length === 0 || b.length === 0) return false;
+  return !a.some((x) => b.some((y) => x.startsWith(y) || y.startsWith(x)));
+}
+
+/** The card's CRM part when the person heard is not the CRM person: no one-click save, and it says who is who. Only a
+ * full name heard (first and last) counts: a first name alone may be whoever picked up (a receptionist), not the contact. */
+export function namesCheck(
+  crm: Pick<PostCall, "stage" | "changes" | "canApprove" | "note">,
+  heard: string | null | undefined,
+  saved: string | null | undefined,
+): Pick<PostCall, "stage" | "changes" | "canApprove" | "note"> {
+  if (crm.stage !== "ready" || nameWords(heard).length < 2 || !namesDisagree(heard, saved)) return crm;
+  return { stage: "review", changes: [], canApprove: false, note: `Heard ${heard?.trim()}, not ${saved?.trim()}: check the contact` };
+}
+
 /** The company open on screen during the call (`pipeline_meta.crm_company_id`), when there was one. */
 export function crmCompanyIdOf(meta: unknown): string | null {
   const id = meta && typeof meta === "object" ? (meta as Record<string, unknown>).crm_company_id : null;

@@ -8,6 +8,8 @@ import {
   crmForType,
   crmCompanyIdOf,
   crmFor,
+  namesCheck,
+  namesDisagree,
   defaultKept,
   emailFrom,
   leadStatusUpdate,
@@ -435,5 +437,41 @@ describe("savedOnFrom", () => {
   });
   it("is empty without a preview", () => {
     assert.deepEqual(savedOnFrom(null), []);
+  });
+});
+
+describe("namesDisagree", () => {
+  it("two clearly different people disagree", () => {
+    assert.equal(namesDisagree("Marc Ferré", "Pilar Torrija"), true);
+  });
+  it("the same person, by first name, full name, accents or a short form, agrees", () => {
+    assert.equal(namesDisagree("Pilar", "Pilar Torrija"), false);
+    assert.equal(namesDisagree("Adrián Sevilla", "Adrian Sevilla Gomez"), false);
+    assert.equal(namesDisagree("Juanjo", "Juan García"), false);
+  });
+  it("a name missing, or too short to tell, is no disagreement", () => {
+    assert.equal(namesDisagree(null, "Pilar Torrija"), false);
+    assert.equal(namesDisagree("Marc", null), false);
+    assert.equal(namesDisagree("Al", "Pilar Torrija"), false);
+  });
+});
+
+describe("namesCheck", () => {
+  const ready = { stage: "ready" as const, changes: [], canApprove: true };
+  it("a ready card for someone else than who was heard goes to a check, with both names", () => {
+    assert.deepEqual(namesCheck(ready, "Marc Ferré", "Pilar Torrija"), {
+      stage: "review",
+      changes: [],
+      canApprove: false,
+      note: "Heard Marc Ferré, not Pilar Torrija: check the contact",
+    });
+  });
+  it("a first name alone heard is not enough to stop a save (it may be whoever picked up)", () => {
+    assert.equal(namesCheck(ready, "Laura", "Julia Polo"), ready);
+  });
+  it("the same person, or a card not ready, is left as it is", () => {
+    assert.equal(namesCheck(ready, "Pilar", "Pilar Torrija"), ready);
+    const writing = { stage: "writing" as const, changes: [], canApprove: false };
+    assert.equal(namesCheck(writing, "Marc Ferré", "Pilar Torrija"), writing);
   });
 });

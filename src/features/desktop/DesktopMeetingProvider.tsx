@@ -63,7 +63,7 @@ import { CALL_UPLOAD_RETRY_DELAYS_MS, withTransientRetries } from "@/lib/transie
 import { addJob, dropJob, forIsland, patchJob, stateOfMemo, stopAutoOpen, type AfterCallJob } from "@/lib/after-call-jobs";
 import { normalizePermissionStatus } from "@/lib/desktop-permissions";
 import { getDesktopBridge, isDesktopHost, desktopPlatform, MEMO_CHANGED_EVENT } from "@/lib/desktop-host";
-import { detectedCallContact, islandCallContact, islandRecordContact, latestOnly, onScreenRecord, type CallPreview } from "@/lib/call-contact";
+import { detectedCallContact, islandCallContact, islandRecordContact, latestOnly, lookupTarget, onScreenRecord, type CallPreview } from "@/lib/call-contact";
 import { contactRecordUrl } from "@/lib/today";
 import {
   POST_CALL_GIVE_UP_MS,
@@ -72,6 +72,7 @@ import {
   contactsFrom,
   crmCompanyIdOf,
   crmFor,
+  namesCheck,
   crmForType,
   emailFrom,
   leadStatusUpdate,
@@ -327,6 +328,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const pageRef = useRef<CallPreview | null>(null);
   /** The deal or company of the call the island detected (its CRM page). */
   const callRecordRef = useRef<{ dealId?: string; companyId?: string } | null>(null);
+  /** Counts every recording start and end: a CRM page lookup's answer goes only to the call it was asked for (lookupTarget). */
+  const recordingSeqRef = useRef(0);
   /** Where the detected call happens (app or page), as the Mac told us. */
   const callSourceRef = useRef<CallSourceInfo | null>(null);
   /** The island opened a call on the rep's phone: the next recording is that call. */
@@ -939,7 +942,14 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   /** Shows what the call writes to the CRM for the memo's contact, once read. */
   const showCrm = useCallback(
     (
-      memo: { status: string; hubspotContactId?: string | null; hubspotDealId?: string | null; crmCompanyId?: string | null },
+      memo: {
+        status: string;
+        hubspotContactId?: string | null;
+        hubspotDealId?: string | null;
+        crmCompanyId?: string | null;
+        /** Who the call was with by its transcript: a CRM person who is clearly someone else is checked, not saved. */
+        heardName?: string | null;
+      },
       preview: PostCallPreview | null,
       leadStatus: ProposedUpdate | null,
     ) => {
@@ -950,7 +960,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       current.proposed = proposed;
       current.contactId = contactId;
       current.dealId = preview?.selected_deal?.deal_id || undefined;
-      const crm = crmFor(memo, proposed);
+      const crm = namesCheck(crmFor(memo, proposed), contactId ? memo.heardName : null, preview?.selected_contact?.name);
       current.crm = crm;
       showPostCall({
         ...crmForType(current.state.type?.key, crm),
@@ -1061,6 +1071,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           hubspotContactId: memo.hubspotContactId,
           hubspotDealId: memo.hubspotDealId,
           crmCompanyId: crmCompanyIdOf(memo.pipelineMeta),
+          heardName: memo.extraction?.contactName,
         },
         preview,
         leadStatus,
@@ -1445,6 +1456,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
    * Torrija's deal).
    */
   const forgetCallContact = useCallback(() => {
+    recordingSeqRef.current += 1;
     callContactRef.current = null;
     callRecordRef.current = null;
     getDesktopBridge()?.shell.setState({ callContact: null });
@@ -1737,7 +1749,20 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         ...(callSource ? { source: callSource } : {}),
       };
       phoneDraftRef.current = !call && phoneCallRef.current ? draftRef.current.id : null;
+      // How this recording started and where its contact and deal came from, in the app's log: a wrong contact can be
+      // traced to its source (2026-11-20, Movertis: two recordings started with neither said anywhere).
+      reportCallStep("recording-contact", {
+        by: call ? "vocify call" : phoneCallRef.current ? "phone call" : options && "contact" in options ? "island or shortcut" : "dashboard",
+        contactFrom: call ? "vocify call" : options?.contact ? "island" : callContactRef.current ? "detected call" : "none",
+        contact: callContact?.hubspotId ?? null,
+        deal: record?.dealId ?? null,
+        company: record?.companyId ?? null,
+      });
       phoneCallRef.current = false;
+      // The detected call's contact and deal are this recording's now: never the next one's.
+      recordingSeqRef.current += 1;
+      callContactRef.current = null;
+      callRecordRef.current = null;
       setContact(callContact);
       typeOptionsRef.current = [];
       proposalRef.current = { attempts: 0, total: 0, lastConfident: false, busy: false };
@@ -2148,21 +2173,32 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     return bridge.crm.onCallPages(({ urls }) => {
       const ticket = lookups.next();
       if (!api.getToken()) return;
+      // The call this lookup is for: its answer goes to that call only, never to a later one.
+      const asked = { seq: recordingSeqRef.current, draftId: draftRef.current?.id ?? null };
       api
         .post<CallPreview>("/live-calls/preview", { page_urls: urls })
         .then((preview) => {
           if (!lookups.isLatest(ticket)) return;
-          // The next recording takes this contact (a HubSpot contact or a Pipedrive person) and the deal or company on screen.
-          callContactRef.current = detectedCallContact(preview);
-          callRecordRef.current = onScreenRecord(preview) ?? null;
-          bridge.shell.setState({ callContact: islandCallContact(preview) });
-          // The rep may have pressed Record before the page was read: the recording takes it too.
           const draft = draftRef.current;
-          if (draft && !draft.contact && callContactRef.current) {
-            draft.contact = callContactRef.current;
-            setContact(callContactRef.current);
+          const target = lookupTarget(asked, { seq: recordingSeqRef.current, draftId: draft?.id ?? null });
+          // A contact (a HubSpot contact or a Pipedrive person) and the deal or company on screen.
+          const found = detectedCallContact(preview);
+          const record = onScreenRecord(preview) ?? null;
+          reportCallStep("call-lookup", { target, contact: found?.hubspotId ?? null, deal: record?.dealId ?? null });
+          if (target === "drop") return;
+          bridge.shell.setState({ callContact: islandCallContact(preview) });
+          if (target === "offer") {
+            // The call on offer: the next recording takes it.
+            callContactRef.current = found;
+            callRecordRef.current = record;
+            return;
           }
-          if (draft && !draft.record && callRecordRef.current) draft.record = callRecordRef.current;
+          // The recording it was asked for (or Record was pressed before the page was read): it takes what it lacks.
+          if (draft && !draft.contact && found) {
+            draft.contact = found;
+            setContact(found);
+          }
+          if (draft && !draft.record && record) draft.record = record;
         })
         .catch(() => {
           // No name: the island keeps showing the app.

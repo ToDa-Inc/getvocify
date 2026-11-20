@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { detectedCallContact, islandCallContact, islandRecordContact, latestOnly, onScreenRecord, type CallPreview } from "./call-contact.ts";
+import { detectedCallContact, islandCallContact, islandRecordContact, latestOnly, lookupTarget, onScreenRecord, type CallPreview } from "./call-contact.ts";
 
 const preview = (over: Partial<CallPreview> = {}): CallPreview => ({
   provider: "hubspot",
@@ -93,5 +93,27 @@ describe("latestOnly", () => {
     const second = calls.next();
     assert.equal(calls.isLatest(first), false);
     assert.equal(calls.isLatest(second), true);
+  });
+});
+
+describe("lookupTarget", () => {
+  it("an answer asked during an offer is the offer's while no recording started", () => {
+    assert.equal(lookupTarget({ seq: 4, draftId: null }, { seq: 4, draftId: null }), "offer");
+  });
+  it("Record pressed before the answer came: the recording started right after takes it", () => {
+    assert.equal(lookupTarget({ seq: 4, draftId: null }, { seq: 5, draftId: "b" }), "draft");
+  });
+  it("asked for a recording, it goes to that recording while it is still there", () => {
+    assert.equal(lookupTarget({ seq: 5, draftId: "b" }, { seq: 5, draftId: "b" }), "draft");
+    assert.equal(lookupTarget({ seq: 5, draftId: "b" }, { seq: 6, draftId: "b" }), "draft");
+  });
+  it("the call it was for is over: the answer reaches no other call (Pilar Torrija's deal on Marc Ferre's call)", () => {
+    // Asked for recording b, which ended; a next recording c has started.
+    assert.equal(lookupTarget({ seq: 5, draftId: "b" }, { seq: 6, draftId: null }), "drop");
+    assert.equal(lookupTarget({ seq: 5, draftId: "b" }, { seq: 7, draftId: "c" }), "drop");
+    // Asked during an offer; that call was recorded and ended, and nothing runs now.
+    assert.equal(lookupTarget({ seq: 4, draftId: null }, { seq: 6, draftId: null }), "drop");
+    // Asked during an offer; a recording started and ended, and another one runs now.
+    assert.equal(lookupTarget({ seq: 4, draftId: null }, { seq: 7, draftId: "c" }), "drop");
   });
 });

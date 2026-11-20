@@ -78,3 +78,23 @@ export function latestOnly() {
     },
   };
 }
+
+/** When a call's CRM page lookup was asked: the recording count then, and the recording live then (if any). */
+export interface LookupAsk {
+  seq: number;
+  draftId: string | null;
+}
+
+/**
+ * Where the answer to a CRM page lookup goes, so a call's contact only ever reaches the recording it was asked for:
+ * - "offer": asked while no recording ran, and none has started since: the call on offer (the next Record takes it);
+ * - "draft": asked for the recording still live, or asked during an offer whose Record was pressed before the answer came;
+ * - "drop": the recording it was for has ended, or more than one has started or ended since: it belongs to no call now.
+ * `seq` counts every recording start and every recording end. Movertis, 2026-11-20: a contact left over from one call
+ * reached the next recording, and a call with Marc Ferré was saved on Pilar Torrija's deal.
+ */
+export function lookupTarget(asked: LookupAsk, now: LookupAsk): "offer" | "draft" | "drop" {
+  if (asked.draftId !== null) return now.draftId === asked.draftId ? "draft" : "drop";
+  if (now.seq === asked.seq) return now.draftId === null ? "offer" : "draft";
+  return now.seq === asked.seq + 1 && now.draftId !== null ? "draft" : "drop";
+}
