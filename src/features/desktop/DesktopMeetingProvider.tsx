@@ -960,7 +960,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       current.proposed = proposed;
       current.contactId = contactId;
       current.dealId = preview?.selected_deal?.deal_id || undefined;
-      const crm = namesCheck(crmFor(memo, proposed), contactId ? memo.heardName : null, preview?.selected_contact?.name);
+      // The update could not be read: the card cannot show what a save would write, so it never saves blind.
+      const unread = !preview && memo.status === "pending_review";
+      const crm = unread
+        ? { stage: "review" as const, changes: [], canApprove: false, note: "Couldn't load the update. Review it in Vocify" }
+        : namesCheck(crmFor(memo, proposed), contactId ? memo.heardName : null, preview?.selected_contact?.name);
       current.crm = crm;
       showPostCall({
         ...crmForType(current.state.type?.key, crm),

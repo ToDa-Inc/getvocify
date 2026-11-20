@@ -412,9 +412,13 @@ describe("tasks the rep moved or added in the island", () => {
     assert.deepEqual(out.reviewedTaskDates, ["", ""]);
   });
 
-  it("keeps the extraction's steps when the call proposed no task rows", () => {
+  it("writes only what the card showed: no task rows means only the tasks the rep added, never hidden steps", () => {
     const out = tasksForApprove({ nextSteps: ["Call back"] }, [], [], {}, [{ title: "Send it", due: "2026-10-20" }]);
-    assert.deepEqual(out.nextSteps, ["Call back", "Send it"]);
+    assert.deepEqual(out.nextSteps, ["Send it"]);
+    assert.deepEqual(out.nextStepSchedules, ["2026-10-20"]);
+    // Motor de Ventas, 2026-11-20: the card had no task rows and the save wrote the extraction's three steps.
+    const none = tasksForApprove({ nextSteps: ["A", "B", "C"] }, [], [], {}, []);
+    assert.deepEqual(none.nextSteps, []);
   });
 
   it("takes only real days and hours from the island", () => {

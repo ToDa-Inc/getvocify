@@ -415,8 +415,9 @@ function isTaskUpdate(update: Update): boolean {
 
 /**
  * The tasks to write: the call's proposed ones the rep kept (a task they moved carries its new day and hour, marked in
- * `reviewedTaskDates` so the backend writes it as chosen; one they re-worded is written from its new text), then the ones they added. A call that proposed no task rows keeps
- * the steps the extraction had.
+ * `reviewedTaskDates` so the backend writes it as chosen; one they re-worded is written from its new text), then the ones
+ * they added. Only what the card showed is written: a call that proposed no task rows writes only the tasks the rep added,
+ * never the extraction's steps the rep did not see (2026-11-20: a rep unticked a task and three were written).
  */
 export function tasksForApprove(
   extraction: { nextSteps?: string[] | null; raw_extraction?: Record<string, unknown> } | null | undefined,
@@ -427,7 +428,7 @@ export function tasksForApprove(
 ): { nextSteps: string[]; nextStepSchedules: string[]; reviewedTaskDates: string[] } {
   const rows = (proposed ?? []).filter(isTaskUpdate);
   if (rows.length === 0) {
-    const steps = withAddedTasks(extraction, added);
+    const steps = withAddedTasks({ nextSteps: [] }, added);
     const schedules = steps.nextStepSchedules ?? [];
     return { nextSteps: steps.nextSteps, nextStepSchedules: schedules, reviewedTaskDates: schedules.map(() => "") };
   }

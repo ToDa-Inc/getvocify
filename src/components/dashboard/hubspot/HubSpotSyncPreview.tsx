@@ -142,7 +142,6 @@ function taskRowsForApprove(
 }
 
 function nextStepsForApprove(
-  base: Record<string, unknown>,
   updates: Array<{ field_name?: string; new_value?: unknown }>,
   hadTaskRows: boolean,
 ): string[] {
@@ -152,7 +151,8 @@ function nextStepsForApprove(
   if (hadTaskRows) return [];
   const hs = updates.find((u) => u.field_name === "hs_next_step");
   if (hs?.new_value) return [String(hs.new_value).trim()].filter(Boolean);
-  return Array.isArray(base.nextSteps) ? (base.nextSteps as string[]) : [];
+  // Only what the panel showed is written: the extraction's steps it did not show as tasks are not (2026-11-20).
+  return [];
 }
 
 /** For enum/select fields (e.g. Deal Stage), show the human label instead of raw value */
@@ -745,7 +745,6 @@ export const HubSpotSyncPreview = ({
       omittedKeys: omitted,
       summary: withRepNote(summaryForApprove(base as Record<string, unknown>, effectiveUpdates, editedUpdates), addedNote),
       nextSteps: nextStepsForApprove(
-        base as Record<string, unknown>,
         effectiveUpdates,
         taskRowsForApprove(originalUpdates).length > 0,
       ),
