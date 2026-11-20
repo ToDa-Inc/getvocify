@@ -312,3 +312,20 @@ def test_without_a_backup_a_chunk_over_the_in_flight_budget_is_sent_again_after_
     handler, calls = credit_refusing(1)
     result = asyncio.run(transcriber(handler, hedge_s=60).transcribe(PCM))
     assert result.text == "Hola" and len(calls) == 2
+
+
+def test_a_chunk_openrouter_fails_for_another_reason_also_goes_to_the_backup():
+    # 2026-11-20: a wrong Azure key behind OpenRouter answered 401 to everything; the first and its hedge failed and the
+    # piece was lost without trying the backup.
+    calls = []
+
+    async def handler(request):
+        calls.append(1)
+        return httpx.Response(401, json={"error": {"code": 401, "message": "Access denied due to invalid subscription key"}})
+
+    async def backup(pcm):
+        return "Vale, lo vemos el martes"
+
+    result = asyncio.run(transcriber(handler, backup=backup, hedge_s=5.0).transcribe(PCM))
+    assert result.text == "Vale, lo vemos el martes" and result.backup and result.latency_s < 1.0
+

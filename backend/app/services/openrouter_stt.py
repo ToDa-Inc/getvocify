@@ -224,6 +224,11 @@ class OpenRouterTranscriber:
                         text, cost = task.result()
                     except Exception as e:
                         errors.append(f"{who}: {e}")
+                        # Any other refusal (a 401 when a BYOK key was wrong, 2026-11-20: 56 pieces lost in 70 s) also
+                        # sends the chunk to the backup, alongside the retry here.
+                        if who != "backup" and self.backup is not None and not backed:
+                            backed = True
+                            tasks[asyncio.create_task(self._backup(pcm))] = "backup"
                         continue
                     return Transcription(
                         text=text,
