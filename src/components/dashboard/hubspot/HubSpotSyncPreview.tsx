@@ -45,6 +45,7 @@ import {
 import { VocifyLoader, VocifySpinner } from "@/components/ui/vocify-loader";
 import { isUncertainExtractionConfidence } from "@/shared/lib/constants";
 import { CopilotNote } from "@/components/dashboard/CopilotNote";
+import { withRepNote } from "@/lib/post-call";
 import {
   clearCachedPreview,
   getCachedPreview,
@@ -245,6 +246,8 @@ export const HubSpotSyncPreview = ({
   const [omittedKeys, setOmittedKeys] = useState<string[]>([]);
   // Record sections the rep switched off: none of their fields is written.
   const [offSections, setOffSections] = useState<string[]>([]);
+  /** The rep's own line for the call's note (Add note): written first in the note, as the island's Add note does. */
+  const [repNote, setRepNote] = useState<string | null>(null);
 
   // Weak matches and manual deal naming
   const [needsDealDecision, setNeedsDealDecision] = useState(false);
@@ -393,6 +396,7 @@ export const HubSpotSyncPreview = ({
       setEditedUpdates(null);
       setOmittedKeys([]);
       setOffSections([]);
+      setRepNote(null);
       setLoading(true);
       setNeedsDealDecision(false);
       setDealDecisionMade(true);
@@ -732,13 +736,14 @@ export const HubSpotSyncPreview = ({
     const effectiveUpdates = (editedUpdates ?? originalUpdates).filter(
       (u: any) => !offSections.includes(u?.object_type || "deals"),
     );
-    if (effectiveUpdates.length === 0 && omittedKeys.length === 0 && offSections.length === 0) return undefined;
+    const addedNote = (repNote ?? "").trim();
+    if (effectiveUpdates.length === 0 && omittedKeys.length === 0 && offSections.length === 0 && !addedNote) return undefined;
     const omitted = [...omittedKeys, ...omittedKeysFrom(originalUpdates, effectiveUpdates)];
     return buildApproveExtraction({
       memoExtraction: base as Record<string, unknown>,
       updates: effectiveUpdates,
       omittedKeys: omitted,
-      summary: summaryForApprove(base as Record<string, unknown>, effectiveUpdates, editedUpdates),
+      summary: withRepNote(summaryForApprove(base as Record<string, unknown>, effectiveUpdates, editedUpdates), addedNote),
       nextSteps: nextStepsForApprove(
         base as Record<string, unknown>,
         effectiveUpdates,
@@ -1626,6 +1631,28 @@ export const HubSpotSyncPreview = ({
         ) : tabbed ? (
           <p className="text-sm text-muted-foreground px-1">No note from this call.</p>
         ) : null}
+        {!readOnly && !alreadyWritten && (
+          repNote === null ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs font-normal text-beige hover:bg-beige/10 h-7 px-2.5 rounded-full"
+              onClick={() => setRepNote("")}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Add note
+            </Button>
+          ) : (
+            <textarea
+              autoFocus
+              value={repNote}
+              onChange={(event) => setRepNote(event.target.value)}
+              placeholder="Your note, first in the call's note"
+              rows={3}
+              className="w-full resize-y rounded-2xl border border-border/30 bg-secondary/5 px-4 py-3 text-sm outline-none focus:border-beige/50"
+            />
+          )
+        )}
       </div>
 
       {/* 4. CRM FIELDS SECTION */}

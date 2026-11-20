@@ -485,6 +485,13 @@ export function withAddedTasks(
  * or a bullet when it sits under a «•». Lines are blank-line separated, so the CRM note keeps
  * one line per line either way.
  */
+/** The call's note with the rep's own line first, when they added one (Add note): what they want to stand out. */
+export function withRepNote(summary: string, repNote: string | null | undefined): string {
+  const note = String(repNote ?? "").trim();
+  if (!note) return summary;
+  return summary.trim() ? `${note}\n\n${summary.trim()}` : note;
+}
+
 export function noteMarkdown(text: string, original: string | null | undefined): string {
   const kept = new Map<string, string>();
   for (const line of String(original ?? "").split("\n")) {

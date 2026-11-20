@@ -7,6 +7,7 @@ import {
   contactsFrom,
   crmForType,
   crmCompanyIdOf,
+  withRepNote,
   crmFor,
   namesCheck,
   namesDisagree,
@@ -473,5 +474,16 @@ describe("namesCheck", () => {
     assert.equal(namesCheck(ready, "Pilar", "Pilar Torrija"), ready);
     const writing = { stage: "writing" as const, changes: [], canApprove: false };
     assert.equal(namesCheck(writing, "Marc Ferré", "Pilar Torrija"), writing);
+  });
+});
+
+describe("withRepNote", () => {
+  it("puts the rep's own line first in the call's note", () => {
+    assert.equal(withRepNote("- Quiere precio", "Decide el lunes con su socio"), "Decide el lunes con su socio\n\n- Quiere precio");
+  });
+  it("no line added leaves the note as it is; no note is the rep's line alone", () => {
+    assert.equal(withRepNote("- Quiere precio", "  "), "- Quiere precio");
+    assert.equal(withRepNote("- Quiere precio", null), "- Quiere precio");
+    assert.equal(withRepNote("", "Llamar el lunes"), "Llamar el lunes");
   });
 });
