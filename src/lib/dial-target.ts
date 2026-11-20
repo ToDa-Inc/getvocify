@@ -11,6 +11,8 @@ export type CallState = (typeof CALL_STATES)[keyof typeof CALL_STATES];
 const SEPARATORS = /[\s().\-/]/g;
 const DIGITS_ONLY = /^\d+$/;
 const E164 = /^\+[1-9]\d{7,14}$/;
+/** Countries whose national numbers always have this many digits (Spain, Portugal). */
+const NATIONAL_LENGTH: Record<string, number> = { "34": 9, "351": 9 };
 
 export function normalizeDialTarget(
   raw: unknown,
@@ -27,6 +29,11 @@ export function normalizeDialTarget(
 
     if (value.startsWith(defaultCountryCode)) {
       const remaining = value.slice(defaultCountryCode.length);
+      // The country code without + or 00 ("34652072699"): a national number there always has this many digits, so the
+      // code and one full number is that number (Toni, 2026-11-19). Any other length after the code stays ambiguous.
+      if (remaining.length === NATIONAL_LENGTH[defaultCountryCode]) {
+        return E164.test(`+${value}`) ? `+${value}` : null;
+      }
       if (remaining.length >= 8) {
         return null;
       }

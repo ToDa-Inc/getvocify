@@ -24,18 +24,22 @@ class TestNormalizeE164:
     def test_strips_national_trunk_prefix(self):
         assert normalize_e164("0600111222") == "+34600111222"
 
-    def test_rejects_country_code_without_plus_or_double_zero(self):
+    def test_country_code_without_plus_and_a_full_national_number_is_that_number(self):
+        # A Spanish number has 9 digits, so "34" and 9 more can only be +34 and the number.
+        assert normalize_e164("34652072699") == "+34652072699"
+        assert normalize_e164("34 600 11 12 22") == "+34600111222"
+
+    def test_rejects_country_code_without_plus_when_the_length_says_nothing(self):
         with pytest.raises(InvalidPhoneNumber):
-            normalize_e164("34600111222")
+            normalize_e164("3460011122233")
 
     def test_accepts_nine_digit_national_starting_with_country_code_digits(self):
         # 9-digit national numbers whose first two digits happen to be "34"
         # leave only 7 digits after a hypothetical country-code split — accepted.
         assert normalize_e164("341234567") == "+34341234567"
 
-    def test_rejects_portugal_country_code_without_plus_or_double_zero(self):
-        with pytest.raises(InvalidPhoneNumber):
-            normalize_e164("351600111222", "351")
+    def test_portugal_country_code_without_plus_and_a_full_national_number_is_that_number(self):
+        assert normalize_e164("351912345678", "351") == "+351912345678"
 
     def test_accepts_portuguese_national_starting_with_country_code_digits(self):
         # 9-digit national starting with "351" leaves 6 digits after split — accepted.

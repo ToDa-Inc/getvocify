@@ -27,6 +27,8 @@ _SEPARATORS_RE = re.compile(r"[\s().\-/]")
 # Remaining digits after stripping an embedded country code must reach this
 # length to treat the input as ambiguous (country code + national, no +/00).
 _MIN_AMBIGUOUS_NATIONAL_DIGITS = 8
+# Countries whose national numbers always have this many digits (Spain, Portugal).
+_NATIONAL_LENGTH = {"34": 9, "351": 9}
 
 DEFAULT_RECORDING_ANNOUNCEMENT_ES = (
     "Le informamos de que esta llamada se graba y se transcribe para "
@@ -49,10 +51,19 @@ def normalize_e164(raw: str, default_country_code: str = "34") -> str:
         value = "+" + value[2:]
     elif not value.startswith("+"):
         national = value.lstrip("0")
+        after_code = len(national) - len(default_country_code)
         if (
             national.isdigit()
             and national.startswith(default_country_code)
-            and len(national) - len(default_country_code) >= _MIN_AMBIGUOUS_NATIONAL_DIGITS
+            and after_code == _NATIONAL_LENGTH.get(default_country_code)
+        ):
+            # The country code written without + or 00 ("34652072699"): a national number there is always this long,
+            # so one this long after the code can only be the code and a number (Toni's CRM, 2026-11-19).
+            return f"+{national}"
+        if (
+            national.isdigit()
+            and national.startswith(default_country_code)
+            and after_code >= _MIN_AMBIGUOUS_NATIONAL_DIGITS
         ):
             raise InvalidPhoneNumber(
                 f"ambiguous number {raw!r}: starts with country code "

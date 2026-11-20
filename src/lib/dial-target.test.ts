@@ -23,6 +23,10 @@ describe('normalizeDialTarget', () => {
 
   it('adds the default country code to a national number', () => {
     assert.equal(normalizeDialTarget('600111222'), '+34600111222');
+    // The country code written without + (Toni's CRM): 34 and a full 9-digit number.
+    assert.equal(normalizeDialTarget('34652072699'), '+34652072699');
+    assert.equal(normalizeDialTarget('34 652 07 26 99'), '+34652072699');
+    assert.equal(normalizeDialTarget('3465207269912'), null);
   });
 
   it('returns null for junk instead of dialling it', () => {
