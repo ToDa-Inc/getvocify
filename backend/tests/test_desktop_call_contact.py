@@ -72,10 +72,27 @@ def test_without_a_deal_it_updates_the_contact_only():
     assert payload.deal_id is None and payload.skip_deal is True
 
 
+def test_a_deal_without_a_person_is_saved_on_the_deal():
+    # A Pipedrive deal linked only to an organization: the call has no person, and is still that deal's.
+    _, approve = _approve({**READY, "hubspot_contact_id": None, "hubspot_deal_id": "55284"})
+    payload = approve.call_args.args[1]
+    assert (payload.contact_id, payload.deal_id, payload.skip_deal) == (None, "55284", False)
+    assert payload.create_company is False and payload.is_new_deal is False
+
+
+def test_without_a_person_or_a_deal_the_company_on_screen_takes_the_call():
+    memo = {**READY, "hubspot_contact_id": None, "pipeline_meta": {"crm_company_id": "16048"}}
+    _, approve = _approve(memo)
+    payload = approve.call_args.args[1]
+    assert (payload.contact_id, payload.deal_id, payload.company_id, payload.skip_deal) == (None, None, "16048", True)
+
+
 @pytest.mark.parametrize(
     "memo, user_id, code",
     [
         ({**READY, "hubspot_contact_id": None}, "user-1", 409),
+        ({**READY, "hubspot_contact_id": None, "hubspot_deal_id": "55284", "sales_motion_key": "internal"}, "user-1", 409),
+        ({**READY, "hubspot_contact_id": None, "hubspot_deal_id": "55284", "status": "extracting"}, "user-1", 409),
         ({**READY, "status": "extracting"}, "user-1", 409),
         ({**READY, "sales_motion_key": "internal"}, "user-1", 409),
         (READY, "manager-2", 403),

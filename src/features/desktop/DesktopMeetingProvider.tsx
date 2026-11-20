@@ -70,6 +70,7 @@ import {
   UNDO_MS,
   callTypeFrom,
   contactsFrom,
+  crmCompanyIdOf,
   crmFor,
   crmForType,
   emailFrom,
@@ -937,7 +938,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
   /** Shows what the call writes to the CRM for the memo's contact, once read. */
   const showCrm = useCallback(
-    (memo: { status: string; hubspotContactId?: string | null }, preview: PostCallPreview | null, leadStatus: ProposedUpdate | null) => {
+    (
+      memo: { status: string; hubspotContactId?: string | null; hubspotDealId?: string | null; crmCompanyId?: string | null },
+      preview: PostCallPreview | null,
+      leadStatus: ProposedUpdate | null,
+    ) => {
       const current = postCallRef.current;
       if (!current) return;
       const contactId = memo.hubspotContactId || undefined;
@@ -1050,7 +1055,16 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
 
       const [preview, leadStatus] = await Promise.all([crmRequest.preview, crmRequest.leadStatus]);
       if (run.cancelled || !postCallRef.current) return;
-      showCrm({ status: memo.status, hubspotContactId: memo.hubspotContactId }, preview, leadStatus);
+      showCrm(
+        {
+          status: memo.status,
+          hubspotContactId: memo.hubspotContactId,
+          hubspotDealId: memo.hubspotDealId,
+          crmCompanyId: crmCompanyIdOf(memo.pipelineMeta),
+        },
+        preview,
+        leadStatus,
+      );
 
       // The email draft is written after the CRM changes: the card says it's on its way,
       // then shows it once it's ready.

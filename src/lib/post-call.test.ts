@@ -6,6 +6,7 @@ import {
   changesFrom,
   contactsFrom,
   crmForType,
+  crmCompanyIdOf,
   crmFor,
   defaultKept,
   emailFrom,
@@ -115,6 +116,22 @@ describe("crmFor", () => {
   it("with no field to change it is still ready: the note is saved on its own once there is a contact", () => {
     assert.deepEqual(crmFor(ready, []), { stage: "ready", changes: [], canApprove: true });
     assert.equal(crmFor({ ...ready, hubspotContactId: null }, []).canApprove, false);
+  });
+
+  it("a call with no person is saved on its deal, or the company on screen (a Pipedrive deal with only an organization)", () => {
+    const noPerson = { ...ready, hubspotContactId: null };
+    assert.equal(crmFor({ ...noPerson, hubspotDealId: "55284" }, []).canApprove, true);
+    assert.equal(crmFor({ ...noPerson, crmCompanyId: "16048" }, []).canApprove, true);
+    assert.equal(crmFor({ ...noPerson, hubspotDealId: null, crmCompanyId: null }, []).canApprove, false);
+  });
+});
+
+describe("crmCompanyIdOf", () => {
+  it("reads the company on screen from the memo's pipeline meta, and nothing else", () => {
+    assert.equal(crmCompanyIdOf({ crm_company_id: "16048" }), "16048");
+    assert.equal(crmCompanyIdOf({ crm_company_id: " " }), null);
+    assert.equal(crmCompanyIdOf({ crm_company_id: 16048 }), null);
+    assert.equal(crmCompanyIdOf(null), null);
   });
 });
 

@@ -560,9 +560,15 @@ export function meetingFrom(proposal: MeetingProposal | null | undefined, locale
   return { proposalId, state: proposal.needs_review || !when ? "check" : "pending", when };
 }
 
+/** The company open on screen during the call (`pipeline_meta.crm_company_id`), when there was one. */
+export function crmCompanyIdOf(meta: unknown): string | null {
+  const id = meta && typeof meta === "object" ? (meta as Record<string, unknown>).crm_company_id : null;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
 /** The CRM part for a memo's status; `proposed` is the review preview, fetched once ready. */
 export function crmFor(
-  memo: { status: string; hubspotContactId?: string | null },
+  memo: { status: string; hubspotContactId?: string | null; hubspotDealId?: string | null; crmCompanyId?: string | null },
   proposed?: Update[] | null,
 ): Pick<PostCall, "stage" | "changes" | "canApprove" | "note"> {
   switch (memo.status) {
@@ -570,8 +576,10 @@ export function crmFor(
       return { stage: "done", changes: [], canApprove: false };
     case "pending_review": {
       const changes = changesFrom(proposed);
-      // No field to change is still a save: the call's note (and any task the rep adds) goes to the contact.
-      return { stage: "ready", changes, canApprove: Boolean(memo.hubspotContactId) };
+      // No field to change is still a save: the call's note (and any task the rep adds) goes to its records. A call with
+      // no person is still saved on its deal, or the company open on screen (a Pipedrive deal linked only to an
+      // organization has no person; POST /memos/{id}/approve-contact takes it).
+      return { stage: "ready", changes, canApprove: Boolean(memo.hubspotContactId || memo.hubspotDealId || memo.crmCompanyId) };
     }
     case "failed":
     case "rejected":

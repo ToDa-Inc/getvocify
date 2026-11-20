@@ -1702,7 +1702,10 @@ async def approve_memo_for_contact(
     """
     One-click approve from the Mac app right after a call: exactly what auto-approve sends
     (the memo's own contact and its matched deal, no new company, the extraction as is).
-    Anything that needs a choice (another contact, a new deal, edits) goes through review.
+    A call with no contact is saved on its deal (or the company open on screen) when it has one:
+    a Pipedrive deal linked only to an organization has no person (Movertis' cold-call deals,
+    2026-11-19), and the call is still that deal's. Anything that needs a choice (another contact,
+    a new deal, edits) goes through review.
     """
     from app.services.hubspot.auto_sync import approval_payload_for_auto_sync
     from app.services.playbooks.catalog import INTERNAL_KEY
@@ -1710,19 +1713,22 @@ async def approve_memo_for_contact(
     memo_data = _require_readable_memo(supabase, str(memo_id), user_id)
     if str(memo_data.get("user_id") or "") != str(user_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the rep who made the call approves from here")
-    contact_id = str(memo_data.get("hubspot_contact_id") or "").strip()
-    if not contact_id or memo_data.get("sales_motion_key") == INTERNAL_KEY:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Needs review: no contact to update")
-    if memo_data.get("status") not in ("pending_review", "approved"):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Not ready to approve yet")
-    payload = approval_payload_for_auto_sync(
-        contact_id=contact_id,
-        deal_id=memo_data.get("hubspot_deal_id")
-        or memo_data.get("matched_deal_id")
-        or ((body.deal_id or "").strip() if body else None),
+    contact_id = str(memo_data.get("hubspot_contact_id") or "").strip() or None
+    deal_id = (
+        str(memo_data.get("hubspot_deal_id") or memo_data.get("matched_deal_id") or "").strip()
+        or ((body.deal_id or "").strip() if body else "")
+        or None
     )
     # The company open on screen during the call, when there was one.
-    payload.company_id = str((memo_data.get("pipeline_meta") or {}).get("crm_company_id") or "") or None
+    company_id = str((memo_data.get("pipeline_meta") or {}).get("crm_company_id") or "").strip() or None
+    if memo_data.get("sales_motion_key") == INTERNAL_KEY:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Needs review: an internal call")
+    if not (contact_id or deal_id or company_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Needs review: no contact, deal or company to update")
+    if memo_data.get("status") not in ("pending_review", "approved"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Not ready to approve yet")
+    payload = approval_payload_for_auto_sync(contact_id=contact_id, deal_id=deal_id)
+    payload.company_id = company_id
     if body and body.call_targets:
         payload.call_targets = body.call_targets
     if body and body.new_deal and not payload.deal_id:
