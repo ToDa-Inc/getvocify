@@ -941,6 +941,16 @@ export function meetingOtherSideSpoke(state: MeetingTranscript): boolean {
 }
 
 /**
+ * What the island says of an ended recording in which nobody spoke. A call that rang (its sound came through) and got
+ * no word from either side is an unanswered call, not a fault: it says so and goes, like one on the phone. Anything
+ * else (a meeting, or a call none of whose sound arrived) may be a muted or unheard meeting, which the rep should know.
+ */
+export function silentRecordingNotice(recording: { call: boolean; heard: boolean }): { step: "skipped" | "failed"; message: string } {
+  if (recording.call && recording.heard) return { step: "skipped", message: "No answer. Nothing was saved." };
+  return { step: "failed", message: "Nothing was transcribed. Check the meeting isn't muted." };
+}
+
+/**
  * What is saved: turns in speech order as `SPEAKER: S1` (the rep) and `SPEAKER: S2` (the other side), except that a
  * line from a voice the rep named is saved under that name, so the transcript and the summary know who said it.
  */

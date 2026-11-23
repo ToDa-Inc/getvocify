@@ -18,6 +18,7 @@ import {
   normalizeMeetingTranscript,
   renameVoice,
   resetChannel,
+  silentRecordingNotice,
   type MeetingTranscript,
 } from "./meeting-transcript.ts";
 import { draftMinutes, sortDrafts, type MeetingDraft } from "./meeting-draft.ts";
@@ -515,6 +516,17 @@ describe("named finals (page recording on the desktop app)", () => {
     assert.equal(t.segments[0].name, "Marta García");
     assert.equal("name" in t.segments[1], false);
     assert.deepEqual(meetingParticipants(t), ["Marta García"]);
+  });
+});
+
+describe("silentRecordingNotice", () => {
+  it("a call that rang and nobody spoke is an unanswered call, said for a moment", () => {
+    assert.deepEqual(silentRecordingNotice({ call: true, heard: true }), { step: "skipped", message: "No answer. Nothing was saved." });
+  });
+
+  it("a meeting with nothing transcribed, or a call none of whose sound arrived, is still a failure to look at", () => {
+    assert.equal(silentRecordingNotice({ call: false, heard: true }).step, "failed");
+    assert.equal(silentRecordingNotice({ call: true, heard: false }).step, "failed");
   });
 });
 

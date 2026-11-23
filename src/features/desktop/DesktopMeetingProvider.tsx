@@ -44,6 +44,7 @@ import {
   meetingRows,
   meetingHasSpeech,
   meetingOtherSideSpoke,
+  silentRecordingNotice,
   lastLineOf,
   meetingLabelIn,
   meetingOverlay,
@@ -1562,9 +1563,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       if (draft) void bridge?.drafts?.remove(draft.id);
       updateTranscript(EMPTY_MEETING_TRANSCRIPT);
       setPhase("idle");
-      const nothing = "Nothing was transcribed. Check the meeting isn't muted.";
-      bridge?.shell.setState({ finish: { step: "failed", message: nothing } });
-      fail(nothing);
+      // Nobody spoke: a call in a call app that rang is an unanswered call (2026-11-23, Movertis: the island said
+      // "Nothing was transcribed" after each one), anything else may be a muted meeting.
+      const notice = silentRecordingNotice({ call: (draft?.channel ?? draft?.source?.kind) === "call", heard: callHeard });
+      if (notice.step === "skipped") clearNotes();
+      bridge?.shell.setState({ finish: notice });
+      if (notice.step === "failed") fail(notice.message);
       return;
     }
     await bridge?.drafts?.save(draft);
