@@ -16,6 +16,19 @@ describe("teamSide", () => {
     assert.equal(team.has(null), false);
   });
 
+  it("a colleague whose profile has only a first name is any voice with that first name", () => {
+    const team = teamSide(["Toni", "Dani Zal"], ["Alexander Schlacher"]);
+    assert.equal(team.has("TONI"), true);
+    assert.equal(team.has("Toni Mora"), true);
+    assert.equal(team.has("Dani"), true);
+    assert.equal(team.has("Dani García"), false);
+    assert.equal(team.has("Alexander Schlacher"), false);
+    // A guest named like that is the guest: their full name stays theirs, and their first name alone is not enough.
+    const shared = teamSide(["Toni"], ["Toni García"]);
+    assert.equal(shared.has("Toni García"), false);
+    assert.equal(shared.has("Toni"), false);
+  });
+
   it("a guest who shares a colleague's first name keeps that first name on the other side", () => {
     const team = teamSide(["Toni Mora"], ["Toni García"]);
     assert.equal(team.has("Toni"), false);

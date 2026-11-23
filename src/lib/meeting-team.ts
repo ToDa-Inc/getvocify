@@ -33,7 +33,8 @@ function words(name: string): string[] {
 /**
  * The rep's side from the team's names and the meeting's guests. A voice is a colleague when its name is a colleague's
  * whole name, or the start of it («Toni Mora» for «Toni Mora Botella»), or their first name alone («TONI» as Meet shows
- * it) when no guest has that first name too: a prospect who shares a colleague's first name stays a prospect.
+ * it); a colleague whose profile has only a first name («Toni») is any voice with that first name («Toni Mora»). A first
+ * name a guest shares is not enough, and a guest's own name is always the guest's.
  */
 export function teamSide(team: readonly string[], /** The meeting's people from outside the company. */ guests: readonly string[] = [], rep: string | null = null): TeamSide {
   const repKey = rep ? words(rep).join(" ") : "";
@@ -48,6 +49,7 @@ export function teamSide(team: readonly string[], /** The meeting's people from 
   }
   const members = [...seen].map((key) => key.split(" "));
   const guestFirsts = new Set(guests.map((guest) => words(guest)[0]).filter((first): first is string => Boolean(first)));
+  const guestNames = new Set(guests.map((guest) => words(guest).join(" ")).filter(Boolean));
   const memo = new Map<string, boolean>();
   const has = (name: string | null | undefined): boolean => {
     const said = name ? words(name) : [];
@@ -55,15 +57,18 @@ export function teamSide(team: readonly string[], /** The meeting's people from 
     const key = said.join(" ");
     const known = memo.get(key);
     if (known !== undefined) return known;
-    const yes = members.some((member) =>
-      said.length === 1
-        ? member[0] === said[0] && (member.length === 1 || !guestFirsts.has(said[0]))
-        : said.length <= member.length && said.every((word, i) => member[i] === word),
-    );
+    const yes =
+      !guestNames.has(key) &&
+      members.some((member) =>
+        said.length > 1 && said.length <= member.length
+          ? said.every((word, i) => member[i] === word)
+          : // A first name: said alone, or all a one-word profile has. Never one a guest shares.
+            member[0] === said[0] && (said.length === 1 || member.length === 1) && !guestFirsts.has(said[0]),
+      );
     memo.set(key, yes);
     return yes;
   };
-  return { key: `${[...seen].sort().join("|")}#${[...guestFirsts].sort().join("|")}`, names, has };
+  return { key: `${[...seen].sort().join("|")}#${[...guestNames].sort().join("|")}`, names, has };
 }
 
 /** Nobody on the rep's side but the rep: what a recording has before the team is known. */
