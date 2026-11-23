@@ -49,6 +49,8 @@ export type MeetingDisplayTurn = {
   voice?: number | null;
   /** Where each of its settled lines began, to move the paragraph to another voice. */
   starts?: number[];
+  /** Heard with the other side but said by a colleague of the rep (meeting-team.ts): its speaker is then the rep's side. */
+  team?: boolean;
 };
 
 export const EMPTY_MEETING_TRANSCRIPT: MeetingTranscript = { segments: [], interims: {} };
@@ -1094,6 +1096,8 @@ export type MeetingOverlayTurn = {
   /** The voice that said it, and where its lines began: what the island needs to rename it, merge it or move it. */
   voice: number | null;
   starts: number[];
+  /** A colleague of the rep heard with the other side: the island draws it on the rep's side (an older island ignores it). */
+  team?: boolean;
 };
 
 /**
@@ -1120,5 +1124,6 @@ export function overlayTurnOf(row: MeetingDisplayTurn, { prospect, manyVoices }:
     pending: row.pending,
     voice: row.voice ?? null,
     starts: row.starts ?? [],
+    ...(row.team ? { team: true } : {}),
   };
 }

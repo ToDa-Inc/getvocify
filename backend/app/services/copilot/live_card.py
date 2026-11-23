@@ -89,6 +89,10 @@ Read it as a real objection or question and answer it like one, from the SOURCES
 silence because it is staged or because the one who said it is a colleague and not a buyer. Outside a demo this
 changes nothing.
 
+THE SELLER'S SIDE CAN BE MORE THAN ONE PERSON: a "You (name)" line is a colleague of the rep in the meeting. It is the
+seller's side speaking, like the rep: never something to answer or to write a card about. Their question to the prospect
+is your side asking, and the prospect's answer to it is what may deserve the rep's attention.
+
 What you are for. You read the call right when the other side stops talking, before the rep replies. You cannot know what
 the rep will say next and you do not try to. One question governs everything: of all they just said, is there something
 important and actionable enough to deserve the rep's attention in the next seconds? If there is, the single most useful
@@ -644,7 +648,7 @@ def log_text(turns: list[dict], end: list[float], shown: list[dict]) -> str:
         screen.setdefault(finished_by(end, s["visible_t"]) - 1, []).append(s["say"])
     lines = []
     for i, t in enumerate(turns):
-        lines.append(f"[{t['id']}] {'Them' if t['who'] == 'them' else 'You'}: {' '.join(t['text'].split())}")
+        lines.append(f"[{t['id']}] {brain.speaker(t['who'], t.get('name'))}: {' '.join(t['text'].split())}")
         lines += [f"    [card shown] «{say}»" for say in screen.get(i, [])]
     return "\n".join(lines) or "(nothing said yet)"
 
@@ -703,7 +707,8 @@ def conversation_lines(turns: list[dict], end: list[float], now: float, n: int =
             break
         if since is not None and end[i] <= since:
             continue
-        lines.append(f"{'Seller' if t['who'] == 'you' else 'Other side'}: {' '.join(t['text'].split())}")
+        who = "Seller" if t["who"] == "you" else "Other side"
+        lines.append(f"{who}{' (' + t['name'] + ')' if t.get('name') else ''}: {' '.join(t['text'].split())}")
     return "\n".join(lines[-n:])[-chars:]
 
 
@@ -1037,7 +1042,7 @@ def _card_point(card: dict, call_id: str, turns: list[dict], now: float, labels:
 async def read_card(body: Any, ctx: Any) -> dict:
     """One reading at a checkpoint: {"type": "result", "producer": "card", "points": [the card] or [], "closed": [the card
     it replaces], "event", "moment", "read_t", "trace"} (the points result's shape, so the renderer merges it the same way)."""
-    turns = [{"id": t.id, "who": t.who, "text": t.text, "t": t.t} for t in body.turns if t.text.strip()]
+    turns = [{"id": t.id, "who": t.who, "name": t.name, "text": t.text, "t": t.t} for t in body.turns if t.text.strip()]
     result: dict[str, Any] = {"type": "result", "producer": "card", "state_version": body.state_version, "points": [], "closed": [],
                               "event": "", "moment": None, "read_t": None, "model": None, "latency_ms": None, "trace": {}}
     if not turns:

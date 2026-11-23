@@ -88,16 +88,45 @@ function personName(person: UpcomingMeeting["people"][number]): string | null {
   return parts.length ? parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ") : null;
 }
 
-/** Who is invited to the meeting going on at `now` (the rep left out), for naming the voices heard in it. */
-export function meetingPeopleAt(meetings: UpcomingMeeting[], now: number): string[] {
+/** The meeting going on at `now`: from a little before its start until its end (the one nearest its start when two overlap). */
+function meetingAt(meetings: UpcomingMeeting[], now: number): UpcomingMeeting | null {
   const going = meetings.filter((m) => {
     const start = startOf(m);
     const end = m.end_time ? Date.parse(m.end_time) : start + PEOPLE_NO_END_MS;
     return Number.isFinite(start) && now >= start - PEOPLE_BEFORE_MS && now < (Number.isFinite(end) ? end : start + PEOPLE_NO_END_MS);
   });
-  const meeting = going.sort((a, b) => Math.abs(startOf(a) - now) - Math.abs(startOf(b) - now))[0];
-  if (!meeting) return [];
-  return [...new Set(meeting.people.map(personName).filter((name): name is string => Boolean(name)))];
+  return going.sort((a, b) => Math.abs(startOf(a) - now) - Math.abs(startOf(b) - now))[0] ?? null;
+}
+
+const namesOf = (people: UpcomingMeeting["people"]): string[] => [...new Set(people.map(personName).filter((name): name is string => Boolean(name)))];
+
+/** Who is invited to the meeting going on at `now` (the rep left out), for naming the voices heard in it. */
+export function meetingPeopleAt(meetings: UpcomingMeeting[], now: number): string[] {
+  const meeting = meetingAt(meetings, now);
+  return meeting ? namesOf(meeting.people) : [];
+}
+
+/** The meeting's people from outside the company, and the rep's colleagues invited to it (the calendar says which). */
+export function meetingSidesAt(meetings: UpcomingMeeting[], now: number): { guests: string[]; team: string[] } {
+  const meeting = meetingAt(meetings, now);
+  if (!meeting) return { guests: [], team: [] };
+  return { guests: namesOf(meeting.people.filter((p) => p.external !== false)), team: namesOf(meeting.people.filter((p) => p.external === false)) };
+}
+
+/**
+ * Who a meeting going on at `now` is with in the CRM: its first person from outside found there. The invite says who the
+ * meeting is with, which a CRM page left open before it does not (2026-11-23: a Meet was saved on the contact the rep had
+ * looked at minutes before). None for an internal meeting or one with nobody in the CRM.
+ */
+export function meetingContactAt(meetings: UpcomingMeeting[], now: number): { hubspotId: string; name: string | null } | null {
+  return meetingCrmGuestsAt(meetings, now)[0] ?? null;
+}
+
+/** Every guest of the meeting going on who is in the CRM: who the rep can pick the recording's contact from in one tap. */
+export function meetingCrmGuestsAt(meetings: UpcomingMeeting[], now: number): { hubspotId: string; name: string | null }[] {
+  return (meetingAt(meetings, now)?.people ?? []).flatMap((p) =>
+    p.external !== false && p.hubspot_contact_id ? [{ hubspotId: p.hubspot_contact_id, name: personName(p) }] : [],
+  );
 }
 
 /** The calendar's meetings as last loaded, so a recording can offer the people in the one it is. */
@@ -107,4 +136,13 @@ export function rememberMeetings(meetings: UpcomingMeeting[]): void {
 }
 export function meetingPeopleNow(now = Date.now()): string[] {
   return meetingPeopleAt(knownMeetings, now);
+}
+export function meetingSidesNow(now = Date.now()): { guests: string[]; team: string[] } {
+  return meetingSidesAt(knownMeetings, now);
+}
+export function meetingContactNow(now = Date.now()): { hubspotId: string; name: string | null } | null {
+  return meetingContactAt(knownMeetings, now);
+}
+export function meetingCrmGuestsNow(now = Date.now()): { hubspotId: string; name: string | null }[] {
+  return meetingCrmGuestsAt(knownMeetings, now);
 }

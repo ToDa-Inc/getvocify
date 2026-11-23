@@ -6,7 +6,9 @@ import {
   briefContactId,
   headsUpMeeting,
   islandMeeting,
+  meetingContactAt,
   meetingPeopleAt,
+  meetingSidesAt,
   meetingWho,
   nextChangeAt,
   type UpcomingMeeting,
@@ -88,5 +90,29 @@ describe("meetingPeopleAt", () => {
     assert.deepEqual(meetingPeopleAt([m], START + 20 * 60_000), ["Toni Mora", "Javier Ramirez"]);
     assert.deepEqual(meetingPeopleAt([m], START + 31 * 60_000), []);
     assert.deepEqual(meetingPeopleAt([m], START - 11 * 60_000), []);
+  });
+});
+
+describe("meetingSidesAt and meetingContactAt", () => {
+  const m = meeting({
+    end_time: "2026-10-08T10:00:00Z",
+    people: [
+      { name: "Alexander Schlacher", email: "alex@wegrow.com", external: true, hubspot_contact_id: "42" },
+      { name: "Toni Mora", email: "toni@getvocify.com", external: false, hubspot_contact_id: "7" },
+      { name: "Marta Ruiz", email: "marta@acme.es", hubspot_contact_id: null },
+    ],
+  });
+  const during = START + 20 * 60_000;
+
+  it("splits the meeting's people into guests and the rep's colleagues; unknown counts as a guest", () => {
+    assert.deepEqual(meetingSidesAt([m], during), { guests: ["Alexander Schlacher", "Marta Ruiz"], team: ["Toni Mora"] });
+    assert.deepEqual(meetingSidesAt([m], START + 31 * 60_000), { guests: [], team: [] });
+  });
+
+  it("the meeting is with its first guest found in the CRM, never a colleague", () => {
+    assert.deepEqual(meetingContactAt([m], during), { hubspotId: "42", name: "Alexander Schlacher" });
+    const internal = meeting({ end_time: "2026-10-08T10:00:00Z", people: [{ name: "Toni Mora", email: "toni@getvocify.com", external: false, hubspot_contact_id: "7" }] });
+    assert.equal(meetingContactAt([internal], during), null);
+    assert.equal(meetingContactAt([m], START + 31 * 60_000), null);
   });
 });

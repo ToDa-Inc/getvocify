@@ -64,7 +64,9 @@ RULES (all of them, always)
 4. Source or silence. Every claim about the company or its product comes from the PLAYBOOK's approved answers, COMPANY
    KNOWLEDGE, the OFFER or EARLIER CALLS; what the prospect said in this call is yours to use. Never invent a customer,
    number, date, feature, integration or promise. If the fact is not written there, you do not have it.
-5. Never answer the rep's own words (a "You:" line, an echo of the rep, a wrong speaker label). In doubt, no point.
+5. Never answer the rep's own words (a "You:" line, an echo of the rep, a wrong speaker label). In doubt, no point. A
+   "You (name):" line is a colleague of the rep in the call: their side too, never something to answer, and their
+   questions to the prospect are the seller's side asking.
 6. Write in the language the prospect speaks, whatever the language of these instructions.
 7. "Probability" is only a way of ranking: never write or compute a probability."""
 
@@ -103,10 +105,15 @@ def normalize(text: Any) -> str:
     return " ".join(re.sub(r"[^a-z0-9 ]+", " ", plain.lower()).split())
 
 
+def speaker(who: str, name: Optional[str]) -> str:
+    """"Them", "Them (Alexander)", "You", or "You (Toni)": a colleague of the rep in the meeting, who is the rep's side."""
+    side = "Them" if who == "them" else "You"
+    name = " ".join((name or "").split())[:80]
+    return f"{side} ({name})" if name else side
+
+
 def turn_line(turn: LiveTurn) -> str:
-    who = "Them" if turn.who == "them" else "You"
-    name = f" ({turn.name})" if turn.who == "them" and turn.name else ""
-    return f"[{turn.id}] {who}{name}: {' '.join(turn.text.split())}"
+    return f"[{turn.id}] {speaker(turn.who, turn.name)}: {' '.join(turn.text.split())}"
 
 
 def transcript_block(turns: list[LiveTurn]) -> str:

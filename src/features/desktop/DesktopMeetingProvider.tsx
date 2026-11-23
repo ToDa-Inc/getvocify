@@ -21,7 +21,7 @@ import { api } from "@/shared/lib/api-client";
 import { homeKeys, todayKeys } from "@/features/today/api";
 import { liveTickets } from "./liveTickets";
 import { ROUTES } from "@/shared/lib/constants";
-import { OverlayFeed, RowMemo } from "@/lib/overlay-turns";
+import { OverlayFeed, RowMemo, withTeam } from "@/lib/overlay-turns";
 import { SteadyTails } from "@/lib/steady-tail";
 import { openRepMic, serverEchoCancel, type EchoCancellation } from "@/lib/rep-mic";
 import { findChosen, isUnusual, loadChoice, loadUsual, micDevices, micName, saveChoice, saveUsual, type MicChoice, type MicDevice } from "@/lib/desktop-mic";
@@ -58,7 +58,9 @@ import {
 } from "@/lib/meeting-transcript";
 import { draftSaveFor, meetingStartedLabel, sortDrafts, type CallSourceInfo, type MeetingDraft, type SavedSegments } from "@/lib/meeting-draft";
 import { SpeakerTimeline } from "@/lib/speaker-timeline";
-import { meetingPeopleNow } from "@/lib/meeting-heads-up";
+import { meetingContactNow, meetingCrmGuestsNow, meetingPeopleNow, meetingSidesNow } from "@/lib/meeting-heads-up";
+import { NO_TEAM, teamSide, type TeamSide } from "@/lib/meeting-team";
+import { companyApi } from "@/features/company/api";
 import { applyVoiceAction, parseVoiceCommand, voiceMessage, type VoiceAction } from "@/lib/voice-actions";
 import { CALL_UPLOAD_RETRY_DELAYS_MS, withTransientRetries } from "@/lib/transient-retry";
 import { addJob, dropJob, forIsland, patchJob, stateOfMemo, stopAutoOpen, type AfterCallJob } from "@/lib/after-call-jobs";
@@ -90,6 +92,7 @@ import {
   withLeadStatus,
   type ContactLike,
   type PostCall,
+  type PostCallContact,
 } from "@/lib/post-call";
 import { playbooksApi } from "@/features/playbooks/api";
 import { useLanguage } from "@/lib/i18n";
@@ -260,6 +263,8 @@ class PermissionMissing extends Error {}
 
 /** The Vocify call's source on its memo draft: always a phone call. */
 const VOCIFY_CALL_SOURCE: CallSourceInfo = { name: "Vocify", kind: "call" };
+/** The island's search for, and pick of, who the recording is with (desktop controller `recordingContact`). */
+const CONTACT_COMMAND = "contact:";
 
 /** Only a change the meter can show re-renders: silence settles at 0 and stays put. */
 function levelStep(value: number): number {
@@ -321,6 +326,10 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const [notes, setNotesState] = useState("");
   const notesRef = useRef("");
   const [contact, setContact] = useState<MeetingDraft["contact"] | null>(null);
+  /** While recording: the rep's search for who the call is with (the island's picker), and the draft whose contact the rep
+   * picked, which a CRM page read later never replaces. */
+  const [contactSearch, setContactSearch] = useState<{ query: string; results: PostCallContact[]; busy: boolean } | null>(null);
+  const contactPickedRef = useRef<string | null>(null);
   /** Who the call detected by the island is with; the next recording takes it. */
   const callContactRef = useRef<MeetingDraft["contact"] | null>(null);
   /** The CRM record the island offers on screen right now. */
@@ -436,6 +445,12 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   const reconnectsRef = useRef(0);
   /** Set while the recording is a Vocify call: the server records it, so nothing is uploaded or kept on disk. */
   const vocifyCallRef = useRef<VocifyCallSession | null>(null);
+  /** Who a meeting going on in the calendar is with in the CRM (its first guest found there): never for a phone call or a
+   * Vocify call, which have their own contact. */
+  const invitedContact = useCallback((): MeetingDraft["contact"] | null => {
+    if (vocifyCallRef.current || phoneCallRef.current || callSourceRef.current?.kind === "call") return null;
+    return meetingContactNow();
+  }, []);
   const startRef = useRef<(call?: VocifyCallSession, options?: { contact?: MeetingDraft["contact"] | null }) => Promise<void>>(async () => {});
   const stopRef = useRef<() => Promise<void>>(async () => {});
   const discardRef = useRef<() => Promise<void>>(async () => {});
@@ -601,13 +616,15 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
     // Who the calendar says is in this meeting: the island names a voice by picking one (a phone call has its contact).
     const people = voices.length && !vocifyCallRef.current ? meetingPeopleNow() : [];
     const lastLine = lastLineOf(rows);
-    const change = overlayFeedRef.current.next(rows, { prospect, language }, voices.length >= 2, speakingRef.current, JSON.stringify({ lastLine, voices: labelledVoices, people }));
+    // The rep's colleagues: their lines are marked as the rep's side, and the island lists them apart to name a voice with.
+    const team = teamRef.current;
+    const change = overlayFeedRef.current.next(rows, { prospect, language, team }, voices.length >= 2, speakingRef.current, JSON.stringify({ lastLine, voices: labelledVoices, people, team: team.names }));
     if (!change) return;
     // An island that takes changes gets only those (`from`, then the turns from there); any other gets the whole list.
     const incremental = getDesktopBridge()?.shell.overlayDelta === true;
     const overlay = incremental
-      ? { from: change.from, turns: change.turns.slice(change.from), voices: labelledVoices, people }
-      : { turns: change.turns.slice(), voices: labelledVoices, people };
+      ? { from: change.from, turns: change.turns.slice(change.from), voices: labelledVoices, people, team: team.names }
+      : { turns: change.turns.slice(), voices: labelledVoices, people, team: team.names };
     overlaySendsRef.current += 1;
     overlayBytesRef.current += JSON.stringify(overlay).length;
     getDesktopBridge()?.shell.setState({ lastLine, overlay });
@@ -1746,10 +1763,13 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       }
 
       const startedAt = Date.now();
-      const callContact = call ? call.contact : options?.contact ?? callContactRef.current;
       const callSource = call ? VOCIFY_CALL_SOURCE : callSourceRef.current;
-      // The deal or company the rep has open: the call is saved there (a Vocify call keeps its own contact only).
-      const record = call ? undefined : callRecordRef.current ?? onScreenRecord(onScreenRef.current ?? pageRef.current);
+      // A meeting in the calendar is with the guest its invite names, not with a CRM page left open before it.
+      const invited = call ? null : invitedContact();
+      const callContact = call ? call.contact : invited ?? options?.contact ?? callContactRef.current;
+      // The deal or company the rep has open: the call is saved there (a Vocify call keeps its own contact only). A contact
+      // from the invite takes no record from a page: the page may be someone else's.
+      const record = call || invited ? undefined : callRecordRef.current ?? onScreenRecord(onScreenRef.current ?? pageRef.current);
       vocifyCallRef.current = call ?? null;
       draftRef.current = {
         id: newDraftId(),
@@ -1763,7 +1783,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       // traced to its source (2026-11-20, Movertis: two recordings started with neither said anywhere).
       reportCallStep("recording-contact", {
         by: call ? "vocify call" : phoneCallRef.current ? "phone call" : options && "contact" in options ? "island or shortcut" : "dashboard",
-        contactFrom: call ? "vocify call" : options?.contact ? "island" : callContactRef.current ? "detected call" : "none",
+        contactFrom: call ? "vocify call" : invited ? "calendar" : options?.contact ? "island" : callContactRef.current ? "detected call" : "none",
         contact: callContact?.hubspotId ?? null,
         deal: record?.dealId ?? null,
         company: record?.companyId ?? null,
@@ -1773,6 +1793,8 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       recordingSeqRef.current += 1;
       callContactRef.current = null;
       callRecordRef.current = null;
+      contactPickedRef.current = null;
+      setContactSearch(null);
       setContact(callContact);
       typeOptionsRef.current = [];
       proposalRef.current = { attempts: 0, total: 0, lastConfident: false, busy: false };
@@ -2044,7 +2066,7 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
       void bridge.shell.hideOverlay();
       bridge.shell.command("show");
     }
-  }, [applyCallType, clearNotes, elapsed, endPostCall, fail, levels, listMics, meetingClock, navigate, openSocket, pushMic, releaseAudio, sendOverlay, setJobs, setPhase, t, typeName, updateTranscript, user?.id]);
+  }, [applyCallType, clearNotes, elapsed, endPostCall, fail, invitedContact, levels, listMics, meetingClock, navigate, openSocket, pushMic, releaseAudio, sendOverlay, setJobs, setPhase, t, typeName, updateTranscript, user?.id]);
 
   /** Sends every unsent meeting; the ones that fail again stay pending. */
   const sendAll = useCallback(
@@ -2147,6 +2169,11 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
         changeVoicesRef.current(voiceAction);
         return;
       }
+      // Who the recording is with, searched for and picked in the island.
+      if (name.startsWith(CONTACT_COMMAND)) {
+        void contactCommandRef.current(name.slice(CONTACT_COMMAND.length));
+        return;
+      }
       const current = phaseRef.current;
       if (isCallUp(callEngine.getState())) {
         // During a Vocify call the island's Stop hangs up; nothing else may start a second recording.
@@ -2191,30 +2218,34 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
           if (!lookups.isLatest(ticket)) return;
           const draft = draftRef.current;
           const target = lookupTarget(asked, { seq: recordingSeqRef.current, draftId: draft?.id ?? null });
-          // A contact (a HubSpot contact or a Pipedrive person) and the deal or company on screen.
-          const found = detectedCallContact(preview);
+          // A contact (a HubSpot contact or a Pipedrive person) and the deal or company on screen. A meeting in the
+          // calendar is with its invite's guest: the page is not even read for it.
+          const invited = invitedContact();
+          const found = invited ?? detectedCallContact(preview);
           const record = onScreenRecord(preview) ?? null;
           reportCallStep("call-lookup", { target, contact: found?.hubspotId ?? null, deal: record?.dealId ?? null });
           if (target === "drop") return;
-          bridge.shell.setState({ callContact: islandCallContact(preview) });
+          bridge.shell.setState({ callContact: invited ? (invited.name ? { name: invited.name } : null) : islandCallContact(preview) });
           if (target === "offer") {
             // The call on offer: the next recording takes it.
             callContactRef.current = found;
-            callRecordRef.current = record;
+            callRecordRef.current = invited ? null : record;
             return;
           }
-          // The recording it was asked for (or Record was pressed before the page was read): it takes what it lacks.
+          // The recording it was asked for (or Record was pressed before the page was read): it takes what it lacks,
+          // unless the rep already said who it is with.
+          if (draft && contactPickedRef.current === draft.id) return;
           if (draft && !draft.contact && found) {
             draft.contact = found;
             setContact(found);
           }
-          if (draft && !draft.record && record) draft.record = record;
+          if (draft && !draft.record && record && !invited) draft.record = record;
         })
         .catch(() => {
           // No name: the island keeps showing the app.
         });
     });
-  }, []);
+  }, [invitedContact]);
 
   // The call ended: its contact must not stick to the next one.
   useEffect(() => {
@@ -2313,10 +2344,92 @@ export function DesktopMeetingProvider({ children }: { children: ReactNode }) {
   );
 
   // Rows keep their objects while they do not change, so the transcript only draws the rows that changed.
+  // The rep's own side in a meeting: the company's members and the colleagues the invite lists. A voice named as one of them
+  // (by the meeting app or by the rep) is the rep's side: the live help never answers it (meeting-team.ts).
+  const members = useQuery({
+    queryKey: ["desktop-team-names", user?.id ?? null],
+    queryFn: async () => (await companyApi.listMembers()).members.flatMap((m) => (m.fullName?.trim() ? [m.fullName.trim()] : [])),
+    enabled: available && Boolean(user),
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+  const memberNames = members.data;
+  const team = useMemo<TeamSide>(() => {
+    if (phase !== "live" || callMode !== "meeting" || vocifyCallRef.current) return NO_TEAM;
+    const sides = meetingSidesNow();
+    return teamSide([...(memberNames ?? []), ...sides.team], sides.guests, user?.fullName ?? null);
+  }, [phase, callMode, memberNames, user?.fullName]);
+  const teamRef = useRef(team);
+  teamRef.current = team;
+
+  // ---- who the recording is with, changed from the island while it records ----
+  // The people to offer before any search: who it is with now, then the invite's guests found in the CRM.
+  const crmGuests = useMemo(() => (phase === "live" && !vocifyCallRef.current ? meetingCrmGuestsNow() : []), [phase]);
+  const candidates = useMemo<PostCallContact[]>(() => {
+    const list: PostCallContact[] = [];
+    const add = (id: string, name: string | null) => {
+      if (name && !list.some((c) => c.id === id)) list.push({ id, name, detail: null });
+    };
+    if (contact) add(contact.hubspotId, contact.name);
+    for (const guest of crmGuests) add(guest.hubspotId, guest.name);
+    return list;
+  }, [contact, crmGuests]);
+  const candidatesRef = useRef(candidates);
+  candidatesRef.current = candidates;
+  const contactSearchRef = useRef(contactSearch);
+  contactSearchRef.current = contactSearch;
+  const contactQueryRef = useRef("");
+  /** The island's `contact:{...}`: a CRM search (only the latest query's answer is shown), or the one picked (null: nobody). */
+  const contactCommand = async (raw: string) => {
+    let command: { op?: unknown; query?: unknown; contactId?: unknown };
+    try {
+      command = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    const draft = draftRef.current;
+    if (!draft || phaseRef.current !== "live" || !command || typeof command !== "object") return;
+    if (command.op === "search") {
+      const query = typeof command.query === "string" ? command.query.trim().slice(0, 100) : "";
+      contactQueryRef.current = query;
+      if (query.length < 2) return setContactSearch(null);
+      setContactSearch((before) => ({ query, results: before?.results ?? [], busy: true }));
+      const hits = await crmApi.searchContacts(query).catch(() => null);
+      if (contactQueryRef.current !== query || draftRef.current !== draft) return;
+      setContactSearch({ query, results: contactsFrom((hits ?? []) as ContactLike[]), busy: false });
+      return;
+    }
+    if (command.op !== "set") return;
+    const id = typeof command.contactId === "string" && command.contactId.trim() ? command.contactId.trim() : null;
+    // Only someone the island offered: an id it never showed is not a pick.
+    const picked = id ? [...(contactSearchRef.current?.results ?? []), ...candidatesRef.current].find((c) => c.id === id) : null;
+    if (id && !picked) return;
+    const next = picked ? { hubspotId: picked.id, name: picked.name } : null;
+    const before = draft.contact?.hubspotId ?? null;
+    contactPickedRef.current = draft.id;
+    contactQueryRef.current = "";
+    setContactSearch(null);
+    if (before === (next?.hubspotId ?? null)) return;
+    if (next) draft.contact = next;
+    else delete draft.contact;
+    // The deal or company came with the old contact (a page that was open): it is not this person's.
+    delete draft.record;
+    setContact(next);
+    reportCallStep("recording-contact", { by: "island pick", contactFrom: "rep", contact: next?.hubspotId ?? null, deal: null, company: null });
+  };
+  const contactCommandRef = useRef(contactCommand);
+  contactCommandRef.current = contactCommand;
+  // The island offers it while recording with a CRM connected (a Vocify call is to a known contact: nothing to change).
+  useEffect(() => {
+    const bridge = getDesktopBridge();
+    if (!bridge) return;
+    const offer = phase === "live" && Boolean(connected) && !vocifyCallRef.current;
+    bridge.shell.setState({ recordingContact: offer ? { id: contact?.hubspotId ?? null, contacts: candidates, search: contactSearch } : null });
+  }, [phase, connected, contact, candidates, contactSearch]);
   const turnRowsRef = useRef(new RowMemo<MeetingDisplayTurn, MeetingDisplayTurn>());
   const turns = useMemo(
-    () => turnRowsRef.current.update(meetingRows(transcript), language, (turn) => ({ ...turn, label: meetingLabelIn(turn.label, language) })),
-    [transcript, language],
+    () => turnRowsRef.current.update(meetingRows(transcript), `${language}|${team.key}`, (turn) => withTeam({ ...turn, label: meetingLabelIn(turn.label, language) }, team)),
+    [transcript, language, team],
   );
   // Keyed by what the voices are, not the transcript: an interim leaves the voice rows (and the rows drawn from them) as they were.
   const { segments, voiceNames } = transcript;

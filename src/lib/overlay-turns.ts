@@ -1,5 +1,6 @@
 import { meetingLabelIn, overlayTurnOf, sharedRows, type MeetingDisplayTurn, type MeetingOverlayTurn, type RowList } from "./meeting-transcript.ts";
 import { overlayWithSpeaking, type SpeakingSides } from "./typing-bubbles.ts";
+import { NO_TEAM, type TeamSide } from "./meeting-team.ts";
 
 /**
  * Maps rows to the values built from them, once per row. A row that is the same object as before (or has the same fields
@@ -89,7 +90,15 @@ export function firstChanged<T>(prev: RowList<T> | null, next: RowList<T>): numb
   return sharedRows(prev, next);
 }
 
-export type OverlayContext = { prospect: string | null; language: "EN" | "ES" };
+export type OverlayContext = { prospect: string | null; language: "EN" | "ES"; /** The rep's colleagues: their lines are marked as the rep's side. */ team?: TeamSide };
+
+/**
+ * A line heard with the other side but said by one of the rep's colleagues: the rep's side from then on, for the live help
+ * and the screens, keeping its name and voice (the voice can still be named as someone else). Every other row as it is.
+ */
+export function withTeam(row: MeetingDisplayTurn, team: TeamSide): MeetingDisplayTurn {
+  return row.speaker === "prospect" && team.has(row.name) ? { ...row, speaker: "rep", team: true } : row;
+}
 
 /**
  * What the island holds of the overlay, and what it needs next. Each call returns the turns from the first one that
@@ -100,11 +109,13 @@ export class OverlayFeed {
   private sent: RowList<MeetingOverlayTurn> | null = null;
   private head = "";
 
-  next(rows: RowList<MeetingDisplayTurn>, { prospect, language }: OverlayContext, manyVoices: boolean, speaking: SpeakingSides, head: string): { from: number; turns: RowList<MeetingOverlayTurn> } | null {
+  next(rows: RowList<MeetingDisplayTurn>, { prospect, language, team = NO_TEAM }: OverlayContext, manyVoices: boolean, speaking: SpeakingSides, head: string): { from: number; turns: RowList<MeetingOverlayTurn> } | null {
     const ctx = { prospect, manyVoices };
-    const base = this.rows.update(rows, `${prospect ?? ""}|${manyVoices}|${language}`, (row) => {
+    const base = this.rows.update(rows, `${prospect ?? ""}|${manyVoices}|${language}|${team.key}`, (row) => {
+      // A colleague's line keeps you:false, so an island that does not know `team` still shows it, named, as before.
       const turn = overlayTurnOf(row, ctx);
-      return { ...turn, label: meetingLabelIn(turn.label, language) };
+      const ours = row.speaker === "prospect" && team.has(row.name);
+      return { ...turn, label: meetingLabelIn(turn.label, language), ...(ours ? { team: true } : {}) };
     });
     const turns = overlayWithSpeaking(base, speaking, prospect?.trim() || null);
     const from = firstChanged(this.sent, turns);

@@ -948,7 +948,7 @@ async def _turn_check(req: LiveReading, ctx: brain.BrainContext) -> Optional[dic
     latest = next((t for t in reversed(req.turns) if t.who == "them" and t.text.strip()), None)
     if latest is None:
         return None
-    conversation = "\n".join(f"{'Them' if t.who == 'them' else 'You'}: {t.text}" for t in req.turns[-TURN_CHECK_TURNS:])
+    conversation = "\n".join(f"{brain.speaker(t.who, t.name)}: {t.text}" for t in req.turns[-TURN_CHECK_TURNS:])
     try:
         reading = await asyncio.wait_for(
             turn_check.read_turn(conversation, latest.text, custom_entries(ctx.snapshot) or None), TURN_CHECK_TIMEOUT_S,

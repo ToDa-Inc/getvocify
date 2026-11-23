@@ -1,8 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { applyChannelResult, EMPTY_MEETING_TRANSCRIPT, meetingDisplayTurns, type MeetingTranscript } from "./meeting-transcript.ts";
+import { applyChannelResult, EMPTY_MEETING_TRANSCRIPT, meetingDisplayTurns, meetingRows, type MeetingTranscript } from "./meeting-transcript.ts";
+import { NO_TEAM, teamSide } from "./meeting-team.ts";
 import { SteadyTails } from "./steady-tail.ts";
-import { OverlayFeed } from "./overlay-turns.ts";
+import { OverlayFeed, withTeam } from "./overlay-turns.ts";
 
 /**
  * A 60-minute call through the path the dashboard runs for each transcript update (see DesktopMeetingProvider's
@@ -105,5 +106,28 @@ describe("RowMemo and firstChanged with the same rows again", () => {
     const out = memo.update(rows, "EN", (row) => ({ key: row.key }));
     assert.equal(memo.update(rows, "EN", (row) => ({ key: row.key })), out);
     assert.equal(firstChanged(out, out), out.length);
+  });
+});
+
+describe("a colleague in the meeting", () => {
+  // Alexander is the guest; Toni (named by the meeting app) is the rep's colleague, heard on the same audio.
+  let state: MeetingTranscript = EMPTY_MEETING_TRANSCRIPT;
+  state = applyChannelResult(state, { text: "Normalmente el outreach lo hacemos por LinkedIn.", isFinal: true, audioChannel: "prospect", start: 0, end: 3, name: "Alexander Schlacher" });
+  state = applyChannelResult(state, { text: "¿Crees que esta es la llamada con más peso?", isFinal: true, audioChannel: "prospect", start: 4, end: 7, name: "TONI" });
+  const team = teamSide(["Toni Mora"], ["Alexander Schlacher"]);
+
+  it("is the rep's side for the live help, keeping their name", () => {
+    const rows = meetingRows(state).slice().map((row) => withTeam(row, team));
+    assert.deepEqual(rows.map((r) => [r.speaker, r.name, r.team ?? false]), [["prospect", "Alexander Schlacher", false], ["rep", "TONI", true]]);
+    assert.equal(withTeam(rows[0], NO_TEAM), rows[0]);
+  });
+
+  it("reaches the island marked, still as a line of the other side's audio for an island that does not know the mark", () => {
+    const sent = new OverlayFeed().next(meetingRows(state), { prospect: null, language: "ES", team }, true, {}, "")!;
+    const turns = sent.turns.slice();
+    assert.deepEqual(turns.map((t) => [t.you, t.label, t.team ?? false]), [[false, "Alexander Schlacher", false], [false, "TONI", true]]);
+    // Without a team nothing is marked.
+    const plain = new OverlayFeed().next(meetingRows(state), { prospect: null, language: "ES" }, true, {}, "")!;
+    assert.equal(plain.turns.slice().some((t) => t.team), false);
   });
 });

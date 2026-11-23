@@ -761,3 +761,24 @@ def test_a_card_row_per_new_objection_or_question_and_one_per_missed_objection()
     (missed,) = [r for r in rows if r["detail"]["card"] == "missed"]
     assert missed["say_this"] is None and missed["source_id"] is None and missed["objection_type"] == "status_quo"
     assert missed["latest_turn"].startswith("Tengo muy poca flota") and all(r["is_objection"] is True for r in rows)
+
+
+def test_a_colleague_in_the_meeting_is_named_on_the_sellers_side():
+    # 2026-11-23: Toni (the rep's colleague) asked the prospect a question and got an answer card; his lines now come as
+    # the rep's side with his name, and every reader writes them so.
+    from app.services.copilot import live_card, live_brain
+    from app.services.copilot.live_models import LiveTurn
+
+    guest = LiveTurn(id="t1", who="them", name="Alexander Schlacher", text="Lo hacemos por LinkedIn.", t=1)
+    colleague = LiveTurn(id="t2", who="you", name="TONI", text="¿Crees que esta es la llamada con más peso?", t=4)
+    rep = LiveTurn(id="t3", who="you", text="Y ahí entra el playbook.", t=8)
+    assert live_brain.transcript_block([guest, colleague, rep]).splitlines() == [
+        "[t1] Them (Alexander Schlacher): Lo hacemos por LinkedIn.",
+        "[t2] You (TONI): ¿Crees que esta es la llamada con más peso?",
+        "[t3] You: Y ahí entra el playbook.",
+    ]
+    turns = [{"id": t.id, "who": t.who, "name": t.name, "text": t.text, "t": t.t} for t in (guest, colleague, rep)]
+    log = live_card.log_text(turns, [3, 7, 10], [])
+    assert "[t2] You (TONI): ¿Crees" in log and "[t3] You: Y ahí" in log
+    assert "Seller (TONI): ¿Crees" in live_card.conversation_lines(turns, [3, 7, 10], now=20)
+    assert 'a "You (name)" line is a colleague of the rep' in live_card.SYSTEM
