@@ -130,9 +130,10 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
   }, [canDial, callerId, onPhone]);
 
   // The app's log goes to Vocify by itself, so a rep never copies anything: soon after start (it carries what happened
-  // before a freeze or a crash) and then every two minutes, only when it has something new. A rep who has Vocify open
-  // for a few minutes at a time was only ever seen at her next start (2026-11-25): what happened in a session now
-  // arrives while it is still open. Nothing new, nothing sent; a failed send waits for the next one.
+  // before a freeze or a crash), every two minutes for the first twenty, then every half hour, and only when it has
+  // something new. A rep who has Vocify open for a few minutes at a time was only ever seen at her next start
+  // (2026-11-25): a short session now arrives while it is still open. An app open all day sends as rarely as before.
+  // Nothing new, nothing sent; a failed send waits for the next one.
   useEffect(() => {
     const diagnostics = getDesktopBridge()?.diagnostics;
     if (!diagnostics) return;
@@ -151,9 +152,13 @@ export function DesktopCallProvider({ children }: { children: ReactNode }) {
         .catch(() => null);
     };
     const first = setTimeout(send, 30_000);
-    const every = setInterval(send, 2 * 60_000);
+    const early = setInterval(send, 2 * 60_000);
+    const settled = setTimeout(() => clearInterval(early), 20 * 60_000);
+    const every = setInterval(send, 30 * 60_000);
     return () => {
       clearTimeout(first);
+      clearInterval(early);
+      clearTimeout(settled);
       clearInterval(every);
     };
   }, []);
